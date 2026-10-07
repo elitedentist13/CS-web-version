@@ -563,6 +563,7 @@ var PAGE_SCRIPT = `(async () => {
         /function fitLibToGuide/.test(read('ceph/ceph-landmarks.js')) &&
         /BONY_BOX/.test(read('ceph/ceph-landmarks.js')) &&
         /pointsInSkull/.test(read('ceph/ceph-landmarks.js')) &&
+        /function placeByPoPog/.test(read('ceph/ceph-landmarks.js')) &&
         /boxmean\+unetbox/.test(read('ceph/ceph-landmarks.js')) &&
         /fitLibToGuide/.test(read('ceph/ceph.js')));
     pass('sidecar has Caucasian vs HK Chinese norms with in/warn/out bands',
@@ -731,6 +732,23 @@ var PAGE_SCRIPT = `(async () => {
         (farBox.y + farBox.h) < 1900,
         goodBox && farBox ? ('good=' + Math.round(goodBox.w) + 'x' + Math.round(goodBox.h) +
             ' farH=' + Math.round(farBox.h) + ' farBottom=' + Math.round(farBox.y + farBox.h)) : 'none');
+    var popogNorm = {};
+    cat.landmarks.forEach(function (d) { popogNorm[d.id] = { x: d.nx, y: d.ny }; });
+    var popogGuide = { Po: { x: 200, y: 400 }, Pog: { x: 700, y: 900 } };
+    var popogPlaced = lmBox.CEPH_LM.placeByPoPog(popogNorm, popogGuide);
+    var popogWant = Math.hypot(500, 500);
+    var popogGot = popogPlaced && Math.hypot(popogPlaced.Pog.x - popogPlaced.Po.x, popogPlaced.Pog.y - popogPlaced.Po.y);
+    var popogMax = 0;
+    if (popogPlaced) {
+        Object.keys(popogPlaced).forEach(function (id) {
+            var p = popogPlaced[id];
+            popogMax = Math.max(popogMax, Math.hypot(p.x - popogPlaced.Po.x, p.y - popogPlaced.Po.y));
+        });
+    }
+    pass('1502 shape scales from Po–Pog, the ear-hole point to pogonion',
+        popogPlaced && Math.abs(popogPlaced.Po.x - 200) < 1 && Math.abs(popogPlaced.Po.y - 400) < 1 &&
+        Math.abs(popogGot - popogWant) < 1 && popogMax < popogWant * 2.2,
+        popogPlaced ? ('len=' + Math.round(popogGot) + ' max=' + Math.round(popogMax)) : 'none');
     pass('dataset README points at Figshare PKU + GitHub Aariz + MIT analysis apps',
         /13265471/.test(read('ceph/data/README.md')) &&
         /manwaarkhd\/aariz/.test(read('ceph/data/README.md')) &&

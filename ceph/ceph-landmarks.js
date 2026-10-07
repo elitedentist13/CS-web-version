@@ -110,10 +110,51 @@
         return o;
     }
 
-    function localBoxMean(box, kWant) {
+    function catalogNorm() {
+        var norm = {};
+        defs().forEach(function (d) {
+            if (d.nx == null || d.ny == null) return;
+            norm[d.id] = { x: d.nx, y: d.ny };
+        });
+        return norm;
+    }
+
+    function averageShapes(indices) {
         var list = SHAPES && SHAPES.shapes;
         var ids = (SHAPES && SHAPES.ids) || IDS_FALLBACK();
-        if (!list || !list.length) return placeOn(box, 'nx', 'ny');
+        if (!list || !list.length || !indices || !indices.length) return catalogNorm();
+        var acc = {};
+        var j, p, sh, k;
+        ids.forEach(function (id) { acc[id] = { x: 0, y: 0 }; });
+        k = indices.length;
+        for (j = 0; j < k; j++) {
+            sh = list[indices[j]];
+            p = sh && (sh.p || sh);
+            if (!p) continue;
+            ids.forEach(function (id, idx) {
+                acc[id].x += p[idx * 2];
+                acc[id].y += p[idx * 2 + 1];
+            });
+        }
+        var norm = {};
+        ids.forEach(function (id) {
+            norm[id] = { x: acc[id].x / k, y: acc[id].y / k };
+        });
+        return norm;
+    }
+
+    function allShapeIndices() {
+        var list = SHAPES && SHAPES.shapes;
+        var idx = [];
+        var i;
+        if (!list) return idx;
+        for (i = 0; i < list.length; i++) idx.push(i);
+        return idx;
+    }
+
+    function neighbourIndices(box, kWant) {
+        var list = SHAPES && SHAPES.shapes;
+        if (!list || !list.length) return [];
         var aspect = box.w / Math.max(1, box.h);
         var scored = list.map(function (sh, i) {
             var a = (sh && sh.a != null) ? sh.a : (CAT && CAT.meanBoxAspect) || 0.89;
@@ -124,52 +165,72 @@
         var close = scored.filter(function (s) { return s.d <= 0.12; });
         if (close.length < 8) close = scored.slice(0, want);
         else if (close.length > want) close = close.slice(0, want);
-        var k = close.length;
-        var acc = {};
-        var j, p, sh;
-        ids.forEach(function (id) { acc[id] = { x: 0, y: 0 }; });
-        for (j = 0; j < k; j++) {
-            sh = list[close[j].i];
-            p = sh.p || sh;
-            ids.forEach(function (id, idx) {
-                acc[id].x += p[idx * 2];
-                acc[id].y += p[idx * 2 + 1];
-            });
-        }
+        return close.map(function (s) { return s.i; });
+    }
+
+    function placeNormOnBox(norm, box) {
         var pts = {};
-        ids.forEach(function (id) {
+        Object.keys(norm || {}).forEach(function (id) {
+            var n = norm[id];
             pts[id] = {
-                x: box.x + (acc[id].x / k) * box.w,
-                y: box.y + (acc[id].y / k) * box.h
+                x: box.x + n.x * box.w,
+                y: box.y + n.y * box.h
             };
         });
         return pts;
     }
 
+    function localBoxMean(box, kWant) {
+        var norm = averageShapes(neighbourIndices(box, kWant));
+        if (!norm.Po) return placeOn(box, 'nx', 'ny');
+        return placeNormOnBox(norm, box);
+    }
+
     function globalBoxMean(box) {
         var list = SHAPES && SHAPES.shapes;
-        var ids = (SHAPES && SHAPES.ids) || IDS_FALLBACK();
-        if (!list || !list.length) return placeOn(box, 'nx', 'ny');
-        var acc = {};
-        var j, p, sh, k;
-        ids.forEach(function (id) { acc[id] = { x: 0, y: 0 }; });
-        k = list.length;
-        for (j = 0; j < k; j++) {
-            sh = list[j];
-            p = sh.p || sh;
-            ids.forEach(function (id, idx) {
-                acc[id].x += p[idx * 2];
-                acc[id].y += p[idx * 2 + 1];
-            });
+        var idx = [];
+        var i;
+        if (list && list.length) {
+            for (i = 0; i < list.length; i++) idx.push(i);
         }
-        var pts = {};
-        ids.forEach(function (id) {
-            pts[id] = {
-                x: box.x + (acc[id].x / k) * box.w,
-                y: box.y + (acc[id].y / k) * box.h
+        var norm = averageShapes(idx);
+        if (!norm.Po) return placeOn(box, 'nx', 'ny');
+        return placeNormOnBox(norm, box);
+    }
+
+    // Po is the ear-hole point. Pog–Po on this film sets the size of the
+    // 1502 shape, so a wide landmark box cannot stretch it.
+    function placeByPoPog(norm, guide) {
+        var po = guide && guide.Po;
+        var pog = guide && guide.Pog;
+        var dPo = norm && norm.Po;
+        var dPog = norm && norm.Pog;
+        if (!po || !pog || !dPo || !dPog) return null;
+        if (!isFinite(po.x) || !isFinite(po.y) || !isFinite(pog.x) || !isFinite(pog.y)) return null;
+        var aspect = (CAT && CAT.meanBoxAspect) || 0.948;
+        var ddx = (dPog.x - dPo.x) * aspect;
+        var ddy = dPog.y - dPo.y;
+        var dLen = Math.hypot(ddx, ddy);
+        var pdx = pog.x - po.x;
+        var pdy = pog.y - po.y;
+        var pLen = Math.hypot(pdx, pdy);
+        if (!(dLen > 0.05) || !(pLen > 8)) return null;
+        var scale = pLen / dLen;
+        var ang = Math.atan2(pdy, pdx) - Math.atan2(ddy, ddx);
+        var cos = Math.cos(ang);
+        var sin = Math.sin(ang);
+        var out = {};
+        Object.keys(norm).forEach(function (id) {
+            var n = norm[id];
+            if (!n) return;
+            var x = (n.x - dPo.x) * aspect;
+            var y = n.y - dPo.y;
+            out[id] = {
+                x: po.x + (x * cos - y * sin) * scale,
+                y: po.y + (x * sin + y * cos) * scale
             };
         });
-        return pts;
+        return out.Po && out.Pog ? out : null;
     }
 
     function catalogIdSet() {
@@ -294,8 +355,18 @@
         var tag = all
             ? ((box && box.via === 'unet') ? 'allmean+unetbox' : 'allmean')
             : ((box && box.via === 'unet') ? 'boxmean+unetbox' : 'boxmean+edge');
-        var mean = all ? globalBoxMean(box) : localBoxMean(box, opts.k || 24);
-        var pts = (all || opts.snap === false) ? mean : refinePts(img, mean, box.w, box.h, false);
+        var norm = averageShapes(all ? allShapeIndices() : neighbourIndices(box, opts.k || 24));
+        var fitted = placeByPoPog(norm, opts.guidePts);
+        var mean = fitted || (norm.Po ? placeNormOnBox(norm, box) : (all ? globalBoxMean(box) : localBoxMean(box, opts.k || 24)));
+        if (fitted) tag += '+popog';
+        var spanW = box.w;
+        var spanH = box.h;
+        if (fitted) {
+            var span = extentsOf(Object.keys(mean).map(function (id) { return mean[id]; }));
+            spanW = span.w;
+            spanH = span.h;
+        }
+        var pts = (all || opts.snap === false) ? mean : refinePts(img, mean, spanW, spanH, false);
         var over = overlayTraining(pts, box, useTraining);
         var trainSrc = over.used ? ('clinic-train-' + over.films) : '';
         return {
@@ -322,16 +393,21 @@
         return box;
     }
 
-    function fitLibToGuide(img, guidePts, opts) {
-        return placeLibAverage(img, guideBox(img, guidePts), opts || {});
-    }
-
-    function fitLibAll(img, guidePts, opts) {
+    function withGuide(opts, guidePts, all) {
         var next = {};
         opts = opts || {};
         Object.keys(opts).forEach(function (k) { next[k] = opts[k]; });
-        next.all = true;
-        return placeLibAverage(img, guideBox(img, guidePts), next);
+        next.guidePts = guidePts;
+        if (all) next.all = true;
+        return next;
+    }
+
+    function fitLibToGuide(img, guidePts, opts) {
+        return placeLibAverage(img, guideBox(img, guidePts), withGuide(opts, guidePts, false));
+    }
+
+    function fitLibAll(img, guidePts, opts) {
+        return placeLibAverage(img, guideBox(img, guidePts), withGuide(opts, guidePts, true));
     }
 
     function IDS_FALLBACK() {
@@ -636,6 +712,7 @@
         findHeadBox: findHeadBox,
         boxFromPts: boxFromPts,
         fitLibToGuide: fitLibToGuide,
+        placeByPoPog: placeByPoPog,
         fitLibAll: fitLibAll,
         placeLibAverage: placeLibAverage,
         publishedStats: publishedStats

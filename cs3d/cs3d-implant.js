@@ -190,6 +190,41 @@
         try { return vp.canvasToWorld(xy); } catch (e) { return null; }
     }
 
+    function paneEl(vpId) {
+        var id = vpId === VP.AX ? 'vpAxial'
+            : (vpId === VP.SAG ? 'vpSagittal' : (vpId === VP.COR ? 'vpCoronal' : 'vpVolume'));
+        var node = $(id);
+        return node ? node.parentNode : null;
+    }
+
+    function canvasBox(vpId) {
+        var vp = viewport(vpId);
+        var host = vp && vp.element;
+        var canvas = host && host.querySelector ? host.querySelector('canvas') : null;
+        var pane = paneEl(vpId);
+        if (canvas && pane && canvas.getBoundingClientRect && pane.getBoundingClientRect) {
+            var c = canvas.getBoundingClientRect();
+            var p = pane.getBoundingClientRect();
+            if (c.width > 2 && c.height > 2) {
+                return { ox: c.left - p.left, oy: c.top - p.top, w: c.width, h: c.height };
+            }
+        }
+        var el = host || pane;
+        return { ox: 0, oy: 0, w: (el && el.clientWidth) || 1, h: (el && el.clientHeight) || 1 };
+    }
+
+    function panePoint(vpId, world) {
+        var xy = worldToCanvas(vpId, world);
+        if (!xy) return null;
+        var box = canvasBox(vpId);
+        return [xy[0] + box.ox, xy[1] + box.oy];
+    }
+
+    function paneToCanvas(vpId, paneX, paneY) {
+        var box = canvasBox(vpId);
+        return [paneX - box.ox, paneY - box.oy];
+    }
+
     function viewNormal(vpId) {
         var plane = cameraPlane(vpId);
         if (plane) return plane.n;
@@ -318,9 +353,17 @@
         syncing = true;
         var n = 0;
         try {
-            [VP.AX, VP.SAG, VP.COR].forEach(function (id) {
-                if (centerViewportOnWorld(id, world)) n += 1;
-            });
+            var pass;
+            for (pass = 0; pass < 3; pass++) {
+                [VP.AX, VP.SAG, VP.COR].forEach(function (id) {
+                    if (centerViewportOnWorld(id, world)) n += 1;
+                });
+                var far = [VP.AX, VP.SAG, VP.COR].some(function (id) {
+                    var plane = cameraPlane(id);
+                    return !plane || Math.abs(planeDist(world, plane)) > 0.2;
+                });
+                if (!far) break;
+            }
             if (en.render) en.render();
         } catch (e) { /* ignore */ }
         syncing = false;
@@ -470,9 +513,23 @@
         var cut = (vpId !== VP.VOL && plane) ? cylinderSlice(imp, plane) : { kind: 'volume' };
         g.setAttribute('data-cut', cut.kind || 'miss');
 
+        var posC = panePoint(vpId, imp.position);
+        if (posC) {
+            g.setAttribute('data-px', String(posC[0]));
+            g.setAttribute('data-py', String(posC[1]));
+        }
+
         function markHeadTip(hw, tw) {
-            var hc = worldToCanvas(vpId, hw);
-            var tc = worldToCanvas(vpId, tw);
+            var hc = panePoint(vpId, hw);
+            var tc = panePoint(vpId, tw);
+            if (hc) {
+                g.setAttribute('data-hx', String(hc[0]));
+                g.setAttribute('data-hy', String(hc[1]));
+            }
+            if (tc) {
+                g.setAttribute('data-tx', String(tc[0]));
+                g.setAttribute('data-ty', String(tc[1]));
+            }
             if (hc) {
                 g.appendChild(svgNode('circle', {
                     cx: hc[0], cy: hc[1], r: Math.max(2.5, implantRadii(imp).head * pxPerMm * 0.35),
@@ -518,7 +575,7 @@
         }
 
         if (cut.kind === 'circle') {
-            var cc = worldToCanvas(vpId, cut.center);
+            var cc = panePoint(vpId, cut.center);
             if (!cc) return 0;
             var pr = Math.max(3, cut.radiusMm * pxPerMm);
             g.appendChild(svgNode('circle', {
@@ -544,13 +601,13 @@
 
         var aW = cut.kind === 'rect' ? (cut.b || cut.head) : headOf(imp);
         var bW = cut.kind === 'rect' ? (cut.a || cut.tip) : tipOf(imp);
-        var ac = worldToCanvas(vpId, aW);
-        var bc = worldToCanvas(vpId, bW);
+        var ac = panePoint(vpId, aW);
+        var bc = panePoint(vpId, bW);
         var rad = implantRadii(imp);
         var ghost = cut.kind === 'miss';
         if (ghost) {
-            ac = worldToCanvas(vpId, headOf(imp));
-            bc = worldToCanvas(vpId, tipOf(imp));
+            ac = panePoint(vpId, headOf(imp));
+            bc = panePoint(vpId, tipOf(imp));
         }
         if (!ac || !bc) return 0;
         var rHeadPx = Math.max(2, (cut.kind === 'rect' ? (cut.halfHeadMm || rad.head) : rad.head) * pxPerMm);
@@ -612,7 +669,7 @@
             var cut = plane && vpId !== VP.VOL ? cylinderSlice(imp, plane) : { kind: 'volume' };
             var handle = null;
             if (cut.kind === 'circle') {
-                var cc = worldToCanvas(vpId, cut.center);
+                var cc = panePoint(vpId, cut.center);
                 if (!cc) continue;
                 if (imp.id === model.selectedId && Math.hypot(x - (cc[0] + 16), y - (cc[1] - 16)) <= 10) {
                     return { imp: imp, mode: 'rotate' };
@@ -622,8 +679,8 @@
                 }
                 continue;
             }
-            var hw = worldToCanvas(vpId, cut.head || headOf(imp));
-            var tw = worldToCanvas(vpId, cut.tip || tipOf(imp));
+            var hw = panePoint(vpId, cut.head || headOf(imp));
+            var tw = panePoint(vpId, cut.tip || tipOf(imp));
             if (!hw || !tw) continue;
             if (imp.id === model.selectedId) {
                 var mid = [(hw[0] + tw[0]) / 2, (hw[1] + tw[1]) / 2];
@@ -668,14 +725,18 @@
         var h = (el && el.clientHeight) || 1;
         var world = canvasToWorld(vpId, [nx * w, ny * h]);
         if (!world) world = [16, 16, 4];
+        var locked = as3(world);
         var imp = addImplant({
-            position: world,
+            position: locked,
             axis: viewNormal(vpId),
             diameterMm: Number($('impDia') && $('impDia').value) || 4,
             lengthMm: Number($('impLen') && $('impLen').value) || 10
         });
-        // The click is already a DICOM millimetre point. Leave the MPR cameras
-        // where the clinician had them; redraw so the implant stays on the volume.
+        // Keep the click's DICOM point, then move every plane onto that point
+        // so the same implant is cut on axial, sagittal and coronal.
+        imp.position = locked.slice();
+        try { alignMprToWorld(locked); } catch (eAlign) { /* ignore */ }
+        imp.position = locked.slice();
         try { draw(); } catch (eDraw) { /* ignore */ }
         return imp;
     }
@@ -683,7 +744,10 @@
     function nudgeImplant(id, delta) {
         var imp = findImp(id || model.selectedId);
         if (!imp || imp.locked) return null;
-        imp.position = vAdd(imp.position, delta);
+        var locked = vAdd(imp.position, delta);
+        imp.position = locked;
+        try { alignMprToWorld(locked); } catch (e) { /* ignore */ }
+        imp.position = as3(locked);
         draw();
         paintPanel();
         return imp;
@@ -754,7 +818,12 @@
     }
 
     function selectImplant(id) {
-        if (findImp(id)) model.selectedId = id;
+        if (!findImp(id)) return model.selectedId;
+        model.selectedId = id;
+        var imp = findImp(id);
+        var locked = as3(imp.position);
+        try { alignMprToWorld(locked); } catch (e) { /* ignore */ }
+        imp.position = locked;
         draw();
         paintPanel();
         return model.selectedId;
@@ -795,7 +864,7 @@
                 draw();
                 return;
             }
-            var world = canvasToWorld(vpId, xy) || hit.imp.position.slice();
+            var world = canvasToWorld(vpId, paneToCanvas(vpId, xy[0], xy[1])) || hit.imp.position.slice();
             drag = {
                 id: hit.imp.id,
                 mode: hit.mode,
@@ -809,8 +878,9 @@
             paintPanel();
             return;
         }
-        var r = svg.getBoundingClientRect();
-        placeAtViewport(vpId, xy[0] / (r.width || 1), xy[1] / (r.height || 1));
+        var cxy = paneToCanvas(vpId, xy[0], xy[1]);
+        var box = canvasBox(vpId);
+        placeAtViewport(vpId, cxy[0] / (box.w || 1), cxy[1] / (box.h || 1));
         ev.preventDefault();
     }
 
@@ -820,7 +890,7 @@
         if (!imp || (imp.locked && drag.mode === 'move')) return;
         var svg = ev.currentTarget;
         var xy = localXy(svg, ev);
-        var world = canvasToWorld(drag.vpId, xy);
+        var world = canvasToWorld(drag.vpId, paneToCanvas(drag.vpId, xy[0], xy[1]));
         if (!world) return;
         if (drag.mode === 'move') {
             var n = viewNormal(drag.vpId);
@@ -1017,6 +1087,49 @@
         });
     }
 
+    function embedReport(id) {
+        var imp = findImp(id || model.selectedId);
+        if (!imp) return { ok: false, planes: [] };
+        draw();
+        var svgId = {};
+        svgId[VP.AX] = 'implantSvgAxial';
+        svgId[VP.SAG] = 'implantSvgSagittal';
+        svgId[VP.COR] = 'implantSvgCoronal';
+        var planes = [VP.AX, VP.SAG, VP.COR].map(function (vpId) {
+            var plane = cameraPlane(vpId);
+            var dist = plane ? Math.abs(planeDist(imp.position, plane)) : null;
+            var cut = plane ? cylinderSlice(imp, plane) : { kind: 'none' };
+            var proj = panePoint(vpId, imp.position);
+            var node = document.querySelector('#' + svgId[vpId] + ' [data-implant="' + imp.id + '"]');
+            var px = node ? Number(node.getAttribute('data-px')) : NaN;
+            var py = node ? Number(node.getAttribute('data-py')) : NaN;
+            var pixelErr = (proj && isFinite(px) && isFinite(py)) ? Math.hypot(proj[0] - px, proj[1] - py) : null;
+            var onCut = false;
+            if (proj && node && cut.kind === 'circle') {
+                onCut = Math.hypot(Number(node.getAttribute('data-cx')) - proj[0], Number(node.getAttribute('data-cy')) - proj[1]) < 2.5;
+            } else if (proj && node && cut.kind === 'rect') {
+                onCut = distPointSeg(
+                    proj[0], proj[1],
+                    Number(node.getAttribute('data-hx')), Number(node.getAttribute('data-hy')),
+                    Number(node.getAttribute('data-tx')), Number(node.getAttribute('data-ty'))
+                ) < 3;
+            }
+            return {
+                vp: vpId,
+                dist: dist,
+                kind: cut.kind,
+                onCut: onCut,
+                pixelErr: pixelErr,
+                embedded: dist != null && dist < 0.45 && (cut.kind === 'circle' || cut.kind === 'rect') && onCut && pixelErr != null && pixelErr < 1.5
+            };
+        });
+        return {
+            ok: planes.length === 3 && planes.every(function (row) { return row.embedded; }),
+            position: as3(imp.position),
+            planes: planes
+        };
+    }
+
     function state() {
         return {
             count: model.implants.length,
@@ -1056,6 +1169,7 @@
         radiusAt: radiusAt,
         sliceKinds: sliceKinds,
         mprFit: mprFit,
+        embedReport: embedReport,
         nudgeImplant: nudgeImplant,
         rotateImplant: rotateImplant,
         setPivot: setPivot,

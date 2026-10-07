@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261007imp9';
+var BUILD = '20261007imp10';
 var PAGE_PORT = 8808;
 var CDP_PORT = 9378;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -234,12 +234,11 @@ function mockDom() {
         /function cylinderSlice/.test(js) && /function syncMprToImplant/.test(js) && /function jumpSliceToWorld/.test(js));
     pass('s4 source: tapered cylinder head>tip',
         /TAPER_TIP/.test(js) && /function radiusAt/.test(js) && /function appendTaper/.test(js));
-    pass('s4 source: moving an implant does not recenter the MPR',
-        js.indexOf('Leave the MPR cameras') >= 0 &&
-        js.indexOf('syncMprToImplant(imp, vpId)') < 0 &&
-        js.indexOf('syncMprToImplant(imp);') < 0 &&
-        js.indexOf('syncMprToImplant(copy)') < 0 &&
-        js.indexOf('if (sel) syncMprToImplant(sel)') < 0);
+    pass('s4 source: add locks the click point then cuts all three planes',
+        /imp\.position = locked\.slice\(\)/.test(js) &&
+        /alignMprToWorld\(locked\)/.test(js) &&
+        /function embedReport/.test(js) &&
+        js.indexOf('syncMprToImplant(imp, vpId)') < 0);
     pass('s4 source: Crosshairs snap to implant position',
         /function alignMprToSelectedImplant/.test(js) && /function snapCrosshairsToWorld/.test(page) &&
         /function centerViewportOnWorld/.test(js));
@@ -540,6 +539,22 @@ function mockDom() {
                 geo && Array.isArray(geo.fit) && geo.fit.length === 3 &&
                 geo.fit.every(function (d) { return d != null && d < 0.6; }),
                 geo ? JSON.stringify(geo.fit) : 'none');
+            var embed = await cdp.js(`(function(){
+              CS3D_IMPLANT.clearImplants();
+              var imp = CS3D_IMPLANT.placeAtViewport('CS3D_AXIAL', 0.35, 0.62);
+              var locked = imp.position.slice();
+              var report = CS3D_IMPLANT.embedReport(imp.id);
+              var moved = Math.hypot(imp.position[0]-locked[0], imp.position[1]-locked[1], imp.position[2]-locked[2]);
+              CS3D_IMPLANT.rotateImplant(imp.id, 25, [1, 0, 0]);
+              var tilted = CS3D_IMPLANT.embedReport(imp.id);
+              return { moved: moved, straight: report, tilted: tilted };
+            })()`);
+            pass('s4 CDP: off-centre implant stays put and is embedded on all 3 planes',
+                embed && embed.moved < 0.05 && embed.straight && embed.straight.ok === true,
+                embed ? JSON.stringify(embed.straight && embed.straight.planes) : 'none');
+            pass('s4 CDP: tilted implant still embedded after the planes follow it',
+                embed && embed.tilted && embed.tilted.ok === true,
+                embed ? JSON.stringify(embed.tilted && embed.tilted.planes) : 'none');
             var taperLive = await cdp.js(`(function(){
               var imp = CS3D_IMPLANT.state().implants[0];
               var rh = CS3D_IMPLANT.radiusAt(imp, 1);

@@ -16,7 +16,7 @@ REM
 REM  Usage:
 REM    install-xray-ai.bat           check + install that folder
 REM    install-xray-ai.bat check     report only
-REM    install-xray-ai.bat start     install + start AI (8877) and app (8123)
+REM    install-xray-ai.bat start     install + start AI (8877) and live page (5500)
 REM    install-xray-ai.bat D:\other  use another clinic folder
 REM ====================================================================
 setlocal EnableExtensions
@@ -115,10 +115,11 @@ echo.
 if "%ERR%"=="0" (
     echo Installer finished.
     echo   AI health : http://127.0.0.1:8877/health
-    echo   Clinic app: http://127.0.0.1:8123/index.html
+    echo   Live page : http://127.0.0.1:5500/index.html
+    echo   Protocol  : csxrayai://   ^(local live page and GitHub site^)
     echo.
     echo If the AI window is not running, double-click start-xray-ai.bat
-    echo and leave it open. Then open the clinic app and press Ctrl+F5.
+    echo and leave it open. Then open the live page and press Ctrl+F5.
 ) else (
     echo Installer exited with code %ERR%.
     echo Scroll up for [MISS] / [ERROR] lines.

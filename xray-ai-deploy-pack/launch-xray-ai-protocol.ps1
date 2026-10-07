@@ -168,6 +168,12 @@ function Resolve-StartBat {
         if ($aiHome) { $aiHome = $aiHome.Trim().Trim('"') }
         if ($aiHome) { $candidates.Add((Join-Path $aiHome "start-xray-ai.bat")) }
     }
+    $savedHome = Join-Path $env:LOCALAPPDATA "cs-xray-ai\xray-ai-home.txt"
+    if (Test-Path -LiteralPath $savedHome) {
+        $aiHome = (Get-Content -LiteralPath $savedHome -TotalCount 1 -ErrorAction SilentlyContinue)
+        if ($aiHome) { $aiHome = $aiHome.Trim().Trim('"') }
+        if ($aiHome) { $candidates.Add((Join-Path $aiHome "start-xray-ai.bat")) }
+    }
     $parent = Split-Path -Parent $Here
     if ($parent) {
         $candidates.Add((Join-Path $parent "start-xray-ai.bat"))
@@ -189,7 +195,7 @@ function Start-AiIfDown {
         Write-ProtoLog "starting $bat"
         Start-Process -FilePath $bat -WorkingDirectory (Split-Path -Parent $bat) | Out-Null
     } else {
-        Write-ProtoLog "start-xray-ai.bat not found next to the launcher or via xray-ai-home.txt"
+        Write-ProtoLog "start-xray-ai.bat not found next to the launcher, via xray-ai-home.txt, or via %LOCALAPPDATA%\cs-xray-ai\xray-ai-home.txt"
     }
     return $false
 }

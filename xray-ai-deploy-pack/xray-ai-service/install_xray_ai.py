@@ -37,7 +37,9 @@ REQS = HERE / "requirements.txt"
 TOOTH_REPO = "abychkov/dental-fdi-detection"
 COND_REPO = "Mobe1/argos-dentsight-stage2-conditions-v1"
 HEALTH = "http://127.0.0.1:8877/health"
-APP_URL = "http://127.0.0.1:8123/index.html"
+LIVE_PAGE = "http://127.0.0.1:5500/index.html"
+LIVE_PAGE_FALLBACK = "http://127.0.0.1:8123/index.html"
+APP_URL = LIVE_PAGE
 
 
 def configure(root=None):
@@ -115,19 +117,33 @@ def caries_weights():
     return hits[0] if hits else None
 
 
-def protocol_registered():
+def protocol_command():
     if os.name != "nt":
-        return False
+        return ""
     try:
         import winreg
     except ImportError:
-        return False
+        return ""
     try:
-        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Classes\csxrayai")
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Classes\csxrayai\shell\open\command",
+        )
+        val, _ = winreg.QueryValueEx(key, "")
         winreg.CloseKey(key)
-        return True
+        return str(val or "")
     except OSError:
-        return False
+        return ""
+
+
+def protocol_registered():
+    return bool(protocol_command())
+
+
+def protocol_points_here():
+    launcher = str((REPO / "launch-xray-ai-protocol.cmd").resolve()).lower()
+    cmd = protocol_command().replace("/", "\\").lower()
+    return bool(launcher) and launcher in cmd
 
 
 def health_json():
@@ -140,14 +156,39 @@ def health_json():
         return None
 
 
+def page_answers(url):
+    try:
+        with urllib.request.urlopen(url, timeout=2) as resp:
+            return 200 <= getattr(resp, "status", 200) < 400
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return False
+
+
+def live_page_up():
+    if page_answers(LIVE_PAGE):
+        return LIVE_PAGE
+    if page_answers(LIVE_PAGE_FALLBACK):
+        return LIVE_PAGE_FALLBACK
+    return ""
+
+
 def app_wired():
+    """Local live page names :8877; hosted and local pages reach it via csxrayai://."""
     index = REPO / "index.html"
+    script = REPO / "app-xray-ai.js"
     if not index.is_file():
         return False, "index.html missing"
     text = index.read_text(encoding="utf-8", errors="replace")
     if "127.0.0.1:8877" not in text:
         return False, "XRAY_AI_API_URL is not 8877"
-    return True, "points at http://127.0.0.1:8877"
+    if "csxrayai://start" not in text or "csxrayai://job" not in text:
+        return False, "index.html is missing csxrayai://"
+    if not script.is_file():
+        return False, "app-xray-ai.js missing"
+    js = script.read_text(encoding="utf-8", errors="replace")
+    if "function xrayAiPageIsLocalServer()" not in js or "function xrayAiUseProtocol()" not in js:
+        return False, "local live page / protocol gate missing"
+    return True, "8877 + csxrayai:// for the live page and GitHub"
 
 
 def audit():
@@ -222,10 +263,20 @@ def audit():
             "no caries\\weights\\best.pt — classical caries fallback still works",
         )
 
-    if protocol_registered():
-        rec("csxrayai:// protocol", "ok", "HKCU registered")
+    if protocol_points_here():
+        rec("csxrayai:// protocol", "ok", "HKCU -> this folder's launcher")
+    elif protocol_registered():
+        rec("csxrayai:// protocol", "miss", "registered, but not this folder's launcher")
     else:
-        rec("csxrayai:// protocol", "miss", "needed for the lightbox Server button")
+        rec("csxrayai:// protocol", "miss", "needed for the live page and the GitHub site")
+
+    up = live_page_up()
+    if up:
+        rec("local live page", "ok", up)
+    elif (REPO / "start-server.bat").is_file():
+        rec("local live page", "warn", "not listening — start-server.bat serves " + LIVE_PAGE)
+    else:
+        rec("local live page", "miss", "start-server.bat missing")
 
     hj = health_json()
     if hj and hj.get("ok"):
@@ -338,13 +389,23 @@ def ensure_models():
     return False
 
 
+def ensure_ai_home():
+    """Record the clinic folder so csxrayai:// can start the service later."""
+    if not (REPO / "start-xray-ai.bat").is_file():
+        return False
+    AI_HOME.mkdir(parents=True, exist_ok=True)
+    (AI_HOME / "xray-ai-home.txt").write_text(str(REPO) + "\n", encoding="ascii")
+    return True
+
+
 def ensure_protocol():
+    ensure_ai_home()
     bat = REPO / "register-xray-ai-protocol.bat"
     if not bat.is_file():
         out("[WARN] register-xray-ai-protocol.bat missing — skip protocol.")
         return False
     code = run(["cmd", "/c", str(bat), "nopause"], cwd=str(REPO))
-    return code == 0 or protocol_registered()
+    return code == 0 and protocol_points_here()
 
 
 def start_service():
@@ -379,18 +440,23 @@ def start_service():
 
 
 def start_app_server():
-    out("[start] Local clinic page: %s" % APP_URL)
+    up = live_page_up()
+    if up:
+        out("[start] Local live page already up: %s" % up)
+        return True
+    bat = REPO / "start-server.bat"
+    if not bat.is_file():
+        out("[WARN] start-server.bat missing — cannot start %s" % LIVE_PAGE)
+        return False
+    out("[start] Starting local live page: %s" % LIVE_PAGE)
     if os.name == "nt":
         subprocess.Popen(
-            [sys.executable, "-m", "http.server", "8123", "--bind", "127.0.0.1"],
+            ["cmd", "/c", "start", "Banana live page", str(bat)],
             cwd=str(REPO),
-            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
         )
     else:
-        subprocess.Popen(
-            [sys.executable, "-m", "http.server", "8123", "--bind", "127.0.0.1"],
-            cwd=str(REPO),
-        )
+        subprocess.Popen([str(bat)], cwd=str(REPO))
+    return True
 
 
 def needs_work(rows):
@@ -431,7 +497,8 @@ def main(argv=None):
             return 1
         if not ensure_models():
             return 1
-        ensure_protocol()
+
+    ensure_protocol()
 
     if args.start:
         start_service()
@@ -444,9 +511,10 @@ def main(argv=None):
     audit()
     out("Next:")
     out("  1. Leave start-xray-ai.bat running  (or this installer --start)")
-    out("  2. Open  %s" % APP_URL)
+    out("  2. Open the local live page  %s" % LIVE_PAGE)
     out("  3. Confirm  %s" % HEALTH)
-    out("  4. Hard-refresh the clinic page (Ctrl+F5), then Analyze")
+    out("  4. Hard-refresh (Ctrl+F5), then Analyze")
+    out("     The live page and the GitHub site both use csxrayai:// on this PC.")
     if not caries_weights():
         out()
         out("Note: trained caries weights are optional. Without best.pt the")

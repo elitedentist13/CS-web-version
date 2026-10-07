@@ -134,13 +134,20 @@ if "%NEED_MODELS%"=="1" (
     echo [4/4] Models already downloaded.
 )
 
+if exist "%~dp0register-xray-ai-protocol.bat" (
+    call "%~dp0register-xray-ai-protocol.bat" nopause
+)
+
 echo.
 echo ============================================
 echo   Starting on http://127.0.0.1:8877
 echo   Health check: http://127.0.0.1:8877/health
+echo   Local live page: http://127.0.0.1:5500/index.html
 echo.
-echo   Leave this window open while using
-echo   X-ray Assist. Press Ctrl+C to stop.
+echo   The live page and the GitHub clinic site both
+echo   reach this service through csxrayai:// on this PC.
+echo   Leave this window open while using X-ray Assist.
+echo   Press Ctrl+C to stop.
 echo ============================================
 echo.
 

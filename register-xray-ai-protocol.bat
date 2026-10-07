@@ -18,11 +18,17 @@ if not exist "%LAUNCHER%" (
     if /I not "%~1"=="nopause" pause
     exit /b 1
 )
-if not exist "%~dp0start-xray-ai.bat" (
+REM Remember the clinic folder that actually contains the AI service.
+REM A later csxrayai:// registration from the X-ray bridge folder does not
+REM contain start-xray-ai.bat; the handler reads this path and still starts it.
+REM Do not overwrite that record when this copy has no service launcher.
+if exist "%~dp0start-xray-ai.bat" (
+    call :WriteAiHome
+) else (
     echo [WARN] start-xray-ai.bat is not in this folder.
     echo        csxrayai:// will still be registered.
     echo        The launcher starts the service from this folder, a parent folder,
-    echo        or the folder recorded in xray-ai-home.txt.
+    echo        xray-ai-home.txt, or %%LOCALAPPDATA%%\cs-xray-ai\xray-ai-home.txt.
     echo.
 )
 
@@ -43,9 +49,17 @@ echo   csxrayai://start     starts the local AI service
 echo   csxrayai://job?id=   runs one analysis on this PC
 echo Launcher: %LAUNCHER%
 echo.
-echo The clinic page does not have to be opened from the local live server.
-echo Analyze on this PC hands the radiograph to the local AI service.
+echo Local live page: http://127.0.0.1:5500/index.html
+echo GitHub site and that page both reach this PC through csxrayai://.
+echo The browser does not call port 8877 itself.
 echo Run xray_ai_jobs.sql once in the Supabase SQL editor if you have not.
 echo.
 if /I not "%~1"=="nopause" pause
 endlocal
+exit /b 0
+
+:WriteAiHome
+set "AI_HOME_DIR=%~dp0"
+if not exist "%LOCALAPPDATA%\cs-xray-ai" mkdir "%LOCALAPPDATA%\cs-xray-ai"
+>"%LOCALAPPDATA%\cs-xray-ai\xray-ai-home.txt" echo %AI_HOME_DIR%
+exit /b 0

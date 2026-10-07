@@ -11,7 +11,7 @@ if exist "%~dp0launch-xray-ai-protocol.ps1" (
 )
 call :FindStartBat
 if not exist "%AI_BAT%" (
-    echo [ERROR] start-xray-ai.bat was not found next to this launcher, in a parent folder, or via xray-ai-home.txt.
+    echo [ERROR] start-xray-ai.bat was not found next to this launcher, in a parent folder, via xray-ai-home.txt, or via %%LOCALAPPDATA%%\cs-xray-ai\xray-ai-home.txt.
     pause
     exit /b 1
 )
@@ -30,10 +30,13 @@ if exist "%~dp0..\..\start-xray-ai.bat" (
     set "AI_BAT=%~dp0..\..\start-xray-ai.bat"
     exit /b 0
 )
-if exist "%~dp0xray-ai-home.txt" call :ReadAiHome
+if exist "%~dp0xray-ai-home.txt" call :ReadAiHome "%~dp0xray-ai-home.txt"
+if defined AI_HOME set "AI_BAT=%AI_HOME%\start-xray-ai.bat"
+if exist "%AI_BAT%" exit /b 0
+if exist "%LOCALAPPDATA%\cs-xray-ai\xray-ai-home.txt" call :ReadAiHome "%LOCALAPPDATA%\cs-xray-ai\xray-ai-home.txt"
 if defined AI_HOME set "AI_BAT=%AI_HOME%\start-xray-ai.bat"
 exit /b 0
 
 :ReadAiHome
-set /p AI_HOME=<"%~dp0xray-ai-home.txt"
+set /p AI_HOME=<"%~1"
 exit /b 0

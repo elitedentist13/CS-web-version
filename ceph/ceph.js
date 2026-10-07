@@ -1,5 +1,7 @@
 (function () {
     var img = new Image();
+    var filmEpoch = 0;
+    var shownUrl = '';
     var pts = {};
     var sel = '';
     var drag = null;
@@ -120,7 +122,16 @@
         try {
             if (window.opener && !window.opener.closed && typeof window.opener.xrayCephContext === 'function') {
                 var live = window.opener.xrayCephContext();
-                if (live && typeof live === 'object') ctxInfo = Object.assign({}, ctxInfo || {}, live);
+                if (live && typeof live === 'object') {
+                    // keep the strip film named by the open payload. A fresh context()
+                    // call can fall back to the saved study and load both bitmaps.
+                    if (ctxInfo && (ctxInfo.studyUrl || ctxInfo.xrayId || ctxInfo.viaStrip || ctxInfo.userPick)) {
+                        if (!ctxInfo.patientId && live.patientId) ctxInfo.patientId = live.patientId;
+                        if (!ctxInfo.patientNo && live.patientNo) ctxInfo.patientNo = live.patientNo;
+                        if (!ctxInfo.name && live.name) ctxInfo.name = live.name;
+                        if (!ctxInfo.en && live.en) ctxInfo.en = live.en;
+                    } else ctxInfo = Object.assign({}, ctxInfo || {}, live);
+                }
             }
             if (window.opener && !window.opener.closed && window.opener.xrayPatientId && ctxInfo && !ctxInfo.patientId) {
                 ctxInfo.patientId = window.opener.xrayPatientId;
@@ -916,12 +927,22 @@
         }
         return null;
     }
+    function traceForThisFilm(rec, fromCtx) {
+        if (!isTrace(rec)) return false;
+        if (!ctxInfo || (!ctxInfo.viaStrip && !ctxInfo.userPick)) return true;
+        var id = ctxInfo.xrayId ? String(ctxInfo.xrayId) : '';
+        var a = rec.xrayId ? String(rec.xrayId) : '';
+        var b = rec.cephXrayId ? String(rec.cephXrayId) : '';
+        if (!id) return !!fromCtx;
+        if (!a && !b) return !!fromCtx;
+        return a === id || b === id;
+    }
     function pendingTrace() {
-        if (ctxInfo && isTrace(ctxInfo.tracing)) {
+        if (ctxInfo && isTrace(ctxInfo.tracing) && traceForThisFilm(ctxInfo.tracing, true)) {
             return { rec: ctxInfo.tracing, via: ctxInfo.tracingVia === 'local' ? 'local' : 'cloud' };
         }
         var rec = findStoredTrace();
-        if (isTrace(rec)) return { rec: rec, via: 'local' };
+        if (isTrace(rec) && traceForThisFilm(rec, false)) return { rec: rec, via: 'local' };
         return null;
     }
     function syncLoadBtn() {
@@ -944,26 +965,33 @@
             ctxInfo.tracingVia = 'cloud';
             if (t.cephSaveId) ctxInfo.cephSaveId = t.cephSaveId;
             if (t.cephXrayId) ctxInfo.cephXrayId = t.cephXrayId;
-            if (t.fileUrl) {
-                var same = !ctxInfo.viaStrip || !ctxInfo.xrayId ||
-                    String(t.xrayId || '') === String(ctxInfo.xrayId) ||
-                    String(t.cephXrayId || '') === String(ctxInfo.xrayId);
-                if (same) ctxInfo.studyUrl = t.fileUrl;
+            // keep the strip film. A saved fileUrl is a second bitmap.
+            if (t.fileUrl && !ctxInfo.studyUrl && !shownUrl && !ctxInfo.viaStrip && !ctxInfo.userPick) {
+                ctxInfo.studyUrl = t.fileUrl;
             }
         }
         return t;
     }
     function pullCloudTrace() {
         var id = ctxInfo && ctxInfo.xrayId;
+        var gen = filmEpoch;
+        function still() { return gen === filmEpoch; }
+        function noteSaveUrl(url) {
+            if (!still() || !ctxInfo || !url) return;
+            if (ctxInfo.studyUrl || shownUrl || ctxInfo.viaStrip || ctxInfo.userPick) return;
+            ctxInfo.studyUrl = url;
+        }
         function fromLatest() {
-            if (ctxInfo && ctxInfo.viaStrip) return Promise.resolve(null);
+            if (!still()) return Promise.resolve(null);
+            if (ctxInfo && (ctxInfo.viaStrip || ctxInfo.userPick)) return Promise.resolve(null);
             try {
                 if (window.opener && !window.opener.closed && typeof window.opener.xrayCephFetchLatestForPatient === 'function' && ctxInfo && ctxInfo.patientId) {
                     return Promise.resolve(window.opener.xrayCephFetchLatestForPatient(ctxInfo.patientId)).then(function (save) {
+                        if (!still()) return null;
                         if (save && isTrace(save.tracing)) {
                             applyCloudTrace(save.tracing);
                             if (ctxInfo && save.id) ctxInfo.cephSaveId = save.id;
-                            if (ctxInfo && save.file_url) ctxInfo.studyUrl = save.file_url;
+                            noteSaveUrl(save.file_url);
                             if (ctxInfo && save.source_xray_id && !ctxInfo.xrayId) ctxInfo.xrayId = save.source_xray_id;
                             return save.tracing;
                         }
@@ -973,20 +1001,25 @@
             } catch (eP) { /* ignore */ }
             return Promise.resolve(null);
         }
-        function orLatest(t) { return isTrace(t) ? t : fromLatest(); }
+        function orLatest(t) {
+            if (!still()) return Promise.resolve(null);
+            return isTrace(t) ? t : fromLatest();
+        }
         if (!id) return fromLatest();
         try {
             if (window.opener && !window.opener.closed) {
                 if (typeof window.opener.xrayCephFetchSave === 'function') {
                     return Promise.resolve(window.opener.xrayCephFetchSave(id)).then(function (save) {
+                        if (!still()) return null;
                         if (save && isTrace(save.tracing)) {
                             applyCloudTrace(save.tracing);
                             if (ctxInfo && save.id) ctxInfo.cephSaveId = save.id;
-                            if (ctxInfo && save.file_url) ctxInfo.studyUrl = save.file_url;
+                            noteSaveUrl(save.file_url);
                             return save.tracing;
                         }
                         if (typeof window.opener.xrayCephFetchTracing === 'function') {
                             return Promise.resolve(window.opener.xrayCephFetchTracing(id)).then(function (t) {
+                                if (!still()) return null;
                                 return orLatest(applyCloudTrace(t));
                             }, fromLatest);
                         }
@@ -995,6 +1028,7 @@
                 }
                 if (typeof window.opener.xrayCephFetchTracing === 'function') {
                     return Promise.resolve(window.opener.xrayCephFetchTracing(id)).then(function (t) {
+                        if (!still()) return null;
                         return orLatest(applyCloudTrace(t));
                     }, fromLatest);
                 }
@@ -1003,6 +1037,7 @@
         var sb = openerSb();
         if (!sb) return fromLatest();
         return Promise.resolve(sb.from('ceph_saves').select('id,file_url,tracing').eq('source_xray_id', id).limit(1)).then(function (r) {
+            if (!still()) return null;
             var row = r && r.data && (Array.isArray(r.data) ? r.data[0] : r.data);
             if (row && isTrace(row.tracing)) {
                 if (row.id) row.tracing.cephSaveId = row.id;
@@ -1010,11 +1045,13 @@
                 return applyCloudTrace(row.tracing);
             }
             return Promise.resolve(sb.from('xrays').select('ceph_tracing').eq('id', id).limit(1)).then(function (r2) {
+                if (!still()) return null;
                 var row2 = r2 && r2.data && (Array.isArray(r2.data) ? r2.data[0] : r2.data);
                 return orLatest(applyCloudTrace(row2 && row2.ceph_tracing));
             }, fromLatest);
         }, function () {
             return Promise.resolve(sb.from('xrays').select('ceph_tracing').eq('id', id).limit(1)).then(function (r2) {
+                if (!still()) return null;
                 var row2 = r2 && r2.data && (Array.isArray(r2.data) ? r2.data[0] : r2.data);
                 return orLatest(applyCloudTrace(row2 && row2.ceph_tracing));
             }, fromLatest);
@@ -1604,7 +1641,10 @@
         refresh();
     }
 
-    function afterLoad(done, skipRestore) {
+    function afterLoad(done, skipRestore, gen) {
+        if (gen == null) gen = filmEpoch;
+        function alive() { return gen === filmEpoch; }
+        if (!alive()) { if (done) done({ ok: false, error: 'stale' }); return; }
         if (walkOn) stopWalk({ quiet: true, keepView: true });
         clearUndo();
         userPickedSet = false;
@@ -1624,6 +1664,7 @@
         var idx = pack.defaultIndex || 0;
 
         function applyHeld() {
+            if (!alive()) return;
             if (restoreHold) {
                 hideSetBar();
                 applyTraceRec(restoreHold.rec, restoreHold.via, { quiet: true });
@@ -1634,6 +1675,7 @@
             syncLoadBtn();
         }
         function finish(payload) {
+            if (!alive()) { if (done) done({ ok: false, error: 'stale' }); return; }
             var hold = restoreHold;
             if (!hold && !skipRestore) hold = pendingTrace();
             if (hold && isTrace(hold.rec)) {
@@ -1649,6 +1691,7 @@
         function continueLoad() {
             var api = (window.XRAY_AI_API_URL || 'http://127.0.0.1:8877');
             CEPH_LM.detectApi(img, api).then(function (remote) {
+                if (!alive()) { finish({ ok: false, error: 'stale' }); return; }
                 sets[0] = {
                     id: 'unet',
                     label: 'UNet auto landmarks',
@@ -1716,7 +1759,8 @@
 
         if (!restoreHold && !skipRestore) {
             pullCloudTrace().then(function (t) {
-                if (isTrace(t)) restoreHold = { rec: t, via: 'cloud' };
+                if (!alive()) { if (done) done({ ok: false, error: 'stale' }); return; }
+                if (isTrace(t) && traceForThisFilm(t, true)) restoreHold = { rec: t, via: 'cloud' };
                 applyHeld();
                 continueLoad();
             }, function () {
@@ -1735,30 +1779,112 @@
         return new Promise(function (resolve) { afterLoad(resolve, true); });
     }
 
+    function clearMarks() {
+        pts = (window.CEPH_LM && typeof CEPH_LM.emptyPts === 'function') ? CEPH_LM.emptyPts() : {};
+        extra = {};
+        extraTouched = {};
+        overlayRec = null;
+        overlayMapped = null;
+        restoreHold = null;
+        sel = '';
+    }
+    function blankFilm() {
+        clearMarks();
+        try {
+            var c = canvas();
+            var g = c && c.getContext('2d');
+            if (!g) return;
+            var vs = viewSize();
+            g.setTransform(1, 0, 0, 1, 0, 0);
+            g.clearRect(0, 0, vs.w, vs.h);
+            g.fillStyle = '#080b14';
+            g.fillRect(0, 0, vs.w, vs.h);
+        } catch (eB) { /* ignore */ }
+    }
     function loadFile(file) {
         if (!file) return Promise.resolve({ ok: false });
+        filmEpoch += 1;
+        var gen = filmEpoch;
+        shownUrl = '';
         fileName = file.name || 'ceph.png';
+        img = new Image();
+        if (ctxInfo) {
+            ctxInfo.tracing = null;
+            ctxInfo.tracingVia = '';
+            ctxInfo.studyUrl = '';
+            ctxInfo.fileUrl = '';
+            ctxInfo.userPick = true;
+            ctxInfo.viaStrip = true;
+            ctxInfo.xrayId = '';
+            ctxInfo.cephSaveId = '';
+            ctxInfo.cephXrayId = '';
+        }
+        blankFilm();
         var url = URL.createObjectURL(file);
+        var incoming = new Image();
         return new Promise(function (resolve) {
-            img.onload = function () {
+            incoming.onload = function () {
                 URL.revokeObjectURL(url);
+                if (gen !== filmEpoch) { resolve({ ok: false, error: 'stale' }); return; }
+                img = incoming;
                 publishSourceFile(file);
-                afterLoad(resolve);
+                afterLoad(resolve, false, gen);
             };
-            img.onerror = function () { setStatus(tx('st.badFile')); resolve({ ok: false }); };
-            img.src = url;
+            incoming.onerror = function () {
+                URL.revokeObjectURL(url);
+                if (gen !== filmEpoch) { resolve({ ok: false, error: 'stale' }); return; }
+                img = new Image();
+                setStatus(tx('st.badFile'));
+                resolve({ ok: false });
+            };
+            incoming.src = url;
         });
     }
 
     function loadUrl(url, name) {
         if (!url) return Promise.resolve({ ok: false });
+        if (url === shownUrl && img.naturalWidth) return Promise.resolve({ ok: true, same: true });
+        filmEpoch += 1;
+        var gen = filmEpoch;
+        shownUrl = url;
         fileName = name || 'ceph.png';
-        img.crossOrigin = 'anonymous';
+        img = new Image();
+        blankFilm();
+        var incoming = new Image();
+        incoming.crossOrigin = 'anonymous';
         return new Promise(function (resolve) {
-            img.onload = function () { afterLoad(resolve); };
-            img.onerror = function () { setStatus(tx('st.cors')); resolve({ ok: false, error: 'load' }); };
-            img.src = url;
+            incoming.onload = function () {
+                if (gen !== filmEpoch) { resolve({ ok: false, error: 'stale' }); return; }
+                img = incoming;
+                afterLoad(resolve, false, gen);
+            };
+            incoming.onerror = function () {
+                if (gen !== filmEpoch) { resolve({ ok: false, error: 'stale' }); return; }
+                img = new Image();
+                setStatus(tx('st.cors'));
+                resolve({ ok: false, error: 'load' });
+            };
+            incoming.src = url;
         });
+    }
+    function acceptOpen(ctx) {
+        if (!ctx || typeof ctx !== 'object') return;
+        var prevId = ctxInfo && ctxInfo.xrayId ? String(ctxInfo.xrayId) : '';
+        var nextId = ctx.xrayId ? String(ctx.xrayId) : '';
+        var nextUrl = ctx.studyUrl || '';
+        var sameFilm = !!(prevId && nextId && prevId === nextId);
+        if (shownUrl && nextUrl && nextUrl !== shownUrl && sameFilm) {
+            // keep the strip film already on screen; a saved fileUrl must not load beside it
+            ctx.studyUrl = shownUrl;
+            nextUrl = shownUrl;
+        }
+        ctxInfo = ctx;
+        try { sessionStorage.setItem('banana.ceph.v1', JSON.stringify(ctxInfo)); } catch (eO) { /* ignore */ }
+        if (nextUrl && nextUrl !== shownUrl) loadUrl(nextUrl, ctx.fileName);
+        else if (isTrace(ctx.tracing) && traceForThisFilm(ctx.tracing, true) && img.naturalWidth) {
+            hideSetBar();
+            applyTraceRec(ctx.tracing, ctx.tracingVia || 'cloud');
+        }
     }
 
     function applyRuler(a, b, mm) {
@@ -2152,21 +2278,12 @@
             chOpen.onmessage = function (ev) {
                 var d = ev && ev.data;
                 if (!d || d.type !== 'banana.ceph.open' || !d.ctx) return;
-                ctxInfo = d.ctx;
-                try { sessionStorage.setItem('banana.ceph.v1', JSON.stringify(ctxInfo)); } catch (eO) { /* ignore */ }
-                if (isTrace(ctxInfo.tracing) && img.naturalWidth) {
-                    hideSetBar();
-                    applyTraceRec(ctxInfo.tracing, ctxInfo.tracingVia || 'cloud');
-                } else if (ctxInfo.studyUrl) loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
+                acceptOpen(d.ctx);
             };
         } catch (eCh) { /* ignore */ }
         window.addEventListener('storage', function (ev) {
             if (!ev || ev.key !== 'banana.ceph.v1' || !ev.newValue) return;
-            try { ctxInfo = JSON.parse(ev.newValue); } catch (eS) { return; }
-            if (ctxInfo && isTrace(ctxInfo.tracing) && img.naturalWidth) {
-                hideSetBar();
-                applyTraceRec(ctxInfo.tracing, ctxInfo.tracingVia || 'cloud');
-            } else if (ctxInfo && ctxInfo.studyUrl) loadUrl(ctxInfo.studyUrl, ctxInfo.fileName);
+            try { acceptOpen(JSON.parse(ev.newValue)); } catch (eS) { /* ignore */ }
         });
     }
 
@@ -2176,7 +2293,13 @@
         openFromStrip: function (url, name, extra) {
             extra = extra || {};
             if (!ctxInfo) ctxInfo = {};
+            var nextId = extra.xrayId ? String(extra.xrayId) : '';
+            if (nextId && ctxInfo.xrayId && nextId !== String(ctxInfo.xrayId)) {
+                ctxInfo.tracing = null;
+                ctxInfo.tracingVia = '';
+            }
             ctxInfo.viaStrip = true;
+            ctxInfo.userPick = true;
             ctxInfo.studyUrl = url || extra.studyUrl || ctxInfo.studyUrl || '';
             ctxInfo.fileName = name || extra.fileName || ctxInfo.fileName || '';
             ctxInfo.xrayType = extra.xrayType || ctxInfo.xrayType || 'Cephalometric';

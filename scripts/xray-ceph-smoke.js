@@ -195,6 +195,23 @@ var PAGE_SCRIPT = `(async () => {
   out.source = st.source;
   out.imgW = st.imgW;
   out.imgH = st.imgH;
+  try {
+    const savedPng = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const chKeep = new BroadcastChannel('banana.ceph.save.v1');
+    chKeep.postMessage({
+      type: 'banana.ceph.open',
+      ctx: {
+        viaStrip: true,
+        xrayId: 'strip-ceph',
+        studyUrl: savedPng,
+        fileName: 'saved.gif'
+      }
+    });
+    await wait(300);
+    const kept = CEPH_PAGE.state();
+    out.keptStripFilm = kept.imgW === st.imgW && kept.imgH === st.imgH && kept.imgW > 200;
+    chKeep.close();
+  } catch (eKeep) { out.keptStripFilm = false; }
   out.nPts = st.nPts;
   out.profileN = st.profileN;
   out.markedFn = typeof CEPH_PAGE.markedDataUrl === 'function';
@@ -493,7 +510,12 @@ var PAGE_SCRIPT = `(async () => {
     pass('index BUILD ' + BUILD, html.indexOf("var BUILD = '" + BUILD + "'") >= 0);
     pass('Ceph button is on the X-ray tab', html.indexOf('id="btnCephViewer"') >= 0 && html.indexOf('onclick="xrayCephViewerOpen()"') >= 0);
     pass('launcher is cache-busted after the CBCT module',
-        html.indexOf("'app-xray-ceph.js?v=" + BUILD + "'") > html.indexOf("'app-xray-cbct.js?v=" + BUILD + "'"));
+        html.indexOf("'app-xray-ceph.js?v=20261007ceph1'") > html.indexOf("'app-xray-cbct.js?v=" + BUILD + "'"));
+    pass('a newly selected ceph film is not also loaded with the saved film',
+        /keep the strip film/.test(launch) &&
+        /keep the strip film/.test(read('ceph/ceph.js')) &&
+        /filmEpoch/.test(read('ceph/ceph.js')) &&
+        /acceptOpen/.test(read('ceph/ceph.js')));
     pass('launcher opens ceph/ and starts Helper',
         /ceph\/\?v=/.test(launch) && /xrayHelperLaunch/.test(launch) && /banana\.ceph\.v1/.test(launch));
     pass('ceph.html forwards to the sidecar folder', /ceph\//.test(read('ceph.html')));
@@ -954,6 +976,37 @@ var PAGE_SCRIPT = `(async () => {
             /c2\.jpg/.test(ctxStrip.studyUrl || '') && !ctxStrip.tracing &&
             ctxStrip.xrayType === 'Cephalometric'),
         ctxStrip && (ctxStrip.xrayId + ' ' + ctxStrip.studyUrl + ' type=' + ctxStrip.xrayType));
+    var ctxSavedSwap = L.xrayCephContext({
+        id: 'c2', xray_type: 'Cephalometric', file_url: 'http://example/c2.jpg', file_name: 'c2.jpg',
+        notes: 'Banana Ceph film',
+        ceph_tracing: {
+            v: 1,
+            pts: { S: { x: 11, y: 12 }, N: { x: 21, y: 22 } },
+            fileUrl: 'http://example/saved-marked.jpg',
+            xrayId: 'c1',
+            cephXrayId: 'c1'
+        }
+    });
+    pass('newly selected strip film is not replaced by a saved film bitmap',
+        !!(ctxSavedSwap && ctxSavedSwap.viaStrip && ctxSavedSwap.xrayId === 'c2' &&
+            /c2\.jpg/.test(ctxSavedSwap.studyUrl || '') &&
+            !/saved-marked/.test(ctxSavedSwap.studyUrl || '') &&
+            !ctxSavedSwap.tracing),
+        ctxSavedSwap && (ctxSavedSwap.studyUrl + ' tracing=' + !!ctxSavedSwap.tracing));
+    var ctxOwn = {
+        viaStrip: true,
+        xrayId: 'c2',
+        studyUrl: 'http://example/c2.jpg'
+    };
+    L.xrayCephApplyOpenCtx(ctxOwn, {
+        v: 1,
+        pts: { S: { x: 11, y: 12 }, N: { x: 21, y: 22 } },
+        fileUrl: 'http://example/saved-marked.jpg',
+        xrayId: 'c2'
+    });
+    pass('opening a selected film keeps that bitmap when its save file arrives',
+        /c2\.jpg/.test(ctxOwn.studyUrl || '') && !/saved-marked/.test(ctxOwn.studyUrl || '') &&
+        !!(ctxOwn.tracing && ctxOwn.tracing.pts && ctxOwn.tracing.pts.S));
     L.lbCurrentId = 'opg1';
     var ctxOpg = L.xrayCephContext();
     pass('selected OPG is not opened as a ceph source',
@@ -1479,6 +1532,9 @@ var PAGE_SCRIPT = `(async () => {
         pass('live: selected Cephalometric strip film auto-loads as the source',
             live && live.viaStrip === true && live.xrayType === 'Cephalometric' && live.openedStrip === true,
             live ? ('viaStrip=' + live.viaStrip + ' type=' + live.xrayType + ' status=' + live.openedStrip) : 'none');
+        pass('live: a saved film URL does not replace the selected film',
+            live && live.keptStripFilm === true,
+            live ? ('kept=' + live.keptStripFilm + ' ' + live.imgW + 'x' + live.imgH) : 'none');
         pass('live: 19 landmarks placed inside the film', live && live.nPts === 19 && live.inBounds === true,
             live ? ('n=' + live.nPts + ' source=' + live.source) : 'none');
         pass('live: Banana Ceph study JPEG paints short landmark names with the dots',

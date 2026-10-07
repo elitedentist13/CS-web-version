@@ -808,11 +808,13 @@ function xrayCephSameFilm(tracing, xrayId) {
 
 function xrayCephApplyOpenCtx(ctx, tracing) {
     if (!ctx || !xrayCephIsTrace(tracing)) return ctx;
+    if (ctx.viaStrip && ctx.xrayId && (tracing.xrayId || tracing.cephXrayId) && !xrayCephSameFilm(tracing, ctx.xrayId)) return ctx;
     ctx.tracing = tracing;
     ctx.tracingVia = 'cloud';
     if (tracing.cephSaveId) ctx.cephSaveId = tracing.cephSaveId;
     if (tracing.cephXrayId) ctx.cephXrayId = tracing.cephXrayId;
-    if (tracing.fileUrl && xrayCephSameFilm(tracing, ctx.xrayId)) ctx.studyUrl = tracing.fileUrl;
+    // keep the strip film. A saved fileUrl is a second bitmap and must not replace the pick.
+    if (!ctx.viaStrip && tracing.fileUrl && xrayCephSameFilm(tracing, ctx.xrayId)) ctx.studyUrl = tracing.fileUrl;
     return ctx;
 }
 
@@ -861,7 +863,12 @@ function xrayCephContext(rec) {
         var local = xrayCephLocalTrace(rec && rec.id, name);
         if (local) { tracing = local; tracingVia = 'local'; }
     }
-    if (tracing && tracing.fileUrl && xrayCephSameFilm(tracing, rec && rec.id)) url = tracing.fileUrl;
+    if (tracing && picked && rec && rec.id && (tracing.xrayId || tracing.cephXrayId) && !xrayCephSameFilm(tracing, rec.id)) {
+        tracing = null;
+        tracingVia = '';
+    }
+    // keep the strip film on a new selection; only an unpicked saved study may use its fileUrl
+    if (!picked && tracing && tracing.fileUrl && xrayCephSameFilm(tracing, rec && rec.id)) url = tracing.fileUrl;
     return {
         patientId: (typeof xrayPatientId !== 'undefined' && xrayPatientId) || p.id || '',
         patientNo: p.patient_no || '',

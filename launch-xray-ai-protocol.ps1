@@ -231,8 +231,11 @@ function Invoke-LocalApi($Job) {
         $tmp = Join-Path $env:TEMP ("cs-xray-ai-" + $Job.id + ".jpg")
         Invoke-WebRequest -UseBasicParsing -Uri $imageUrl -OutFile $tmp -TimeoutSec 60
     }
+    $jsonBody = ""
+    if ($payload -and $payload.json) { $jsonBody = [string]$payload.json }
+    $jsonFile = $null
 
-    if ($method -eq "GET" -and -not $tmp) {
+    if ($method -eq "GET" -and -not $tmp -and -not $jsonBody) {
         $resp = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 120
         return @{ http_status = [int]$resp.StatusCode; body_json = [string]$resp.Content }
     }
@@ -242,6 +245,12 @@ function Invoke-LocalApi($Job) {
     # Keep the response bytes as text. PowerShell's JSON parser collapses a
     # one-element array, which would drop a single finding on the way back.
     $curlArgs = @("-sS", "-m", "180", "-w", "`n%{http_code}", "-X", $method)
+    if ($jsonBody -and -not $tmp) {
+        $jsonFile = Join-Path $env:TEMP ("cs-xray-ai-" + $Job.id + "-body.json")
+        $utf8Body = New-Object System.Text.UTF8Encoding $false
+        [System.IO.File]::WriteAllText($jsonFile, $jsonBody, $utf8Body)
+        $curlArgs += @("-H", "Content-Type: application/json", "--data-binary", "@$jsonFile")
+    }
     if ($tmp) {
         $curlArgs += @("-F", "file=@$tmp;type=image/jpeg;filename=xray.jpg")
     }
@@ -262,6 +271,7 @@ function Invoke-LocalApi($Job) {
     $curlArgs += $url
     $raw = & $curl @curlArgs
     if ($tmp) { Remove-Item -Force $tmp -ErrorAction SilentlyContinue }
+    if ($jsonFile) { Remove-Item -Force $jsonFile -ErrorAction SilentlyContinue }
     foreach ($fieldPath in $fieldFiles) {
         Remove-Item -Force $fieldPath -ErrorAction SilentlyContinue
     }

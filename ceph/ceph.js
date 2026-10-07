@@ -2092,7 +2092,10 @@
 
         $('btnLoad').onclick = function () { $('filePick').click(); };
         $('filePick').onchange = function () { loadFile(this.files && this.files[0]); this.value = ''; };
-        $('btnDetect').onclick = runDetect;
+        $('btnDetect').onclick = function () {
+            if (window.CEPH_LM && typeof CEPH_LM.wakeProtocol === 'function') CEPH_LM.wakeProtocol();
+            runDetect();
+        };
         useTraining = readUseTraining();
         syncUseTrainBtn();
         normSet = readNormSet();
@@ -2112,7 +2115,10 @@
                 btn.onclick = function () { writeCvm(btn.getAttribute('data-cvm'), 'staff'); };
             });
         }
-        if ($('btnAutoCvm')) $('btnAutoCvm').onclick = function () { pullCvmApi(); };
+        if ($('btnAutoCvm')) $('btnAutoCvm').onclick = function () {
+            if (window.CEPH_LM && typeof CEPH_LM.wakeProtocol === 'function') CEPH_LM.wakeProtocol();
+            pullCvmApi();
+        };
         syncNormBtn();
         syncCvmBar();
         if ($('btnAdvanced')) $('btnAdvanced').onclick = function () { setLabMode(!labOpen); };

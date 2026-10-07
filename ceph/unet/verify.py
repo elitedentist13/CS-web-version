@@ -49,8 +49,43 @@ def main():
     _check_subpixel()
     _check_fractional_heatmap()
     _check_crop()
+    _check_dataset_frame()
     print("ok banana unet clone", len(isbi), "extra", sorted(extra.keys()),
           "home", st["home"], "status", st["available"])
+
+
+def _check_dataset_frame():
+    # ISBI mean box sits inside the film, not on the edges.
+    minx, miny, maxx, maxy = infer.dataset_landmark_frame()
+    assert 0.25 < minx < 0.40, minx
+    assert 0.35 < miny < 0.48, miny
+    assert 0.75 < maxx < 0.90, maxx
+    assert 0.80 < maxy < 0.92, maxy
+    # A 800×900 skull at (400, 500) is placed on that frame; the crop origin can be off the film.
+    box = (400.0, 500.0, 800.0, 900.0)
+    crop = infer.dataset_crop(box, 2000, 2250)
+    assert crop is not None
+    crop_x, crop_y, crop_w, crop_h = crop
+    assert abs((400.0 - crop_x) / crop_w - minx) < 1e-6
+    assert abs((500.0 - crop_y) / crop_h - miny) < 1e-6
+    assert abs(800.0 / crop_w - (maxx - minx)) < 1e-6
+    assert abs(900.0 / crop_h - (maxy - miny)) < 1e-6
+    # Menton in the collar does not enlarge the box used for that resize.
+    skull = {
+        "S": {"x": 662, "y": 507}, "N": {"x": 1253, "y": 376}, "Or": {"x": 1142, "y": 682},
+        "Po": {"x": 459, "y": 713}, "A": {"x": 1269, "y": 994}, "B": {"x": 1227, "y": 1409},
+        "Pog": {"x": 1166, "y": 1459}, "Me": {"x": 1183, "y": 1622}, "Gn": {"x": 1156, "y": 1483},
+        "Go": {"x": 624, "y": 1318}, "L1": {"x": 1209, "y": 1289}, "U1": {"x": 1234, "y": 1297},
+        "Ls": {"x": 1288, "y": 1244}, "Li": {"x": 1272, "y": 1358}, "Sn": {"x": 1255, "y": 1174},
+        "PogS": {"x": 1216, "y": 1484}, "PNS": {"x": 955, "y": 1136}, "ANS": {"x": 1200, "y": 1144},
+        "Ar": {"x": 499, "y": 773},
+    }
+    tight = infer.patient_landmark_box(skull)
+    skull["Me"] = {"x": 30, "y": 2200}
+    far = infer.patient_landmark_box(skull)
+    assert tight and far
+    assert far[3] < tight[3] * 1.15, (tight, far)
+    assert far[1] + far[3] < 1900, far
 
 
 def _check_crop():

@@ -184,29 +184,95 @@
         return 0.06;
     }
 
+    // The 1502 shape is scaled to this rectangle. Size it from the bony
+    // landmarks, then keep a point only if it still sits near that skull.
+    var BONY_BOX = { S: 1, N: 1, A: 1, B: 1, Go: 1, Me: 1 };
+    var BOX_MARGIN_X = 0.55;
+    var BOX_MARGIN_Y = 0.40;
+
+    function dropFarBony(list) {
+        if (list.length < 5) return list;
+        var kept = list.slice();
+        var guard = 0;
+        var changed = true;
+        while (changed && kept.length >= 5 && guard < 3) {
+            guard += 1;
+            changed = false;
+            var i, worst = -1, worstOver = 1;
+            for (i = 0; i < kept.length; i++) {
+                var others = [];
+                var j;
+                for (j = 0; j < kept.length; j++) if (j !== i) others.push(kept[j]);
+                var ext = extentsOf(others);
+                var overX = 0;
+                var overY = 0;
+                if (kept[i].x < ext.minx) overX = (ext.minx - kept[i].x) / ext.w;
+                else if (kept[i].x > ext.maxx) overX = (kept[i].x - ext.maxx) / ext.w;
+                if (kept[i].y < ext.miny) overY = (ext.miny - kept[i].y) / ext.h;
+                else if (kept[i].y > ext.maxy) overY = (kept[i].y - ext.maxy) / ext.h;
+                var over = Math.max(overX / BOX_MARGIN_X, overY / BOX_MARGIN_Y);
+                if (over > worstOver) { worstOver = over; worst = i; }
+            }
+            if (worst >= 0) {
+                kept.splice(worst, 1);
+                changed = true;
+            }
+        }
+        return kept.length >= 4 ? kept : list;
+    }
+
+    function extentsOf(list) {
+        var minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity, i, p;
+        for (i = 0; i < list.length; i++) {
+            p = list[i];
+            if (p.x < minx) minx = p.x;
+            if (p.y < miny) miny = p.y;
+            if (p.x > maxx) maxx = p.x;
+            if (p.y > maxy) maxy = p.y;
+        }
+        return {
+            minx: minx, miny: miny, maxx: maxx, maxy: maxy,
+            w: Math.max(1, maxx - minx),
+            h: Math.max(1, maxy - miny)
+        };
+    }
+
+    function pointsInSkull(all, core) {
+        var ext = extentsOf(core);
+        var mx = ext.w * BOX_MARGIN_X;
+        var my = ext.h * BOX_MARGIN_Y;
+        var kept = [], i, p;
+        for (i = 0; i < all.length; i++) {
+            p = all[i];
+            if (p.x < ext.minx - mx || p.x > ext.maxx + mx) continue;
+            if (p.y < ext.miny - my || p.y > ext.maxy + my) continue;
+            kept.push(p);
+        }
+        return kept.length ? kept : core;
+    }
+
     function boxFromPts(pts, img) {
         var ids = catalogIdSet();
-        var xs = [], ys = [], id, p;
+        var all = [], bony = [], id, p, row, kept, ext, pad, box;
         for (id in pts) {
             if (!Object.prototype.hasOwnProperty.call(pts, id) || !ids[id]) continue;
             p = pts[id];
             if (!p || !isFinite(p.x) || !isFinite(p.y)) continue;
-            xs.push(p.x);
-            ys.push(p.y);
+            row = { id: id, x: p.x, y: p.y };
+            all.push(row);
+            if (BONY_BOX[id]) bony.push(row);
         }
-        if (xs.length < 8) return null;
-        var pad = boxPad();
-        var minx = Math.min.apply(null, xs);
-        var maxx = Math.max.apply(null, xs);
-        var miny = Math.min.apply(null, ys);
-        var maxy = Math.max.apply(null, ys);
-        var bw = Math.max(1, maxx - minx);
-        var bh = Math.max(1, maxy - miny);
-        var box = {
-            x: minx - bw * pad,
-            y: miny - bh * pad,
-            w: bw * (1 + 2 * pad),
-            h: bh * (1 + 2 * pad),
+        if (all.length < 8) return null;
+        var core = dropFarBony(bony);
+        kept = core.length >= 4 ? pointsInSkull(all, core) : all;
+        if (kept.length < 4) return null;
+        ext = extentsOf(kept);
+        pad = boxPad();
+        box = {
+            x: ext.minx - ext.w * pad,
+            y: ext.miny - ext.h * pad,
+            w: ext.w * (1 + 2 * pad),
+            h: ext.h * (1 + 2 * pad),
             via: 'unet'
         };
         if (img && img.naturalWidth) {
@@ -454,6 +520,46 @@
         };
     }
 
+    function cephAiBase(apiBase) {
+        return String(apiBase || g.XRAY_AI_API_URL || 'http://127.0.0.1:8877').replace(/\/$/, '');
+    }
+    function cephAiProtocol() {
+        try {
+            if (g.opener && !g.opener.closed && typeof g.opener.xrayAiProtocolFetch === 'function') {
+                return g.opener.xrayAiProtocolFetch;
+            }
+        } catch (e) { /* ignore */ }
+        return null;
+    }
+    function cephAiDirect(url, options) {
+        return fetch(url, options || {});
+    }
+    function cephAiWake() {
+        var href = '';
+        try {
+            if (g.opener && !g.opener.closed && typeof g.opener.xrayAiProtocolClaimLaunch === 'function') {
+                href = g.opener.xrayAiProtocolClaimLaunch() || '';
+            }
+        } catch (e) { /* ignore */ }
+        if (!href) return;
+        try {
+            var link = g.document.createElement('a');
+            link.href = href;
+            link.style.display = 'none';
+            (g.document.body || g.document.documentElement).appendChild(link);
+            link.click();
+            link.remove();
+        } catch (e2) { /* ignore */ }
+    }
+    function cephAiFetch(url, options, ms) {
+        var call = cephAiProtocol();
+        if (!call) return cephAiDirect(url, options);
+        return call(url, options || {}, ms || 240000).then(function (r) {
+            return r;
+        }, function () {
+            return cephAiDirect(url, options);
+        });
+    }
     function detectApi(img, apiBase) {
         return new Promise(function (resolve, reject) {
             var c = document.createElement('canvas');
@@ -464,10 +570,10 @@
                 if (!blob) { reject(new Error('blob')); return; }
                 var fd = new FormData();
                 fd.append('file', blob, 'ceph.jpg');
-                fetch(String(apiBase || '').replace(/\/$/, '') + '/ceph/landmarks', {
+                cephAiFetch(cephAiBase(apiBase) + '/ceph/landmarks', {
                     method: 'POST',
                     body: fd
-                }).then(function (r) {
+                }, 240000).then(function (r) {
                     if (!r.ok) throw new Error('http ' + r.status);
                     return r.json();
                 }).then(function (j) { resolve(applyRemote(j, img)); }).catch(reject);
@@ -489,10 +595,10 @@
                 if (extraPts) {
                     try { fd.append('landmarks', JSON.stringify(extraPts)); } catch (e) { /* ignore */ }
                 }
-                fetch(String(apiBase || '').replace(/\/$/, '') + '/ceph/cvm', {
+                cephAiFetch(cephAiBase(apiBase) + '/ceph/cvm', {
                     method: 'POST',
                     body: fd
-                }).then(function (r) {
+                }, 240000).then(function (r) {
                     return r.json().then(function (j) {
                         if (!r.ok) {
                             var err = new Error((j && j.detail && j.detail.error) || ('http ' + r.status));
@@ -523,6 +629,8 @@
         detectLocal: detectLocal,
         detectSets: detectSets,
         detectApi: detectApi,
+        aiFetch: cephAiFetch,
+        wakeProtocol: cephAiWake,
         detectCvmApi: detectCvmApi,
         placeMean: placeMean,
         findHeadBox: findHeadBox,

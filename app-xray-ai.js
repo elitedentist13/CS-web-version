@@ -2700,6 +2700,23 @@
             (now - xrayAiWorker.launchedAt) < XRAY_AI_LAUNCH_GRACE_MS;
     }
 
+    function xrayAiProtocolLaunchHref(jobId) {
+        return 'csxrayai://job?' +
+            (jobId ? 'id=' + encodeURIComponent(jobId) + '&' : '') +
+            'client=' + encodeURIComponent(xrayAiProtocolClientId());
+    }
+
+    /**
+     * Mark this page's worker as just launched and return the wake link.
+     * The ceph window clicks that link in its own document, where the
+     * click happened. An empty string means a launch is not needed.
+     */
+    function xrayAiProtocolClaimLaunch() {
+        if (!xrayAiUseProtocol() || xrayAiWorkerFresh()) return '';
+        xrayAiWorker.launchedAt = Date.now();
+        return xrayAiProtocolLaunchHref(null);
+    }
+
     /** Call at the top of click handlers so the launch keeps the click's activation. */
     function xrayAiProtocolWake() {
         if (!xrayAiUseProtocol() || xrayAiWorkerFresh()) return;
@@ -2718,9 +2735,7 @@
     }
 
     function xrayAiOpenJobProtocol(jobId) {
-        var href = 'csxrayai://job?' +
-            (jobId ? 'id=' + encodeURIComponent(jobId) + '&' : '') +
-            'client=' + encodeURIComponent(xrayAiProtocolClientId());
+        var href = xrayAiProtocolLaunchHref(jobId);
         xrayAiWorker.launchedAt = Date.now();
         var link = document.createElement('a');
         link.href = href;
@@ -2850,17 +2865,19 @@
         // the worker waits for the row to appear.
         if (!xrayAiWorkerFresh()) xrayAiOpenJobProtocol(jobId);
         return xrayAiJobImageUrl(opts.body).then(function (extra) {
+            var payload = {
+                method: method,
+                path: path,
+                fields: extra.fields || {},
+                client: xrayAiProtocolClientId()
+            };
+            if (!extra.image_url && typeof opts.body === 'string' && opts.body) payload.json = opts.body;
             return SB.from('xray_ai_jobs').insert([{
                 id: jobId,
                 kind: extra.image_url ? 'file' : 'http',
                 status: 'pending',
                 image_url: extra.image_url || null,
-                payload: {
-                    method: method,
-                    path: path,
-                    fields: extra.fields || {},
-                    client: xrayAiProtocolClientId()
-                }
+                payload: payload
             }]).then(function (ins) {
                 if (ins && ins.error) throw new Error(ins.error.message || 'job');
                 return xrayAiPollJob(jobId, ms);
@@ -3511,6 +3528,9 @@
 
     xrayAiInitCategoryFilters();
 
+    window.xrayAiProtocolFetch = xrayAiProtocolFetch;
+    window.xrayAiProtocolWake = xrayAiProtocolWake;
+    window.xrayAiProtocolClaimLaunch = xrayAiProtocolClaimLaunch;
     window.xrayAiRunAssist = xrayAiRunAssist;
     window.xrayAiStartServer = xrayAiStartServer;
     window.xrayAiClearFindings = xrayAiClearOverlays;

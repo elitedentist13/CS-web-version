@@ -33,8 +33,9 @@
   window.XRAY_AI_API_URL = 'http://127.0.0.1:8877';
   /* One-time on each PC: double-click register-xray-ai-protocol.bat */
   window.XRAY_AI_START_PROTOCOL = 'csxrayai://start';
-  /* No page calls 127.0.0.1:8877 itself: X-ray buttons use csxray:// and
-     the AI helper (Analyze, tick/cross, training) uses csxrayai://job.
+  /* GitHub Pages and http://127.0.0.1:5500 both open csxrayai://job.
+     Tooth AI stays on that protocol. Ceph AI uses it too, and calls
+     127.0.0.1:8877 only when the protocol connection itself fails.
      Set XRAY_AI_DIRECT_API = true to let a 127.0.0.1 page call it directly. */
   window.XRAY_AI_PREFER_API = true;
   function withBust(path) {
@@ -7874,7 +7875,7 @@
     'app-xray-link.js?v=20261005fx53',
     'app-xray-ctx.js?v=20261003cbe',
     'app-nnt-scans.js?v=20261003cbe',
-    'app-xray-ai.js?v=20261003cbe',
+    'app-xray-ai.js?v=20261007cephai1',
     'app-xray-ai-20260909.js',
     'app-charts.js?v=20261003cbe',
     'app-xray-wire.js?v=20261003cbe',
@@ -7883,7 +7884,7 @@
     'app-xray-cbct.js?v=20261003cbe',
     'app-xray-cs3d.js?v=20261003cbe',
     'app-xray-denct.js?v=20261007den1',
-    'app-xray-ceph.js?v=20261007ceph1',
+    'app-xray-ceph.js?v=20261007cephai1',
     'app-perio-dictation.js?v=20260910bop1',
     'app-drugs.js',
     'app-broadcast.js?v=20260524c',

@@ -5,6 +5,7 @@ Clinic Auto landmarks calls this through the AI service shim. The published
 """
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,6 +25,11 @@ except ImportError:
 
 log = logging.getLogger("banana.ceph.unet")
 _state: Dict[str, Any] = {"model": None, "kind": "", "tried": False}
+# Where the 19-point box sits inside an ISBI-framed film (image fraction).
+_dataset_frame: Optional[Tuple[float, float, float, float]] = None
+_BONY = ("S", "N", "A", "B", "Go", "Me")
+_MARGIN_X = 0.55
+_MARGIN_Y = 0.40
 
 
 def weight_dirs() -> List[Path]:
@@ -94,6 +100,123 @@ def map_aariz_xy(coords: List[Tuple[float, float]]) -> Tuple[Dict[str, Dict[str,
         if eid:
             extra[eid] = {"x": float(x), "y": float(y)}
     return isbi, extra
+
+
+def dataset_landmark_frame() -> Tuple[float, float, float, float]:
+    """minx, miny, maxx, maxy of the ISBI mean landmarks, as fractions of the film."""
+    global _dataset_frame
+    if _dataset_frame:
+        return _dataset_frame
+    path = Path(__file__).resolve().parents[1] / "data" / "isbi2015.json"
+    cat = json.loads(path.read_text(encoding="utf-8"))
+    xs = [float(d["ix"]) for d in cat.get("landmarks") or [] if d.get("ix") is not None]
+    ys = [float(d["iy"]) for d in cat.get("landmarks") or [] if d.get("iy") is not None]
+    if len(xs) < 8 or len(ys) < 8:
+        _dataset_frame = (0.31, 0.40, 0.81, 0.86)
+    else:
+        _dataset_frame = (min(xs), min(ys), max(xs), max(ys))
+    return _dataset_frame
+
+
+def _extent(pts: List[Tuple[float, float]]) -> Tuple[float, float, float, float]:
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _drop_far_bony(pts: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    if len(pts) < 5:
+        return pts
+    kept = list(pts)
+    for _ in range(3):
+        if len(kept) < 5:
+            break
+        worst = -1
+        worst_over = 1.0
+        for i in range(len(kept)):
+            others = [kept[j] for j in range(len(kept)) if j != i]
+            minx, miny, maxx, maxy = _extent(others)
+            bw = max(1.0, maxx - minx)
+            bh = max(1.0, maxy - miny)
+            x, y = kept[i]
+            over_x = (minx - x) / bw if x < minx else ((x - maxx) / bw if x > maxx else 0.0)
+            over_y = (miny - y) / bh if y < miny else ((y - maxy) / bh if y > maxy else 0.0)
+            over = max(over_x / _MARGIN_X, over_y / _MARGIN_Y)
+            if over > worst_over:
+                worst_over = over
+                worst = i
+        if worst < 0:
+            break
+        del kept[worst]
+    return kept if len(kept) >= 4 else list(pts)
+
+
+def patient_landmark_box(pts: Dict[str, Dict[str, float]]) -> Optional[Tuple[float, float, float, float]]:
+    """Tight x, y, w, h of inlier landmarks. One collar point does not set the frame."""
+    bony = [(float(pts[k]["x"]), float(pts[k]["y"])) for k in _BONY if k in pts]
+    core = _drop_far_bony(bony) if len(bony) >= 4 else []
+    pool = list(pts.values()) if len(core) < 4 else None
+    if pool is not None:
+        chosen = [(float(p["x"]), float(p["y"])) for p in pool]
+    else:
+        minx, miny, maxx, maxy = _extent(core)
+        bw = max(1.0, maxx - minx)
+        bh = max(1.0, maxy - miny)
+        chosen = []
+        for p in pts.values():
+            x, y = float(p["x"]), float(p["y"])
+            if x < minx - bw * _MARGIN_X or x > maxx + bw * _MARGIN_X:
+                continue
+            if y < miny - bh * _MARGIN_Y or y > maxy + bh * _MARGIN_Y:
+                continue
+            chosen.append((x, y))
+        if len(chosen) < 4:
+            chosen = core
+    if len(chosen) < 4:
+        return None
+    minx, miny, maxx, maxy = _extent(chosen)
+    return minx, miny, max(1.0, maxx - minx), max(1.0, maxy - miny)
+
+
+def dataset_crop(box: Tuple[float, float, float, float], width: int, height: int) -> Optional[Tuple[float, float, float, float]]:
+    """Crop of the original film that puts this landmark box on the dataset frame.
+
+    Returns crop_x, crop_y, crop_w, crop_h in original pixels. The origin may
+    be negative when the film has less margin than the dataset.
+    """
+    px, py, pw, ph = box
+    minx, miny, maxx, maxy = dataset_landmark_frame()
+    span_x = max(1e-3, maxx - minx)
+    span_y = max(1e-3, maxy - miny)
+    crop_w = pw / span_x
+    crop_h = ph / span_y
+    if crop_w < 64 or crop_h < 64:
+        return None
+    if crop_w > float(width) * 2.5 or crop_h > float(height) * 2.5:
+        return None
+    crop_x = px - minx * crop_w
+    crop_y = py - miny * crop_h
+    return crop_x, crop_y, crop_w, crop_h
+
+
+def render_dataset_frame(rgb, crop: Tuple[float, float, float, float]):
+    """Paste the overlapping film onto a black canvas the size of the dataset crop."""
+    from PIL import Image
+
+    crop_x, crop_y, crop_w, crop_h = crop
+    cw = max(1, int(round(crop_w)))
+    ch = max(1, int(round(crop_h)))
+    width, height = rgb.size
+    src_x0 = max(0, int(crop_x))
+    src_y0 = max(0, int(crop_y))
+    src_x1 = min(width, int(round(crop_x + crop_w)))
+    src_y1 = min(height, int(round(crop_y + crop_h)))
+    if src_x1 <= src_x0 or src_y1 <= src_y0:
+        return None
+    canvas = Image.new("RGB", (cw, ch), (0, 0, 0))
+    patch = rgb.crop((src_x0, src_y0, src_x1, src_y1))
+    canvas.paste(patch, (int(round(src_x0 - crop_x)), int(round(src_y0 - crop_y))))
+    return canvas
 
 
 def points_sane(pts: Dict[str, Dict[str, float]], width: int, height: int) -> bool:
@@ -328,6 +451,44 @@ def refine_coords(rgb, model, tf, coords: List[Tuple[float, float]], width: int,
     return refined
 
 
+def _forward_coords(rgb, model, tf, width: int, height: int) -> List[Tuple[float, float]]:
+    import torch
+
+    tensor = tf(rgb).unsqueeze(0).to(next(model.parameters()).device)
+    with torch.no_grad():
+        heatmaps = model(tensor)
+    return _coords_from_heatmaps(heatmaps, width, height)
+
+
+def _near_coarse(framed: Dict[str, Dict[str, float]], coarse: Dict[str, Dict[str, float]], width: int, height: int) -> bool:
+    dists = []
+    for key, point in framed.items():
+        other = coarse.get(key)
+        if not other:
+            continue
+        dists.append(((point["x"] - other["x"]) ** 2 + (point["y"] - other["y"]) ** 2) ** 0.5)
+    if len(dists) < 8:
+        return False
+    dists.sort()
+    return dists[len(dists) // 2] < 0.12 * float(max(width, height))
+
+
+def coords_on_dataset_frame(rgb, model, tf, coarse: Dict[str, Dict[str, float]], width: int, height: int) -> Optional[List[Tuple[float, float]]]:
+    """Resize a copy of the film so its landmark box matches the dataset frame, then read it."""
+    box = patient_landmark_box(coarse)
+    if not box:
+        return None
+    crop = dataset_crop(box, width, height)
+    if not crop:
+        return None
+    framed = render_dataset_frame(rgb, crop)
+    if framed is None:
+        return None
+    local = _forward_coords(framed, model, tf, framed.size[0], framed.size[1])
+    crop_x, crop_y = crop[0], crop[1]
+    return [(crop_x + x, crop_y + y) for x, y in local]
+
+
 def detect(image) -> Dict[str, Any]:
     """Run the Banana UNet on a PIL image. Returns ok=False if weights or sanity fail."""
     _load()
@@ -337,7 +498,6 @@ def detect(image) -> Dict[str, Any]:
         st.update({"ok": False, "error": "weights"})
         return st
     from torchvision import transforms
-    import torch
 
     rgb = image.convert("RGB")
     w, h = rgb.size
@@ -348,10 +508,19 @@ def detect(image) -> Dict[str, Any]:
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
-    tensor = tf(rgb).unsqueeze(0).to(next(model.parameters()).device)
-    with torch.no_grad():
-        heatmaps = model(tensor)
-    coords = _coords_from_heatmaps(heatmaps, w, h)
+    coords = _forward_coords(rgb, model, tf, w, h)
+    coarse_isbi, _coarse_extra = map_aariz_xy(coords)
+    used_frame = False
+    if points_sane(coarse_isbi, w, h):
+        try:
+            framed_coords = coords_on_dataset_frame(rgb, model, tf, coarse_isbi, w, h)
+            if framed_coords:
+                framed_isbi, _framed_extra = map_aariz_xy(framed_coords)
+                if points_sane(framed_isbi, w, h) and _near_coarse(framed_isbi, coarse_isbi, w, h):
+                    coords = framed_coords
+                    used_frame = True
+        except Exception as exc:
+            log.warning("UNet dataset-frame pass failed: %s", exc)
     refined = coords
     try:
         refined = refine_coords(rgb, model, tf, coords, w, h)
@@ -376,7 +545,9 @@ def detect(image) -> Dict[str, Any]:
         "source": "dental_001-unet-29",
         "model": _state.get("kind") or "unet",
         "home": "ceph/unet",
+        "frame": "dataset-box" if used_frame else "",
         "refine": "crop" if used_crop else "",
         "note": "Banana ResNet-50 UNet (cloned from Dental_001 / Aariz 29). "
-                "A second pass refines each point on a one-fifth crop. Staff can drag. Not mixed into published 1502.",
+                "The film is resized so the landmark box matches the dataset frame, "
+                "then a second pass refines each point on a one-fifth crop. Staff can drag. Not mixed into published 1502.",
     }

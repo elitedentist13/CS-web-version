@@ -510,14 +510,21 @@ var PAGE_SCRIPT = `(async () => {
     pass('index BUILD ' + BUILD, html.indexOf("var BUILD = '" + BUILD + "'") >= 0);
     pass('Ceph button is on the X-ray tab', html.indexOf('id="btnCephViewer"') >= 0 && html.indexOf('onclick="xrayCephViewerOpen()"') >= 0);
     pass('launcher is cache-busted after the CBCT module',
-        html.indexOf("'app-xray-ceph.js?v=20261007ceph1'") > html.indexOf("'app-xray-cbct.js?v=" + BUILD + "'"));
+        html.indexOf("'app-xray-ceph.js?v=20261007cephai1'") > html.indexOf("'app-xray-cbct.js?v=" + BUILD + "'"));
+    pass('ceph AI uses csxrayai:// on GitHub and on 127.0.0.1, with port 8877 as fallback',
+        /xrayAiProtocolFetch/.test(read('ceph/ceph-landmarks.js')) &&
+        /cephAiDirect/.test(read('ceph/ceph-landmarks.js')) &&
+        /wakeProtocol/.test(read('ceph/ceph.js')) &&
+        /xrayAiProtocolWake/.test(launch) &&
+        /window\.xrayAiProtocolClaimLaunch/.test(read('app-xray-ai.js')) &&
+        !/window\.XRAY_AI_DIRECT_API\s*=\s*true/.test(html));
     pass('a newly selected ceph film is not also loaded with the saved film',
         /keep the strip film/.test(launch) &&
         /keep the strip film/.test(read('ceph/ceph.js')) &&
         /filmEpoch/.test(read('ceph/ceph.js')) &&
         /acceptOpen/.test(read('ceph/ceph.js')));
     pass('launcher opens ceph/ and starts Helper',
-        /ceph\/\?v=/.test(launch) && /xrayHelperLaunch/.test(launch) && /banana\.ceph\.v1/.test(launch));
+        /ceph\/index\.html\?v=/.test(launch) && /xrayHelperLaunch/.test(launch) && /banana\.ceph\.v1/.test(launch));
     pass('ceph.html forwards to the sidecar folder', /ceph\//.test(read('ceph.html')));
     pass('sidecar name is prefixed Banana',
         /Banana · Lateral ceph/.test(read('ceph/index.html')) &&
@@ -554,6 +561,8 @@ var PAGE_SCRIPT = `(async () => {
     pass('1502 library average is boxed from the UNet landmarks then k-NN mapped',
         /function boxFromPts/.test(read('ceph/ceph-landmarks.js')) &&
         /function fitLibToGuide/.test(read('ceph/ceph-landmarks.js')) &&
+        /BONY_BOX/.test(read('ceph/ceph-landmarks.js')) &&
+        /pointsInSkull/.test(read('ceph/ceph-landmarks.js')) &&
         /boxmean\+unetbox/.test(read('ceph/ceph-landmarks.js')) &&
         /fitLibToGuide/.test(read('ceph/ceph.js')));
     pass('sidecar has Caucasian vs HK Chinese norms with in/warn/out bands',
@@ -689,6 +698,39 @@ var PAGE_SCRIPT = `(async () => {
     pass('catalog imported 400 ISBI + 1000 Aariz + 102 PKU films', cat.isbiFilms === 400 && cat.aarizFilms === 1000 && cat.pkuFilms === 102 && cat.importedFilms === 1502 && cat.landmarks[0].ix > 0.3 && cat.landmarks[1].ix > 0.6);
     pass('empirical mean SNA is near the Steiner norm', cat.meanSna > 80 && cat.meanSna < 86, String(cat.meanSna));
     pass('shapes.json has 1502 bbox-normalized tracings', shapes.n === 1502 && shapes.ids.length === 19 && shapes.shapes[0].p.length === 38);
+    var lmBox = {
+        window: {}, Math: Math, isFinite: isFinite,
+        document: { createElement: function () { return { getContext: function () { return null; } }; } },
+        fetch: function (url) {
+            var rel = String(url).indexOf('shapes') >= 0 ? null : JSON.parse(read('ceph/data/isbi2015.json'));
+            return Promise.resolve({
+                ok: true,
+                json: function () { return Promise.resolve(rel); }
+            });
+        }
+    };
+    lmBox.window = lmBox;
+    vm.createContext(lmBox);
+    vm.runInContext(read('ceph/ceph-landmarks.js'), lmBox);
+    var skullPts = {};
+    var skullFrame = { x: 400, y: 300, w: 1100, h: 1400 };
+    cat.landmarks.forEach(function (d) {
+        skullPts[d.id] = { x: skullFrame.x + d.nx * skullFrame.w, y: skullFrame.y + d.ny * skullFrame.h };
+    });
+    var skullImg = { naturalWidth: 2000, naturalHeight: 2250 };
+    var goodBox = await lmBox.CEPH_LM.loadCatalog().then(function () {
+        return lmBox.CEPH_LM.boxFromPts(skullPts, skullImg);
+    });
+    skullPts.Me = { x: 30, y: 2200 };
+    var farBox = lmBox.CEPH_LM.boxFromPts(skullPts, skullImg);
+    pass('1502 box keeps a normal skull and ignores a point in the collar',
+        goodBox && farBox &&
+        Math.abs(goodBox.w - skullFrame.w) < skullFrame.w * 0.12 &&
+        Math.abs(goodBox.h - skullFrame.h) < skullFrame.h * 0.12 &&
+        farBox.h < goodBox.h * 1.35 &&
+        (farBox.y + farBox.h) < 1900,
+        goodBox && farBox ? ('good=' + Math.round(goodBox.w) + 'x' + Math.round(goodBox.h) +
+            ' farH=' + Math.round(farBox.h) + ' farBottom=' + Math.round(farBox.y + farBox.h)) : 'none');
     pass('dataset README points at Figshare PKU + GitHub Aariz + MIT analysis apps',
         /13265471/.test(read('ceph/data/README.md')) &&
         /manwaarkhd\/aariz/.test(read('ceph/data/README.md')) &&
@@ -697,6 +739,10 @@ var PAGE_SCRIPT = `(async () => {
         /CROP_FRAC = 0\.20/.test(read('ceph/unet/infer.py')) &&
         /def refine_coords/.test(read('ceph/unet/infer.py')) &&
         /refine_coords\(/.test(read('ceph/unet/infer.py')));
+    pass('UNet resizes the film so the landmark box matches the dataset frame',
+        /def dataset_crop/.test(read('ceph/unet/infer.py')) &&
+        /def coords_on_dataset_frame/.test(read('ceph/unet/infer.py')) &&
+        /dataset-box/.test(read('ceph/unet/infer.py')));
     pass('AI service has a /ceph/landmarks hook',
         /ceph\/landmarks/.test(read('xray-ai-service/main.py')) &&
         /detect_image/.test(read('xray-ai-service/main.py')) &&
@@ -951,7 +997,7 @@ var PAGE_SCRIPT = `(async () => {
     pass('refuses to open without a patient', warned && !L._url);
     L.xrayPatientId = 'p1';
     L.xrayCephViewerOpen();
-    pass('opens ceph/ and launches Helper', /ceph\/\?/.test(L._url || '') && L._helper === true, L._url);
+    pass('opens ceph/ and launches Helper', /ceph\/(?:index\.html)?\?/.test(L._url || '') && L._helper === true, L._url);
     L.xrayAllRecords = [{
         id: 'x1', xray_type: 'Cephalometric', file_url: 'http://example/c.jpg', file_name: 'c.png',
         patient_id: 'p1', file_path: 'p1/old.png',
@@ -1529,7 +1575,7 @@ var PAGE_SCRIPT = `(async () => {
         try { await cdp.call('Page.bringToFront'); } catch (e) { /* ignore */ }
         await cdp.call('Page.navigate', { url: hosted });
         await sleep(1200);
-        var live = await cdp.js(PAGE_SCRIPT, true, 60000);
+        var live = await cdp.js(PAGE_SCRIPT, true, 180000);
         pass('live: sidecar ready', live && live.ready === true);
         pass('live: real clinic lateral imported', live && live.loaded === true && live.imgW > 200 && live.imgH > 200,
             live ? (live.imgW + 'x' + live.imgH + ' via=' + live.via) : 'none');

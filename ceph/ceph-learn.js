@@ -207,9 +207,13 @@
         return { pts: pts, films: lib.n, ids: used, kind: 'banana.ceph.clinicTrain' };
     }
 
+    function learnFetch(url, options) {
+        if (g.CEPH_LM && typeof g.CEPH_LM.aiFetch === 'function') return g.CEPH_LM.aiFetch(url, options, 120000);
+        return fetch(url, options || {});
+    }
     function postRemote(trace, apiBase) {
         var url = String(apiBase || (g.XRAY_AI_API_URL || 'http://127.0.0.1:8877')).replace(/\/$/, '') + '/ceph/reference';
-        return fetch(url, {
+        return learnFetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(trace)
@@ -218,7 +222,7 @@
 
     function pullRemote(apiBase) {
         var url = String(apiBase || (g.XRAY_AI_API_URL || 'http://127.0.0.1:8877')).replace(/\/$/, '') + '/ceph/reference';
-        return fetch(url).then(function (r) {
+        return learnFetch(url).then(function (r) {
             if (!r.ok) throw new Error('http');
             return r.json();
         }).then(function (j) {

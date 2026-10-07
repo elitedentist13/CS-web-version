@@ -924,7 +924,7 @@ function xrayCephViewerOpen(rec) {
     try { sessionStorage.setItem(XRAY_CEPH_KEY, JSON.stringify(ctx)); } catch (e) { /* ignore */ }
     try { localStorage.setItem(XRAY_CEPH_KEY, JSON.stringify(ctx)); } catch (e2) { /* ignore */ }
     var bust = encodeURIComponent(ctx.build || String(Date.now()));
-    var page = 'ceph/?v=' + bust + '&x=' + encodeURIComponent(ctx.xrayId || '') + '&_t=' + Date.now();
+    var page = 'ceph/index.html?v=' + bust + '&x=' + encodeURIComponent(ctx.xrayId || '') + '&_t=' + Date.now();
     var title = 'Banana Ceph';
     if (ctx.patientNo) title += ' · #' + ctx.patientNo;
     if (ctx.name) title += ' · ' + ctx.name;
@@ -932,6 +932,7 @@ function xrayCephViewerOpen(rec) {
     if (w) {
         try { w.document.title = title; } catch (e2) { /* ignore until load */ }
     }
+    if (typeof xrayAiProtocolWake === 'function') xrayAiProtocolWake();
     if (typeof xrayHelperLaunch === 'function') xrayHelperLaunch();
     function publishOpen(t, save) {
         if (save && save.file_url && !ctx.viaStrip) ctx.studyUrl = save.file_url;

@@ -324,7 +324,23 @@
                 };
             });
         }
-        return out;
+        return scaleSoftAboutPogS(out);
+    }
+
+    // Sn, Ls and Li form the soft-tissue line. Draw that line 25% shorter
+    // about PogS so the lips sit closer to the chin point.
+    function scaleSoftAboutPogS(pts) {
+        var pivot = pts && pts.PogS;
+        if (!pivot || !isFinite(pivot.x) || !isFinite(pivot.y)) return pts;
+        ['Sn', 'Ls', 'Li'].forEach(function (id) {
+            var p = pts[id];
+            if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
+            pts[id] = {
+                x: pivot.x + (p.x - pivot.x) * 0.75,
+                y: pivot.y + (p.y - pivot.y) * 0.75
+            };
+        });
+        return pts;
     }
 
     function catalogIdSet() {
@@ -459,6 +475,7 @@
             via: box.via
         } : box;
         var mean = fitted || (norm.Po ? placeNormOnBox(norm, fitBox) : (all ? globalBoxMean(fitBox) : localBoxMean(fitBox, opts.k || 24)));
+        if (!fitted) scaleSoftAboutPogS(mean);
         if (fitted) tag += '+popog';
         var spanW = box.w;
         var spanH = box.h;

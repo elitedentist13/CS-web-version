@@ -776,6 +776,26 @@ var PAGE_SCRIPT = `(async () => {
         wildPlaced.Po.x === filmGuide.Po.x,
         filmPlaced && wildPlaced ? ('film=' + Math.round(filmLen) + ' true=' + Math.round(trueLen) +
             ' wild=' + Math.round(wildLen) + ' wildMax=' + Math.round(wildMax)) : 'none');
+    var aspect = cat.meanBoxAspect || 0.948;
+    function normDist(a, b) {
+        return Math.hypot((a.x - b.x) * aspect, a.y - b.y);
+    }
+    var catById = {};
+    cat.landmarks.forEach(function (d) { catById[d.id] = { x: d.nx, y: d.ny }; });
+    var bone = normDist(catById.N, catById.Po);
+    var softOk = true;
+    var softDetail = [];
+    ['Sn', 'Ls', 'Li'].forEach(function (id) {
+        var want = 0.75 * normDist(catById[id], catById.PogS) / bone;
+        var got = Math.hypot(filmPlaced[id].x - filmPlaced.PogS.x, filmPlaced[id].y - filmPlaced.PogS.y) /
+            Math.hypot(filmPlaced.N.x - filmPlaced.Po.x, filmPlaced.N.y - filmPlaced.Po.y);
+        if (!(Math.abs(got - want) < 0.02)) softOk = false;
+        softDetail.push(id + '=' + got.toFixed(3));
+    });
+    pass('1502 soft-tissue line is 25% shorter about PogS',
+        softOk && filmPlaced.PogS &&
+        Math.hypot(filmPlaced.Pog.x - filmPlaced.Po.x, filmPlaced.Pog.y - filmPlaced.Po.y) > 1,
+        softDetail.join(' '));
     pass('dataset README points at Figshare PKU + GitHub Aariz + MIT analysis apps',
         /13265471/.test(read('ceph/data/README.md')) &&
         /manwaarkhd\/aariz/.test(read('ceph/data/README.md')) &&

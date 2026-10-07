@@ -736,7 +736,7 @@ var PAGE_SCRIPT = `(async () => {
     cat.landmarks.forEach(function (d) { popogNorm[d.id] = { x: d.nx, y: d.ny }; });
     var popogGuide = { Po: { x: 200, y: 400 }, Pog: { x: 700, y: 900 } };
     var popogPlaced = lmBox.CEPH_LM.placeByPoPog(popogNorm, popogGuide);
-    var popogWant = Math.hypot(500, 500);
+    var popogWant = Math.hypot(500, 500) * 0.75;
     var popogGot = popogPlaced && Math.hypot(popogPlaced.Pog.x - popogPlaced.Po.x, popogPlaced.Pog.y - popogPlaced.Po.y);
     var popogMax = 0;
     if (popogPlaced) {
@@ -745,10 +745,37 @@ var PAGE_SCRIPT = `(async () => {
             popogMax = Math.max(popogMax, Math.hypot(p.x - popogPlaced.Po.x, p.y - popogPlaced.Po.y));
         });
     }
-    pass('1502 shape scales from Po–Pog, the ear-hole point to pogonion',
+    pass('1502 shape scales from Po–Pog, then 25% smaller',
         popogPlaced && Math.abs(popogPlaced.Po.x - 200) < 1 && Math.abs(popogPlaced.Po.y - 400) < 1 &&
         Math.abs(popogGot - popogWant) < 1 && popogMax < popogWant * 2.2,
         popogPlaced ? ('len=' + Math.round(popogGot) + ' max=' + Math.round(popogMax)) : 'none');
+    var filmGuide = {};
+    cat.landmarks.forEach(function (d) {
+        filmGuide[d.id] = { x: d.ix * 2000, y: d.iy * 2250 };
+    });
+    var filmPlaced = lmBox.CEPH_LM.placeByPoPog(popogNorm, filmGuide);
+    var filmLen = filmPlaced && Math.hypot(filmPlaced.Pog.x - filmPlaced.Po.x, filmPlaced.Pog.y - filmPlaced.Po.y);
+    var trueLen = Math.hypot(filmGuide.Pog.x - filmGuide.Po.x, filmGuide.Pog.y - filmGuide.Po.y);
+    var wildGuide = {};
+    Object.keys(filmGuide).forEach(function (id) { wildGuide[id] = filmGuide[id]; });
+    wildGuide.Pog = { x: 1900, y: 2200 };
+    var wildPlaced = lmBox.CEPH_LM.placeByPoPog(popogNorm, wildGuide);
+    var wildLen = wildPlaced && Math.hypot(wildPlaced.Pog.x - wildPlaced.Po.x, wildPlaced.Pog.y - wildPlaced.Po.y);
+    var wildMax = 0;
+    if (wildPlaced) {
+        Object.keys(wildPlaced).forEach(function (id) {
+            var p = wildPlaced[id];
+            wildMax = Math.max(wildMax, Math.hypot(p.x - wildPlaced.Po.x, p.y - wildPlaced.Po.y));
+        });
+    }
+    pass('1502 shape stays inside the skull when Pog leaves the jaw',
+        filmPlaced && wildPlaced &&
+        Math.abs(filmLen - trueLen * 0.75) < trueLen * 0.04 &&
+        wildLen < trueLen * 0.85 &&
+        wildMax < trueLen &&
+        wildPlaced.Po.x === filmGuide.Po.x,
+        filmPlaced && wildPlaced ? ('film=' + Math.round(filmLen) + ' true=' + Math.round(trueLen) +
+            ' wild=' + Math.round(wildLen) + ' wildMax=' + Math.round(wildMax)) : 'none');
     pass('dataset README points at Figshare PKU + GitHub Aariz + MIT analysis apps',
         /13265471/.test(read('ceph/data/README.md')) &&
         /manwaarkhd\/aariz/.test(read('ceph/data/README.md')) &&

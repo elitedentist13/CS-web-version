@@ -198,8 +198,86 @@
         return placeNormOnBox(norm, box);
     }
 
-    // Po is the ear-hole point. Pog–Po on this film sets the size of the
-    // 1502 shape, so a wide landmark box cannot stretch it.
+    // Po is the white circle at the ear hole. Po–Pog sets the direction, then the
+    // 1502 shape is drawn at three quarters of that length so it stays inside the skull.
+    var PO_POG_LIMIT_IDS = { S: 1, N: 1, A: 1, B: 1, Go: 1, Me: 1, Po: 1, Or: 1, Ar: 1 };
+
+    function peelOutliers(list, marginX, marginY) {
+        if (list.length < 5) return list;
+        var kept = list.slice();
+        var guard = 0;
+        var changed = true;
+        while (changed && kept.length >= 5 && guard < 3) {
+            guard += 1;
+            changed = false;
+            var i, worst = -1, worstOver = 1;
+            for (i = 0; i < kept.length; i++) {
+                var others = [];
+                var j;
+                for (j = 0; j < kept.length; j++) if (j !== i) others.push(kept[j]);
+                var ext = extentsOf(others);
+                var overX = 0;
+                var overY = 0;
+                if (kept[i].x < ext.minx) overX = (ext.minx - kept[i].x) / ext.w;
+                else if (kept[i].x > ext.maxx) overX = (kept[i].x - ext.maxx) / ext.w;
+                if (kept[i].y < ext.miny) overY = (ext.miny - kept[i].y) / ext.h;
+                else if (kept[i].y > ext.maxy) overY = (kept[i].y - ext.maxy) / ext.h;
+                var over = Math.max(overX / marginX, overY / marginY);
+                if (over > worstOver) { worstOver = over; worst = i; }
+            }
+            if (worst >= 0) {
+                kept.splice(worst, 1);
+                changed = true;
+            }
+        }
+        return kept.length >= 4 ? kept : list;
+    }
+
+    function poPogLimit(guide, po) {
+        var list = [];
+        Object.keys(PO_POG_LIMIT_IDS).forEach(function (id) {
+            var p = guide[id];
+            if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
+            list.push({ id: id, x: p.x, y: p.y });
+        });
+        if (list.length < 4) return 0;
+        var core = peelOutliers(list, 0.28, 0.28);
+        var maxD = 0;
+        var i, p;
+        for (i = 0; i < core.length; i++) {
+            p = core[i];
+            if (p.id === 'Po') continue;
+            maxD = Math.max(maxD, Math.hypot(p.x - po.x, p.y - po.y));
+        }
+        if (!(maxD > 8)) return 0;
+        return maxD;
+    }
+
+    function skullShrink(out, po, guide) {
+        var list = [];
+        Object.keys(PO_POG_LIMIT_IDS).forEach(function (id) {
+            var p = guide[id];
+            if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
+            list.push({ id: id, x: p.x, y: p.y });
+        });
+        if (list.length < 4) return 1;
+        var ext = extentsOf(peelOutliers(list, 0.28, 0.28));
+        var minx = ext.minx;
+        var maxx = ext.maxx;
+        var miny = ext.miny;
+        var maxy = ext.maxy;
+        var shrink = 1;
+        Object.keys(out).forEach(function (id) {
+            var dx = out[id].x - po.x;
+            var dy = out[id].y - po.y;
+            if (dx > 1 && po.x + dx > maxx) shrink = Math.min(shrink, (maxx - po.x) / dx);
+            if (dx < -1 && po.x + dx < minx) shrink = Math.min(shrink, (minx - po.x) / dx);
+            if (dy > 1 && po.y + dy > maxy) shrink = Math.min(shrink, (maxy - po.y) / dy);
+            if (dy < -1 && po.y + dy < miny) shrink = Math.min(shrink, (miny - po.y) / dy);
+        });
+        return (shrink > 0 && shrink < 1) ? shrink : 1;
+    }
+
     function placeByPoPog(norm, guide) {
         var po = guide && guide.Po;
         var pog = guide && guide.Pog;
@@ -215,7 +293,13 @@
         var pdy = pog.y - po.y;
         var pLen = Math.hypot(pdx, pdy);
         if (!(dLen > 0.05) || !(pLen > 8)) return null;
-        var scale = pLen / dLen;
+        var cap = poPogLimit(guide, po);
+        if (cap && pLen > cap) {
+            pdx *= cap / pLen;
+            pdy *= cap / pLen;
+            pLen = cap;
+        }
+        var scale = (pLen / dLen) * 0.75;
         var ang = Math.atan2(pdy, pdx) - Math.atan2(ddy, ddx);
         var cos = Math.cos(ang);
         var sin = Math.sin(ang);
@@ -230,7 +314,17 @@
                 y: po.y + (x * sin + y * cos) * scale
             };
         });
-        return out.Po && out.Pog ? out : null;
+        if (!out.Po || !out.Pog) return null;
+        var fit = skullShrink(out, po, guide);
+        if (fit < 1) {
+            Object.keys(out).forEach(function (id) {
+                out[id] = {
+                    x: po.x + (out[id].x - po.x) * fit,
+                    y: po.y + (out[id].y - po.y) * fit
+                };
+            });
+        }
+        return out;
     }
 
     function catalogIdSet() {
@@ -357,7 +451,14 @@
             : ((box && box.via === 'unet') ? 'boxmean+unetbox' : 'boxmean+edge');
         var norm = averageShapes(all ? allShapeIndices() : neighbourIndices(box, opts.k || 24));
         var fitted = placeByPoPog(norm, opts.guidePts);
-        var mean = fitted || (norm.Po ? placeNormOnBox(norm, box) : (all ? globalBoxMean(box) : localBoxMean(box, opts.k || 24)));
+        var fitBox = box ? {
+            x: box.x + box.w * 0.125,
+            y: box.y + box.h * 0.125,
+            w: box.w * 0.75,
+            h: box.h * 0.75,
+            via: box.via
+        } : box;
+        var mean = fitted || (norm.Po ? placeNormOnBox(norm, fitBox) : (all ? globalBoxMean(fitBox) : localBoxMean(fitBox, opts.k || 24)));
         if (fitted) tag += '+popog';
         var spanW = box.w;
         var spanH = box.h;

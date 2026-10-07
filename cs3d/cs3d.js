@@ -72,10 +72,14 @@
     function markTool(name) {
         last.tool = name;
         var box = $('tools');
-        if (!box) return;
-        Array.prototype.forEach.call(box.querySelectorAll('[data-tool]'), function (b) {
-            b.className = b.getAttribute('data-tool') === name ? 'on' : '';
-        });
+        if (box) {
+            Array.prototype.forEach.call(box.querySelectorAll('[data-tool]'), function (b) {
+                b.className = b.getAttribute('data-tool') === name ? 'on' : '';
+            });
+        }
+        var implantBtn = $('btnImplant');
+        if (implantBtn) implantBtn.className = name === 'Implant' ? 'on' : '';
+        if (window.CS3D_IMPLANT && CS3D_IMPLANT.setActive) CS3D_IMPLANT.setActive(name === 'Implant');
     }
 
     function mouse() {
@@ -107,13 +111,70 @@
         addIf(T.EraserTool);
     }
 
+    function loseCanvasGl(c) {
+        if (!c) return;
+        try {
+            var gl = c.getContext('webgl2') || c.getContext('webgl') || c.getContext('experimental-webgl');
+            var ext = gl && gl.getExtension && gl.getExtension('WEBGL_lose_context');
+            if (ext && ext.loseContext) ext.loseContext();
+        } catch (eGl) { /* ignore */ }
+    }
+
+    function loseViewportGl(wipe) {
+        try {
+            var old = window.csCore && csCore.getRenderingEngine && csCore.getRenderingEngine(ENGINE_ID);
+            var box = old && old.offScreenCanvasContainer;
+            if (box && box.querySelectorAll) {
+                Array.prototype.forEach.call(box.querySelectorAll('canvas'), loseCanvasGl);
+            }
+        } catch (eOff) { /* ignore */ }
+        try {
+            Array.prototype.forEach.call(document.querySelectorAll('canvas'), loseCanvasGl);
+        } catch (eDoc) { /* ignore */ }
+        if (!wipe) return;
+        var nodes = els();
+        [nodes.axial, nodes.sagittal, nodes.coronal, nodes.volume].forEach(function (el) {
+            if (!el) return;
+            var canvases = el.querySelectorAll ? el.querySelectorAll('canvas') : [];
+            Array.prototype.forEach.call(canvases, loseCanvasGl);
+            try { el.innerHTML = ''; } catch (eWipe) { /* ignore */ }
+        });
+    }
+
+    function patchCanvasGl() {
+        var proto = window.HTMLCanvasElement && HTMLCanvasElement.prototype;
+        if (!proto || proto.__bananaGl) return;
+        var orig = proto.getContext;
+        proto.getContext = function (type, attrs) {
+            var gl = orig.apply(this, arguments);
+            if (!gl && type && /webgl/i.test(String(type))) {
+                try { gl = orig.call(this, type); } catch (eRetry) { gl = null; }
+            }
+            return gl;
+        };
+        proto.__bananaGl = 1;
+    }
+
+    function isGlProxyError(err) {
+        var msg = (err && err.message) ? err.message : String(err || '');
+        return /Cannot create proxy with a non-object/i.test(msg) || /WEBGL_lose_context|webgl/i.test(msg);
+    }
+
     function destroyEngine() {
+        if (window.CS3D_IMPLANT && CS3D_IMPLANT.suspend) {
+            try { CS3D_IMPLANT.suspend(true); } catch (eSus) { /* ignore */ }
+        }
+        if (window.CS3D_IMPLANT && CS3D_IMPLANT.onDestroy) {
+            try { CS3D_IMPLANT.onDestroy(); } catch (eImp) { /* ignore */ }
+        }
         var core = window.csCore;
         var tools = window.csTools;
         try {
             var old = core.getRenderingEngine && core.getRenderingEngine(ENGINE_ID);
+            loseViewportGl(false);
             if (old && old.destroy) old.destroy();
         } catch (e) { /* ignore */ }
+        loseViewportGl(true);
         try { tools.ToolGroupManager.destroyToolGroup(TG_MPR); } catch (e2) { /* ignore */ }
         try { tools.ToolGroupManager.destroyToolGroup(TG_3D); } catch (e3) { /* ignore */ }
         try { if (core.cache && core.cache.purgeVolumeCache) core.cache.purgeVolumeCache(); } catch (e4) { /* ignore */ }
@@ -184,9 +245,73 @@
         return { mpr: mpr, vol: vol };
     }
 
+    function implantWorld() {
+        var I = window.CS3D_IMPLANT;
+        if (!I) return null;
+        try {
+            if (I.alignMprToSelectedImplant) return I.alignMprToSelectedImplant();
+            var st = I.state && I.state();
+            var row = st && st.implants && (st.implants.filter(function (imp) { return imp.id === st.selectedId; })[0] || st.implants[0]);
+            return row && row.position ? [row.position[0], row.position[1], row.position[2]] : null;
+        } catch (e) { return null; }
+    }
+
+    function snapCrosshairsToWorld(world) {
+        if (!world) return false;
+        var T = window.csTools;
+        var mpr = T && T.ToolGroupManager && T.ToolGroupManager.getToolGroup(TG_MPR);
+        var toolName = T && T.CrosshairsTool && T.CrosshairsTool.toolName;
+        var tool = mpr && toolName && mpr.getToolInstance && mpr.getToolInstance(toolName);
+        if (!tool) return false;
+        var pos = [Number(world[0]), Number(world[1]), Number(world[2])];
+        try {
+            if (tool.setToolCenter) tool.setToolCenter(pos);
+        } catch (eSet) { /* ignore */ }
+        try {
+            var core = window.csCore;
+            var engine = core && core.getRenderingEngine && core.getRenderingEngine(ENGINE_ID);
+            var ax = engine && engine.getViewport && engine.getViewport(VP.AX);
+            if (tool._jump && ax) {
+                tool._jump({
+                    viewport: ax,
+                    renderingEngine: engine,
+                    viewportId: VP.AX,
+                    renderingEngineId: ENGINE_ID
+                }, pos);
+            }
+            if (engine && engine.render) engine.render();
+        } catch (eJump) { /* ignore */ }
+        try {
+            if (window.CS3D_IMPLANT && CS3D_IMPLANT.drawImplants) CS3D_IMPLANT.drawImplants();
+        } catch (eDraw) { /* ignore */ }
+        return true;
+    }
+
+    function afterPaint(fn) {
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(function () { requestAnimationFrame(fn); });
+        } else {
+            fn();
+        }
+    }
+
+    function crosshairCenter() {
+        try {
+            var T = window.csTools;
+            var mpr = T && T.ToolGroupManager && T.ToolGroupManager.getToolGroup(TG_MPR);
+            var toolName = T && T.CrosshairsTool && T.CrosshairsTool.toolName;
+            var tool = mpr && toolName && mpr.getToolInstance && mpr.getToolInstance(toolName);
+            if (!tool || !tool.toolCenter) return null;
+            return [Number(tool.toolCenter[0]), Number(tool.toolCenter[1]), Number(tool.toolCenter[2])];
+        } catch (e) { return null; }
+    }
+
     function setTool(name) {
         var T = window.csTools;
-        if (!T || !T.ToolGroupManager) return;
+        if (!T || !T.ToolGroupManager) {
+            markTool(name);
+            return;
+        }
         var mpr = T.ToolGroupManager.getToolGroup(TG_MPR);
         if (!mpr) { markTool(name); return; }
         var M = mouse();
@@ -194,6 +319,20 @@
         passive.forEach(function (row) {
             try { mpr.setToolPassive(row[1].toolName); } catch (e) { /* skip */ }
         });
+        var world = null;
+        if (name === 'Crosshairs') {
+            world = implantWorld();
+        }
+        if (name === 'Implant') {
+            markTool('Implant');
+            if (T.StackScrollTool) {
+                try { mpr.setToolActive(T.StackScrollTool.toolName, { bindings: [{ mouseButton: M.Wheel }] }); } catch (eImpW) { /* skip */ }
+            }
+            if (T.ZoomTool) {
+                try { mpr.setToolActive(T.ZoomTool.toolName, { bindings: [{ mouseButton: M.Secondary }] }); } catch (eImpZ) { /* skip */ }
+            }
+            return;
+        }
         var match = passive.filter(function (row) { return row[0] === name; })[0];
         if (!match) match = passive[0];
         if (match) {
@@ -201,6 +340,10 @@
                 mpr.setToolActive(match[1].toolName, { bindings: [{ mouseButton: M.Primary }] });
             } catch (e2) { /* skip */ }
             markTool(match[0]);
+            if (match[0] === 'Crosshairs' && world) {
+                snapCrosshairsToWorld(world);
+                afterPaint(function () { snapCrosshairsToWorld(world); });
+            }
         }
         if (T.StackScrollTool) {
             try { mpr.setToolActive(T.StackScrollTool.toolName, { bindings: [{ mouseButton: M.Wheel }] }); } catch (e3) { /* skip */ }
@@ -345,7 +488,9 @@
         } catch (e2) { /* ignore */ }
     }
 
-    async function loadVolume(imageIds, label) {
+    async function loadVolume(imageIds, label, opts) {
+        opts = opts || {};
+        var include3d = opts.include3d !== false;
         var core = window.csCore;
         var Enums = core.Enums;
         var nodes = els();
@@ -358,7 +503,7 @@
         destroyEngine();
         var groups = buildToolGroups(volumeId);
         var engine = new core.RenderingEngine(ENGINE_ID);
-        engine.setViewports([
+        var defs = [
             {
                 viewportId: VP.AX,
                 type: Enums.ViewportType.ORTHOGRAPHIC,
@@ -376,36 +521,50 @@
                 type: Enums.ViewportType.ORTHOGRAPHIC,
                 element: nodes.coronal,
                 defaultOptions: { orientation: Enums.OrientationAxis.CORONAL, background: [0.04, 0.07, 0.12] }
-            },
-            {
+            }
+        ];
+        if (include3d) {
+            defs.push({
                 viewportId: VP.VOL,
                 type: Enums.ViewportType.VOLUME_3D,
                 element: nodes.volume,
                 defaultOptions: { orientation: Enums.OrientationAxis.CORONAL, background: [0.02, 0.03, 0.06] }
-            }
-        ]);
+            });
+        }
+        engine.setViewports(defs);
         groups.mpr.addViewport(VP.AX, ENGINE_ID);
         groups.mpr.addViewport(VP.SAG, ENGINE_ID);
         groups.mpr.addViewport(VP.COR, ENGINE_ID);
-        groups.vol.addViewport(VP.VOL, ENGINE_ID);
+        if (include3d) groups.vol.addViewport(VP.VOL, ENGINE_ID);
 
         var volume = await core.volumeLoader.createAndCacheVolume(volumeId, { imageIds: imageIds });
         volume.load();
-        var mprIds = [VP.AX, VP.SAG, VP.COR];
+        var vpIds = [VP.AX, VP.SAG, VP.COR];
+        if (include3d) vpIds = vpIds.concat([VP.VOL]);
         if (core.setVolumesForViewports) {
-            await core.setVolumesForViewports(engine, [{ volumeId: volumeId }], mprIds.concat([VP.VOL]));
+            await core.setVolumesForViewports(engine, [{ volumeId: volumeId }], vpIds);
         } else {
-            await Promise.all(mprIds.concat([VP.VOL]).map(function (id) {
+            await Promise.all(vpIds.map(function (id) {
                 return engine.getViewport(id).setVolumes([{ volumeId: volumeId }]);
             }));
         }
-        try { apply3dPreset(engine.getViewport(VP.VOL)); } catch (e3d) { console.warn('[cs3d] 3D preset', e3d); }
+        if (include3d) {
+            try { apply3dPreset(engine.getViewport(VP.VOL)); } catch (e3d) { console.warn('[cs3d] 3D preset', e3d); }
+        } else if (nodes.volume) {
+            nodes.volume.innerHTML = '<div class="label" style="position:absolute;left:8px;top:8px">Volume skipped (GPU). Three-plane view is enough for implants.</div>';
+        }
         setTool(last.tool || 'WindowLevel');
         engine.resize();
         engine.render();
         last.ready = true;
         last.error = '';
-        setStatus((label || 'Loaded') + ': ' + imageIds.length + ' instances · volume + three planes. Left = tool, right = zoom, wheel = scroll.', 'ok');
+        last.include3d = include3d;
+        setStatus((label || 'Loaded') + ': ' + imageIds.length + ' instances · volume + three planes' +
+            (include3d ? '' : ' (3D pane skipped — GPU busy)') +
+            '. Left = tool, right = zoom, wheel = scroll.', 'ok');
+        if (window.CS3D_IMPLANT && CS3D_IMPLANT.onVolumeReady) {
+            try { CS3D_IMPLANT.onVolumeReady(); } catch (eReady) { /* ignore */ }
+        }
     }
 
     async function loadStack(imageIds, label) {
@@ -434,6 +593,9 @@
         last.ready = true;
         last.error = '';
         setStatus((label || 'Loaded') + ': ' + imageIds.length + ' frame' + (imageIds.length === 1 ? '' : 's') + ' (stack — add more slices for three-plane MPR).', 'ok');
+        if (window.CS3D_IMPLANT && CS3D_IMPLANT.onVolumeReady) {
+            try { CS3D_IMPLANT.onVolumeReady(); } catch (eReady2) { /* ignore */ }
+        }
         if (T && T.StackScrollTool) {
             try {
                 groups.mpr.setToolActive(T.StackScrollTool.toolName, { bindings: [{ mouseButton: mouse().Wheel }] });
@@ -475,9 +637,24 @@
                     }
                     return true;
                 } catch (volErr) {
-                    console.warn('[cs3d] volume failed, trying stack', volErr);
-                    await loadStack(volumeIds, label);
-                    return true;
+                    console.warn('[cs3d] volume failed', volErr);
+                    await new Promise(function (r) { setTimeout(r, 80); });
+                    try {
+                        await loadVolume(volumeIds, label, { include3d: false });
+                        return true;
+                    } catch (eMpr) {
+                        console.warn('[cs3d] MPR-only retry failed', eMpr);
+                    }
+                    try {
+                        await loadStack(volumeIds, label);
+                        return true;
+                    } catch (eStack) {
+                        console.warn('[cs3d] stack retry failed', eStack);
+                        if (isGlProxyError(volErr) || isGlProxyError(eMpr) || isGlProxyError(eStack)) {
+                            throw new Error('GPU is busy (WebGL). Close extra Banana Dicom Reader / 3D windows, then Load zip again.');
+                        }
+                        throw volErr;
+                    }
                 }
             }
             if (volumeIds.length) {
@@ -506,6 +683,7 @@
         var dil = window.csDicom;
         var core = window.csCore;
         var tools = window.csTools;
+        patchCanvasGl();
         if (dil.init) {
             await dil.init({
                 maxWebWorkers: 0,
@@ -555,7 +733,9 @@
             tool: last.tool,
             volumeId: last.volumeId,
             error: last.error,
-            patient: window.__bananaCs3dCtx || null
+            include3d: last.include3d !== false,
+            patient: window.__bananaCs3dCtx || null,
+            implant: (window.CS3D_IMPLANT && CS3D_IMPLANT.state) ? CS3D_IMPLANT.state() : null
         };
     }
 
@@ -659,7 +839,10 @@
         setTool: setTool,
         setStatus: setStatus,
         resetCameras: resetCameras,
-        state: state
+        volumeId: function () { return last.volumeId; },
+        crosshairCenter: crosshairCenter,
+        state: state,
+        implant: null
     };
 
     bindUi();

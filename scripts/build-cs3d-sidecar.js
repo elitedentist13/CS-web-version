@@ -101,6 +101,7 @@ function main() {
     patchWasmUrls(bundleFile);
     patchWorkerInit(bundleFile);
     patchMainThreadDecode(bundleFile);
+    patchVtkNullWebglProxy(bundleFile);
     var bytes = fs.statSync(path.join(VENDOR, 'cs3d.bundle.js')).size;
     console.log('Banana Dicom Reader vendor ready at ' + VENDOR + ' (' + Math.round(bytes / 1024) + ' KB)');
 }
@@ -147,6 +148,21 @@ function patchMainThreadDecode(file) {
     }
     fs.writeFileSync(file, js.replace(from, to));
     console.log('patched decodeImageFrame to run on the main thread');
+}
+
+function patchVtkNullWebglProxy(file) {
+    var js = fs.readFileSync(file, 'utf8');
+    var from = 'return new Proxy(result, getCachingContextHandler());';
+    var to = 'if (!result) {\n        result = model.canvas.getContext("webgl2") || model.canvas.getContext("webgl") || model.canvas.getContext("experimental-webgl");\n      }\n      if (!result) return null;\n      return new Proxy(result, getCachingContextHandler());';
+    if (js.indexOf(from) < 0) {
+        throw new Error('vtk WebGL proxy patch target not found');
+    }
+    if (js.indexOf('if (!result) return null;\n      return new Proxy(result, getCachingContextHandler());') >= 0) {
+        console.log('vtk WebGL proxy already patched');
+        return;
+    }
+    fs.writeFileSync(file, js.replace(from, to));
+    console.log('patched vtk get3DContext to skip Proxy(null)');
 }
 
 main();

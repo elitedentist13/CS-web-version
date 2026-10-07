@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261006fx64';
+  var BUILD = '20261007den1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -3476,6 +3476,8 @@
                   data-i18n="xb.open" data-i18n-title="xb.openTitle"></button>
           <button type="button" id="btnCs3dViewer" class="xray-cs3d-btn" onclick="xrayCs3dViewerOpen()"
                   data-i18n="xdr.open" data-i18n-title="xdr.openTitle"></button>
+          <button type="button" id="btnDenctViewer" class="xray-denct-btn" onclick="xrayDenctViewerOpen()"
+                  data-i18n="xdv.open" data-i18n-title="xdv.openTitle"></button>
           <button type="button" id="btnCephViewer" class="xray-ceph-btn" onclick="xrayCephViewerOpen()"
                   data-i18n="xc.open" data-i18n-title="xc.openTitle"></button>
           <a id="btnXrayHelperGuide" class="xray-helper-guide-btn" href="docs/xray-helper-manual.html?v=20260926b#lang-en" target="_blank"
@@ -7880,6 +7882,7 @@
     'app-xray-dicom.js?v=20261003cbe',
     'app-xray-cbct.js?v=20261003cbe',
     'app-xray-cs3d.js?v=20261003cbe',
+    'app-xray-denct.js?v=20261007den1',
     'app-xray-ceph.js?v=20261005fx53',
     'app-perio-dictation.js?v=20260910bop1',
     'app-drugs.js',

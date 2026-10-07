@@ -16562,6 +16562,10 @@ void main()
         vtkDebugMacro3("using webgl1");
         result = model.canvas.getContext("webgl", options2) || model.canvas.getContext("experimental-webgl", options2);
       }
+      if (!result) {
+        result = model.canvas.getContext("webgl2") || model.canvas.getContext("webgl") || model.canvas.getContext("experimental-webgl");
+      }
+      if (!result) return null;
       return new Proxy(result, getCachingContextHandler());
     };
     publicAPI.get2DContext = function() {

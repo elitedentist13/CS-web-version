@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Banana Dicom Reader</title>
-  <script src="./cs3d-boot.js?v=20261003cbe"></script>
-  <link rel="stylesheet" href="./cs3d.css?v=20261003cbe">
+  <script src="./cs3d-boot.js?v=20261007imp7"></script>
+  <link rel="stylesheet" href="./cs3d.css?v=20261007imp7">
 </head>
 <body>
   <div id="app">
@@ -18,33 +18,61 @@
       <input id="folderPick" type="file" multiple webkitdirectory directory>
       <input id="filePick" type="file" multiple accept=".dcm,.dicom,.ima,application/dicom">
       <div id="tools" class="tools"></div>
+      <button type="button" id="btnImplant" data-tool="Implant" data-i18n="cs3d.implant.tool">Implant</button>
       <span id="status" class="status">Load a DICOM zip, folder, or files. Share this window in X-ray Helper to save a view.</span>
     </header>
-    <div id="grid">
-      <div class="pane" data-vp="AXIAL">
-        <div class="label">Axial</div>
-        <div class="vp" id="vpAxial" oncontextmenu="return false"></div>
+    <div id="work">
+      <div id="grid">
+        <div class="pane" data-vp="AXIAL">
+          <div class="label">Axial</div>
+          <div class="vp" id="vpAxial" oncontextmenu="return false"></div>
+        </div>
+        <div class="pane" data-vp="SAGITTAL">
+          <div class="label">Sagittal</div>
+          <div class="vp" id="vpSagittal" oncontextmenu="return false"></div>
+        </div>
+        <div class="pane" data-vp="CORONAL">
+          <div class="label">Coronal</div>
+          <div class="vp" id="vpCoronal" oncontextmenu="return false"></div>
+        </div>
+        <div class="pane" data-vp="VOLUME_3D">
+          <div class="label">Volume</div>
+          <div class="vp" id="vpVolume" oncontextmenu="return false"></div>
+        </div>
       </div>
-      <div class="pane" data-vp="SAGITTAL">
-        <div class="label">Sagittal</div>
-        <div class="vp" id="vpSagittal" oncontextmenu="return false"></div>
-      </div>
-      <div class="pane" data-vp="CORONAL">
-        <div class="label">Coronal</div>
-        <div class="vp" id="vpCoronal" oncontextmenu="return false"></div>
-      </div>
-      <div class="pane" data-vp="VOLUME_3D">
-        <div class="label">Volume</div>
-        <div class="vp" id="vpVolume" oncontextmenu="return false"></div>
-      </div>
+      <aside id="implantPanel" aria-label="Virtual implants">
+        <h2 data-i18n="cs3d.implant.tool">Implant</h2>
+        <p class="imp-hint">Tapered cylinder on the three planes. Visual planning only.</p>
+        <label>Diameter (mm) <input id="impDia" type="number" min="2" max="8" step="0.1" value="4"></label>
+        <label>Length (mm) <input id="impLen" type="number" min="6" max="20" step="0.5" value="10"></label>
+        <label>Pivot
+          <select id="impPivot">
+            <option value="center">Center</option>
+            <option value="head">Head</option>
+            <option value="tip">Tip</option>
+          </select>
+        </label>
+        <div class="imp-actions">
+          <button type="button" id="impAdd" data-i18n="cs3d.implant.add">Add implant</button>
+          <button type="button" id="impRot">Rotate 15°</button>
+          <button type="button" id="impDup">Duplicate</button>
+          <button type="button" id="impLock">Lock</button>
+          <button type="button" id="impDel">Delete</button>
+          <button type="button" id="impSave">Save plan</button>
+        </div>
+        <div id="impDist">Distance: —</div>
+        <div id="impList"></div>
+      </aside>
     </div>
+    <div id="implantDisclaimer" class="implant-disclaimer" data-i18n="cs3d.implant.disclaimer">Visual planning only. Not a surgical guide. Not a substitute for Blue Sky Plan or a CE-marked implant system.</div>
     <div id="bananaCs3dBar">
       Banana Dicom Reader — Cornerstone3D volume + three planes. Independent of OHIF. Share THIS window in X-ray Helper to save a view.
       <span id="bananaCs3dWho"></span>
     </div>
   </div>
-  <script src="./vendor/cs3d.bundle.js?v=20261003cbe"></script>
-  <script src="./cs3d-load.js?v=20261003cbe"></script>
-  <script src="./cs3d.js?v=20261003cbh"></script>
+  <script src="./vendor/cs3d.bundle.js?v=20261007imp7"></script>
+  <script src="./cs3d-load.js?v=20261007imp7"></script>
+  <script src="./cs3d.js?v=20261007imp7"></script>
+  <script src="./cs3d-implant.js?v=20261007imp7"></script>
 </body>
 </html>

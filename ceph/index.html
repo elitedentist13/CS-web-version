@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Banana · Lateral cephalometric</title>
-  <link rel="stylesheet" href="ceph.css?v=20261005fx53">
+  <link rel="stylesheet" href="ceph.css?v=20261008pr3">
 </head>
 <body>
   <div id="app">
@@ -42,7 +42,7 @@
       <button type="button" id="btnResetView" data-i18n="btn.reset" data-i18n-title="btn.resetTitle">Reset view</button>
       <button type="button" class="primary" id="btnSaveTrace" data-i18n="btn.save" data-i18n-title="btn.saveTitle">Save tracing</button>
       <button type="button" id="btnLoadTrace" disabled aria-disabled="true" data-i18n="btn.loadTrace" data-i18n-title="btn.loadTraceTitle">Load tracing</button>
-      <button type="button" id="btnPrint" data-i18n="btn.print" data-i18n-title="btn.printTitle">Print report</button>
+      <button type="button" id="btnPrint" data-i18n="btn.print" data-i18n-title="btn.printTitle">One-page report</button>
       <button type="button" id="btnJson" data-i18n="btn.json">Export JSON</button>
       <button type="button" id="btnCsv" data-i18n="btn.csv">Export CSV</button>
       <button type="button" id="btnPng" data-i18n="btn.png">Export marked PNG</button>
@@ -126,10 +126,29 @@
     </div>
     <div id="bananaCephBar">Banana cephalometric sidecar</div>
   </div>
-  <script src="ceph-i18n.js?v=20261008ds1"></script>
+  <div id="printSheet" aria-hidden="true">
+    <div class="pr-top">
+      <div class="pr-id">
+        <h1 id="prBrand">Banana · Lateral ceph</h1>
+        <h2 id="prPatientHead" data-i18n="pdf.patient">Patient</h2>
+        <div id="prId"></div>
+      </div>
+      <div class="pr-film">
+        <img id="prFilm" alt="">
+        <p id="prNoFilm" data-i18n="print.noFilm">Load a film to include the tracing.</p>
+      </div>
+    </div>
+    <div class="pr-bot">
+      <h2 id="prFindHead" data-i18n="print.findings">Major findings</h2>
+      <div id="prFindings" class="pr-find"></div>
+      <h2 id="prDataHead" data-i18n="print.major">Major measurements</h2>
+      <table id="prData"></table>
+    </div>
+  </div>
+  <script src="ceph-i18n.js?v=20261008pr3"></script>
   <script src="ceph-landmarks.js?v=20261008cvm1"></script>
   <script src="ceph-learn.js?v=20261007cephai1"></script>
   <script src="ceph-analysis.js?v=20261005fx53"></script>
-  <script src="ceph.js?v=20261007pdf3"></script>
+  <script src="ceph.js?v=20261008pr2"></script>
 </body>
 </html>

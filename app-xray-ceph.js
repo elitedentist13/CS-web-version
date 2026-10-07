@@ -1,6 +1,7 @@
 /* =========================================================
    app-xray-ceph.js - open the lateral cephalometric sidecar.
-   Same wiring as CBCT / OHIF: new window + X-ray Helper save-back.
+   Opens the cephalometric window on its own. Staff can share that
+   window in X-ray Helper when they want a saved view.
    Save tracing copies the film into the xrays bucket, creates a
    ceph_saves ID, and wires that ID to the tracing so the same
    study reopens with those landmarks on any clinic PC.
@@ -941,7 +942,6 @@ function xrayCephViewerOpen(rec) {
         try { w.document.title = title; } catch (e2) { /* ignore until load */ }
     }
     if (typeof xrayAiProtocolWake === 'function') xrayAiProtocolWake();
-    if (typeof xrayHelperLaunch === 'function') xrayHelperLaunch();
     function publishOpen(t, save) {
         if (save && save.file_url && !ctx.viaStrip) ctx.studyUrl = save.file_url;
         if (save && save.source_xray_id && !ctx.xrayId) ctx.xrayId = save.source_xray_id;

@@ -1504,7 +1504,111 @@
         }
         return applyTraceRec(pending.rec, pending.via);
     }
+    var PRINT_MAJOR = [
+        ['steiner', 'SNA'],
+        ['steiner', 'SNB'],
+        ['steiner', 'ANB'],
+        ['steiner', 'SN–GoGn'],
+        ['steiner', 'U1–SN'],
+        ['tweed', 'FMA'],
+        ['tweed', 'IMPA'],
+        ['wits', 'AO–BO'],
+        ['downs', 'Angle of convexity'],
+        ['mcnamara', 'A to N-perp'],
+        ['soft', 'Ls to Sn–PogS'],
+        ['soft', 'Li to Sn–PogS']
+    ];
+
+    function printEsc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function printRow(res, gid, name) {
+        var g = (res.groups || []).filter(function (x) { return x.id === gid; })[0];
+        if (!g) return null;
+        var i;
+        for (i = 0; i < (g.rows || []).length; i++) {
+            if (g.rows[i].name === name) return g.rows[i];
+        }
+        return null;
+    }
+
+    function fillPrintSheet() {
+        var brand = $('prBrand');
+        if (brand) brand.textContent = tx('ui.brand') || 'Banana · Lateral ceph';
+        var head = $('prPatientHead');
+        if (head) head.textContent = tx('pdf.patient');
+        var findHead = $('prFindHead');
+        if (findHead) findHead.textContent = tx('print.findings');
+        var dataHead = $('prDataHead');
+        if (dataHead) dataHead.textContent = tx('print.major');
+        var id = $('prId');
+        if (id) {
+            id.innerHTML = reportPatientGrid().map(function (r) {
+                var html = '<div><span>' + printEsc(r[0]) + '</span><b>' + printEsc(r[1] || '—') + '</b></div>';
+                if (r[2]) html += '<div><span>' + printEsc(r[2]) + '</span><b>' + printEsc(r[3] || '—') + '</b></div>';
+                return html;
+            }).join('');
+        }
+        var film = $('prFilm');
+        var empty = $('prNoFilm');
+        if (empty) empty.textContent = tx('print.noFilm');
+        if (film) {
+            if (img.naturalWidth) {
+                try { film.src = reportFilmCanvas().toDataURL('image/jpeg', 0.82); } catch (eFilm) { film.removeAttribute('src'); }
+                film.hidden = !film.getAttribute('src');
+            } else {
+                film.removeAttribute('src');
+                film.hidden = true;
+            }
+        }
+        if (empty) empty.hidden = !!(film && !film.hidden);
+        var res = (window.__cephLast && window.__cephLast.result) || null;
+        var s = res && res.summary;
+        var find = $('prFindings');
+        if (find) {
+            var bits = [];
+            if (s) {
+                bits.push([tx('sum.skeletal'), ph(s.skeletal)]);
+                bits.push([tx('sum.vertical'), ph(s.vertical)]);
+                bits.push([tx('sum.profile'), ph(s.profile)]);
+                bits.push([tx('sum.incisor'), ph(s.incisor) + ' · ' + tx('sum.lip') + ' ' + ph(s.lip)]);
+                if (s.extraction) {
+                    var scoreBit = String(s.extraction).replace(/^[A-Za-z\-]+\s+/, '');
+                    var whyBits = (s.extractionReasons && s.extractionReasons.length) ? s.extractionReasons : s.extractionWhy;
+                    bits.push([tx('sum.extract'), extractBandTx(s.extractionBand) + ' ' + scoreBit + (whyBits ? ' · ' + phJoin(whyBits) : '')]);
+                }
+                if (s.cvm || s.cvmComment) {
+                    var cvmLine = ph(s.cvm || '');
+                    if (s.cvmKey && s.cvmKey !== 'cvm.need') {
+                        cvmLine += ' · ' + cvmCommentTx({ comment: s.cvmComment, commentKey: s.cvmKey });
+                    }
+                    bits.push([tx('sum.cvm'), cvmLine]);
+                }
+            }
+            find.innerHTML = bits.length ? bits.map(function (pair) {
+                return '<div><span>' + printEsc(pair[0]) + '</span><b>' + printEsc(pair[1] || '—') + '</b></div>';
+            }).join('') : '<div><b>—</b></div>';
+        }
+        var data = $('prData');
+        if (data) {
+            var items = res ? PRINT_MAJOR.map(function (spec) {
+                var r = printRow(res, spec[0], spec[1]);
+                if (!r) return '';
+                var val = r.value == null ? '—' : (r.value + (r.unit ? (' ' + r.unit) : ''));
+                var delta = r.delta == null ? '' : ((r.delta > 0 ? '+' : '') + r.delta);
+                return '<tr class="band-' + printEsc(r.band || '') + '"><td>' + printEsc(r.name) +
+                    '</td><td>' + printEsc(val) + '</td><td>' + printEsc(delta) + '</td><td>' + printEsc(r.norm || '') + '</td></tr>';
+            }).join('') : '';
+            data.innerHTML = '<tr><th>' + printEsc(tx('th.measure')) + '</th><th>' + printEsc(tx('th.value')) +
+                '</th><th>' + printEsc(tx('th.delta')) + '</th><th>' + printEsc(tx('th.norm')) + '</th></tr>' + items;
+        }
+    }
+
     function printReport() {
+        renderAnalysis();
+        fillPrintSheet();
         window.print();
         return { ok: true };
     }

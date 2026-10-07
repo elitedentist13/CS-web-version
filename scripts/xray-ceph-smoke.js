@@ -510,7 +510,7 @@ var PAGE_SCRIPT = `(async () => {
     pass('index BUILD ' + BUILD, html.indexOf("var BUILD = '" + BUILD + "'") >= 0);
     pass('Ceph button is on the X-ray tab', html.indexOf('id="btnCephViewer"') >= 0 && html.indexOf('onclick="xrayCephViewerOpen()"') >= 0);
     pass('launcher is cache-busted after the CBCT module',
-        html.indexOf("'app-xray-ceph.js?v=20261007cephai1'") > html.indexOf("'app-xray-cbct.js?v=" + BUILD + "'"));
+        html.indexOf("'app-xray-ceph.js?v=20261008ceph1'") > html.indexOf("'app-xray-cbct.js?v=" + BUILD + "'"));
     pass('ceph AI uses csxrayai:// on GitHub and on 127.0.0.1, with port 8877 as fallback',
         /xrayAiProtocolFetch/.test(read('ceph/ceph-landmarks.js')) &&
         /cephAiDirect/.test(read('ceph/ceph-landmarks.js')) &&
@@ -524,8 +524,8 @@ var PAGE_SCRIPT = `(async () => {
         /keep the strip film/.test(read('ceph/ceph.js')) &&
         /filmEpoch/.test(read('ceph/ceph.js')) &&
         /acceptOpen/.test(read('ceph/ceph.js')));
-    pass('launcher opens ceph/ and starts Helper',
-        /ceph\/index\.html\?v=/.test(launch) && /xrayHelperLaunch/.test(launch) && /banana\.ceph\.v1/.test(launch));
+    pass('launcher opens ceph/ without starting X-ray Helper',
+        /ceph\/index\.html\?v=/.test(launch) && !/xrayHelperLaunch/.test(launch) && /banana\.ceph\.v1/.test(launch));
     pass('ceph.html forwards to the sidecar folder', /ceph\//.test(read('ceph.html')));
     pass('sidecar name is prefixed Banana',
         /Banana · Lateral ceph/.test(read('ceph/index.html')) &&
@@ -668,6 +668,8 @@ var PAGE_SCRIPT = `(async () => {
     pass('sidecar saves a patient tracing and can print a report',
         /btnSaveTrace/.test(read('ceph/index.html')) && /btnPrint/.test(read('ceph/index.html')) &&
         /savedTrace/.test(read('ceph/ceph.js')) && /@media print/.test(read('ceph/ceph.css')) &&
+        /id="printSheet"/.test(read('ceph/index.html')) && /function fillPrintSheet/.test(read('ceph/ceph.js')) &&
+        /print\.findings/.test(read('ceph/ceph-i18n.js')) && /PRINT_MAJOR/.test(read('ceph/ceph.js')) &&
         /#top #btnSaveTrace/.test(read('ceph/ceph.css')));
     pass('saved tracing copies the film into the xrays bucket, creates a ceph_saves ID, and restores as default landmarks',
         /ceph_saves/.test(read('xray_ceph.sql')) && /ceph_saves/.test(read('xray_context.sql')) &&
@@ -1104,7 +1106,7 @@ var PAGE_SCRIPT = `(async () => {
     pass('refuses to open without a patient', warned && !L._url);
     L.xrayPatientId = 'p1';
     L.xrayCephViewerOpen();
-    pass('opens ceph/ and launches Helper', /ceph\/(?:index\.html)?\?/.test(L._url || '') && L._helper === true, L._url);
+    pass('opens ceph/ without launching X-ray Helper', /ceph\/(?:index\.html)?\?/.test(L._url || '') && L._helper !== true, L._url);
     L.xrayAllRecords = [{
         id: 'x1', xray_type: 'Cephalometric', file_url: 'http://example/c.jpg', file_name: 'c.png',
         patient_id: 'p1', file_path: 'p1/old.png',

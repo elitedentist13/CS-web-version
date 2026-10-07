@@ -1554,16 +1554,20 @@
         var film = $('prFilm');
         var empty = $('prNoFilm');
         if (empty) empty.textContent = tx('print.noFilm');
+        var filmUrl = '';
+        if (film && img.naturalWidth) {
+            try { filmUrl = printFilmUrl(); } catch (eFilm) { filmUrl = ''; }
+        }
         if (film) {
-            if (img.naturalWidth) {
-                try { film.src = reportFilmCanvas().toDataURL('image/jpeg', 0.82); } catch (eFilm) { film.removeAttribute('src'); }
-                film.hidden = !film.getAttribute('src');
+            if (filmUrl) {
+                film.hidden = false;
+                film.src = filmUrl;
             } else {
                 film.removeAttribute('src');
                 film.hidden = true;
             }
         }
-        if (empty) empty.hidden = !!(film && !film.hidden);
+        if (empty) empty.hidden = !!filmUrl;
         var res = (window.__cephLast && window.__cephLast.result) || null;
         var s = res && res.summary;
         var find = $('prFindings');
@@ -1606,11 +1610,39 @@
         }
     }
 
+    function printFilmUrl() {
+        var crop = reportFilmCanvas();
+        var maxEdge = 1400;
+        var longEdge = Math.max(crop.width, crop.height);
+        var out = crop;
+        if (longEdge > maxEdge) {
+            var scale = maxEdge / longEdge;
+            out = document.createElement('canvas');
+            out.width = Math.max(1, Math.round(crop.width * scale));
+            out.height = Math.max(1, Math.round(crop.height * scale));
+            out.getContext('2d').drawImage(crop, 0, 0, out.width, out.height);
+        }
+        return out.toDataURL('image/jpeg', 0.86);
+    }
+
     function printReport() {
         renderAnalysis();
         fillPrintSheet();
-        window.print();
-        return { ok: true };
+        var sheet = $('printSheet');
+        var film = $('prFilm');
+        if (sheet) sheet.classList.add('is-prep');
+        function go() {
+            window.print();
+            if (sheet) sheet.classList.remove('is-prep');
+            return { ok: true };
+        }
+        if (!film || film.hidden || !film.getAttribute('src')) return go();
+        var ready = (typeof film.decode === 'function') ? film.decode() : Promise.resolve();
+        return ready.catch(function () { return null; }).then(function () {
+            return new Promise(function (resolve) {
+                requestAnimationFrame(function () { resolve(go()); });
+            });
+        });
     }
 
     function refresh() {

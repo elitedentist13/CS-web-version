@@ -504,10 +504,16 @@
         setStatus(cvmVia === 'api' ? tx('st.cvmApi', { label: label }) : tx('st.cvm', { label: label }));
         return cvmStageN;
     }
+    function cvmLandmarkSrc() {
+        var unet = sets && sets[0];
+        if (unet && unet.id === 'unet' && unet.pts && unet.pts.Pog) return unet.pts;
+        return pts;
+    }
     function cvmPtsPayload() {
+        var src = cvmLandmarkSrc();
         var out = {};
-        ['Po', 'Ar', 'Go', 'S', 'N'].forEach(function (id) {
-            if (pts[id] && isFinite(pts[id].x) && isFinite(pts[id].y)) out[id] = { x: pts[id].x, y: pts[id].y };
+        ['Po', 'Ar', 'Go', 'S', 'N', 'Pog'].forEach(function (id) {
+            if (src[id] && isFinite(src[id].x) && isFinite(src[id].y)) out[id] = { x: src[id].x, y: src[id].y };
         });
         return out;
     }

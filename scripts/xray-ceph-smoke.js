@@ -584,6 +584,8 @@ var PAGE_SCRIPT = `(async () => {
         /dental_001-c2c4/.test(read('xray-ai-service/ceph/cvm.py')) &&
         /ceph\/cvm/.test(read('xray-ai-service/main.py')) &&
         /pullCvmApi/.test(read('ceph/ceph.js')) && /maybeAutoCvm/.test(read('ceph/ceph.js')) &&
+        /function cvmLandmarkSrc/.test(read('ceph/ceph.js')) &&
+        /unet\.id === 'unet'/.test(read('ceph/ceph.js')) &&
         /btn.autoCvm/.test(read('ceph/ceph-i18n.js')));
     pass('sidecar calibrates millimetres from a two-click film ruler',
         /btnCalibrate/.test(read('ceph/index.html')) && /applyRuler/.test(read('ceph/ceph.js')) &&

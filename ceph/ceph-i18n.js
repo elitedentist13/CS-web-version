@@ -75,7 +75,12 @@
         'cap.needDetect': { en: 'Run Auto landmarks, then view UNet, 1502, and All.', 'zh-CN': '先自动定点，再查看 UNet、1502 与均值。', 'zh-Hant': '先自動定點，再查看 UNet、1502 與均值。' },
         'hint.side': { en: '19 ISBI 2015 landmarks plus U1a / L1a (incisor apices) and FopA / FopP (functional occlusal plane). Drag those handles so IMPA, Wits and N-perp match textbook constructions. Auto-detect offers 3 sets: UNet (default), the 1502 nearest-film average, and the 1502 all-film mean (plus in-house if Published + in-house is on). Compare values to Caucasian or HK Chinese norms (green = within 1 SD, amber = 1–2 SD, red = beyond). Calibrate millimetres from a known marker on the film. The extraction index is a ceph-only tendency vs those norms — crowding, Bolton and growth are not on this film.', 'zh-CN': '19 个 ISBI 2015 标志点，另加 U1a / L1a（切牙根尖）与 FopA / FopP（功能𬌗平面）。拖动这些点使 IMPA、Wits、N-perp 符合教科书作法。自动定点三组：UNet（默认）、1502 近片平均、1502 全片均值（公开库 + 院内时加上院内）。对照白人或香港华人常值（绿＝1 个标准差内，黄＝1–2 个，红＝以外）。用底片已知标记标定毫米。拔牙指数只反映头影相对常值的倾向——拥挤、Bolton、生长发育不在这张侧位片上。', 'zh-Hant': '19 個 ISBI 2015 標誌點，另加 U1a / L1a（切牙根尖）與 FopA / FopP（功能咬合平面）。拖動這些點使 IMPA、Wits、N-perp 符合教科書作法。自動定點三組：UNet（預設）、1502 近片平均、1502 全片均值（公開庫 + 院內時加上院內）。對照白人或香港華人常值（綠＝1 個標準差內，黃＝1–2 個，紅＝以外）。用底片已知標記標定毫米。拔牙指數只反映頭影相對常值的傾向——擁擠、Bolton、生長發育不在這張側位片上。' },
         'h.pub': { en: 'Published tracings', 'zh-CN': '公开描记', 'zh-Hant': '公開描記' },
-        'h.pubHint': { en: 'ISBI 2015 + Aariz + PKU. Read-only.', 'zh-CN': 'ISBI 2015 + Aariz + PKU。只读。', 'zh-Hant': 'ISBI 2015 + Aariz + PKU。唯讀。' },
+        'h.pubHint': { en: '400 ISBI 2015 + 1000 Aariz + 102 PKU. Read-only.', 'zh-CN': '400 ISBI 2015 + 1000 Aariz + 102 PKU。只读。', 'zh-Hant': '400 ISBI 2015 + 1000 Aariz + 102 PKU。唯讀。' },
+        'note.1502': {
+            en: '1502 published tracings = 400 ISBI 2015 + 1000 Aariz (CEPHA29) + 102 PKU (DentalCepha). Landmark coordinates only; the films are not included. Read-only, separate from clinic training.',
+            'zh-CN': '1502 份公开描记 = 400 ISBI 2015 + 1000 Aariz（CEPHA29）+ 102 PKU（DentalCepha）。仅含标志点坐标，不含底片。只读，与院内训练分开。',
+            'zh-Hant': '1502 份公開描記 = 400 ISBI 2015 + 1000 Aariz（CEPHA29）+ 102 PKU（DentalCepha）。僅含標誌點座標，不含底片。唯讀，與院內訓練分開。'
+        },
         'h.clinic': { en: 'Clinic training', 'zh-CN': '院内训练', 'zh-Hant': '院內訓練' },
         'h.overlay': { en: 'Progress overlay', 'zh-CN': '疗程叠加', 'zh-Hant': '療程疊加' },
         'h.overlayHint': { en: 'Register a prior tracing on SN at Sella, Frankfort at Porion, or palatal plane at ANS.', 'zh-CN': '将先前描记套到 SN 于蝶鞍、眶耳平面于耳点，或腭平面于前鼻棘。', 'zh-Hant': '將先前描記套到 SN 於蝶鞍、眶耳平面於耳點，或腭平面於前鼻棘。' },

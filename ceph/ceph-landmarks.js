@@ -784,10 +784,18 @@
             link.remove();
         } catch (e2) { /* ignore */ }
     }
+    function cephAiLoopback() {
+        var host = '';
+        try { host = String(g.location.hostname || '').toLowerCase(); } catch (e) { host = ''; }
+        return host === 'localhost' || host === '::1' || /^127\.\d+\.\d+\.\d+$/.test(host);
+    }
     function cephAiFetch(url, options, ms) {
         var call = cephAiProtocol();
         if (!call) return cephAiDirect(url, options);
         return call(url, options || {}, ms || 240000).then(function (r) {
+            // A popup FormData used to be dropped, so the helper answered 422
+            // with no file. On this PC, call the port directly instead.
+            if (r && r.status === 422 && cephAiLoopback()) return cephAiDirect(url, options);
             return r;
         }, function () {
             return cephAiDirect(url, options);

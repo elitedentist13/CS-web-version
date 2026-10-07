@@ -2771,16 +2771,34 @@
         });
     }
 
+    function xrayAiIsFormData(body) {
+        if (!body || typeof body.entries !== 'function') return false;
+        if (typeof FormData !== 'undefined' && body instanceof FormData) return true;
+        // The ceph window builds its own FormData. instanceof fails across windows.
+        return Object.prototype.toString.call(body) === '[object FormData]';
+    }
+
+    function xrayAiOwnBlob(val) {
+        if (!val || typeof val.size !== 'number' || typeof val.arrayBuffer !== 'function') {
+            return Promise.resolve(null);
+        }
+        if (typeof Blob !== 'undefined' && val instanceof Blob) return Promise.resolve(val);
+        return val.arrayBuffer().then(function (buf) {
+            return new Blob([buf], { type: val.type || 'image/jpeg' });
+        });
+    }
+
     function xrayAiJobImageUrl(body) {
         var fields = {};
         var blob = null;
-        if (body && typeof FormData !== 'undefined' && body instanceof FormData && body.entries) {
+        var localForm = !!(body && typeof FormData !== 'undefined' && body instanceof FormData);
+        if (xrayAiIsFormData(body)) {
             var step = body.entries();
             var item = step.next();
             while (!item.done) {
                 var key = item.value[0];
                 var val = item.value[1];
-                if (val && typeof val === 'object' && typeof val.size === 'number') blob = val;
+                if (val && typeof val === 'object' && typeof val.size === 'number' && typeof val.arrayBuffer === 'function') blob = val;
                 else fields[key] = String(val);
                 item = step.next();
             }
@@ -2788,11 +2806,16 @@
         if (!blob) return Promise.resolve({ fields: fields, image_url: null });
         var bare = '';
         try { bare = xrayAiBareImageUrl(xrayAiG('xrayLbImg')); } catch (e) {}
-        if (/^https?:\/\//i.test(bare)) {
+        // A same-window analyze can reuse the film already on the strip.
+        // A sidecar FormData is a different film and must be uploaded as sent.
+        if (localForm && /^https?:\/\//i.test(bare)) {
             return Promise.resolve({ fields: fields, image_url: bare });
         }
-        return xrayAiUploadInboxBlob(blob).then(function (url) {
-            return { fields: fields, image_url: url };
+        return xrayAiOwnBlob(blob).then(function (owned) {
+            if (!owned) return { fields: fields, image_url: null };
+            return xrayAiUploadInboxBlob(owned).then(function (url) {
+                return { fields: fields, image_url: url };
+            });
         });
     }
 

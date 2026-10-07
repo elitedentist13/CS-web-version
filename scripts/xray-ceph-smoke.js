@@ -517,7 +517,8 @@ var PAGE_SCRIPT = `(async () => {
         /wakeProtocol/.test(read('ceph/ceph.js')) &&
         /xrayAiProtocolWake/.test(launch) &&
         /window\.xrayAiProtocolClaimLaunch/.test(read('app-xray-ai.js')) &&
-        !/window\.XRAY_AI_DIRECT_API\s*=\s*true/.test(html));
+        !/window\.XRAY_AI_DIRECT_API\s*=\s*true/.test(html) &&
+        /\[object FormData\]/.test(read('app-xray-ai.js')));
     pass('a newly selected ceph film is not also loaded with the saved film',
         /keep the strip film/.test(launch) &&
         /keep the strip film/.test(read('ceph/ceph.js')) &&

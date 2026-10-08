@@ -12095,10 +12095,19 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 
 .xray-slide-viewer img {
     max-width: 100%;
+    width: auto;
+    height: auto;
     max-height: 420px;
     object-fit: contain;
+    flex: 0 0 auto;
     transition: transform 0.2s;
     cursor: crosshair;
+}
+#xraySlideEmpty {
+    height: 100%;
+    min-height: 420px;
+    align-items: center;
+    justify-content: center;
 }
 
 .xray-slide-tools {

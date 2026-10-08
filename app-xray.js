@@ -383,8 +383,13 @@ function xrayClearDisplayedFilms() {
         });
     }
     if (empty) empty.style.display = 'none';
-    var viewer = g('xraySlideViewer');
-    if (viewer) viewer.innerHTML = '';
+    var slideImg = g('xraySlideImg');
+    if (slideImg) {
+        slideImg.removeAttribute('src');
+        slideImg.style.display = 'none';
+    }
+    var slideEmpty = g('xraySlideEmpty');
+    if (slideEmpty) slideEmpty.style.display = 'none';
     var fs = g('xrayFilmstrip');
     if (fs) fs.innerHTML = '';
     var sa = g('xraySelectAll');
@@ -805,21 +810,52 @@ function getTypeBadge(type) {
 // ════════════════════════════════════════════════════════════════
 // SLIDE VIEW
 // ════════════════════════════════════════════════════════════════
+function xrayEnsureSlideImg() {
+    var viewer = g('xraySlideViewer');
+    if (!viewer) return null;
+    var img = g('xraySlideImg');
+    if (img && viewer.contains(img)) return img;
+    img = document.createElement('img');
+    img.id = 'xraySlideImg';
+    img.alt = 'X-Ray';
+    viewer.insertBefore(img, viewer.firstChild);
+    return img;
+}
+
+function xraySlideEmptyEl() {
+    var viewer = g('xraySlideViewer');
+    if (!viewer) return null;
+    var el = g('xraySlideEmpty');
+    if (el && viewer.contains(el)) return el;
+    el = document.createElement('div');
+    el.id = 'xraySlideEmpty';
+    el.className = 'xray-empty';
+    el.style.display = 'none';
+    viewer.appendChild(el);
+    return el;
+}
+
 function renderXraySlide() {
+    var img = xrayEnsureSlideImg();
+    var empty = xraySlideEmptyEl();
     if (!xrayFiltered.length) {
-        var viewer = g('xraySlideViewer');
-        if (viewer) {
-            viewer.innerHTML =
-                '<div class="xray-empty" style="height:100%;' +
-                'display:flex;align-items:center;justify-content:center;">' +
+        if (img) {
+            img.removeAttribute('src');
+            img.style.display = 'none';
+        }
+        if (empty) {
+            empty.style.display = 'flex';
+            empty.innerHTML =
                 '<div style="text-align:center;color:#666;">' +
                 '<div style="font-size:48px;">🔬</div>' +
-                '<p>' + esc(mediaTr('media.noXrays')) + '</p></div></div>';
+                '<p>' + esc(mediaTr('media.noXrays')) + '</p></div>';
         }
         var fs = g('xrayFilmstrip');
         if (fs) fs.innerHTML = '';
         return;
     }
+    if (empty) empty.style.display = 'none';
+    if (img) img.style.display = '';
     if (xrayCurrentIdx >= xrayFiltered.length) xrayCurrentIdx = 0;
     renderSlideAt(xrayCurrentIdx);
     renderFilmstrip();
@@ -830,8 +866,13 @@ function renderSlideAt(idx) {
     slideTransform = { scale:1, rotate:0, flipH:false, flipV:false, invert:false };
 
     var x   = xrayFiltered[idx];
-    var img = g('xraySlideImg');
-    if (img) { img.src = xrayDisplayUrl(x); }
+    var img = xrayEnsureSlideImg();
+    var empty = g('xraySlideEmpty');
+    if (empty) empty.style.display = 'none';
+    if (img) {
+        img.style.display = '';
+        img.src = xrayDisplayUrl(x);
+    }
     applySlideTransform();
 
     var ctr = g('xraySlideCounter');

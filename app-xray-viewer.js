@@ -727,6 +727,13 @@ function xvMountWhen(iso) {
         ' ' + xvMountPad(d.getHours()) + ':' + xvMountPad(d.getMinutes()) + ':' + xvMountPad(d.getSeconds());
 }
 
+function xvMountWhenMini(iso) {
+    var d = new Date(iso);
+    if (!iso || isNaN(d.getTime())) return xvMountWhen(iso).slice(5, 16);
+    return xvMountPad(d.getMonth() + 1) + '-' + xvMountPad(d.getDate()) +
+        ' ' + xvMountPad(d.getHours()) + ':' + xvMountPad(d.getMinutes());
+}
+
 function xrayMountAtKey() {
     var pid = (typeof xrayPatientId !== 'undefined' && xrayPatientId) ? String(xrayPatientId) : '';
     return 'jsm_xray_mount_at_v1' + (pid ? ':' + pid : '');
@@ -847,7 +854,7 @@ function xrayMountCompute(layout, films) {
 function xrayMountWhenHtml(film) {
     var when = xvMountWhen(xvMountStamp(film));
     if (!when) return '';
-    return '<span class="xm-slot-when" title="' + xvEsc(xvTr('xv.mountUpdated', { WHEN: when })) + '">' + xvEsc(when) + '</span>';
+    return '<span class="xm-slot-when" title="' + xvEsc(xvTr('xv.mountUpdated', { WHEN: when })) + '">' + xvEsc(xvMountWhenMini(xvMountStamp(film))) + '</span>';
 }
 
 function xrayMountHideStrip() {
@@ -884,7 +891,7 @@ function xrayMountPaintStrip(rowKey, slotKey) {
     if (head) {
         head.innerHTML = '<span class="xm-strip-title">' + xvEsc(xvTr('xv.mountDrag')) + '</span>' +
             '<span class="xm-strip-for">' + xvEsc(name) + '</span>' +
-            (when ? '<span class="xm-slot-when" title="' + xvEsc(xvTr('xv.mountUpdated', { WHEN: when })) + '">' + xvEsc(when) + '</span>' : '');
+            (when ? '<span class="xm-slot-when" title="' + xvEsc(xvTr('xv.mountUpdated', { WHEN: when })) + '">' + xvEsc(xvMountWhenMini(xvMountStamp(current))) + '</span>' : '');
     }
     var films = xrayMountStripFilms(rowKey);
     if (!films.length) {
@@ -894,9 +901,10 @@ function xrayMountPaintStrip(rowKey, slotKey) {
         films.forEach(function (x) {
             var url = typeof xrayDisplayUrl === 'function' ? xrayDisplayUrl(x) : (x.file_url || '');
             var on = current && String(current.id) === String(x.id);
-            var cap = xvMountWhen(xvMountStamp(x)) || xvFilmDay(x);
-            html += '<div class="xm-strip-item' + (on ? ' is-current' : '') + '" draggable="true" role="button" data-id="' + xvEsc(x.id) + '" aria-label="' + xvEsc(cap) + '" title="' + xvEsc(xvFilmLabel(x)) + '">' +
-                '<img src="' + xvEsc(url) + '" alt="" draggable="false">' +
+            var full = xvMountWhen(xvMountStamp(x));
+            var cap = xvMountWhenMini(xvMountStamp(x)) || xvFilmDay(x);
+            html += '<div class="xm-strip-item' + (on ? ' is-current' : '') + '" draggable="true" role="button" data-id="' + xvEsc(x.id) + '" aria-label="' + xvEsc(full || cap) + '" title="' + xvEsc(full ? xvTr('xv.mountUpdated', { WHEN: full }) : xvFilmLabel(x)) + '">' +
+                '<span class="xm-strip-img"><img src="' + xvEsc(url) + '" alt="" draggable="false"></span>' +
                 '<span class="xm-strip-cap">' + xvEsc(cap) + '</span></div>';
         });
         track.innerHTML = html;

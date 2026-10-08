@@ -191,6 +191,32 @@ def app_wired():
     return True, "8877 + csxrayai:// for the live page and GitHub"
 
 
+UNET_NAMES = (
+    "best_unet_transfer_model_512px.pth",
+    "best_model.pth",
+    "resnet50_unet.pth",
+    "banana_unet.pth",
+)
+CVM_CLASSIFIER = "best_cvm_v2_768px.pth"
+
+
+def ceph_unet_file():
+    folders = (REPO / "ceph" / "unet" / "weights", HERE / "ceph" / "weights")
+    for folder in folders:
+        for name in UNET_NAMES:
+            path = folder / name
+            if path.is_file() and path.stat().st_size > 1_000_000:
+                return path
+    return None
+
+
+def ceph_cvm_file():
+    path = HERE / "ceph" / "weights" / CVM_CLASSIFIER
+    if path.is_file() and path.stat().st_size > 1_000_000:
+        return path
+    return None
+
+
 def audit():
     """Return a list of (key, status, detail) and print the table."""
     out()
@@ -269,6 +295,18 @@ def audit():
         rec("csxrayai:// protocol", "miss", "registered, but not this folder's launcher")
     else:
         rec("csxrayai:// protocol", "miss", "needed for the live page and the GitHub site")
+
+    unet = ceph_unet_file()
+    if unet:
+        rec("ceph UNet", "ok", unet.name)
+    else:
+        rec("ceph UNet", "miss", "Auto landmarks need best_unet_transfer_model_512px.pth")
+
+    cvm = ceph_cvm_file()
+    if cvm:
+        rec("ceph CVM", "ok", cvm.name + " (neck detector is optional)")
+    else:
+        rec("ceph CVM", "miss", "Auto CVM needs best_cvm_v2_768px.pth")
 
     up = live_page_up()
     if up:
@@ -398,6 +436,31 @@ def ensure_ai_home():
     return True
 
 
+def ensure_ceph():
+    """Download Banana Ceph UNet and CVM classifier weights when missing.
+
+    The YOLO neck detector is optional. Auto CVM uses the landmark crop
+    when that file cannot be downloaded.
+    """
+    if not VENV_PY.is_file():
+        out("[WARN] No virtual env — skip Ceph weights.")
+        return False
+    if ceph_unet_file() and ceph_cvm_file():
+        out("[install] Ceph UNet and CVM weights already on disk.")
+        return True
+    out("[install] Ceph UNet and CVM weights (download only if missing)...")
+    code = (
+        "import json\n"
+        "from ceph import unet, cvm\n"
+        "print(json.dumps({'unet': unet.ensure_weights(), 'cvm': cvm.ensure_weights()}, default=str))\n"
+    )
+    rc = run([str(VENV_PY), "-c", code], cwd=str(HERE))
+    if ceph_unet_file() and ceph_cvm_file():
+        return True
+    out("[WARN] Ceph weights still incomplete (exit %s). Tooth AI can still start." % rc)
+    return False
+
+
 def ensure_protocol():
     ensure_ai_home()
     bat = REPO / "register-xray-ai-protocol.bat"
@@ -499,6 +562,7 @@ def main(argv=None):
             return 1
 
     ensure_protocol()
+    ensure_ceph()
 
     if args.start:
         start_service()

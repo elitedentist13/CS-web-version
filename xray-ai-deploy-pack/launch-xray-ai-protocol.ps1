@@ -4,6 +4,7 @@
 # http://127.0.0.1:8877. The page only opens csxrayai:// links:
 #
 #   csxrayai://start                         start the AI service if it is down
+#   csxrayai://prepare?id=<uuid>&client=<id> install, register, then start
 #   csxrayai://job?id=<uuid>&client=<id>     run that job (and later ones)
 #   csxrayai://job?client=<id>               wake the worker for this browser
 #
@@ -77,6 +78,11 @@ function Get-ClientId([string]$Raw) {
 function Test-StartUrl([string]$Raw) {
     $s = ([string]$Raw).Trim().Trim('"').Trim("'")
     return ($s -match '(?i)^csxrayai://start')
+}
+
+function Test-PrepareUrl([string]$Raw) {
+    $s = ([string]$Raw).Trim().Trim('"').Trim("'")
+    return ($s -match '(?i)^csxrayai://prepare')
 }
 
 function Get-SbHeaders([string]$Prefer) {
@@ -184,6 +190,96 @@ function Resolve-StartBat {
         if (Test-Path -LiteralPath $candidate) { return $candidate }
     }
     return $null
+}
+
+function Resolve-PrepareBat {
+    $start = Resolve-StartBat
+    if (-not $start) { return $null }
+    $prep = Join-Path (Split-Path -Parent $start) "prepare-xray-ai.bat"
+    if (Test-Path -LiteralPath $prep) { return $prep }
+    return $null
+}
+
+function Wait-JobExists([string]$Id, [int]$Seconds) {
+    if (-not $Id) { return $false }
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    $uri = "$SupabaseUrl/rest/v1/xray_ai_jobs?id=eq.$Id&select=id"
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $rows = @(ConvertTo-RowList (Invoke-RestMethod -Method Get -Uri $uri -Headers (Get-SbHeaders "")))
+            if ($rows.Count -gt 0) { return $true }
+        } catch {
+            Write-ProtoLog "prepare job lookup: $($_.Exception.Message)"
+        }
+        Start-Sleep -Seconds 1
+    }
+    return $false
+}
+
+function Read-LocalJson([string]$Path) {
+    try {
+        $resp = Invoke-WebRequest -UseBasicParsing -Uri "$AiBase$Path" -TimeoutSec 30
+        $text = ([string]$resp.Content).Trim()
+        if ($text.StartsWith("{")) { return $text }
+    } catch {}
+    return "null"
+}
+
+# Runs install, protocol registration, and (only if needed) the AI service.
+# The page inserts the checklist row as status=running so a worker that is
+# already up does not claim it and answer before the installer finishes.
+function Invoke-Prepare([string]$RawUrl) {
+    $jobId = Get-JobId $RawUrl
+    $clientId = Get-ClientId $RawUrl
+    Add-KnownClient $clientId
+    if ($jobId) {
+        Write-ProtoLog "prepare waiting for checklist row $jobId"
+        [void](Wait-JobExists $jobId 45)
+    }
+    $bat = Resolve-PrepareBat
+    if (-not $bat) {
+        Write-ProtoLog "prepare-xray-ai.bat not found"
+        if ($jobId) {
+            try { Update-Job $jobId @{ status = "error"; error = "prepare-xray-ai.bat not found" } } catch {}
+        }
+        return
+    }
+    Write-ProtoLog "prepare $bat"
+    $arg = '/c "' + $bat + '" nopause'
+    $proc = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" -ArgumentList $arg -WorkingDirectory (Split-Path -Parent $bat) -WindowStyle Normal -PassThru -Wait
+    $exitCode = 1
+    if ($proc) { $exitCode = [int]$proc.ExitCode }
+    Write-ProtoLog "prepare bat exit $exitCode"
+
+    $installExit = $exitCode
+    $registerExit = 1
+    $service = "down"
+    $statusPath = Join-Path $LogDir "prepare-status.json"
+    if (Test-Path -LiteralPath $statusPath) {
+        try {
+            $meta = Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($null -ne $meta.installExit) { $installExit = [int]$meta.installExit }
+            if ($null -ne $meta.registerExit) { $registerExit = [int]$meta.registerExit }
+            $svc = [string]$meta.service
+            if ($svc -match '^(already|started|down)$') { $service = $svc }
+        } catch {
+            Write-ProtoLog "prepare status unreadable: $($_.Exception.Message)"
+        }
+    }
+    if ($service -eq "started") { $script:AiStartRequested = $true }
+    if (-not (Test-AiHealth)) { [void](Wait-AiHealth 180) }
+    $health = Read-LocalJson "/health"
+    $landmarks = Read-LocalJson "/ceph/landmarks"
+    $cvm = Read-LocalJson "/ceph/cvm"
+    $body = '{"installExit":' + $installExit + ',"registerExit":' + $registerExit + ',"service":"' + $service + '","health":' + $health + ',"landmarks":' + $landmarks + ',"cvm":' + $cvm + '}'
+    if (-not $jobId) { return }
+    try {
+        Update-Job $jobId @{ status = "done"; result = @{ http_status = 200; body_json = $body }; error = $null }
+        Write-ProtoLog "prepare checklist posted for $jobId"
+    } catch {
+        Write-ProtoLog "prepare checklist post failed: $($_.Exception.Message)"
+        try { Update-Job $jobId @{ status = "error"; error = $_.Exception.Message } } catch {}
+    }
 }
 
 # start-xray-ai.bat stops whatever service is already on 8877 before it
@@ -365,8 +461,22 @@ if ($SelfTest) {
     if (Get-ClientId 'csxrayai://job?client=bad;id') { throw "client must be a plain token" }
     if (-not (Test-StartUrl '"csxrayai://start"')) { throw "start URL not recognised" }
     if (Test-StartUrl $both) { throw "job URL must not look like start" }
+    $prep = 'csxrayai://prepare?id=00000000-0000-4000-8000-000000000004&client=11111111-2222-4333-8444-555555555555'
+    if (-not (Test-PrepareUrl $prep)) { throw "prepare URL not recognised" }
+    if (Test-StartUrl $prep) { throw "prepare URL must not look like start" }
+    if (Test-PrepareUrl $both) { throw "job URL must not look like prepare" }
+    if ((Get-JobId $prep) -ne "00000000-0000-4000-8000-000000000004") { throw "prepare job id failed" }
+    if ((Get-ClientId $prep) -ne "11111111-2222-4333-8444-555555555555") { throw "prepare client failed" }
     Write-Output "protocol self-test ok"
     exit 0
+}
+
+if (Test-PrepareUrl $Url) {
+    $prepClient = Get-ClientId $Url
+    try { Invoke-Prepare $Url } catch { Write-ProtoLog "prepare failed: $($_.Exception.Message)" }
+    # The checklist row is already done. Stay up as the normal job worker
+    # without trying to claim that row again.
+    if ($prepClient) { $Url = "csxrayai://job?client=$prepClient" }
 }
 
 if (Test-StartUrl $Url) {

@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261007den1';
+  var BUILD = '20261008prep1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -3423,7 +3423,25 @@
         <select id="conPsClinicFilterXray" data-i18n-title="common.conPsClinicTitle"
                 style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;min-width:140px;font-size:13px;"></select>
         <span class="history-search-hint" data-i18n="con.xray.searchHint"></span>
+        <button type="button" id="btnXrayPrepareAi" class="xray-prepare-ai-btn" onclick="xrayPrepareAi()"
+                data-i18n="media.xrayAi.prepare.btn" data-i18n-title="media.xrayAi.prepare.title"></button>
       </div>
+    </div>
+    <div id="xrayPrepareAiPanel" class="xray-prepare-panel" hidden>
+      <div class="xray-prepare-head">
+        <strong data-i18n="media.xrayAi.prepare.head"></strong>
+        <span id="xrayPrepareAiNote" class="xray-prepare-note"></span>
+      </div>
+      <ul id="xrayPrepareAiList" class="xray-prepare-list">
+        <li data-step="install"><span class="xray-prepare-mark" data-mark>·</span><span data-i18n="media.xrayAi.prepare.install"></span><span class="xray-prepare-state" data-state></span></li>
+        <li data-step="protocol"><span class="xray-prepare-mark" data-mark>·</span><span data-i18n="media.xrayAi.prepare.protocol"></span><span class="xray-prepare-state" data-state></span></li>
+        <li data-step="service"><span class="xray-prepare-mark" data-mark>·</span><span data-i18n="media.xrayAi.prepare.service"></span><span class="xray-prepare-state" data-state></span></li>
+        <li data-step="pano"><span class="xray-prepare-mark" data-mark>·</span><span data-i18n="media.xrayAi.prepare.pano"></span><span class="xray-prepare-state" data-state></span></li>
+        <li data-step="findings"><span class="xray-prepare-mark" data-mark>·</span><span data-i18n="media.xrayAi.prepare.findings"></span><span class="xray-prepare-state" data-state></span></li>
+        <li data-step="bitewing"><span class="xray-prepare-mark" data-mark>·</span><span data-i18n="media.xrayAi.prepare.bitewing"></span><span class="xray-prepare-state" data-state></span></li>
+        <li data-step="ceph"><span class="xray-prepare-mark" data-mark>·</span><span data-i18n="media.xrayAi.prepare.ceph"></span><span class="xray-prepare-state" data-state></span></li>
+        <li data-step="cvm"><span class="xray-prepare-mark" data-mark>·</span><span data-i18n="media.xrayAi.prepare.cvm"></span><span class="xray-prepare-state" data-state></span></li>
+      </ul>
     </div>
 
     <!-- ── Patient Banner ──────────────────────────────── -->
@@ -7840,7 +7858,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20261006fx64',
-    'app-i18n-extra.js?v=20261006fx64',
+    'app-i18n-extra.js?v=20261008prep1',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20261003cbe',
@@ -7875,7 +7893,7 @@
     'app-xray-link.js?v=20261005fx53',
     'app-xray-ctx.js?v=20261003cbe',
     'app-nnt-scans.js?v=20261003cbe',
-    'app-xray-ai.js?v=20261008cvm1',
+    'app-xray-ai.js?v=20261008prep1',
     'app-xray-ai-20260909.js',
     'app-charts.js?v=20261003cbe',
     'app-xray-wire.js?v=20261003cbe',

@@ -3555,6 +3555,177 @@
     window.xrayAiProtocolWake = xrayAiProtocolWake;
     window.xrayAiProtocolClaimLaunch = xrayAiProtocolClaimLaunch;
     window.xrayAiRunAssist = xrayAiRunAssist;
+    var XRAY_PREPARE_STEPS = ['install', 'protocol', 'service', 'pano', 'findings', 'bitewing', 'ceph', 'cvm'];
+
+    function xrayPrepareRow(step) {
+        var list = xrayAiG('xrayPrepareAiList');
+        if (!list || !list.querySelector) return null;
+        return list.querySelector('[data-step="' + step + '"]');
+    }
+
+    function xrayPrepareMark(step, kind, text) {
+        var row = xrayPrepareRow(step);
+        if (!row) return;
+        row.classList.remove('is-ok', 'is-warn', 'is-bad', 'is-work');
+        if (kind) row.classList.add('is-' + kind);
+        var mark = row.querySelector('[data-mark]');
+        var state = row.querySelector('[data-state]');
+        var glyph = { ok: '✓', warn: '!', bad: '✕', work: '·' };
+        if (mark) mark.textContent = glyph[kind] || '·';
+        if (state) state.textContent = text || '';
+    }
+
+    function xrayPrepareSetAll(kind, text) {
+        XRAY_PREPARE_STEPS.forEach(function (step) { xrayPrepareMark(step, kind, text); });
+    }
+
+    function xrayPrepareNote(text) {
+        var note = xrayAiG('xrayPrepareAiNote');
+        if (note) note.textContent = text || '';
+    }
+
+    function xrayPreparePoll(jobId, ms) {
+        var deadline = Date.now() + ms;
+        function once() {
+            return SB.from('xray_ai_jobs').select('status,result,error').eq('id', jobId).maybeSingle()
+                .then(function (res) {
+                    if (res && res.error) throw new Error(res.error.message || 'job');
+                    var row = res && res.data;
+                    if (row && (row.status === 'done' || row.status === 'error')) {
+                        xrayAiWorker.seenAt = Date.now();
+                        return row;
+                    }
+                    if (Date.now() > deadline) throw new Error('timeout');
+                    return new Promise(function (resolve) {
+                        setTimeout(function () { resolve(once()); }, 1500);
+                    });
+                });
+        }
+        return once();
+    }
+
+    function xrayPrepareApply(row) {
+        var body = xrayAiProtocolResultBody(row && row.result);
+        var health = (body && body.health && typeof body.health === 'object') ? body.health : null;
+        var models = (health && health.models) || {};
+        var tooth = models.tooth_detector || {};
+        var cond = models.condition_detector || {};
+        var caries = models.caries_model || {};
+        var lm = (body && body.landmarks && typeof body.landmarks === 'object') ? body.landmarks : {};
+        var cvm = (body && body.cvm && typeof body.cvm === 'object') ? body.cvm : {};
+        var installExit = Number(body && body.installExit);
+        var registerExit = Number(body && body.registerExit);
+        var service = String((body && body.service) || '');
+
+        xrayPrepareMark('install', installExit === 0 ? 'ok' : 'bad',
+            xrayAiTr(installExit === 0 ? 'media.xrayAi.prepare.ready' : 'media.xrayAi.prepare.failed'));
+        xrayPrepareMark('protocol', registerExit === 0 ? 'ok' : 'bad',
+            xrayAiTr(registerExit === 0 ? 'media.xrayAi.prepare.ready' : 'media.xrayAi.prepare.failed'));
+
+        if (health && health.ok && (service === 'already' || service === 'started')) {
+            xrayPrepareMark('service', 'ok', xrayAiTr(service === 'already'
+                ? 'media.xrayAi.prepare.already' : 'media.xrayAi.prepare.started'));
+        } else {
+            xrayPrepareMark('service', 'bad', xrayAiTr('media.xrayAi.prepare.down'));
+        }
+
+        xrayPrepareMark('pano', tooth.ready ? 'ok' : 'bad',
+            xrayAiTr(tooth.ready ? 'media.xrayAi.prepare.ready' : 'media.xrayAi.prepare.miss'));
+        xrayPrepareMark('findings', cond.ready ? 'ok' : 'bad',
+            xrayAiTr(cond.ready ? 'media.xrayAi.prepare.ready' : 'media.xrayAi.prepare.miss'));
+
+        if (caries.ready) {
+            xrayPrepareMark('bitewing', 'ok', xrayAiTr('media.xrayAi.prepare.ready'));
+        } else if (caries.enabled !== false && health && health.ok) {
+            xrayPrepareMark('bitewing', 'warn', xrayAiTr('media.xrayAi.prepare.classical'));
+        } else {
+            xrayPrepareMark('bitewing', 'bad', xrayAiTr('media.xrayAi.prepare.miss'));
+        }
+
+        var unetReady = !!(lm.available || lm.unet);
+        xrayPrepareMark('ceph', unetReady ? 'ok' : 'bad',
+            xrayAiTr(unetReady ? 'media.xrayAi.prepare.ready' : 'media.xrayAi.prepare.miss'));
+
+        var cvmReady = !!(cvm.available || cvm.classifier);
+        if (cvmReady && cvm.detector) {
+            xrayPrepareMark('cvm', 'ok', xrayAiTr('media.xrayAi.prepare.ready'));
+        } else if (cvmReady) {
+            xrayPrepareMark('cvm', 'ok', xrayAiTr('media.xrayAi.prepare.cvmCrop'));
+        } else {
+            xrayPrepareMark('cvm', 'bad', xrayAiTr('media.xrayAi.prepare.miss'));
+        }
+
+        xrayPrepareNote(xrayAiTr('media.xrayAi.prepare.done'));
+    }
+
+    /**
+     * X-ray tab header. One click runs install-xray-ai.bat, then
+     * register-xray-ai-protocol.bat, then start-xray-ai.bat when the
+     * helper is down. The checklist is filled from the local service.
+     * The protocol link is opened before any await so the browser
+     * still treats it as the user's click.
+     */
+    function xrayPrepareAi() {
+        var panel = xrayAiG('xrayPrepareAiPanel');
+        var btn = xrayAiG('btnXrayPrepareAi');
+        if (panel) panel.hidden = false;
+        xrayPrepareSetAll('work', xrayAiTr('media.xrayAi.prepare.working'));
+        xrayPrepareNote(xrayAiTr('media.xrayAi.prepare.launched') + ' ' +
+            xrayAiTr('media.xrayAi.prepare.noConsole'));
+        if (btn) btn.disabled = true;
+
+        var jobId = xrayAiUuid();
+        var client = xrayAiProtocolClientId();
+        var href = 'csxrayai://prepare?id=' + encodeURIComponent(jobId) +
+            '&client=' + encodeURIComponent(client);
+        try {
+            var link = document.createElement('a');
+            link.href = href;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (e) {}
+
+        function enable() {
+            if (btn) btn.disabled = false;
+        }
+        if (typeof SB === 'undefined' || !SB.from) {
+            xrayPrepareNote(xrayAiTr('media.xrayAi.prepare.jobFail'));
+            enable();
+            return;
+        }
+        SB.from('xray_ai_jobs').insert([{
+            id: jobId,
+            kind: 'http',
+            status: 'running',
+            payload: {
+                method: 'GET',
+                path: '/prepare/check',
+                client: client,
+                prepare: true
+            }
+        }]).then(function (ins) {
+            if (ins && ins.error) throw new Error(ins.error.message || 'job');
+            return xrayPreparePoll(jobId, 40 * 60 * 1000);
+        }).then(function (row) {
+            if (!row || row.status === 'error') {
+                xrayPrepareSetAll('bad', xrayAiTr('media.xrayAi.prepare.failed'));
+                xrayPrepareNote((row && row.error) || xrayAiTr('media.xrayAi.prepare.failed'));
+                return;
+            }
+            xrayPrepareApply(row);
+        }).catch(function (err) {
+            var msg = (err && err.message) || '';
+            if (msg === 'timeout') {
+                xrayPrepareNote(xrayAiTr('media.xrayAi.prepare.timeout'));
+            } else {
+                xrayPrepareNote(xrayAiTr('media.xrayAi.prepare.jobFail'));
+            }
+        }).then(enable, enable);
+    }
+
+    window.xrayPrepareAi = xrayPrepareAi;
     window.xrayAiStartServer = xrayAiStartServer;
     window.xrayAiClearFindings = xrayAiClearOverlays;
     window.xrayAiToggleOverlays = xrayAiToggleOverlays;

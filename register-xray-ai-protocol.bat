@@ -46,6 +46,7 @@ if errorlevel 1 (
 echo.
 echo Registered protocol: csxrayai://
 echo   csxrayai://start     starts the local AI service
+echo   csxrayai://prepare   installs, registers, and starts the AI service
 echo   csxrayai://job?id=   runs one analysis on this PC
 echo Launcher: %LAUNCHER%
 echo.

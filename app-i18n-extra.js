@@ -6385,6 +6385,63 @@
             'zh-CN': '启动本机 X 光 AI 服务（start-xray-ai.bat）',
             'zh-Hant': '啟動本機 X 光 AI 服務（start-xray-ai.bat）'
         },
+        'media.xrayAi.prepare.btn': { en: 'Prepare AI', 'zh-CN': '准备 AI', 'zh-Hant': '準備 AI' },
+        'media.xrayAi.prepare.title': {
+            en: 'Install, register, and start local AI for panoramics, bitewings, and cephalometrics',
+            'zh-CN': '安装、注册并启动本机 AI（全景、咬翼片、头影测量）',
+            'zh-Hant': '安裝、註冊並啟動本機 AI（全景、咬翼片、頭影測量）'
+        },
+        'media.xrayAi.prepare.head': { en: 'AI checklist', 'zh-CN': 'AI 检查清单', 'zh-Hant': 'AI 檢查清單' },
+        'media.xrayAi.prepare.working': { en: 'working…', 'zh-CN': '进行中…', 'zh-Hant': '進行中…' },
+        'media.xrayAi.prepare.launched': {
+            en: 'A console should open on this PC. Leave it open. The first run can take a long time.',
+            'zh-CN': '本机应弹出控制台。请保持开着。第一次可能要很久。',
+            'zh-Hant': '本機應彈出主控台。請保持開著。第一次可能要很久。'
+        },
+        'media.xrayAi.prepare.install': { en: 'Installer', 'zh-CN': '安装程序', 'zh-Hant': '安裝程式' },
+        'media.xrayAi.prepare.protocol': { en: 'Protocol registration', 'zh-CN': '协议注册', 'zh-Hant': '協定註冊' },
+        'media.xrayAi.prepare.service': { en: 'AI service', 'zh-CN': 'AI 服务', 'zh-Hant': 'AI 服務' },
+        'media.xrayAi.prepare.pano': { en: 'Panoramic teeth', 'zh-CN': '全景牙位', 'zh-Hant': '全景牙位' },
+        'media.xrayAi.prepare.findings': { en: 'Panoramic findings', 'zh-CN': '全景所见', 'zh-Hant': '全景所見' },
+        'media.xrayAi.prepare.bitewing': { en: 'Bitewing / PA', 'zh-CN': '咬翼片 / 根尖片', 'zh-Hant': '咬翼片 / 根尖片' },
+        'media.xrayAi.prepare.ceph': { en: 'Ceph landmarks', 'zh-CN': '头影标志点', 'zh-Hant': '頭影標誌點' },
+        'media.xrayAi.prepare.cvm': { en: 'Ceph CVM', 'zh-CN': '头影颈椎成熟度', 'zh-Hant': '頭影頸椎成熟度' },
+        'media.xrayAi.prepare.ready': { en: 'ready', 'zh-CN': '就绪', 'zh-Hant': '就緒' },
+        'media.xrayAi.prepare.already': { en: 'already running', 'zh-CN': '已在运行', 'zh-Hant': '已在運行' },
+        'media.xrayAi.prepare.started': { en: 'started', 'zh-CN': '已启动', 'zh-Hant': '已啟動' },
+        'media.xrayAi.prepare.down': { en: 'not answering', 'zh-CN': '无响应', 'zh-Hant': '無回應' },
+        'media.xrayAi.prepare.miss': { en: 'missing', 'zh-CN': '缺失', 'zh-Hant': '缺失' },
+        'media.xrayAi.prepare.failed': { en: 'failed', 'zh-CN': '失败', 'zh-Hant': '失敗' },
+        'media.xrayAi.prepare.classical': {
+            en: 'classical screening (trained weights not installed)',
+            'zh-CN': '经典筛查（未安装训练权重）',
+            'zh-Hant': '經典篩查（未安裝訓練權重）'
+        },
+        'media.xrayAi.prepare.cvmCrop': {
+            en: 'classifier ready; neck detector optional',
+            'zh-CN': '分类器就绪；颈椎检测器可选',
+            'zh-Hant': '分類器就緒；頸椎檢測器可選'
+        },
+        'media.xrayAi.prepare.noConsole': {
+            en: 'If no console opened, double-click register-xray-ai-protocol.bat once, then press Prepare AI again.',
+            'zh-CN': '若没有弹出控制台，请先双击一次 register-xray-ai-protocol.bat，再按准备 AI。',
+            'zh-Hant': '若沒有彈出主控台，請先雙擊一次 register-xray-ai-protocol.bat，再按準備 AI。'
+        },
+        'media.xrayAi.prepare.timeout': {
+            en: 'Timed out. The installer may still be running in the console.',
+            'zh-CN': '超时。安装程序可能仍在控制台里运行。',
+            'zh-Hant': '逾時。安裝程式可能仍在主控台裡運行。'
+        },
+        'media.xrayAi.prepare.done': {
+            en: 'Checklist finished. Use Analyze on a panoramic or bitewing. In Banana Ceph use Auto landmarks and Auto CVM.',
+            'zh-CN': '检查完成。全景或咬翼片请按分析。头影测量请用自动标志点和自动 CVM。',
+            'zh-Hant': '檢查完成。全景或咬翼片請按分析。頭影測量請用自動標誌點和自動 CVM。'
+        },
+        'media.xrayAi.prepare.jobFail': {
+            en: 'Could not save the checklist. The launcher was still opened.',
+            'zh-CN': '无法保存检查清单。启动器仍已打开。',
+            'zh-Hant': '無法保存檢查清單。啟動器仍已打開。'
+        },
         'media.xrayAi.serverAlreadyUp': {
             en: 'AI server already running.',
             'zh-CN': 'AI 服务已在运行。',

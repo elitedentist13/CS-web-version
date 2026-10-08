@@ -20,6 +20,10 @@ REM    install-xray-ai.bat start     install + start AI (8877) and live page (55
 REM    install-xray-ai.bat D:\other  use another clinic folder
 REM ====================================================================
 setlocal EnableExtensions
+REM nopause: the Prepare AI button calls this and must not wait for a key.
+set "NOPAUSE="
+if /I "%~1"=="nopause" set "NOPAUSE=1"
+if defined NOPAUSE shift
 
 set "INSTALL_ROOT=C:\banana\CS-web-version-main"
 set "MODE="
@@ -55,7 +59,7 @@ if not exist "%SCRIPT%" (
     echo [ERROR] Missing %SCRIPT%
     echo         Expected the clinic app at C:\banana\CS-web-version-main
     echo         ^(with xray-ai-service\install_xray_ai.py inside^).
-    pause
+    if not defined NOPAUSE pause
     exit /b 1
 )
 
@@ -75,7 +79,7 @@ if not defined PY_CMD (
         echo [ERROR] winget is not available.
         echo         Install Python 3.12 from https://www.python.org/downloads/
         echo         Tick "Add python.exe to PATH", then re-run this installer.
-        pause
+        if not defined NOPAUSE pause
         exit /b 1
     )
     winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
@@ -92,7 +96,7 @@ if not defined PY_CMD (
     echo         Prompt, and re-run install-xray-ai.bat once more.
     echo         Otherwise, install Python 3.12 from https://www.python.org/downloads/
     echo         ^(tick "Add python.exe to PATH"^) and re-run.
-    pause
+    if not defined NOPAUSE pause
     exit /b 1
 )
 
@@ -125,5 +129,5 @@ if "%ERR%"=="0" (
     echo Scroll up for [MISS] / [ERROR] lines.
 )
 echo.
-pause
+if not defined NOPAUSE pause
 endlocal & exit /b %ERR%

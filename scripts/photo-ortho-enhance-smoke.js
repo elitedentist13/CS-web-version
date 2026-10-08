@@ -9,10 +9,10 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261008e10';
-var STEP = 10;
-var PAGE_PORT = 8822;
-var CDP_PORT = 9391;
+var BUILD = '20261008e12';
+var STEP = 12;
+var PAGE_PORT = 8825;
+var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
     ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
     : 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe');
@@ -225,13 +225,26 @@ function finish(code) {
         extractFn(photos, 'photoOrthoDrawSet').indexOf('photoOrthoBagDateLabel') >= 0 &&
         extractFn(photos, 'photoOrthoDrawPdfPage').indexOf('media.ortho.lblDr') >= 0 &&
         extractFn(photos, 'photoOrthoComposite').indexOf('photoOrthoSaveCompositesToChart') >= 0);
+    pass('empty tiles are divs so a drop can land, and export buttons sit on their own row',
+        html.indexOf('class="ortho-board-tools ortho-board-export"') >= 0 &&
+        html.indexOf('id="photoOrthoCompBtn"') >= 0 &&
+        css.indexOf('.ortho-board-export') >= 0 &&
+        extractFn(photos, 'photoOrthoTileHtml').indexOf('role="button"') >= 0 &&
+        extractFn(photos, 'photoOrthoTileHtml').indexOf('<button type="button" class="ortho-tile') < 0 &&
+        photos.indexOf('function photoOrthoAllowDrop') >= 0 &&
+        extractFn(photos, 'photoOrthoBind').indexOf('dragenter') >= 0);
+    pass('drop resolves a library photo and does not pin a URL as Missing from library',
+        photos.indexOf('function photoOrthoResolveId') >= 0 &&
+        extractFn(photos, 'photoOrthoPlace').indexOf('media.ortho.attachFail') >= 0 &&
+        extractFn(photos, 'photoOrthoReadDragId').indexOf('photoOrthoResolveId') >= 0 &&
+        extractFn(photos, 'photoOrthoHasExternalFiles').indexOf('photoOrthoDrag') >= 0);
     ['media.cat.before', 'media.cat.after', 'media.cat.progress', 'media.cat.beforeAfter',
         'media.kind.all', 'media.kind.photos', 'media.kind.docs', 'media.visit.count', 'media.ortho.meter',
         'media.ortho.copyAfter', 'media.ortho.sitPh', 'media.ortho.copyOk',
         'media.ortho.folderBefore', 'media.ortho.folderAfter', 'media.ortho.dropCount', 'media.ortho.dropNone',
         'media.ortho.skipEmpty', 'media.ortho.modePair', 'media.ortho.modeSlider', 'media.ortho.modeFade',
         'media.ortho.lblDr', 'media.ortho.print', 'media.ortho.printOk', 'media.ortho.saveChart',
-        'media.ortho.chartCaption', 'media.ortho.chartOk'].forEach(function (key) {
+        'media.ortho.chartCaption', 'media.ortho.chartOk', 'media.ortho.attachFail'].forEach(function (key) {
         pass('i18n ' + key + ' en / zh-CN / zh-Hant', i18nHasAll(i18n, key));
     });
 
@@ -581,6 +594,96 @@ function finish(code) {
                 exp.how === 'window' && exp.opened === true && exp.printed === true &&
                 exp.printBtn === true && exp.saveBox === true,
                 JSON.stringify(exp && { saved: exp.saved, uploads: exp.uploads, how: exp.how, opened: exp.opened, printed: exp.printed, printBtn: exp.printBtn, saveBox: exp.saveBox }));
+            var attach = await cdp.js('(function(){' +
+                'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
+                'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
+                'window.photoPatientId="e1-patient";' +
+                'window.photoAllRecords=[{id:"p9", category:"Before", file_path:"smile.jpg", public_url:"https://cdn.example/smile.jpg?sig=1", taken_date:"2024-01-01"}];' +
+                'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{}}));' +
+                'photoOrthoToggle(true); photoOrthoRender();' +
+                'var url="https://cdn.example/smile.jpg?sig=1";' +
+                'photoOrthoDrag={id:"p9"};' +
+                'var fake={dataTransfer:{getData:function(){ return url; }, files:[{name:"smile.jpg",type:"image/jpeg"}]}};' +
+                'var resolved=photoOrthoReadDragId(fake);' +
+                'var treatFiles=photoOrthoHasExternalFiles(fake.dataTransfer);' +
+                'photoOrthoPlace("before","smile", url);' +
+                'var map=photoOrthoLoad();' +
+                'var tile=document.querySelector(".ortho-tile[data-set=before][data-slot=smile]");' +
+                'var notes=[]; var orig=mediaNotify; mediaNotify=function(msg){ notes.push(String(msg)); };' +
+                'photoOrthoPlace("before","face","not-a-photo");' +
+                'mediaNotify=orig;' +
+                'var afterBad=photoOrthoLoad();' +
+                'var empty=document.querySelector(".ortho-tile[data-set=before][data-slot=face]");' +
+                'return { resolved:resolved, treatFiles:treatFiles, pin:map.before && map.before.smile, filled:!!(tile && tile.classList.contains("is-filled")), missing:!!(tile && tile.querySelector(".ortho-tile-miss")), badPin:afterBad.before && afterBad.before.face, emptyMiss:!!(empty && empty.querySelector(".ortho-tile-miss")), attachNote:notes[0]||"", exportRow:!!document.querySelector(".ortho-board-export") };' +
+                '})()', false, 15000);
+            pass('live: a URL drop attaches the library photo instead of Missing from library',
+                attach && attach.resolved === 'p9' && attach.treatFiles === false &&
+                attach.pin === 'p9' && attach.filled === true && attach.missing === false,
+                JSON.stringify(attach && { resolved: attach.resolved, files: attach.treatFiles, pin: attach.pin, filled: attach.filled, missing: attach.missing }));
+            pass('live: an unknown drop is refused and export buttons stay on their own row',
+                attach && !attach.badPin && attach.emptyMiss === false &&
+                /attach|library|grid|chart|对照|相片/i.test(attach.attachNote || '') &&
+                attach.exportRow === true,
+                JSON.stringify(attach && { badPin: attach.badPin, emptyMiss: attach.emptyMiss, note: attach.attachNote, exportRow: attach.exportRow }));
+            var pix = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+            var livePhoto = await cdp.js('(function(){' +
+                'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
+                'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
+                'var login=document.getElementById("loginOverlay"); if(login) login.style.display="none";' +
+                'var sec=document.getElementById("consultationSection"); if(sec) sec.style.display="block";' +
+                'var pane=document.getElementById("con-photos"); if(pane) pane.style.display="block";' +
+                'var main=document.getElementById("photoMainContent"); if(main) main.style.display="block";' +
+                'window.photoPatientId="live-photo-patient";' +
+                'window.photoAllRecords=[{id:"live-smile", category:"Before", file_path:"smile.jpg", public_url:"' + pix + '", taken_date:"2024-06-02"}];' +
+                'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{}}));' +
+                'photoOrthoToggle(true); photoOrthoRender();' +
+                'var tile=document.querySelector(".ortho-tile.is-empty[data-set=before][data-slot=smile]");' +
+                'photoOrthoDrag={id:"live-smile"};' +
+                'var ev=new Event("drop",{bubbles:true,cancelable:true});' +
+                'Object.defineProperty(ev,"dataTransfer",{value:{getData:function(){ return "https://cdn.example/smile.jpg"; }, files:[], items:[]}});' +
+                'if(tile) tile.dispatchEvent(ev);' +
+                'var filled=document.querySelector(".ortho-tile.is-filled[data-set=before][data-slot=smile]");' +
+                'var img=filled && filled.querySelector("img");' +
+                'return { build: window.__JSM_BUILD, exportRow:!!document.querySelector(".ortho-board-export"), pin:(photoOrthoLoad().before||{}).smile, filled:!!filled, missing:!!(filled && filled.querySelector(".ortho-tile-miss")), src: img && img.getAttribute("src") || "", w: img && img.naturalWidth, fit: img ? getComputedStyle(img).objectFit : "", emptyTag: tile && tile.tagName };' +
+                '})()', false, 15000);
+            pass('live photo: dropping a grid photo paints the image on the tile (not Missing from library)',
+                livePhoto && livePhoto.pin === 'live-smile' && livePhoto.filled === true &&
+                livePhoto.missing === false && /data:image\/gif/.test(livePhoto.src || '') &&
+                livePhoto.fit === 'contain' && livePhoto.emptyTag === 'DIV' && livePhoto.exportRow === true,
+                JSON.stringify(livePhoto));
+
+            if (live5500) {
+                await cdp.call('Page.navigate', { url: 'http://xray-ai.test:5500/index.html?_lr=' + BUILD });
+                await sleep(1000);
+                var clinic = await cdp.js('(async function(){' +
+                    'const wait=function(ms){return new Promise(function(r){setTimeout(r,ms);});};' +
+                    'const deadline=Date.now()+20000;' +
+                    'while(Date.now()<deadline){ if(typeof photoOrthoPlace==="function" && typeof photoOrthoResolveId==="function") break; await wait(200); }' +
+                    'if(typeof photoOrthoPlace!=="function") return { ready:false, build: window.__JSM_BUILD };' +
+                    'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
+                    'if(typeof photoOrthoPushTimer!=="undefined" && photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
+                    'var login=document.getElementById("loginOverlay"); if(login) login.style.display="none";' +
+                    'var sec=document.getElementById("consultationSection"); if(sec) sec.style.display="block";' +
+                    'var pane=document.getElementById("con-photos"); if(pane) pane.style.display="block";' +
+                    'var main=document.getElementById("photoMainContent"); if(main) main.style.display="block";' +
+                    'window.photoPatientId="live-photo-5500";' +
+                    'window.photoAllRecords=[{id:"live-face", category:"Before", file_path:"face.jpg", public_url:"' + pix + '", taken_date:"2024-06-02"}];' +
+                    'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{}}));' +
+                    'photoOrthoToggle(true); photoOrthoRender();' +
+                    'photoOrthoPlace("before","face","live-face");' +
+                    'var filled=document.querySelector(".ortho-tile.is-filled[data-set=before][data-slot=face]");' +
+                    'var img=filled && filled.querySelector("img");' +
+                    'return { ready:true, build: window.__JSM_BUILD, pin:(photoOrthoLoad().before||{}).face, filled:!!filled, missing:!!(filled && filled.querySelector(".ortho-tile-miss")), src: img && img.getAttribute("src") || "", exportRow:!!document.querySelector(".ortho-board-export") };' +
+                    '})()', true, 25000);
+                pass('live clinic :5500: photos script and attach helpers loaded',
+                    clinic && clinic.ready === true && String(clinic.build || '').indexOf('20261008e12') >= 0,
+                    JSON.stringify(clinic && { ready: clinic.ready, build: clinic.build }));
+                pass('live clinic :5500 photo: placing a chart photo fills the tile',
+                    clinic && clinic.pin === 'live-face' && clinic.filled === true &&
+                    clinic.missing === false && /data:image\/gif/.test(clinic.src || '') &&
+                    clinic.exportRow === true,
+                    JSON.stringify(clinic));
+            }
         }
     } catch (e) {
         pass('CDP live page', false, e && e.message ? e.message : String(e));

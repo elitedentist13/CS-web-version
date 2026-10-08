@@ -815,8 +815,11 @@ function xrayMountFilm(id) {
 }
 
 function xrayMountWritable(rec) {
-    if (!rec) return false;
-    if (typeof xrayIsHomeRecord === 'function') return !!xrayIsHomeRecord(rec);
+    if (!rec || rec._isHome === false) return false;
+    if (typeof xrayIsHomeRecord === 'function') {
+        try { if (xrayIsHomeRecord(rec)) return true; } catch (e) { /* fall through */ }
+        if (rec.patient_id) return false;
+    }
     return rec._isHome !== false;
 }
 
@@ -942,6 +945,54 @@ function xrayMountClearOver() {
     for (var i = 0; i < nodes.length; i++) nodes[i].classList.remove('is-over');
 }
 
+function xrayMountReadDragId(ev) {
+    var id = XRAY_MOUNT.dragId || '';
+    if (ev && ev.dataTransfer) {
+        try { id = ev.dataTransfer.getData('text/plain') || ev.dataTransfer.getData('text') || id; } catch (e) { /* dragover cannot read data */ }
+    }
+    return id ? String(id) : '';
+}
+
+function xrayMountSlotEl(ev) {
+    var t = ev && ev.target;
+    if (t && t.closest) {
+        var slot = t.closest('.xm-slot');
+        if (slot) return slot;
+    }
+    if (!ev || ev.clientX == null || ev.clientY == null || typeof document.elementFromPoint !== 'function') return null;
+    var el = document.elementFromPoint(ev.clientX, ev.clientY);
+    return (el && el.closest) ? el.closest('.xm-slot') : null;
+}
+
+function xrayMountStartDrag(id, ev) {
+    if (id == null || id === '') return false;
+    XRAY_MOUNT.dragId = String(id);
+    if (ev && ev.dataTransfer) {
+        ev.dataTransfer.effectAllowed = 'copy';
+        try { ev.dataTransfer.setData('text/plain', String(id)); } catch (e) { /* IE */ }
+        try { ev.dataTransfer.setData('text', String(id)); } catch (e2) { /* some WebViews */ }
+    }
+    return true;
+}
+
+function xrayMountFinishDrag() {
+    setTimeout(function () {
+        XRAY_MOUNT.dragId = '';
+        var body = xvEl('xrayMountBody');
+        if (body) {
+            var nodes = body.querySelectorAll('.xm-slot.is-dragging');
+            for (var i = 0; i < nodes.length; i++) nodes[i].classList.remove('is-dragging');
+        }
+        xrayMountClearOver();
+    }, 0);
+}
+
+function xrayMountAllowDrop(ev) {
+    if (!ev) return;
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+}
+
 function xrayMountMissingCol(err) {
     if (typeof xrayCtxIsMissingColErr === 'function' && xrayCtxIsMissingColErr(err)) return true;
     var msg = String((err && (err.message || err.details || err.hint)) || err || '').toLowerCase();
@@ -1010,13 +1061,41 @@ function xrayMountBind() {
     if (XRAY_MOUNT.bound) return;
     var body = xvEl('xrayMountBody');
     var strip = xvEl('xrayMountStrip');
+    var box = body && body.closest ? body.closest('.xray-mount-box') : null;
     if (!body || !strip) return;
     XRAY_MOUNT.bound = true;
+    function onSlotKey(ev) {
+        if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        var b = ev.target.closest ? ev.target.closest('.xm-slot') : null;
+        if (!b) return;
+        ev.preventDefault();
+        xrayMountPick(b.getAttribute('data-row'), b.getAttribute('data-slot'));
+    }
+    function onDragOverSlot(ev) {
+        var b = xrayMountSlotEl(ev);
+        if (!b) return;
+        xrayMountAllowDrop(ev);
+        if (!b.classList.contains('is-over')) {
+            xrayMountClearOver();
+            b.classList.add('is-over');
+        }
+    }
+    function onDropSlot(ev) {
+        var b = xrayMountSlotEl(ev);
+        if (!b) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        xrayMountClearOver();
+        var id = xrayMountReadDragId(ev);
+        XRAY_MOUNT.dragId = '';
+        if (id) xrayMountAssign(id, b.getAttribute('data-row'), b.getAttribute('data-slot'));
+    }
     body.addEventListener('click', function (ev) {
         var b = ev.target.closest ? ev.target.closest('.xm-slot') : null;
         if (!b) return;
         xrayMountPick(b.getAttribute('data-row'), b.getAttribute('data-slot'));
     });
+    body.addEventListener('keydown', onSlotKey);
     body.addEventListener('dblclick', function (ev) {
         var b = ev.target.closest ? ev.target.closest('.xm-slot.is-filled') : null;
         if (!b) return;
@@ -1025,41 +1104,33 @@ function xrayMountBind() {
         if (typeof closeModal === 'function') closeModal('xrayMountModal');
         if (typeof openLightboxRecord === 'function') openLightboxRecord(rec, body._navList || [rec]);
     });
-    body.addEventListener('dragover', function (ev) {
-        var b = ev.target.closest ? ev.target.closest('.xm-slot') : null;
-        if (!b || !XRAY_MOUNT.dragId) return;
-        ev.preventDefault();
-        if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
-        if (!b.classList.contains('is-over')) {
-            xrayMountClearOver();
-            b.classList.add('is-over');
-        }
-    });
-    body.addEventListener('drop', function (ev) {
-        var b = ev.target.closest ? ev.target.closest('.xm-slot') : null;
+    body.addEventListener('dragstart', function (ev) {
+        var b = ev.target.closest ? ev.target.closest('.xm-slot.is-filled') : null;
         if (!b) return;
-        ev.preventDefault();
-        xrayMountClearOver();
-        var id = (ev.dataTransfer && ev.dataTransfer.getData('text/plain')) || XRAY_MOUNT.dragId;
-        XRAY_MOUNT.dragId = '';
-        if (id) xrayMountAssign(id, b.getAttribute('data-row'), b.getAttribute('data-slot'));
+        if (!xrayMountStartDrag(b.getAttribute('data-id'), ev)) return;
+        b.classList.add('is-dragging');
     });
+    body.addEventListener('dragend', function () { xrayMountFinishDrag(); });
+    ['dragenter', 'dragover'].forEach(function (name) {
+        body.addEventListener(name, onDragOverSlot);
+    });
+    body.addEventListener('drop', onDropSlot);
+    if (box && box !== body) {
+        ['dragenter', 'dragover'].forEach(function (name) {
+            box.addEventListener(name, onDragOverSlot);
+        });
+        box.addEventListener('drop', onDropSlot);
+    }
     strip.addEventListener('dragstart', function (ev) {
         var item = ev.target.closest ? ev.target.closest('.xm-strip-item') : null;
         if (!item) return;
-        var id = item.getAttribute('data-id') || '';
-        XRAY_MOUNT.dragId = id;
+        if (!xrayMountStartDrag(item.getAttribute('data-id'), ev)) return;
         item.classList.add('is-dragging');
-        if (ev.dataTransfer) {
-            ev.dataTransfer.effectAllowed = 'copy';
-            try { ev.dataTransfer.setData('text/plain', id); } catch (e) {}
-        }
     });
     strip.addEventListener('dragend', function () {
         var nodes = strip.querySelectorAll('.xm-strip-item.is-dragging');
         for (var i = 0; i < nodes.length; i++) nodes[i].classList.remove('is-dragging');
-        XRAY_MOUNT.dragId = '';
-        xrayMountClearOver();
+        xrayMountFinishDrag();
     });
 }
 
@@ -1083,17 +1154,17 @@ function xrayMountRender() {
             var name = '<span class="xm-slot-name">' + xvEsc(xvTr('xv.s.' + s.k)) + '</span>';
             var selected = XRAY_MOUNT.row === r.key && XRAY_MOUNT.slot === s.k ? ' is-selected' : '';
             if (!s.film) {
-                html += '<button type="button" class="xm-slot is-empty' + selected + '" data-row="' + r.key + '" data-slot="' + s.k + '" data-no-click-guard="1">' +
-                    name + teeth + '<span class="xm-slot-none">' + xvEsc(xvTr('xv.mountEmpty')) + '</span></button>';
+                html += '<div class="xm-slot is-empty' + selected + '" role="button" tabindex="0" data-row="' + r.key + '" data-slot="' + s.k + '" data-no-click-guard="1">' +
+                    name + teeth + '<span class="xm-slot-none">' + xvEsc(xvTr('xv.mountEmpty')) + '</span></div>';
                 return;
             }
             navList.push(s.film);
             var url = typeof xrayDisplayUrl === 'function' ? xrayDisplayUrl(s.film) : (s.film.file_url || '');
             var place = xrayMountPlaceTip(r.key, s.k, s.teeth);
-            html += '<button type="button" class="xm-slot is-filled' + selected + '" data-row="' + r.key + '" data-slot="' + s.k + '" data-id="' + xvEsc(s.film.id) + '" data-no-click-guard="1" aria-label="' + xvEsc(place) + '">' +
+            html += '<div class="xm-slot is-filled' + selected + '" role="button" tabindex="0" draggable="true" data-row="' + r.key + '" data-slot="' + s.k + '" data-id="' + xvEsc(s.film.id) + '" data-no-click-guard="1" aria-label="' + xvEsc(place) + '">' +
                 '<span class="xm-slot-img"><img src="' + xvEsc(url) + '" alt="" loading="lazy" draggable="false" data-xray-id="' + xvEsc(s.film.id) + '">' +
                 xrayMountWhenHtml(s.film) + '</span>' +
-                '<span class="xm-slot-tip">' + xvEsc(place) + '</span></button>';
+                '<span class="xm-slot-tip">' + xvEsc(place) + '</span></div>';
         });
         html += '</div>';
     });
@@ -1110,6 +1181,21 @@ function xrayMountRender() {
     else xrayMountHideStrip();
 }
 
+function xrayMountAutopick() {
+    var layout = xrayMountLayout();
+    var m = xrayMountCompute(layout, xvHomeFilms());
+    var empty = null;
+    var first = null;
+    m.rows.forEach(function (r) {
+        r.slots.forEach(function (s) {
+            if (!first) first = { row: r.key, slot: s.k };
+            if (!empty && !s.film) empty = { row: r.key, slot: s.k };
+        });
+    });
+    var pick = empty || first;
+    if (pick) xrayMountPick(pick.row, pick.slot);
+}
+
 function xrayMountOpen() {
     if (typeof XRAY_CTX !== 'undefined' && XRAY_CTX.ok !== true) { xvToast(xvTr('xv.mountNeedCtx')); return; }
     xrayMountLoadPins();
@@ -1117,6 +1203,7 @@ function xrayMountOpen() {
     XRAY_MOUNT.slot = '';
     XRAY_MOUNT.dragId = '';
     xrayMountRender();
+    xrayMountAutopick();
     if (typeof openModal === 'function') openModal('xrayMountModal');
 }
 

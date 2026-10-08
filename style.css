@@ -20732,8 +20732,9 @@ tr.rsvp-row-pending td   { background: #fffef5; }
 .xm-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
 .xm-row--4 { grid-template-columns: repeat(4, 1fr); }
 .xm-slot { display: flex; flex-direction: column; gap: 2px; align-items: stretch; min-height: 118px; border-radius: 8px; padding: 6px; text-align: left; font-size: 11px; color: #e2e8f0; }
-button.xm-slot { appearance: none; -webkit-appearance: none; width: 100%; font: inherit; color: inherit; cursor: pointer; }
-.xm-slot.is-filled { position: relative; min-height: 148px; padding: 0; border: 1px solid #38bdf8; background: #020617; cursor: pointer; overflow: hidden; }
+button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: none; width: 100%; font: inherit; color: inherit; cursor: pointer; box-sizing: border-box; }
+.xm-slot.is-filled { position: relative; min-height: 148px; padding: 0; border: 1px solid #38bdf8; background: #020617; cursor: grab; overflow: hidden; }
+.xm-slot.is-filled.is-dragging { opacity: .45; cursor: grabbing; }
 .xm-slot.is-filled:hover { background: #020617; }
 .xm-slot.is-empty { border: 1px dashed #475569; background: transparent; color: #64748b; justify-content: center; }
 .xm-slot.is-selected { outline: 2px solid #fbbf24; outline-offset: 1px; }
@@ -20788,9 +20789,12 @@ button.xm-slot { appearance: none; -webkit-appearance: none; width: 100%; font: 
 .ortho-board-bar .xray-btn:disabled { opacity: 0.55; cursor: wait; }
 .ortho-board { margin: 0 0 16px; padding: 12px 14px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; }
 .ortho-board[hidden], .ortho-pick[hidden], .ortho-show[hidden] { display: none !important; }
-.ortho-board-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.ortho-board-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; min-width: 0; }
 .ortho-board-bar strong { font-size: 15px; color: #0f172a; margin-right: 12px; }
+.ortho-board-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; max-width: 100%; box-sizing: border-box; margin: 0 0 8px; }
+.ortho-board-export { padding-top: 8px; border-top: 1px solid #e2e8f0; }
 .ortho-save-chart { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #334155; white-space: nowrap; }
+.ortho-tile[role="button"] { appearance: none; -webkit-appearance: none; width: 100%; box-sizing: border-box; }
 .ortho-meter { margin-right: auto; font-size: 12px; font-weight: 700; color: #0f766e; }
 .ortho-board-x, .ortho-show-close, .ortho-pick-x { border: 0; background: transparent; color: #64748b; font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px; }
 .ortho-board-banner { background: #e0f2fe; color: #0c4a6e; border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }

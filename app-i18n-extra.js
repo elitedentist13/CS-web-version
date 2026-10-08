@@ -5948,6 +5948,7 @@
         'media.ortho.remove': { en: 'Remove from this tile', 'zh-CN': '从本格移除', 'zh-Hant': '從本格移除' },
         'media.ortho.none': { en: 'Upload photos first, then place them on the board.', 'zh-CN': '请先上传照片，再放到对照板上。', 'zh-Hant': '請先上載照片，再放到對照板上。' },
         'media.ortho.missing': { en: 'Missing from library', 'zh-CN': '资料库中已无此照片', 'zh-Hant': '資料庫中已無此照片' },
+        'media.ortho.attachFail': { en: 'Could not attach that photo. Drag the card from the Photos grid, or it is not in this chart.', 'zh-CN': '无法放到对照板。请从下方照片库拖卡片，或该照片不在本病历中。', 'zh-Hant': '無法放到對照板。請從下方相片庫拖卡片，或該相片不在本病歷中。' },
         'media.ortho.step': { en: '{N} / {M}', 'zh-CN': '{N} / {M}', 'zh-Hant': '{N} / {M}' },
         'media.ortho.profile': { en: 'Profile', 'zh-CN': '侧面', 'zh-Hant': '側面' },
         'media.ortho.face': { en: 'Frontal', 'zh-CN': '正面', 'zh-Hant': '正面' },

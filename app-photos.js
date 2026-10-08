@@ -465,7 +465,7 @@ function renderPhotoGrid() {
     var thumbHtml = isPdf
       ? '<div class="xray-no-img" style="background:#fef3c7;">📄<br><small>PDF</small></div>'
       : (imgSrc
-          ? '<img src="' + esc(imgSrc) + '" alt="Photo" ' +
+          ? '<img src="' + esc(imgSrc) + '" alt="Photo" draggable="false" ' +
             'onerror="this.src=\'' + noPreviewSVG + '\'">'
           : '<div class="xray-no-img">📷<br><small>' + esc(mediaTr('media.noPreview')) + '</small></div>');
 
@@ -2560,39 +2560,91 @@ function photoOrthoToggle(force) {
   }
 }
 
+function photoOrthoTileFromEvent(e) {
+  var t = e && e.target;
+  if (t && t.closest) {
+    var tile = t.closest('.ortho-tile');
+    if (tile) return tile;
+  }
+  if (!e || e.clientX == null || typeof document.elementFromPoint !== 'function') return null;
+  var el = document.elementFromPoint(e.clientX, e.clientY);
+  return (el && el.closest) ? el.closest('.ortho-tile') : null;
+}
+
+function photoOrthoSetFromEvent(e) {
+  var t = e && e.target;
+  if (t && t.closest) {
+    var setEl = t.closest('.ortho-set');
+    if (setEl) return setEl;
+  }
+  if (!e || e.clientX == null || typeof document.elementFromPoint !== 'function') return null;
+  var el = document.elementFromPoint(e.clientX, e.clientY);
+  return (el && el.closest) ? el.closest('.ortho-set') : null;
+}
+
+function photoOrthoResolveId(raw) {
+  var id = String(raw || '').trim();
+  if (!id) return '';
+  if (photoOrthoFind(id)) return id;
+  var i, rec, url, path, bare;
+  bare = id.split('?')[0];
+  for (i = 0; i < (photoAllRecords || []).length; i++) {
+    rec = photoAllRecords[i];
+    if (!rec || photoIsOrthoSidecar(rec)) continue;
+    url = String(rec.public_url || '');
+    path = String(rec.file_path || '');
+    if (url && (id === url || bare === url.split('?')[0] || url.indexOf(bare) === 0 || id.indexOf(url.split('?')[0]) === 0)) {
+      return String(rec.id);
+    }
+    if (path && (id.indexOf(path) >= 0 || bare.indexOf(path) >= 0)) return String(rec.id);
+  }
+  return '';
+}
+
+function photoOrthoReadDragId(e) {
+  var fromDrag = (photoOrthoDrag && photoOrthoDrag.id) ? String(photoOrthoDrag.id) : '';
+  var fromDt = '';
+  if (e && e.dataTransfer) {
+    try { fromDt = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text') || ''; } catch (err) { /* dragover cannot read */ }
+  }
+  return photoOrthoResolveId(fromDrag) || photoOrthoResolveId(fromDt) || fromDrag || String(fromDt || '').trim();
+}
+
+function photoOrthoAllowDrop(e) {
+  if (!e) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = photoOrthoDrag && photoOrthoDrag.fromSet ? 'move' : 'copy';
+}
+
 function photoOrthoBind() {
   var root = g('photoOrthoSets');
+  var panel = g('photoOrthoPanel');
   if (!root || photoOrthoBound) return;
   photoOrthoBound = true;
-  root.addEventListener('dragover', function(e) {
-    var tile = e.target.closest ? e.target.closest('.ortho-tile') : null;
-    var setEl = e.target.closest ? e.target.closest('.ortho-set') : null;
+  function onOver(e) {
+    var tile = photoOrthoTileFromEvent(e);
+    var setEl = photoOrthoSetFromEvent(e);
     if (!tile && !setEl) return;
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    photoOrthoAllowDrop(e);
     if (tile) tile.classList.add('is-over');
     if (setEl) setEl.classList.add('is-over');
-  });
-  root.addEventListener('dragleave', function(e) {
-    var tile = e.target.closest ? e.target.closest('.ortho-tile') : null;
-    var setEl = e.target.closest ? e.target.closest('.ortho-set') : null;
-    if (tile) tile.classList.remove('is-over');
-    if (setEl) setEl.classList.remove('is-over');
-  });
-  root.addEventListener('drop', function(e) {
-    var tile = e.target.closest ? e.target.closest('.ortho-tile') : null;
-    var setEl = e.target.closest ? e.target.closest('.ortho-set') : null;
+  }
+  function onDrop(e) {
+    var tile = photoOrthoTileFromEvent(e);
+    var setEl = photoOrthoSetFromEvent(e);
     if (!tile && !setEl) return;
     e.preventDefault();
+    e.stopPropagation();
     if (tile) tile.classList.remove('is-over');
     if (setEl) setEl.classList.remove('is-over');
     var setKey = (tile && tile.dataset.set) || (setEl && setEl.dataset.set) || 'before';
     if (photoOrthoHasExternalFiles(e.dataTransfer)) {
+      var fromExt = photoOrthoDrag;
       photoOrthoDrag = null;
       photoOrthoCollectDropFiles(e.dataTransfer).then(function(files) {
         if (files.length === 1 && tile && tile.dataset.slot) {
           var recs = photoOrthoIngestFiles(files, setKey);
-          if (recs[0]) photoOrthoPlace(setKey, tile.dataset.slot, recs[0].id);
+          if (recs[0]) photoOrthoPlace(setKey, tile.dataset.slot, recs[0].id, fromExt);
           return;
         }
         photoOrthoPlaceFiles(setKey, files);
@@ -2601,10 +2653,22 @@ function photoOrthoBind() {
     }
     if (!tile) return;
     var from = photoOrthoDrag;
-    var id = (from && from.id) || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
+    var id = photoOrthoReadDragId(e);
     photoOrthoDrag = null;
     if (!id) return;
     photoOrthoPlace(tile.dataset.set, tile.dataset.slot, id, from);
+  }
+  ['dragenter', 'dragover'].forEach(function(name) {
+    root.addEventListener(name, onOver);
+    if (panel) panel.addEventListener(name, onOver);
+  });
+  root.addEventListener('drop', onDrop);
+  if (panel) panel.addEventListener('drop', onDrop);
+  root.addEventListener('dragleave', function(e) {
+    var tile = e.target.closest ? e.target.closest('.ortho-tile') : null;
+    var setEl = e.target.closest ? e.target.closest('.ortho-set') : null;
+    if (tile) tile.classList.remove('is-over');
+    if (setEl) setEl.classList.remove('is-over');
   });
   root.addEventListener('dragstart', function(e) {
     var tile = e.target.closest ? e.target.closest('.ortho-tile.is-filled') : null;
@@ -2615,8 +2679,9 @@ function photoOrthoBind() {
       fromSlot: tile.dataset.slot
     };
     if (e.dataTransfer) {
-      e.dataTransfer.setData('text/plain', tile.dataset.photo);
       e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', tile.dataset.photo); } catch (err) { /* IE */ }
+      try { e.dataTransfer.setData('text', tile.dataset.photo); } catch (err2) { /* WebView */ }
     }
   });
   root.addEventListener('click', function(e) {
@@ -2624,17 +2689,29 @@ function photoOrthoBind() {
     if (!tile) return;
     photoOrthoPick(tile.dataset.set, tile.dataset.slot);
   });
+  root.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var tile = e.target.closest ? e.target.closest('.ortho-tile') : null;
+    if (!tile) return;
+    e.preventDefault();
+    photoOrthoPick(tile.dataset.set, tile.dataset.slot);
+  });
 }
 
 function photoOrthoPlace(setKey, slotKey, id, from) {
   if (setKey !== 'before' && setKey !== 'after') return;
+  var resolved = id ? (photoOrthoResolveId(id) || '') : '';
+  if (id && !resolved) {
+    mediaNotify(mediaTr('media.ortho.attachFail'), 'error');
+    return;
+  }
   var map = photoOrthoLoad();
   if (!map.before) map.before = {};
   if (!map.after) map.after = {};
   if (from && from.fromSet && (from.fromSet !== setKey || from.fromSlot !== slotKey)) {
     if (map[from.fromSet]) delete map[from.fromSet][from.fromSlot];
   }
-  if (id) map[setKey][slotKey] = String(id);
+  if (resolved) map[setKey][slotKey] = resolved;
   else delete map[setKey][slotKey];
   photoOrthoSave(map);
   photoOrthoRender();
@@ -2757,6 +2834,7 @@ function photoOrthoImageFiles(files) {
 }
 
 function photoOrthoHasExternalFiles(dt) {
+  if (photoOrthoDrag && photoOrthoResolveId(photoOrthoDrag.id)) return false;
   if (!dt) return false;
   if (dt.files && dt.files.length) return true;
   var items = dt.items;
@@ -2987,19 +3065,37 @@ function photoOrthoTileHtml(setKey, slotKey, labelKey, photoId) {
   }
   var hint = slotKey === 'extra' ? mediaTr('media.ortho.extraHint') : mediaTr('media.ortho.add');
   var missing = photoId && !src ? '<span class="ortho-tile-miss">' + esc(mediaTr('media.ortho.missing')) + '</span>' : '';
-  return '<button type="button" class="ortho-tile is-empty"' +
+  return '<div class="ortho-tile is-empty" role="button" tabindex="0"' +
     ' data-set="' + esc(setKey) + '" data-slot="' + esc(slotKey) + '">' +
     '<span class="ortho-tile-name">' + esc(label) + '</span>' +
     '<span class="ortho-tile-add">' + esc(hint) + '</span>' +
     missing +
-    '</button>';
+    '</div>';
+}
+
+function photoOrthoHealMap(map) {
+  if (!map) return map;
+  var dirty = false;
+  ['before', 'after'].forEach(function(setKey) {
+    var bag = map[setKey];
+    if (!bag) return;
+    Object.keys(bag).forEach(function(slot) {
+      var ok = photoOrthoResolveId(bag[slot]);
+      if (ok && String(ok) !== String(bag[slot])) {
+        bag[slot] = ok;
+        dirty = true;
+      }
+    });
+  });
+  if (dirty) photoOrthoSave(map);
+  return map;
 }
 
 function photoOrthoRender() {
   var root = g('photoOrthoSets');
   if (!root) return;
   photoOrthoBind();
-  var map = photoOrthoLoad();
+  var map = photoOrthoHealMap(photoOrthoLoad());
   var sets = ['before', 'after'];
   var html = '';
   sets.forEach(function(setKey) {

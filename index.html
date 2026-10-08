@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261008mount5';
+  var BUILD = '20261008e10';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -4729,6 +4729,8 @@
         <div class="xray-action-group">
           <button class="xray-btn" id="photoCompareBtn" type="button"
                   onclick="conMediaCompareButton()" data-i18n="cm.cmp.btn"></button>
+          <button class="xray-btn" id="btnPhotoOrtho" type="button"
+                  onclick="photoOrthoToggle()" data-i18n="media.ortho.btn"></button>
         </div>
 
         <!-- Export -->
@@ -4779,6 +4781,14 @@
                  oninput="filterPhotos()"
                  class="xray-filter-input">
         </div>
+        <div class="xray-view-toggle photo-kind-toggle">
+          <button type="button" class="xray-vtoggle" id="btnPhotoKindAll"
+                  onclick="setPhotoKind('all')" data-i18n="media.kind.all"></button>
+          <button type="button" class="xray-vtoggle active" id="btnPhotoKindPhotos"
+                  onclick="setPhotoKind('photos')" data-i18n="media.kind.photos"></button>
+          <button type="button" class="xray-vtoggle" id="btnPhotoKindDocs"
+                  onclick="setPhotoKind('docs')" data-i18n="media.kind.docs"></button>
+        </div>
         <div style="display:flex;gap:8px;align-items:center;">
           <label style="font-size:12px;color:#666;font-weight:600;">
             <input type="checkbox" id="photoSelectAll"
@@ -4790,6 +4800,49 @@
                 style="font-size:12px;color:var(--primary);
                        font-weight:700;"></span>
         </div>
+      </div>
+
+      <!-- Orthodontic before / after mount -->
+      <div id="photoOrthoPanel" class="ortho-board" hidden>
+        <div class="ortho-board-bar">
+          <strong data-i18n="media.ortho.title"></strong>
+          <span id="photoOrthoMeter" class="ortho-meter"></span>
+          <select id="photoOrthoSitBefore" class="xray-filter-sel" onchange="photoOrthoApplySitting('before', this.value)">
+            <option value="" data-i18n="media.ortho.sitPh"></option>
+          </select>
+          <select id="photoOrthoSitAfter" class="xray-filter-sel" onchange="photoOrthoApplySitting('after', this.value)">
+            <option value="" data-i18n="media.ortho.sitPh"></option>
+          </select>
+          <button type="button" class="xray-btn" id="photoOrthoCopyBtn"
+                  onclick="photoOrthoCopySet('before','after')" data-i18n="media.ortho.copyAfter"></button>
+          <button type="button" class="xray-btn" id="photoOrthoPlaceBeforeBtn"
+                  onclick="photoOrthoAutoPlace('before')" data-i18n="media.ortho.placeBefore"></button>
+          <button type="button" class="xray-btn" id="photoOrthoPlaceAfterBtn"
+                  onclick="photoOrthoAutoPlace('after')" data-i18n="media.ortho.placeAfter"></button>
+          <button type="button" class="xray-btn" id="photoOrthoFolderBeforeBtn"
+                  onclick="photoOrthoPickFolder('before')" data-i18n="media.ortho.folderBefore"></button>
+          <button type="button" class="xray-btn" id="photoOrthoFolderAfterBtn"
+                  onclick="photoOrthoPickFolder('after')" data-i18n="media.ortho.folderAfter"></button>
+          <button type="button" class="xray-btn ortho-slide-btn" id="photoOrthoSlideBtn"
+                  onclick="photoOrthoSlideshow()" data-i18n="media.ortho.slide"></button>
+          <button type="button" class="xray-btn ortho-comp-btn" id="photoOrthoCompBtn"
+                  onclick="photoOrthoComposite()" data-i18n="media.ortho.composite"></button>
+          <button type="button" class="xray-btn ortho-pdf-btn" id="photoOrthoPdfBtn"
+                  onclick="photoOrthoExportPdf()" data-i18n="media.ortho.pdf"></button>
+          <button type="button" class="xray-btn" id="photoOrthoPrintBtn"
+                  onclick="photoOrthoPrintPdf()" data-i18n="media.ortho.print"></button>
+          <label class="ortho-save-chart">
+            <input type="checkbox" id="photoOrthoSaveChart" checked>
+            <span data-i18n="media.ortho.saveChart"></span>
+          </label>
+          <button type="button" class="ortho-board-x" onclick="photoOrthoToggle(false)"
+                  data-i18n-aria-label="common.closeAria">×</button>
+        </div>
+        <div class="ortho-board-banner" data-i18n="media.ortho.hint"></div>
+        <input type="file" id="photoOrthoFolderInput" multiple accept="image/*,.jpg,.jpeg,.png,.webp,.heic,.gif,.bmp"
+               hidden onchange="photoOrthoFolderInputChange(this)">
+        <div id="photoOrthoSets"></div>
+        <div id="photoOrthoPick" class="ortho-pick" hidden></div>
       </div>
 
       <!-- ── GRID VIEW ─────────────────────────────────── -->
@@ -4847,6 +4900,63 @@
   </div><!-- /xray-pane-wrap -->
 </div><!-- /con-photos -->
 
+
+<div id="photoOrthoShow" class="ortho-show" hidden>
+  <div class="ortho-show-bar">
+    <div class="ortho-show-heading">
+      <strong id="photoOrthoShowTitle"></strong>
+      <span id="photoOrthoShowStep"></span>
+    </div>
+    <p class="ortho-show-hint" data-i18n="media.ortho.slideHint"></p>
+    <div class="ortho-show-tools">
+      <label class="ortho-show-skip">
+        <input type="checkbox" id="photoOrthoSlideSkip" checked
+               onchange="photoOrthoSlideSkipChange(this.checked)">
+        <span data-i18n="media.ortho.skipEmpty"></span>
+      </label>
+      <button type="button" class="xray-btn is-on" id="photoOrthoModePair"
+              onclick="photoOrthoSlideSetMode('pair')" data-i18n="media.ortho.modePair"></button>
+      <button type="button" class="xray-btn" id="photoOrthoModeSlider"
+              onclick="photoOrthoSlideSetMode('slider')" data-i18n="media.ortho.modeSlider"></button>
+      <button type="button" class="xray-btn" id="photoOrthoModeFade"
+              onclick="photoOrthoSlideSetMode('fade')" data-i18n="media.ortho.modeFade"></button>
+    </div>
+    <button type="button" class="ortho-show-close" onclick="photoOrthoSlideClose()"
+            data-i18n-aria-label="common.closeAria">×</button>
+  </div>
+  <div class="ortho-show-stage">
+    <button type="button" class="ortho-show-nav" onclick="photoOrthoSlideStep(-1)"
+            data-i18n-aria-label="media.slide.prevAria">&#8249;</button>
+    <div class="ortho-show-main">
+    <div class="ortho-show-pair" id="photoOrthoShowPair">
+      <div class="ortho-show-pane">
+        <h3 data-i18n="media.ortho.before"></h3>
+        <span class="ortho-show-date" id="photoOrthoShowBeforeDate"></span>
+        <div class="ortho-show-frame" id="photoOrthoShowBefore"></div>
+      </div>
+      <div class="ortho-show-pane">
+        <h3 data-i18n="media.ortho.after"></h3>
+        <span class="ortho-show-date" id="photoOrthoShowAfterDate"></span>
+        <div class="ortho-show-frame" id="photoOrthoShowAfter"></div>
+      </div>
+    </div>
+    <div class="ortho-show-mix" id="photoOrthoShowMix" hidden>
+      <div class="ortho-show-mix-caps">
+        <span id="photoOrthoMixBeforeDate"></span>
+        <span id="photoOrthoMixAfterDate"></span>
+      </div>
+      <div class="ortho-show-mix-stage">
+        <div class="ortho-show-mix-layer ortho-show-mix-before" id="photoOrthoMixBefore"></div>
+        <div class="ortho-show-mix-layer ortho-show-mix-after" id="photoOrthoMixAfter"></div>
+      </div>
+      <input type="range" id="photoOrthoSlideMix" min="0" max="100" value="50"
+             oninput="photoOrthoSlideSetMix(this.value)">
+    </div>
+    </div>
+    <button type="button" class="ortho-show-nav" onclick="photoOrthoSlideStep(1)"
+            data-i18n-aria-label="media.slide.nextAria">&#8250;</button>
+  </div>
+</div>
 
 <!-- ════════════════════════════════════════════════════════
      MODAL — PHOTO LIGHTBOX  (matches X-Ray lightbox UX)
@@ -7860,7 +7970,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20261006fx64',
-    'app-i18n-extra.js?v=20261008pdfprint1',
+    'app-i18n-extra.js?v=20261008e10',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20261003cbe',
@@ -7874,7 +7984,7 @@
     'app-report.js',
     'app-ai-helper.js',
     'app-memo-ai.js',
-    'app-photos.js?v=20261003cbe',
+    'app-photos.js?v=20261008e10',
     'app-patient.js?v=20261003cbe',
     'app-patient-advanced-search.js',
     'app-patient-views.js?v=20261003cbe',

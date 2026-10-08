@@ -17,6 +17,7 @@ var photoUploadQIdx  = 0;
 var photoFilterCat   = '';
 var photoFilterYear  = '';
 var photoFilterQuery = '';
+var photoKindFilter  = 'photos';
 
 var photoLbCurrentId  = null;
 var _photoLbMetaDirty = false;  // true when metadata fields edited without saving
@@ -51,12 +52,60 @@ function mediaNotify(msg, kind) {
 var PHOTO_CATEGORY_PAIRS = [
     ['Intraoral', 'media.cat.intraoral'],
     ['Extraoral', 'media.cat.extraoral'],
+    ['Before', 'media.cat.before'],
+    ['After', 'media.cat.after'],
+    ['Progress', 'media.cat.progress'],
     ['Before/After', 'media.cat.beforeAfter'],
     ['Consent Form', 'media.cat.consentForm'],
     ['Lab Report', 'media.cat.labReport'],
     ['Scanned Document', 'media.cat.scanDoc'],
     ['Other', 'media.categoryOther']
 ];
+
+function photoTimepointOf(rec) {
+    var c = String((rec && rec.category) || rec || '').trim().toLowerCase();
+    if (c === 'before') return 'before';
+    if (c === 'after') return 'after';
+    if (c === 'progress') return 'progress';
+    return '';
+}
+
+function photoIsDocRec(x) {
+    var p = String((x && x.file_path) || (x && x.public_url) || '').toLowerCase();
+    if (/\.pdf(\?|$)/.test(p)) return true;
+    var c = String((x && x.category) || '');
+    return c === 'Consent Form' || c === 'Lab Report' || c === 'Scanned Document';
+}
+
+function photoVisitKey(rec) {
+    return String((rec && rec.taken_date) || '').slice(0, 10);
+}
+
+function photoVisitGroups(list) {
+    var map = {};
+    var order = [];
+    (list || []).forEach(function(x) {
+        var k = photoVisitKey(x);
+        if (!map[k]) { map[k] = []; order.push(k); }
+        map[k].push(x);
+    });
+    order.sort(function(a, b) {
+        if (!a) return 1;
+        if (!b) return -1;
+        return a > b ? -1 : a < b ? 1 : 0;
+    });
+    return order.map(function(k) { return { date: k, rows: map[k] }; });
+}
+
+function setPhotoKind(kind) {
+    photoKindFilter = (kind === 'docs' || kind === 'all') ? kind : 'photos';
+    var map = { all: 'btnPhotoKindAll', photos: 'btnPhotoKindPhotos', docs: 'btnPhotoKindDocs' };
+    Object.keys(map).forEach(function(k) {
+        var b = g(map[k]);
+        if (b) b.classList.toggle('active', k === photoKindFilter);
+    });
+    filterPhotos();
+}
 
 function photoCategoryLabel(cat) {
     var s = String(cat || '').trim();
@@ -134,7 +183,7 @@ var photoLbChromeMetaVisible = true;
 var photoLbChromeScaleBeforeMax = 1;
 
 const PHOTO_CATEGORIES = [
-  'Intraoral', 'Extraoral', 'Before/After',
+  'Intraoral', 'Extraoral', 'Before', 'After', 'Progress', 'Before/After',
   'Consent Form', 'Lab Report', 'Scanned Document', 'Other'
 ];
 
@@ -252,6 +301,7 @@ function loadPhotoRecords() {
     } else {
       photoAllRecords = r.data || [];
     }
+    if (typeof photoOrthoHydrateFromRecords === 'function') photoOrthoHydrateFromRecords();
     populatePhotoCatFilter();
     populatePhotoYearFilter();
     filterPhotos();
@@ -309,6 +359,9 @@ function filterPhotos() {
   var consentLabOnly = cat === '__consent_lab';
 
   photoFiltered = photoAllRecords.filter(function(x) {
+    if (typeof photoIsOrthoSidecar === 'function' && photoIsOrthoSidecar(x)) return false;
+    if (photoKindFilter === 'docs' && !photoIsDocRec(x)) return false;
+    if (photoKindFilter === 'photos' && photoIsDocRec(x)) return false;
     if (consentLabOnly) {
       if (typeof conMediaIsConsentLabCat !== 'function' || !conMediaIsConsentLabCat(x.category)) return false;
     } else if (cat && (x.category || '').toLowerCase() !== cat) return false;
@@ -332,6 +385,7 @@ function filterPhotos() {
 
   if (photoView === 'grid') renderPhotoGrid();
   else                      renderPhotoSlide();
+  if (typeof photoOrthoRenderIfOpen === 'function') photoOrthoRenderIfOpen();
 }
 
 /* =========================================================
@@ -375,8 +429,21 @@ function renderPhotoGrid() {
   if (empty) empty.style.display = 'none';
 
   var isNurse = (typeof currentRole !== 'undefined' && currentRole === 'nurse');
+  var visitGroups = photoVisitGroups(photoFiltered);
 
-  photoFiltered.forEach(function(x, idx) {
+  visitGroups.forEach(function(group) {
+    var head = document.createElement('div');
+    head.className = 'photo-visit-head';
+    head.dataset.visit = group.date || '';
+    var visitLabel = group.date
+      ? (typeof fmtDateLong === 'function' ? fmtDateLong(group.date) : group.date)
+      : mediaTr('media.noDate');
+    head.innerHTML = '<strong>' + esc(visitLabel) + '</strong><span>' +
+      esc(mediaTrRepl('media.visit.count', { N: String(group.rows.length) })) + '</span>';
+    grid.appendChild(head);
+
+  group.rows.forEach(function(x) {
+    var idx = photoFiltered.indexOf(x);
     var card = document.createElement('div');
     card.className  = 'xray-card';
     card.dataset.id = x.id;
@@ -441,6 +508,21 @@ function renderPhotoGrid() {
 
     grid.appendChild(card);
 
+    if (!isPdf) {
+      card.draggable = true;
+      card.addEventListener('dragstart', function(e) {
+        if (e.target.closest('input, button, a')) {
+          e.preventDefault();
+          return;
+        }
+        photoOrthoDrag = { id: String(x.id) };
+        if (e.dataTransfer) {
+          e.dataTransfer.setData('text/plain', String(x.id));
+          e.dataTransfer.effectAllowed = 'copy';
+        }
+      });
+    }
+
     /* Checkbox */
     var cb = card.querySelector('.photo-cb');
     if (cb) {
@@ -470,6 +552,7 @@ function renderPhotoGrid() {
       cmpBtn.addEventListener('click', function() { conMediaCompareToggle(x.id); });
     }
   });
+  });
   if (typeof conMediaCompareSync === 'function') conMediaCompareSync();
 }
 
@@ -477,6 +560,9 @@ function getPhotoCatBadge(cat) {
   var palette = {
     'Intraoral'   : '#dbeafe:#1d4ed8',
     'Extraoral'   : '#dcfce7:#166534',
+    'Before'      : '#ffedd5:#9a3412',
+    'After'       : '#dcfce7:#166534',
+    'Progress'    : '#e0e7ff:#3730a3',
     'Before/After': '#fef9c3:#713f12',
     'Consent Form': '#fce7f3:#9d174d',
     'Lab Report'  : '#ede9fe:#5b21b6',
@@ -2276,6 +2362,7 @@ function refreshPhotoUiForLangChange() {
   } else if (photoView === 'grid' && typeof renderPhotoGrid === 'function') {
     renderPhotoGrid();
   }
+  if (typeof photoOrthoRenderIfOpen === 'function') photoOrthoRenderIfOpen();
 }
 
 document.addEventListener('app-lang-change', function () {
@@ -2309,4 +2396,1445 @@ document.addEventListener('app-lang-change', function () {
 
 document.addEventListener('DOMContentLoaded', function () {
   refreshPhotoCategorySelects();
+});
+
+/* =========================================================
+   Orthodontic before / after mount
+   Nine standard views, two boards side by side.
+   Pins live in localStorage per patient, same idea as the
+   full-mouth mount. Slideshow steps one view at a time.
+   ========================================================= */
+
+var PHOTO_ORTHO_SLOTS = [
+  ['profile', 'media.ortho.profile'],
+  ['face', 'media.ortho.face'],
+  ['smile', 'media.ortho.smile'],
+  ['upper', 'media.ortho.upper'],
+  ['extra', 'media.ortho.extra'],
+  ['lower', 'media.ortho.lower'],
+  ['buccalR', 'media.ortho.buccalR'],
+  ['intra', 'media.ortho.intra'],
+  ['buccalL', 'media.ortho.buccalL']
+];
+
+var photoOrthoDrag = null;
+var photoOrthoPickTarget = null;
+var photoOrthoSlideIdx = 0;
+var photoOrthoSlideSkipEmpty = true;
+var photoOrthoSlideMode = 'pair';
+var photoOrthoSlideMixPct = 50;
+var photoOrthoBound = false;
+var photoOrthoPushTimer = null;
+var PHOTO_ORTHO_SIDECAR = 'jsm-ortho-mount-v1:';
+
+function photoIsOrthoSidecar(x) {
+  return String((x && x.caption) || '').indexOf(PHOTO_ORTHO_SIDECAR) === 0;
+}
+
+function photoOrthoKey() {
+  return 'jsm_ortho_mount_v1:' + String(photoPatientId || '');
+}
+
+function photoOrthoLoad() {
+  var empty = { before: {}, after: {} };
+  try {
+    var raw = localStorage.getItem(photoOrthoKey());
+    if (!raw) return empty;
+    var o = JSON.parse(raw);
+    if (!o || typeof o !== 'object') return empty;
+    return {
+      before: (o.before && typeof o.before === 'object') ? o.before : {},
+      after: (o.after && typeof o.after === 'object') ? o.after : {}
+    };
+  } catch (e) {
+    return empty;
+  }
+}
+
+function photoOrthoSave(map) {
+  try { localStorage.setItem(photoOrthoKey(), JSON.stringify(map)); } catch (e) {}
+  if (photoOrthoPushTimer) clearTimeout(photoOrthoPushTimer);
+  photoOrthoPushTimer = setTimeout(function() {
+    photoOrthoPushTimer = null;
+    photoOrthoPushRemote(map);
+  }, 400);
+}
+
+function photoOrthoParseSidecar(rec) {
+  if (!photoIsOrthoSidecar(rec)) return null;
+  try {
+    var o = JSON.parse(String(rec.caption).slice(PHOTO_ORTHO_SIDECAR.length));
+    if (!o || typeof o !== 'object') return null;
+    return {
+      before: (o.before && typeof o.before === 'object') ? o.before : {},
+      after: (o.after && typeof o.after === 'object') ? o.after : {}
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+function photoOrthoHydrateFromRecords() {
+  var row = null;
+  var i;
+  for (i = 0; i < photoAllRecords.length; i++) {
+    if (photoIsOrthoSidecar(photoAllRecords[i])) { row = photoAllRecords[i]; break; }
+  }
+  var mapped = photoOrthoParseSidecar(row);
+  if (!mapped) return;
+  try { localStorage.setItem(photoOrthoKey(), JSON.stringify(mapped)); } catch (e) {}
+  if (typeof photoOrthoRenderIfOpen === 'function') photoOrthoRenderIfOpen();
+}
+
+function photoOrthoPushRemote(map) {
+  if (!photoPatientId || typeof SB === 'undefined' || !SB || !SB.from) return Promise.resolve();
+  var caption = PHOTO_ORTHO_SIDECAR + JSON.stringify(map || photoOrthoLoad());
+  var existing = null;
+  var i;
+  for (i = 0; i < photoAllRecords.length; i++) {
+    if (photoIsOrthoSidecar(photoAllRecords[i])) { existing = photoAllRecords[i]; break; }
+  }
+  var req;
+  if (existing && existing.id) {
+    req = SB.from('photos').update({ caption: caption }).eq('id', existing.id).select('id');
+  } else {
+    req = SB.from('photos').insert([{
+      patient_id: photoPatientId,
+      category: 'Other',
+      caption: caption,
+      file_path: String(photoPatientId) + '/ortho-board.json',
+      public_url: null,
+      taken_date: null
+    }]).select('id');
+  }
+  return Promise.resolve(req).then(function(r) {
+    if (r && !r.error && r.data && r.data[0] && !existing) {
+      photoAllRecords.push(Object.assign({ id: r.data[0].id, caption: caption, category: 'Other' }, r.data[0]));
+    } else if (r && !r.error && existing) {
+      existing.caption = caption;
+    }
+    return r;
+  }, function() { return null; });
+}
+
+function photoOrthoFind(id) {
+  var sid = String(id || '');
+  if (!sid) return null;
+  for (var i = 0; i < photoAllRecords.length; i++) {
+    if (String(photoAllRecords[i].id) === sid) return photoAllRecords[i];
+  }
+  return null;
+}
+
+function photoOrthoIsImage(rec) {
+  var p = String((rec && rec.file_path) || (rec && rec.public_url) || '').toLowerCase();
+  if (!p) return false;
+  return p.indexOf('.pdf') < 0;
+}
+
+function photoOrthoSlotLabel(key) {
+  for (var i = 0; i < PHOTO_ORTHO_SLOTS.length; i++) {
+    if (PHOTO_ORTHO_SLOTS[i][0] === key) return mediaTr(PHOTO_ORTHO_SLOTS[i][1]);
+  }
+  return key;
+}
+
+function photoOrthoSetLabel(setKey) {
+  return mediaTr(setKey === 'after' ? 'media.ortho.after' : 'media.ortho.before');
+}
+
+function photoOrthoToggle(force) {
+  var panel = g('photoOrthoPanel');
+  if (!panel) return;
+  var on = (typeof force === 'boolean') ? force : panel.hasAttribute('hidden');
+  if (on) panel.removeAttribute('hidden');
+  else {
+    panel.setAttribute('hidden', '');
+    photoOrthoPickClose();
+  }
+  var btn = g('btnPhotoOrtho');
+  if (btn) btn.classList.toggle('is-on', on);
+  if (on) {
+    photoOrthoBind();
+    photoOrthoRender();
+  }
+}
+
+function photoOrthoBind() {
+  var root = g('photoOrthoSets');
+  if (!root || photoOrthoBound) return;
+  photoOrthoBound = true;
+  root.addEventListener('dragover', function(e) {
+    var tile = e.target.closest ? e.target.closest('.ortho-tile') : null;
+    var setEl = e.target.closest ? e.target.closest('.ortho-set') : null;
+    if (!tile && !setEl) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    if (tile) tile.classList.add('is-over');
+    if (setEl) setEl.classList.add('is-over');
+  });
+  root.addEventListener('dragleave', function(e) {
+    var tile = e.target.closest ? e.target.closest('.ortho-tile') : null;
+    var setEl = e.target.closest ? e.target.closest('.ortho-set') : null;
+    if (tile) tile.classList.remove('is-over');
+    if (setEl) setEl.classList.remove('is-over');
+  });
+  root.addEventListener('drop', function(e) {
+    var tile = e.target.closest ? e.target.closest('.ortho-tile') : null;
+    var setEl = e.target.closest ? e.target.closest('.ortho-set') : null;
+    if (!tile && !setEl) return;
+    e.preventDefault();
+    if (tile) tile.classList.remove('is-over');
+    if (setEl) setEl.classList.remove('is-over');
+    var setKey = (tile && tile.dataset.set) || (setEl && setEl.dataset.set) || 'before';
+    if (photoOrthoHasExternalFiles(e.dataTransfer)) {
+      photoOrthoDrag = null;
+      photoOrthoCollectDropFiles(e.dataTransfer).then(function(files) {
+        if (files.length === 1 && tile && tile.dataset.slot) {
+          var recs = photoOrthoIngestFiles(files, setKey);
+          if (recs[0]) photoOrthoPlace(setKey, tile.dataset.slot, recs[0].id);
+          return;
+        }
+        photoOrthoPlaceFiles(setKey, files);
+      });
+      return;
+    }
+    if (!tile) return;
+    var from = photoOrthoDrag;
+    var id = (from && from.id) || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
+    photoOrthoDrag = null;
+    if (!id) return;
+    photoOrthoPlace(tile.dataset.set, tile.dataset.slot, id, from);
+  });
+  root.addEventListener('dragstart', function(e) {
+    var tile = e.target.closest ? e.target.closest('.ortho-tile.is-filled') : null;
+    if (!tile || !tile.dataset.photo) return;
+    photoOrthoDrag = {
+      id: tile.dataset.photo,
+      fromSet: tile.dataset.set,
+      fromSlot: tile.dataset.slot
+    };
+    if (e.dataTransfer) {
+      e.dataTransfer.setData('text/plain', tile.dataset.photo);
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  });
+  root.addEventListener('click', function(e) {
+    var tile = e.target.closest ? e.target.closest('.ortho-tile') : null;
+    if (!tile) return;
+    photoOrthoPick(tile.dataset.set, tile.dataset.slot);
+  });
+}
+
+function photoOrthoPlace(setKey, slotKey, id, from) {
+  if (setKey !== 'before' && setKey !== 'after') return;
+  var map = photoOrthoLoad();
+  if (!map.before) map.before = {};
+  if (!map.after) map.after = {};
+  if (from && from.fromSet && (from.fromSet !== setKey || from.fromSlot !== slotKey)) {
+    if (map[from.fromSet]) delete map[from.fromSet][from.fromSlot];
+  }
+  if (id) map[setKey][slotKey] = String(id);
+  else delete map[setKey][slotKey];
+  photoOrthoSave(map);
+  photoOrthoRender();
+  var show = g('photoOrthoShow');
+  if (show && !show.hasAttribute('hidden')) photoOrthoSlidePaint();
+}
+
+function photoOrthoNameHitsSlot(rec, slotKey) {
+  var s = (String((rec && rec.file_path) || '') + ' ' + String((rec && rec.caption) || '')).toLowerCase();
+  var hints = {
+    profile: /profile|side\b|lateral|侧面|側面/,
+    face: /repose|frontal-face|face-front|正面(?!口)|fr(on)?tal(?!\s*smile)/,
+    smile: /smile|微笑/,
+    upper: /upper|occlusal-u|maxilla|上颌|上顎/,
+    extra: /extra|three-quarter|3\/4|补充|補充/,
+    lower: /lower|occlusal-l|mandible|下颌|下顎/,
+    buccalR: /right.?buccal|buccal.?r|右侧|右側/,
+    intra: /intraoral|front.?teeth|正面口/,
+    buccalL: /left.?buccal|buccal.?l|左侧|左側/
+  };
+  return hints[slotKey] ? hints[slotKey].test(s) : false;
+}
+
+function photoOrthoAutoPlaceList() {
+  var images = [];
+  if (photoSelected && photoSelected.size) {
+    photoAllRecords.forEach(function(x) {
+      if (photoSelected.has(x.id) && photoOrthoIsImage(x) && !photoIsOrthoSidecar(x)) images.push(x);
+    });
+  }
+  if (!images.length) {
+    var groups = photoVisitGroups((photoAllRecords || []).filter(function(x) {
+      return photoOrthoIsImage(x) && !photoIsOrthoSidecar(x);
+    }));
+    if (groups.length && groups[0].rows) images = groups[0].rows.slice();
+  }
+  return images;
+}
+
+function photoOrthoAutoPlace(setKey) {
+  if (setKey !== 'before' && setKey !== 'after') return;
+  var images = photoOrthoAutoPlaceList();
+  if (!images.length) {
+    mediaNotify(mediaTr('media.ortho.placeNone'), 'error');
+    return 0;
+  }
+  var map = photoOrthoLoad();
+  map[setKey] = {};
+  var used = {};
+  PHOTO_ORTHO_SLOTS.forEach(function(slot) {
+    var hit = null;
+    images.forEach(function(rec) {
+      if (hit || used[String(rec.id)]) return;
+      if (photoOrthoNameHitsSlot(rec, slot[0])) hit = rec;
+    });
+    if (hit) {
+      map[setKey][slot[0]] = String(hit.id);
+      used[String(hit.id)] = true;
+    }
+  });
+  PHOTO_ORTHO_SLOTS.forEach(function(slot) {
+    if (map[setKey][slot[0]]) return;
+    var next = null;
+    images.forEach(function(rec) {
+      if (next || used[String(rec.id)]) return;
+      next = rec;
+    });
+    if (next) {
+      map[setKey][slot[0]] = String(next.id);
+      used[String(next.id)] = true;
+    }
+  });
+  photoOrthoSave(map);
+  photoOrthoRender();
+  var n = photoOrthoFilledCount(map, setKey);
+  mediaNotify(mediaTrRepl('media.ortho.placeOk', { N: String(n), SET: photoOrthoSetLabel(setKey) }), 'info');
+  return n;
+}
+
+function photoOrthoCopySet(fromKey, toKey) {
+  if (fromKey !== 'before' && fromKey !== 'after') return;
+  if (toKey !== 'before' && toKey !== 'after') return;
+  var map = photoOrthoLoad();
+  var src = map[fromKey] || {};
+  var copy = {};
+  Object.keys(src).forEach(function(k) { copy[k] = src[k]; });
+  map[toKey] = copy;
+  photoOrthoSave(map);
+  photoOrthoRender();
+  mediaNotify(mediaTr('media.ortho.copyOk'), 'info');
+}
+
+function photoOrthoApplySitting(setKey, date) {
+  if (!date) return 0;
+  var images = (photoAllRecords || []).filter(function(x) {
+    return photoOrthoIsImage(x) && !photoIsOrthoSidecar(x) && photoVisitKey(x) === date;
+  });
+  if (!images.length) {
+    mediaNotify(mediaTr('media.ortho.placeNone'), 'error');
+    return 0;
+  }
+  var prev = photoSelected;
+  photoSelected = new Set(images.map(function(x) { return x.id; }));
+  var n = photoOrthoAutoPlace(setKey);
+  photoSelected = prev;
+  return n;
+}
+
+var photoOrthoFolderTarget = 'before';
+
+function photoOrthoImageFiles(files) {
+  return (files || []).filter(function(file) {
+    if (!file) return false;
+    var name = String(file.name || '').toLowerCase();
+    var type = String(file.type || '').toLowerCase();
+    if (type.indexOf('pdf') >= 0 || /\.pdf$/.test(name)) return false;
+    if (type.indexOf('image/') === 0) return true;
+    return /\.(jpe?g|png|webp|gif|bmp|heic|tif{1,2})$/.test(name);
+  });
+}
+
+function photoOrthoHasExternalFiles(dt) {
+  if (!dt) return false;
+  if (dt.files && dt.files.length) return true;
+  var items = dt.items;
+  if (!items || !items.length) return false;
+  var i;
+  for (i = 0; i < items.length; i++) {
+    if (!items[i].kind || items[i].kind === 'file') return true;
+  }
+  return false;
+}
+
+function photoOrthoEntryToFiles(entry) {
+  if (!entry) return Promise.resolve([]);
+  if (entry.isFile) {
+    return new Promise(function(resolve) {
+      try {
+        entry.file(function(f) { resolve(f ? [f] : []); }, function() { resolve([]); });
+      } catch (e) {
+        resolve([]);
+      }
+    });
+  }
+  if (entry.isDirectory && typeof entry.createReader === 'function') {
+    var reader = entry.createReader();
+    var jobs = [];
+    function readBatch() {
+      return new Promise(function(resolve) {
+        try {
+          reader.readEntries(function(ents) { resolve(ents || []); }, function() { resolve([]); });
+        } catch (e) {
+          resolve([]);
+        }
+      }).then(function(ents) {
+        if (!ents.length) {
+          return Promise.all(jobs).then(function(chunks) {
+            return [].concat.apply([], chunks);
+          });
+        }
+        ents.forEach(function(ent) { jobs.push(photoOrthoEntryToFiles(ent)); });
+        return readBatch();
+      });
+    }
+    return readBatch();
+  }
+  return Promise.resolve([]);
+}
+
+function photoOrthoCollectDropFiles(dt) {
+  if (!dt) return Promise.resolve([]);
+  var items = dt.items;
+  if (items && items.length) {
+    var jobs = [];
+    var i;
+    for (i = 0; i < items.length; i++) {
+      var item = items[i];
+      if (item.kind && item.kind !== 'file') continue;
+      var entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+      if (entry) jobs.push(photoOrthoEntryToFiles(entry));
+      else if (typeof item.getAsFile === 'function') {
+        var got = item.getAsFile();
+        if (got) jobs.push(Promise.resolve([got]));
+      }
+    }
+    if (jobs.length) {
+      return Promise.all(jobs).then(function(chunks) {
+        return photoOrthoImageFiles([].concat.apply([], chunks));
+      });
+    }
+  }
+  var files = (dt.files && dt.files.length) ? Array.prototype.slice.call(dt.files) : [];
+  return Promise.resolve(photoOrthoImageFiles(files));
+}
+
+function photoOrthoReadDirHandle(dir) {
+  if (!dir || typeof dir.values !== 'function') return Promise.resolve([]);
+  var it = dir.values();
+  var files = [];
+  function step() {
+    return Promise.resolve(it.next()).then(function(n) {
+      if (!n || n.done) return files;
+      var handle = n.value;
+      if (!handle) return step();
+      if (handle.kind === 'file' && typeof handle.getFile === 'function') {
+        return handle.getFile().then(function(f) {
+          if (f) files.push(f);
+          return step();
+        });
+      }
+      if (handle.kind === 'directory') {
+        return photoOrthoReadDirHandle(handle).then(function(inner) {
+          files = files.concat(inner);
+          return step();
+        });
+      }
+      return step();
+    });
+  }
+  return step();
+}
+
+function photoOrthoFilesToRecs(files) {
+  var stamp = Date.now();
+  return (files || []).map(function(file, i) {
+    var name = String(file.name || ('photo-' + i));
+    var url = '';
+    try { url = URL.createObjectURL(file); } catch (e) { url = ''; }
+    return {
+      id: 'drop-' + stamp + '-' + i,
+      category: 'Before',
+      file_path: name,
+      caption: name.replace(/\.[^.]+$/, ''),
+      public_url: url,
+      taken_date: (typeof todayISO === 'function' ? todayISO() : ''),
+      _localFile: true
+    };
+  });
+}
+
+function photoOrthoIngestFiles(files, setKey) {
+  var recs = photoOrthoFilesToRecs(photoOrthoImageFiles(files));
+  recs.forEach(function(r) {
+    r.category = setKey === 'after' ? 'After' : 'Before';
+  });
+  photoAllRecords = (photoAllRecords || []).concat(recs);
+  if (typeof filterPhotos === 'function') filterPhotos();
+  return recs;
+}
+
+function photoOrthoUploadDropped(files, recs) {
+  return Promise.resolve({ skipped: true, n: (recs && recs.length) || 0 });
+}
+
+function photoOrthoPlaceFiles(setKey, files) {
+  if (setKey !== 'before' && setKey !== 'after') return 0;
+  var images = photoOrthoImageFiles(files);
+  if (!images.length) {
+    mediaNotify(mediaTr('media.ortho.dropNone'), 'error');
+    return 0;
+  }
+  var need = PHOTO_ORTHO_SLOTS.length;
+  if (images.length !== need) {
+    var ok = window.confirm(mediaTrRepl('media.ortho.dropCount', {
+      N: String(images.length),
+      SET: photoOrthoSetLabel(setKey),
+      M: String(need)
+    }));
+    if (!ok) return 0;
+  }
+  var recs = photoOrthoIngestFiles(images, setKey);
+  var prev = photoSelected;
+  photoSelected = new Set(recs.map(function(x) { return x.id; }));
+  var n = photoOrthoAutoPlace(setKey);
+  photoSelected = prev;
+  photoOrthoUploadDropped(images, recs);
+  return n;
+}
+
+function photoOrthoPickFolder(setKey) {
+  photoOrthoFolderTarget = (setKey === 'after') ? 'after' : 'before';
+  if (typeof window.showDirectoryPicker === 'function') {
+    window.showDirectoryPicker({ id: 'jsm-ortho-folder' }).then(function(dir) {
+      return photoOrthoReadDirHandle(dir);
+    }).then(function(files) {
+      return photoOrthoPlaceFiles(photoOrthoFolderTarget, files);
+    }).catch(function(err) {
+      if (err && err.name === 'AbortError') return;
+      mediaNotify(mediaTrRepl('media.ortho.exportFail', { MSG: (err && err.message) || String(err) }), 'error');
+    });
+    return;
+  }
+  var inp = g('photoOrthoFolderInput');
+  if (inp) { inp.value = ''; inp.click(); }
+}
+
+function photoOrthoFolderInputChange(inp) {
+  var files = inp && inp.files ? Array.prototype.slice.call(inp.files) : [];
+  if (inp) inp.value = '';
+  photoOrthoPlaceFiles(photoOrthoFolderTarget, files);
+}
+
+function photoOrthoFillSittingSelects() {
+  var groups = photoVisitGroups((photoAllRecords || []).filter(function(x) {
+    return photoOrthoIsImage(x) && !photoIsOrthoSidecar(x) && photoVisitKey(x);
+  }));
+  ['photoOrthoSitBefore', 'photoOrthoSitAfter'].forEach(function(id) {
+    var sel = g(id);
+    if (!sel) return;
+    var cur = sel.value;
+    sel.innerHTML = '<option value="">' + esc(mediaTr('media.ortho.sitPh')) + '</option>';
+    groups.forEach(function(group) {
+      var o = document.createElement('option');
+      o.value = group.date;
+      o.textContent = (typeof fmtDateLong === 'function' ? fmtDateLong(group.date) : group.date) +
+        ' (' + group.rows.length + ')';
+      if (group.date === cur) o.selected = true;
+      sel.appendChild(o);
+    });
+  });
+}
+
+function photoOrthoFilledCount(map, setKey) {
+  var bag = (map && map[setKey]) || {};
+  var n = 0;
+  PHOTO_ORTHO_SLOTS.forEach(function(slot) {
+    var rec = photoOrthoFind(bag[slot[0]]);
+    if (rec && photoOrthoIsImage(rec)) n++;
+  });
+  return n;
+}
+
+function photoOrthoTileHtml(setKey, slotKey, labelKey, photoId) {
+  var label = mediaTr(labelKey);
+  var rec = photoId ? photoOrthoFind(photoId) : null;
+  var src = rec && photoOrthoIsImage(rec) ? photoDisplayUrl(rec) : '';
+  if (photoId && src) {
+    var dateStr = rec.taken_date
+      ? (typeof formatDobDisplay === 'function' ? formatDobDisplay(String(rec.taken_date).slice(0, 10)) : String(rec.taken_date).slice(0, 10))
+      : '';
+    return '<div class="ortho-tile is-filled" draggable="true"' +
+      ' data-set="' + esc(setKey) + '" data-slot="' + esc(slotKey) + '"' +
+      ' data-photo="' + esc(photoId) + '" title="' + esc(label) + '">' +
+      '<img alt="' + esc(label) + '" src="' + esc(src) + '">' +
+      '<span class="ortho-tile-name">' + esc(label) +
+      (dateStr ? '<span class="ortho-tile-date">' + esc(dateStr) + '</span>' : '') +
+      '</span>' +
+      '<span class="ortho-tile-edit" aria-hidden="true">✎</span>' +
+      '</div>';
+  }
+  var hint = slotKey === 'extra' ? mediaTr('media.ortho.extraHint') : mediaTr('media.ortho.add');
+  var missing = photoId && !src ? '<span class="ortho-tile-miss">' + esc(mediaTr('media.ortho.missing')) + '</span>' : '';
+  return '<button type="button" class="ortho-tile is-empty"' +
+    ' data-set="' + esc(setKey) + '" data-slot="' + esc(slotKey) + '">' +
+    '<span class="ortho-tile-name">' + esc(label) + '</span>' +
+    '<span class="ortho-tile-add">' + esc(hint) + '</span>' +
+    missing +
+    '</button>';
+}
+
+function photoOrthoRender() {
+  var root = g('photoOrthoSets');
+  if (!root) return;
+  photoOrthoBind();
+  var map = photoOrthoLoad();
+  var sets = ['before', 'after'];
+  var html = '';
+  sets.forEach(function(setKey) {
+    var bag = map[setKey] || {};
+    html += '<section class="ortho-set" data-set="' + setKey + '">';
+    html += '<h3 class="ortho-set-title">' + esc(photoOrthoSetLabel(setKey)) + '</h3>';
+    html += '<div class="ortho-set-grid">';
+    PHOTO_ORTHO_SLOTS.forEach(function(slot) {
+      html += photoOrthoTileHtml(setKey, slot[0], slot[1], bag[slot[0]] || '');
+    });
+    html += '</div></section>';
+  });
+  root.innerHTML = html;
+  var meter = g('photoOrthoMeter');
+  photoOrthoFillSittingSelects();
+  if (meter) {
+    meter.textContent = mediaTrRepl('media.ortho.meter', {
+      BEFORE: photoOrthoSetLabel('before'),
+      AFTER: photoOrthoSetLabel('after'),
+      BN: String(photoOrthoFilledCount(map, 'before')),
+      AN: String(photoOrthoFilledCount(map, 'after')),
+      M: String(PHOTO_ORTHO_SLOTS.length)
+    });
+  }
+}
+
+function photoOrthoRenderIfOpen() {
+  var panel = g('photoOrthoPanel');
+  if (panel && !panel.hasAttribute('hidden')) photoOrthoRender();
+  var show = g('photoOrthoShow');
+  if (show && !show.hasAttribute('hidden')) photoOrthoSlidePaint();
+}
+
+function photoOrthoImages() {
+  return (photoAllRecords || []).filter(photoOrthoIsImage);
+}
+
+function photoOrthoPick(setKey, slotKey) {
+  photoOrthoPickTarget = { set: setKey, slot: slotKey };
+  var box = g('photoOrthoPick');
+  if (!box) return;
+  var map = photoOrthoLoad();
+  var current = map[setKey] && map[setKey][slotKey] ? String(map[setKey][slotKey]) : '';
+  var title = mediaTrRepl('media.ortho.pick', {
+    SET: photoOrthoSetLabel(setKey),
+    SLOT: photoOrthoSlotLabel(slotKey)
+  });
+  var images = photoOrthoImages();
+  var row = '';
+  images.forEach(function(rec) {
+    var src = photoDisplayUrl(rec);
+    if (!src) return;
+    var on = String(rec.id) === current ? ' is-on' : '';
+    row += '<button type="button" class="ortho-pick-item' + on + '" data-id="' + esc(rec.id) + '">' +
+      '<img alt="" src="' + esc(src) + '">' +
+      '</button>';
+  });
+  if (!row) row = '<p class="ortho-pick-empty">' + esc(mediaTr('media.ortho.none')) + '</p>';
+  var remove = current
+    ? '<button type="button" class="ortho-pick-remove" data-id="">' + esc(mediaTr('media.ortho.remove')) + '</button>'
+    : '';
+  box.innerHTML =
+    '<div class="ortho-pick-bar"><strong>' + esc(title) + '</strong>' +
+    remove +
+    '<button type="button" class="ortho-pick-x" data-close="1">×</button></div>' +
+    '<div class="ortho-pick-row">' + row + '</div>';
+  box.removeAttribute('hidden');
+  box.onclick = function(e) {
+    var closer = e.target.closest ? e.target.closest('[data-close]') : null;
+    if (closer) { photoOrthoPickClose(); return; }
+    var btn = e.target.closest ? e.target.closest('.ortho-pick-item, .ortho-pick-remove') : null;
+    if (!btn || !photoOrthoPickTarget) return;
+    photoOrthoPlace(photoOrthoPickTarget.set, photoOrthoPickTarget.slot, btn.getAttribute('data-id') || '', null);
+    photoOrthoPickClose();
+  };
+  if (box.scrollIntoView) box.scrollIntoView({ block: 'nearest' });
+}
+
+function photoOrthoPickClose() {
+  photoOrthoPickTarget = null;
+  var box = g('photoOrthoPick');
+  if (box) {
+    box.setAttribute('hidden', '');
+    box.innerHTML = '';
+    box.onclick = null;
+  }
+}
+
+function photoOrthoFrameHtml(photoId) {
+  var rec = photoId ? photoOrthoFind(photoId) : null;
+  var src = rec && photoOrthoIsImage(rec) ? photoDisplayUrl(rec) : '';
+  if (!src) {
+    return '<div class="ortho-show-empty">' + esc(mediaTr('media.ortho.noPhoto')) + '</div>';
+  }
+  return '<img alt="" src="' + esc(src) + '">';
+}
+
+function photoOrthoSlideDate(photoId) {
+  var rec = photoId ? photoOrthoFind(photoId) : null;
+  if (!rec || !rec.taken_date) return '';
+  var d = String(rec.taken_date).slice(0, 10);
+  return typeof formatDobDisplay === 'function' ? formatDobDisplay(d) : d;
+}
+
+function photoOrthoSlotHasPhoto(map, slotKey) {
+  function ok(id) {
+    var rec = id ? photoOrthoFind(id) : null;
+    return !!(rec && photoOrthoIsImage(rec) && photoDisplayUrl(rec));
+  }
+  return ok(map && map.before && map.before[slotKey]) || ok(map && map.after && map.after[slotKey]);
+}
+
+function photoOrthoSlideSteps() {
+  var map = photoOrthoLoad();
+  var all = PHOTO_ORTHO_SLOTS.map(function(s) { return s[0]; });
+  if (!photoOrthoSlideSkipEmpty) return all;
+  var filled = all.filter(function(k) { return photoOrthoSlotHasPhoto(map, k); });
+  return filled.length ? filled : all;
+}
+
+function photoOrthoSlideshow() {
+  var panel = g('photoOrthoPanel');
+  if (panel && panel.hasAttribute('hidden')) photoOrthoToggle(true);
+  photoOrthoSlideIdx = 0;
+  var el = g('photoOrthoShow');
+  if (!el) return;
+  el.removeAttribute('hidden');
+  photoOrthoSlidePaint();
+}
+
+function photoOrthoSlideClose() {
+  var el = g('photoOrthoShow');
+  if (el) el.setAttribute('hidden', '');
+}
+
+function photoOrthoSlideSkipChange(on) {
+  photoOrthoSlideSkipEmpty = !!on;
+  photoOrthoSlideIdx = 0;
+  photoOrthoSlidePaint();
+}
+
+function photoOrthoSlideSetMode(mode) {
+  photoOrthoSlideMode = (mode === 'slider' || mode === 'fade') ? mode : 'pair';
+  photoOrthoSlidePaint();
+}
+
+function photoOrthoSlideSetMix(val) {
+  var n = Number(val);
+  photoOrthoSlideMixPct = isFinite(n) ? Math.max(0, Math.min(100, n)) : 50;
+  var mix = g('photoOrthoShowMix');
+  if (mix) mix.style.setProperty('--ortho-mix', photoOrthoSlideMixPct + '%');
+  var range = g('photoOrthoSlideMix');
+  if (range && String(range.value) !== String(photoOrthoSlideMixPct)) range.value = String(photoOrthoSlideMixPct);
+}
+
+function photoOrthoSlideStep(delta) {
+  var n = photoOrthoSlideSteps().length || PHOTO_ORTHO_SLOTS.length;
+  photoOrthoSlideIdx = (photoOrthoSlideIdx + delta + n) % n;
+  photoOrthoSlidePaint();
+}
+
+function photoOrthoSlidePaint() {
+  var el = g('photoOrthoShow');
+  if (!el || el.hasAttribute('hidden')) return;
+  var steps = photoOrthoSlideSteps();
+  if (photoOrthoSlideIdx >= steps.length) photoOrthoSlideIdx = 0;
+  var slotKey = steps[photoOrthoSlideIdx] || (PHOTO_ORTHO_SLOTS[0] && PHOTO_ORTHO_SLOTS[0][0]);
+  var map = photoOrthoLoad();
+  var title = g('photoOrthoShowTitle');
+  var step = g('photoOrthoShowStep');
+  if (title) title.textContent = photoOrthoSlotLabel(slotKey);
+  if (step) {
+    step.textContent = mediaTrRepl('media.ortho.step', {
+      N: photoOrthoSlideIdx + 1,
+      M: steps.length
+    });
+  }
+  var beforeId = map.before && map.before[slotKey];
+  var afterId = map.after && map.after[slotKey];
+  var before = g('photoOrthoShowBefore');
+  var after = g('photoOrthoShowAfter');
+  if (before) before.innerHTML = photoOrthoFrameHtml(beforeId);
+  if (after) after.innerHTML = photoOrthoFrameHtml(afterId);
+  var bd = photoOrthoSlideDate(beforeId);
+  var ad = photoOrthoSlideDate(afterId);
+  var beforeDate = g('photoOrthoShowBeforeDate');
+  var afterDate = g('photoOrthoShowAfterDate');
+  if (beforeDate) beforeDate.textContent = bd;
+  if (afterDate) afterDate.textContent = ad;
+  var mixBeforeDate = g('photoOrthoMixBeforeDate');
+  var mixAfterDate = g('photoOrthoMixAfterDate');
+  if (mixBeforeDate) mixBeforeDate.textContent = (bd ? photoOrthoSetLabel('before') + ' · ' + bd : photoOrthoSetLabel('before'));
+  if (mixAfterDate) mixAfterDate.textContent = (ad ? photoOrthoSetLabel('after') + ' · ' + ad : photoOrthoSetLabel('after'));
+  var mixBefore = g('photoOrthoMixBefore');
+  var mixAfter = g('photoOrthoMixAfter');
+  if (mixBefore) mixBefore.innerHTML = photoOrthoFrameHtml(beforeId);
+  if (mixAfter) mixAfter.innerHTML = photoOrthoFrameHtml(afterId);
+  var pair = g('photoOrthoShowPair');
+  var mix = g('photoOrthoShowMix');
+  var isMix = photoOrthoSlideMode === 'slider' || photoOrthoSlideMode === 'fade';
+  if (pair) {
+    if (isMix) pair.setAttribute('hidden', '');
+    else pair.removeAttribute('hidden');
+  }
+  if (mix) {
+    if (isMix) mix.removeAttribute('hidden');
+    else mix.setAttribute('hidden', '');
+    mix.classList.toggle('is-slider', photoOrthoSlideMode === 'slider');
+    mix.classList.toggle('is-fade', photoOrthoSlideMode === 'fade');
+    mix.style.setProperty('--ortho-mix', photoOrthoSlideMixPct + '%');
+  }
+  var skip = g('photoOrthoSlideSkip');
+  if (skip) skip.checked = !!photoOrthoSlideSkipEmpty;
+  var modes = { pair: 'photoOrthoModePair', slider: 'photoOrthoModeSlider', fade: 'photoOrthoModeFade' };
+  Object.keys(modes).forEach(function(k) {
+    var b = g(modes[k]);
+    if (b) b.classList.toggle('is-on', photoOrthoSlideMode === k);
+  });
+}
+
+function photoOrthoIsAbort(err) {
+  return !!(err && (err.name === 'AbortError' || err.code === 20));
+}
+
+function photoOrthoSetBusy(btnId, on) {
+  ['photoOrthoSlideBtn', 'photoOrthoCompBtn', 'photoOrthoPdfBtn', 'photoOrthoPrintBtn'].forEach(function(id) {
+    var b = g(id);
+    if (b) b.disabled = !!on;
+  });
+  var btn = g(btnId);
+  if (!btn) return;
+  if (on) {
+    if (!btn.dataset.orthoLabel) btn.dataset.orthoLabel = btn.textContent;
+    btn.textContent = mediaTr('media.ortho.exporting');
+  } else if (typeof applyI18nInRoot === 'function' && btn.parentNode) {
+    applyI18nInRoot(btn.parentNode);
+  } else if (btn.dataset.orthoLabel) {
+    btn.textContent = btn.dataset.orthoLabel;
+  }
+}
+
+function photoOrthoSafeFile(s, fallback) {
+  var t = String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return t.slice(0, 60) || fallback || 'patient';
+}
+
+function photoOrthoFileBase() {
+  var p = photoPatientData || {};
+  var no = photoOrthoSafeFile(p.patient_no, '');
+  var name = photoOrthoSafeFile(p.full_name, 'patient');
+  return (no ? no + '-' : '') + name + '-ortho';
+}
+
+function photoOrthoClinicName() {
+  if (typeof clinicNameForOutboundMessage === 'function') {
+    var n = clinicNameForOutboundMessage({});
+    if (n) return n;
+  }
+  return (typeof currentClinicLabel !== 'undefined' && currentClinicLabel) ? currentClinicLabel : '';
+}
+
+function photoOrthoDoctorName() {
+  if (typeof currentName === 'string' && currentName.trim()) return currentName.trim();
+  if (typeof window !== 'undefined' && window.currentName && String(window.currentName).trim()) {
+    return String(window.currentName).trim();
+  }
+  var p = photoPatientData || {};
+  if (p.dr && String(p.dr).trim()) return String(p.dr).trim();
+  var i, rec;
+  for (i = 0; i < (photoAllRecords || []).length; i++) {
+    rec = photoAllRecords[i];
+    if (rec && rec.dr && String(rec.dr).trim()) return String(rec.dr).trim();
+  }
+  return '';
+}
+
+function photoOrthoBagDateLabel(bag) {
+  var dates = [];
+  PHOTO_ORTHO_SLOTS.forEach(function(slot) {
+    var rec = photoOrthoFind((bag && bag[slot[0]]) || '');
+    if (!rec || !rec.taken_date) return;
+    var d = String(rec.taken_date).slice(0, 10);
+    if (d && dates.indexOf(d) < 0) dates.push(d);
+  });
+  dates.sort();
+  if (!dates.length) return '';
+  function fmt(d) {
+    return typeof formatDobDisplay === 'function' ? formatDobDisplay(d) : d;
+  }
+  if (dates.length === 1) return fmt(dates[0]);
+  return fmt(dates[0]) + ' – ' + fmt(dates[dates.length - 1]);
+}
+
+function photoOrthoPatientMeta() {
+  var p = photoPatientData || {};
+  var dob = p.dob && typeof formatDobAge === 'function' ? formatDobAge(p.dob) : (p.dob || '—');
+  var printed = (typeof todayISO === 'function' && typeof formatDobDisplay === 'function')
+    ? formatDobDisplay(todayISO())
+    : '';
+  var map = photoOrthoLoad();
+  return {
+    clinic: photoOrthoClinicName(),
+    name: p.full_name || '—',
+    no: p.patient_no || '—',
+    dob: dob || '—',
+    date: printed || '',
+    doctor: photoOrthoDoctorName(),
+    beforeDate: photoOrthoBagDateLabel(map.before || {}),
+    afterDate: photoOrthoBagDateLabel(map.after || {})
+  };
+}
+
+function photoOrthoSetFilled(map, setKey) {
+  var bag = map && map[setKey];
+  if (!bag) return false;
+  var i, rec;
+  for (i = 0; i < PHOTO_ORTHO_SLOTS.length; i++) {
+    rec = photoOrthoFind(bag[PHOTO_ORTHO_SLOTS[i][0]]);
+    if (rec && photoOrthoIsImage(rec)) return true;
+  }
+  return false;
+}
+
+function photoOrthoDecodeImg(url, cors) {
+  return new Promise(function(resolve, reject) {
+    var im = new Image();
+    if (cors) im.crossOrigin = 'anonymous';
+    im.onload = function() { resolve(im); };
+    im.onerror = function() { reject(new Error('img')); };
+    im.src = url;
+  });
+}
+
+function photoOrthoLoadImg(rec) {
+  var url = photoBareUrl(rec) || photoDisplayUrl(rec);
+  if (!url) return Promise.resolve(null);
+  if (url.indexOf('data:') === 0) return photoOrthoDecodeImg(url, false);
+  return fetch(url, { mode: 'cors', credentials: 'omit' }).then(function(res) {
+    if (!res.ok) throw new Error('http');
+    return res.blob();
+  }).then(function(blob) {
+    var obj = URL.createObjectURL(blob);
+    return photoOrthoDecodeImg(obj, false).then(function(img) {
+      URL.revokeObjectURL(obj);
+      return img;
+    }, function(err) {
+      URL.revokeObjectURL(obj);
+      throw err;
+    });
+  }).catch(function() {
+    return photoOrthoDecodeImg(photoDisplayUrl(rec) || url, true);
+  });
+}
+
+function photoOrthoCollectImages(map) {
+  var seen = {};
+  ['before', 'after'].forEach(function(setKey) {
+    var bag = (map && map[setKey]) || {};
+    PHOTO_ORTHO_SLOTS.forEach(function(slot) {
+      var id = bag[slot[0]];
+      if (id) seen[String(id)] = true;
+    });
+  });
+  var ids = Object.keys(seen);
+  var out = {};
+  return Promise.all(ids.map(function(id) {
+    var rec = photoOrthoFind(id);
+    if (!rec || !photoOrthoIsImage(rec)) return Promise.resolve();
+    return photoOrthoLoadImg(rec).then(function(img) {
+      out[id] = img;
+    }, function() {
+      out[id] = null;
+    });
+  })).then(function() { return out; });
+}
+
+function photoOrthoToBlob(canvas, mime, quality) {
+  return new Promise(function(resolve, reject) {
+    canvas.toBlob(function(blob) {
+      if (!blob) reject(new Error('canvas'));
+      else resolve(blob);
+    }, mime, quality);
+  });
+}
+
+function photoOrthoWriteHandle(handle, blob) {
+  return handle.createWritable().then(function(stream) {
+    return stream.write(blob).then(function() { return stream.close(); });
+  });
+}
+
+function photoOrthoDownloadBlob(blob, name) {
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { URL.revokeObjectURL(a.href); }, 4000);
+}
+
+function photoOrthoPickSave(name, mime, ext, desc) {
+  if (typeof window.showSaveFilePicker !== 'function') return Promise.resolve(null);
+  var accept = {};
+  accept[mime] = [ext];
+  return window.showSaveFilePicker({
+    suggestedName: name,
+    types: [{ description: desc, accept: accept }]
+  });
+}
+
+function photoOrthoFont() {
+  return "'Segoe UI', 'Microsoft YaHei', 'PingFang TC', 'Noto Sans CJK SC', sans-serif";
+}
+
+function photoOrthoFitImage(ctx, img, x, y, w, h) {
+  var iw = img.naturalWidth || img.width;
+  var ih = img.naturalHeight || img.height;
+  if (!iw || !ih) return;
+  var s = Math.min(w / iw, h / ih);
+  var dw = iw * s;
+  var dh = ih * s;
+  ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
+
+function photoOrthoDrawSet(setKey, bag, imgs) {
+  var loaded = [];
+  PHOTO_ORTHO_SLOTS.forEach(function(slot) {
+    var im = imgs[String(bag[slot[0]] || '')];
+    if (im) loaded.push(im);
+  });
+  var cell = 1000;
+  loaded.forEach(function(im) {
+    var side = Math.max(im.naturalWidth || im.width || 0, im.naturalHeight || im.height || 0);
+    if (side > cell) cell = side;
+  });
+  cell = Math.max(900, Math.min(1600, cell));
+  var gap = Math.round(cell * 0.03);
+  var pad = Math.round(cell * 0.06);
+  var titleH = Math.round(cell * 0.16);
+  var labelH = Math.round(cell * 0.08);
+  var cols = 3;
+  var rows = 3;
+  var w = pad * 2 + cols * cell + (cols - 1) * gap;
+  var h = pad + titleH + rows * cell + (rows - 1) * gap + pad;
+  var canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.imageSmoothingEnabled = true;
+  if (ctx.imageSmoothingQuality) ctx.imageSmoothingQuality = 'high';
+  var meta = photoOrthoPatientMeta();
+  var font = photoOrthoFont();
+  ctx.fillStyle = '#0f172a';
+  ctx.textBaseline = 'top';
+  ctx.font = '700 ' + Math.round(titleH * 0.38) + 'px ' + font;
+  ctx.fillText(photoOrthoSetLabel(setKey), pad, pad);
+  ctx.font = '600 ' + Math.round(titleH * 0.22) + 'px ' + font;
+  ctx.fillStyle = '#475569';
+  var sub = [meta.name, meta.no !== '—' ? meta.no : ''].filter(Boolean).join('  ·  ');
+  ctx.fillText(sub, pad, pad + Math.round(titleH * 0.42));
+  var sitDate = photoOrthoBagDateLabel(bag);
+  if (sitDate) {
+    ctx.font = '600 ' + Math.round(titleH * 0.2) + 'px ' + font;
+    ctx.fillText(sitDate, pad, pad + Math.round(titleH * 0.72));
+  }
+  PHOTO_ORTHO_SLOTS.forEach(function(slot, i) {
+    var col = i % 3;
+    var row = Math.floor(i / 3);
+    var x = pad + col * (cell + gap);
+    var y = pad + titleH + row * (cell + gap);
+    var img = imgs[String(bag[slot[0]] || '')] || null;
+    ctx.save();
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, cell, cell, Math.round(cell * 0.02));
+    else ctx.rect(x, y, cell, cell);
+    ctx.clip();
+    ctx.fillStyle = img ? '#0f172a' : '#f8fafc';
+    ctx.fillRect(x, y, cell, cell);
+    if (img) photoOrthoFitImage(ctx, img, x, y, cell, cell);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+    ctx.fillRect(x, y + cell - labelH, cell, labelH);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 ' + Math.round(labelH * 0.46) + 'px ' + font;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(photoOrthoSlotLabel(slot[0]), x + cell / 2, y + cell - labelH / 2);
+    ctx.restore();
+    if (!img) {
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = Math.max(2, Math.round(cell * 0.006));
+      ctx.setLineDash([8, 6]);
+      ctx.strokeRect(x + 4, y + 4, cell - 8, cell - 8);
+      ctx.setLineDash([]);
+    }
+  });
+  return canvas;
+}
+
+function photoOrthoDrawPdfPage(beforeCanvas, afterCanvas) {
+  var w = 2480;
+  var h = 1754;
+  var canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.imageSmoothingEnabled = true;
+  if (ctx.imageSmoothingQuality) ctx.imageSmoothingQuality = 'high';
+  var meta = photoOrthoPatientMeta();
+  var font = photoOrthoFont();
+  var pad = 48;
+  var headerH = 200;
+  ctx.fillStyle = '#0f172a';
+  ctx.textBaseline = 'top';
+  var y = pad;
+  if (meta.clinic) {
+    ctx.font = '600 22px ' + font;
+    ctx.fillStyle = '#64748b';
+    ctx.fillText(meta.clinic, pad, y);
+    y += 32;
+  }
+  ctx.fillStyle = '#0f172a';
+  ctx.font = '700 34px ' + font;
+  ctx.fillText(mediaTr('media.ortho.pdfTitle'), pad, y);
+  y += 48;
+  ctx.font = '600 22px ' + font;
+  ctx.fillStyle = '#334155';
+  var bits = [
+    mediaTr('media.ortho.lblPatient') + '  ' + meta.name,
+    mediaTr('media.ortho.lblNo') + '  ' + meta.no,
+    mediaTr('media.ortho.lblDob') + '  ' + meta.dob
+  ];
+  if (meta.doctor) bits.push(mediaTr('media.ortho.lblDr') + '  ' + meta.doctor);
+  if (meta.date) bits.push(mediaTr('media.ortho.lblDate') + '  ' + meta.date);
+  ctx.fillText(bits.join('    ·    '), pad, y);
+  y += 32;
+  var sits = [];
+  if (meta.beforeDate) sits.push(photoOrthoSetLabel('before') + '  ' + meta.beforeDate);
+  if (meta.afterDate) sits.push(photoOrthoSetLabel('after') + '  ' + meta.afterDate);
+  if (sits.length) {
+    ctx.font = '600 20px ' + font;
+    ctx.fillStyle = '#0f766e';
+    ctx.fillText(sits.join('    ·    '), pad, y);
+  }
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillRect(pad, pad + headerH - 8, w - pad * 2, 3);
+  var gutter = 36;
+  var colW = Math.floor((w - pad * 2 - gutter) / 2);
+  var colH = h - pad - (pad + headerH);
+  var colY = pad + headerH;
+  function place(src, colX) {
+    if (!src) return;
+    var s = Math.min(colW / src.width, colH / src.height);
+    var dw = src.width * s;
+    var dh = src.height * s;
+    ctx.drawImage(src, colX + (colW - dw) / 2, colY + (colH - dh) / 2, dw, dh);
+  }
+  place(beforeCanvas, pad);
+  place(afterCanvas, pad + colW + gutter);
+  return canvas;
+}
+
+function photoOrthoJpegPageToPdf(page) {
+  var PW = 841.89;
+  var PH = 595.28;
+  var parts = [];
+  var off = 0;
+  function add(u8) { parts.push(u8); off += u8.length; }
+  function addStr(s) { add(new TextEncoder().encode(s)); }
+  addStr('%PDF-1.4\n');
+  var xref = [0, 0, 0, 0, 0, 0];
+  function obj(n, body) {
+    xref[n] = off;
+    addStr(n + ' 0 obj\n');
+    if (typeof body === 'string') addStr(body);
+    else body();
+    addStr('\nendobj\n');
+  }
+  obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2, '<< /Type /Pages /Count 1 /Kids [3 0 R] >>');
+  var content = 'q\n' + PW.toFixed(2) + ' 0 0 ' + PH.toFixed(2) + ' 0 0 cm\n/Im0 Do\nQ\n';
+  obj(3, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + PW.toFixed(2) + ' ' + PH.toFixed(2) +
+    '] /Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> >> >>');
+  obj(4, '<< /Length ' + content.length + ' >>\nstream\n' + content + 'endstream');
+  obj(5, function() {
+    addStr('<< /Type /XObject /Subtype /Image /Width ' + page.w + ' /Height ' + page.h +
+      ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + page.jpeg.length +
+      ' >>\nstream\n');
+    add(page.jpeg);
+    addStr('\nendstream');
+  });
+  var xrefPos = off;
+  addStr('xref\n0 6\n');
+  addStr('0000000000 65535 f \n');
+  var oi;
+  for (oi = 1; oi < 6; oi++) {
+    addStr(('0000000000' + (xref[oi] || 0)).slice(-10) + ' 00000 n \n');
+  }
+  addStr('trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n' + xrefPos + '\n%%EOF\n');
+  var out = new Uint8Array(off);
+  var p = 0;
+  parts.forEach(function(u) { out.set(u, p); p += u.length; });
+  return new Blob([out], { type: 'application/pdf' });
+}
+
+function photoOrthoBlobToFile(blob, name) {
+  var type = (blob && blob.type) || 'image/png';
+  try { return new File([blob], name, { type: type }); }
+  catch (e) { return blob; }
+}
+
+function photoOrthoSaveCompositesToChart(blobs, names) {
+  var keys = Object.keys(blobs || {});
+  if (!keys.length || !photoPatientId || typeof photoUploadOne !== 'function') {
+    return Promise.resolve({ n: 0, ids: [] });
+  }
+  var acc = { n: 0, ids: [] };
+  var chain = Promise.resolve();
+  keys.forEach(function(k) {
+    chain = chain.then(function() {
+      var file = photoOrthoBlobToFile(blobs[k], names[k] || (k + '.png'));
+      return photoUploadOne(file, {
+        category: 'Scanned Document',
+        caption: mediaTrRepl('media.ortho.chartCaption', { SET: photoOrthoSetLabel(k) }),
+        taken_date: typeof todayISO === 'function' ? todayISO() : null
+      }).then(function(res) {
+        if (res && res.ok) {
+          acc.n++;
+          if (res.id) acc.ids.push(res.id);
+        }
+        return acc;
+      });
+    });
+  });
+  return chain.then(function() { return acc; });
+}
+
+function photoOrthoBuildPdfBlob(map) {
+  return photoOrthoCollectImages(map).then(function(imgs) {
+    var before = photoOrthoDrawSet('before', map.before || {}, imgs);
+    var after = photoOrthoDrawSet('after', map.after || {}, imgs);
+    var page = photoOrthoDrawPdfPage(before, after);
+    return photoOrthoToBlob(page, 'image/jpeg', 0.92).then(function(jpegBlob) {
+      return jpegBlob.arrayBuffer().then(function(buf) {
+        return photoOrthoJpegPageToPdf({
+          w: page.width,
+          h: page.height,
+          jpeg: new Uint8Array(buf)
+        });
+      });
+    });
+  });
+}
+
+function photoOrthoPrintBlob(blob) {
+  var url = URL.createObjectURL(blob);
+  var win = window.open(url, '_blank');
+  if (win) {
+    try { win.focus(); win.print(); } catch (e) {}
+    setTimeout(function() {
+      try { win.focus(); win.print(); } catch (e2) {}
+    }, 400);
+    return 'window';
+  }
+  var iframe = document.createElement('iframe');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  iframe.src = url;
+  document.body.appendChild(iframe);
+  iframe.onload = function() {
+    try { iframe.contentWindow.print(); } catch (e) {}
+    setTimeout(function() {
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+      URL.revokeObjectURL(url);
+    }, 4000);
+  };
+  return 'iframe';
+}
+
+function photoOrthoPrintPdf() {
+  var map = photoOrthoLoad();
+  if (!photoOrthoSetFilled(map, 'before') && !photoOrthoSetFilled(map, 'after')) {
+    mediaNotify(mediaTr('media.ortho.noPins'), 'error');
+    return;
+  }
+  photoOrthoSetBusy('photoOrthoPrintBtn', true);
+  photoOrthoBuildPdfBlob(map).then(function(pdf) {
+    photoOrthoPrintBlob(pdf);
+    mediaNotify(mediaTr('media.ortho.printOk'), 'info');
+  }).catch(function(err) {
+    if (photoOrthoIsAbort(err)) mediaNotify(mediaTr('media.ortho.exportCancel'));
+    else mediaNotify(mediaTrRepl('media.ortho.exportFail', { MSG: (err && err.message) || String(err) }), 'error');
+  }).then(function() {
+    photoOrthoSetBusy('photoOrthoPrintBtn', false);
+  });
+}
+
+function photoOrthoComposite() {
+  var map = photoOrthoLoad();
+  var sets = [];
+  if (photoOrthoSetFilled(map, 'before')) sets.push('before');
+  if (photoOrthoSetFilled(map, 'after')) sets.push('after');
+  if (!sets.length) {
+    mediaNotify(mediaTr('media.ortho.noPins'), 'error');
+    return;
+  }
+  var names = {};
+  sets.forEach(function(k) {
+    names[k] = photoOrthoFileBase() + '-' + k + '.png';
+  });
+  var usedDir = typeof window.showDirectoryPicker === 'function';
+  var pickP;
+  try {
+    if (usedDir) {
+      pickP = window.showDirectoryPicker({ id: 'jsm-ortho-export', mode: 'readwrite' });
+    } else {
+      pickP = photoOrthoPickSave(names[sets[0]], 'image/png', '.png', mediaTr('media.ortho.pngDesc'));
+    }
+  } catch (err) {
+    if (photoOrthoIsAbort(err)) {
+      mediaNotify(mediaTr('media.ortho.exportCancel'));
+      return;
+    }
+    usedDir = false;
+    pickP = Promise.resolve(null);
+  }
+  photoOrthoSetBusy('photoOrthoCompBtn', true);
+  Promise.resolve(pickP).then(function(picked) {
+    return photoOrthoCollectImages(map).then(function(imgs) {
+      var blobs = {};
+      var chain = Promise.resolve();
+      sets.forEach(function(k) {
+        chain = chain.then(function() {
+          var canvas = photoOrthoDrawSet(k, map[k] || {}, imgs);
+          return photoOrthoToBlob(canvas, 'image/png').then(function(blob) {
+            blobs[k] = blob;
+          });
+        });
+      });
+      return chain.then(function() {
+        return { picked: picked, blobs: blobs };
+      });
+    });
+  }).then(function(pack) {
+    var seq = Promise.resolve();
+    if (usedDir && pack.picked && typeof pack.picked.getFileHandle === 'function') {
+      sets.forEach(function(k) {
+        seq = seq.then(function() {
+          return pack.picked.getFileHandle(names[k], { create: true }).then(function(fh) {
+            return photoOrthoWriteHandle(fh, pack.blobs[k]);
+          });
+        });
+      });
+      return seq.then(function() { return pack; });
+    }
+    if (pack.picked && typeof pack.picked.createWritable === 'function') {
+      seq = photoOrthoWriteHandle(pack.picked, pack.blobs[sets[0]]);
+    } else {
+      photoOrthoDownloadBlob(pack.blobs[sets[0]], names[sets[0]]);
+    }
+    sets.slice(1).forEach(function(k) {
+      seq = seq.then(function() {
+        return photoOrthoPickSave(names[k], 'image/png', '.png', mediaTr('media.ortho.pngDesc')).then(function(h) {
+          if (h) return photoOrthoWriteHandle(h, pack.blobs[k]);
+          photoOrthoDownloadBlob(pack.blobs[k], names[k]);
+        }, function(err) {
+          if (photoOrthoIsAbort(err)) return;
+          photoOrthoDownloadBlob(pack.blobs[k], names[k]);
+        });
+      });
+    });
+    return seq.then(function() { return pack; });
+  }).then(function(pack) {
+    mediaNotify(mediaTrRepl('media.ortho.compositeOk', { N: String(sets.length) }), 'info');
+    var box = g('photoOrthoSaveChart');
+    if (box && !box.checked) return;
+    if (!pack || !pack.blobs) return;
+    return photoOrthoSaveCompositesToChart(pack.blobs, names).then(function(acc) {
+      if (acc && acc.n) mediaNotify(mediaTrRepl('media.ortho.chartOk', { N: String(acc.n) }), 'info');
+    });
+  }).catch(function(err) {
+    if (photoOrthoIsAbort(err)) mediaNotify(mediaTr('media.ortho.exportCancel'));
+    else mediaNotify(mediaTrRepl('media.ortho.exportFail', { MSG: (err && err.message) || String(err) }), 'error');
+  }).then(function() {
+    photoOrthoSetBusy('photoOrthoCompBtn', false);
+  });
+}
+
+function photoOrthoExportPdf() {
+  var map = photoOrthoLoad();
+  if (!photoOrthoSetFilled(map, 'before') && !photoOrthoSetFilled(map, 'after')) {
+    mediaNotify(mediaTr('media.ortho.noPins'), 'error');
+    return;
+  }
+  var name = photoOrthoFileBase() + '.pdf';
+  var pickP;
+  try {
+    pickP = photoOrthoPickSave(name, 'application/pdf', '.pdf', mediaTr('media.ortho.pdfDesc'));
+  } catch (err) {
+    if (photoOrthoIsAbort(err)) {
+      mediaNotify(mediaTr('media.ortho.exportCancel'));
+      return;
+    }
+    pickP = Promise.resolve(null);
+  }
+  photoOrthoSetBusy('photoOrthoPdfBtn', true);
+  Promise.resolve(pickP).then(function(handle) {
+    return photoOrthoBuildPdfBlob(map).then(function(pdf) {
+      if (handle) return photoOrthoWriteHandle(handle, pdf);
+      photoOrthoDownloadBlob(pdf, name);
+    });
+  }).then(function() {
+    mediaNotify(mediaTr('media.ortho.pdfOk'), 'info');
+  }).catch(function(err) {
+    if (photoOrthoIsAbort(err)) mediaNotify(mediaTr('media.ortho.exportCancel'));
+    else mediaNotify(mediaTrRepl('media.ortho.exportFail', { MSG: (err && err.message) || String(err) }), 'error');
+  }).then(function() {
+    photoOrthoSetBusy('photoOrthoPdfBtn', false);
+  });
+}
+
+document.addEventListener('dragend', function() {
+  setTimeout(function() { photoOrthoDrag = null; }, 0);
+});
+
+document.addEventListener('keydown', function(e) {
+  var el = g('photoOrthoShow');
+  if (!el || el.hasAttribute('hidden')) return;
+  var tag = e.target && e.target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (e.key === 'ArrowRight') { photoOrthoSlideStep(1); e.preventDefault(); }
+  else if (e.key === 'ArrowLeft') { photoOrthoSlideStep(-1); e.preventDefault(); }
+  else if (e.key === 'Escape') { photoOrthoSlideClose(); }
 });

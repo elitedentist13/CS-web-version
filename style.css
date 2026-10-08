@@ -20733,7 +20733,7 @@ tr.rsvp-row-pending td   { background: #fffef5; }
 .xm-row--4 { grid-template-columns: repeat(4, 1fr); }
 .xm-slot { display: flex; flex-direction: column; gap: 2px; align-items: stretch; min-height: 118px; border-radius: 8px; padding: 6px; text-align: left; font-size: 11px; color: #e2e8f0; }
 button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: none; width: 100%; font: inherit; color: inherit; cursor: pointer; box-sizing: border-box; }
-.xm-slot.is-filled { position: relative; min-height: 148px; padding: 0; border: 1px solid #38bdf8; background: #020617; cursor: grab; overflow: hidden; }
+.xm-slot.is-filled { position: relative; min-height: 148px; padding: 0; border: 1px solid #38bdf8; background: #020617; cursor: grab; overflow: hidden; touch-action: none; }
 .xm-slot.is-filled.is-dragging { opacity: .45; cursor: grabbing; }
 .xm-slot.is-filled:hover { background: #020617; }
 .xm-slot.is-empty { border: 1px dashed #475569; background: transparent; color: #64748b; justify-content: center; }
@@ -20741,7 +20741,7 @@ button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: 
 .xm-slot.is-over { border-style: solid; border-color: #fbbf24; background: #3f2e12; }
 .xm-slot-img { display: block; flex: 0 0 78px; height: 78px; background: #020617; border-radius: 6px; overflow: hidden; }
 .xm-slot.is-filled .xm-slot-img { position: absolute; inset: 0; height: auto; flex: none; border-radius: 8px; }
-.xm-slot-img img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.xm-slot-img img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 .xm-slot-name { font-weight: 800; }
 .xm-slot-teeth { color: #94a3b8; }
 .xm-slot-date { color: #cbd5e1; }
@@ -20756,12 +20756,27 @@ button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: 
 .xm-strip-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #cbd5e1; }
 .xm-strip-title { font-weight: 800; color: #f8fafc; }
 .xm-strip-for { color: #93c5fd; font-weight: 700; }
-.xm-strip-track { display: flex; gap: 8px; overflow-x: auto; padding: 6px 2px 8px; min-height: 28px; }
-.xm-strip-item { flex: 0 0 auto; width: 96px; border: 2px solid transparent; border-radius: 8px; background: #0f172a; cursor: grab; overflow: hidden; }
+.xm-strip-track { display: flex; flex-direction: column; gap: 10px; padding: 6px 2px 8px; min-height: 28px; }
+.xm-strip-group { min-width: 0; }
+.xm-strip-glbl { font-size: 11px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; color: #93c5fd; margin: 0 0 4px; }
+.xm-strip-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+.xm-strip-item { flex: 0 0 auto; width: 96px; border: 2px solid transparent; border-radius: 8px; background: #0f172a; cursor: grab; overflow: hidden; touch-action: none; }
 .xm-strip-item.is-current { border-color: #38bdf8; }
 .xm-strip-item.is-dragging { opacity: .45; cursor: grabbing; }
 .xm-strip-img { display: block; position: relative; height: 84px; background: #020617; overflow: hidden; }
-.xm-strip-item img { width: 96px; height: 84px; object-fit: contain; display: block; pointer-events: none; }
+.xm-strip-item img { width: 96px; height: 84px; object-fit: contain; display: block; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.xm-ghost { position: fixed; z-index: 20000; width: 72px; height: 64px; pointer-events: none; border: 2px solid #38bdf8; border-radius: 8px; overflow: hidden; background: #020617; box-shadow: 0 8px 20px rgba(0,0,0,.45); }
+.xm-ghost img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.xm-chart-strips { margin-top: 12px; padding-top: 10px; border-top: 1px solid #334155; max-height: 32vh; overflow: auto; }
+.xm-chart-strips[hidden] { display: none; }
+.xm-chart-strips-head { font-size: 12px; font-weight: 800; color: #f8fafc; margin-bottom: 8px; }
+.xm-chart-strips .xray-clinic-strips { margin-top: 0; }
+.xm-chart-strips .xray-strip-tile,
+.xm-chart-strips .xray-fs-thumb,
+.xray-strip-tile.is-dragging,
+.xray-fs-thumb.is-dragging,
+.xray-card.is-dragging { cursor: grab; }
+.xm-chart-strips .xray-strip-tile { touch-action: none; }
 .xm-strip-cap { position: absolute; left: 0; right: 0; bottom: 0; display: block; margin: 0; padding: 0 3px; border-radius: 0; background: rgba(15, 23, 42, .78); font-size: 9px; line-height: 14px; color: #fde68a; font-weight: 700; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .xm-strip-empty { color: #f59e0b; font-size: 12px; font-weight: 700; padding: 8px 2px; }
 @media (max-width: 800px) { .xm-row { grid-template-columns: repeat(2, 1fr); } .xm-row--4 { grid-template-columns: repeat(2, 1fr); } }

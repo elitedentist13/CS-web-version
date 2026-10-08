@@ -9,9 +9,9 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var VIEW = '20261009mount6';
-var PAGE_PORT = 8823;
-var CDP_PORT = 9392;
+var VIEW = '20261009mount9';
+var PAGE_PORT = 8828;
+var CDP_PORT = 9397;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
     ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
     : 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe');
@@ -158,10 +158,28 @@ function finish(code) {
         extractFn(src, 'xrayMountAllowDrop').indexOf('preventDefault') >= 0 &&
         !/if \(!b \|\| !XRAY_MOUNT\.dragId\) return;/.test(extractFn(src, 'xrayMountBind')) &&
         extractFn(src, 'xrayMountFinishDrag').indexOf('setTimeout') >= 0);
+    pass('mouse drag uses pointer events so a drop does not depend on Chrome HTML5 DnD',
+        src.indexOf('function xrayMountPtrDown') >= 0 &&
+        src.indexOf('function xrayMountPtrEnd') >= 0 &&
+        extractFn(src, 'xrayMountBind').indexOf('pointerdown') >= 0 &&
+        extractFn(src, 'xrayMountPtrEnd').indexOf('xrayMountAssign') >= 0);
+    pass('a URL in dataTransfer resolves to the film id, not a missing pin',
+        src.indexOf('function xrayMountResolveId') >= 0 &&
+        extractFn(src, 'xrayMountReadDragId').indexOf('xrayMountResolveId(fromDrag)') >= 0 &&
+        extractFn(src, 'xrayMountAssign').indexOf('xrayMountResolveId(filmId)') >= 0);
     pass('opening the mount shows a strip so there is something to drag',
         extractFn(src, 'xrayMountOpen').indexOf('xrayMountAutopick') >= 0);
-    pass('filled slot uses grab cursor',
-        css.indexOf('.xm-slot.is-filled') >= 0 && css.indexOf('cursor: grab') >= 0);
+    pass('chart click strips, slide thumbs, and grid cards can drag onto a slot',
+        extractFn(src, 'xrayMountFilmEl').indexOf('xray-strip-tile') >= 0 &&
+        extractFn(src, 'xrayMountFilmEl').indexOf('xray-fs-thumb') >= 0 &&
+        extractFn(src, 'xrayMountFilmEl').indexOf('xray-card') >= 0 &&
+        extractFn(src, 'xrayMountOpen').indexOf('xrayMountAttachChartStrips') >= 0 &&
+        extractFn(src, 'xrayMountStripFilms').indexOf('xrayMountAllFilms()') >= 0 &&
+        extractFn(src, 'xrayMountAssign').indexOf('xrayMountCanWriteRecord') >= 0 &&
+        extractFn(src, 'xrayMountPaintStrip').indexOf('xm-strip-group') >= 0);
+    pass('filled slot uses grab cursor and a follow ghost',
+        css.indexOf('.xm-slot.is-filled') >= 0 && css.indexOf('cursor: grab') >= 0 &&
+        css.indexOf('.xm-ghost') >= 0);
 
     console.log('\n=== HTTP spot ===');
     var server = await startStaticServer(PAGE_PORT);
@@ -169,6 +187,7 @@ function finish(code) {
     pass('GET /app-xray-viewer.js serves the drop fix',
         spotJs.status === 200 &&
         spotJs.body.indexOf('function xrayMountAllowDrop') >= 0 &&
+        spotJs.body.indexOf('function xrayMountPtrDown') >= 0 &&
         spotJs.body.indexOf('role="button"') >= 0,
         'HTTP ' + spotJs.status);
     var spotIdx = await httpGetText(PAGE_PORT, '/index.html');
@@ -239,12 +258,15 @@ function finish(code) {
             'window.filterXrays=function(){};' +
             'window.xrayPatientId="mount-drop-patient";' +
             'var films=[' +
-            '{id:"bw1", patient_id:"mount-drop-patient", xray_type:"Bitewing", teeth:["16","17","46","47"], file_url:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", _isHome:true},' +
-            '{id:"bw2", patient_id:"mount-drop-patient", xray_type:"Bitewing", teeth:[], file_url:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", _isHome:true}' +
+            '{id:"bw1", patient_id:"mount-drop-patient", xray_type:"Bitewing", teeth:["16","17","46","47"], file_path:"xrays/bw1.gif", file_url:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", _isHome:true},' +
+            '{id:"bw2", patient_id:"mount-drop-patient", xray_type:"Bitewing", teeth:[], file_path:"xrays/bw2.gif", file_url:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", _isHome:true},' +
+            '{id:"pa1", patient_id:"mount-drop-patient", xray_type:"Periapical", teeth:["11"], file_path:"xrays/pa1.gif", file_url:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", _isHome:true},' +
+            '{id:"away1", patient_id:"other-clinic", xray_type:"Bitewing", teeth:[], file_path:"xrays/away1.gif", file_url:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", _isHome:false, _clinicTag:"other"}' +
             '];' +
             'window.xrayAllRecords=films;' +
             'XRAY_MOUNT.pins={}; XRAY_MOUNT.bound=false;' +
             'xrayMountOpen();' +
+            'var modal=document.getElementById("xrayMountModal"); if(modal){ modal.style.display="block"; modal.style.visibility="visible"; }' +
             'var layout=document.getElementById("xrayMountLayout"); if(layout){ layout.value="bw"; }' +
             'window.xrayAllRecords=films;' +
             'xrayMountRender(); xrayMountAutopick();' +
@@ -257,6 +279,11 @@ function finish(code) {
             'out.hasFilm=!!xrayMountFilm("bw2");' +
             'out.hasSpec=!!xrayMountSpec("bw","premL");' +
             'out.writable=!!(xrayMountFilm("bw2") && xrayMountWritable(xrayMountFilm("bw2")));' +
+            'out.writableStale=!!xrayMountWritable({id:"stale",patient_id:"other-clinic",_isHome:true});' +
+            'out.resolvedUrl=xrayMountResolveId("https://cdn.example/xrays/bw2.gif");' +
+            'XRAY_MOUNT.dragId="bw2";' +
+            'var fakeDrop={dataTransfer:{getData:function(k){ return k==="text/plain"?"https://cdn.example/xrays/bw2.gif":""; }}};' +
+            'out.readPrefersId=xrayMountReadDragId(fakeDrop);' +
             'var dest=document.querySelector(\'.xm-slot[data-row="bw"][data-slot="premL"]\');' +
             'out.hasDest=!!dest;' +
             'window.xrayAllRecords=films;' +
@@ -264,8 +291,20 @@ function finish(code) {
             'var over=new Event("dragover",{bubbles:true,cancelable:true});' +
             'if(dest) dest.dispatchEvent(over);' +
             'out.overPrevented=over.defaultPrevented;' +
-            'var drop=new Event("drop",{bubbles:true,cancelable:true});' +
-            'if(dest) dest.dispatchEvent(drop);' +
+            'XRAY_MOUNT.pins={};' +
+            'var srcEl=document.querySelector(\'.xm-strip-item[data-id="bw2"]\');' +
+            'out.hasSrc=!!srcEl;' +
+            'if(srcEl && dest){' +
+            '  var a=srcEl.getBoundingClientRect(), b=dest.getBoundingClientRect();' +
+            '  out.srcRect=[Math.round(a.left),Math.round(a.top),Math.round(a.width),Math.round(a.height)];' +
+            '  out.destRect=[Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)];' +
+            '  srcEl.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,cancelable:true,pointerId:1,button:0,clientX:a.left+8,clientY:a.top+8,view:window}));' +
+            '  out.ptrArmed=!!(XRAY_MOUNT.ptr && XRAY_MOUNT.ptr.id==="bw2");' +
+            '  dest.dispatchEvent(new PointerEvent("pointermove",{bubbles:true,cancelable:true,pointerId:1,button:0,clientX:b.left+16,clientY:b.top+16,view:window}));' +
+            '  out.ptrMoved=!!(XRAY_MOUNT.ptr && XRAY_MOUNT.ptr.moved);' +
+            '  dest.dispatchEvent(new PointerEvent("pointerup",{bubbles:true,cancelable:true,pointerId:1,button:0,clientX:b.left+16,clientY:b.top+16,view:window}));' +
+            '  out.pinAfterPtr=XRAY_MOUNT.pins["bw:premL"]||"";' +
+            '}' +
             'out.pin=XRAY_MOUNT.pins["bw:premL"]||"";' +
             'if(out.pin!=="bw2"){ xrayMountAssign("bw2","bw","premL"); out.assignedDirect=true; }' +
             'out.pin=XRAY_MOUNT.pins["bw:premL"]||"";' +
@@ -276,6 +315,42 @@ function finish(code) {
             'out.dragIdAfterEndSameTick=XRAY_MOUNT.dragId;' +
             'await wait(20);' +
             'out.dragIdAfterEnd=XRAY_MOUNT.dragId;' +
+            'window.xrayCtxUpdate=function(){ return Promise.resolve({ error:{ message:"rls" } }); };' +
+            'XRAY_MOUNT.pins={};' +
+            'await xrayMountAssign("bw1","bw","molarR");' +
+            'out.keptOnFail=XRAY_MOUNT.pins["bw:molarR"]==="bw1";' +
+            'out.stripTypes=Array.prototype.map.call(document.querySelectorAll("#xrayMountStripTrack .xm-strip-group"),function(g){return g.getAttribute("data-type");});' +
+            'out.hasPaOnStrip=!!document.querySelector(".xm-strip-item[data-id=\\"pa1\\"]");' +
+            'out.fromTile=xrayMountIdFromEl({getAttribute:function(k){return k==="data-id"?"":null;},querySelector:function(s){return s.indexOf("data-xray-id")>=0?{getAttribute:function(){return "pa1";}}:null;}});' +
+            'var host=document.getElementById("xrayClinicStrips")||document.createElement("div");' +
+            'if(!host.id){ host.id="xrayClinicStrips"; document.body.appendChild(host); }' +
+            'host.innerHTML=\'<button type="button" class="xray-strip-tile" data-id="pa1"><img data-xray-id="pa1" alt=""></button>\';' +
+            'xrayMountAttachChartStrips();' +
+            'out.docked=!!document.querySelector("#xrayMountChartStrips .xray-strip-tile[data-id=\\"pa1\\"]");' +
+            'var tile=document.querySelector(".xray-strip-tile[data-id=\\"pa1\\"]");' +
+            'var dest2=document.querySelector(\'.xm-slot[data-row="bw"][data-slot="premR"]\');' +
+            'if(tile && dest2){' +
+            '  tile.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,cancelable:true,pointerId:8,button:0,clientX:12,clientY:12,view:window}));' +
+            '  dest2.dispatchEvent(new PointerEvent("pointermove",{bubbles:true,cancelable:true,pointerId:8,button:0,clientX:40,clientY:40,view:window}));' +
+            '  dest2.dispatchEvent(new PointerEvent("pointerup",{bubbles:true,cancelable:true,pointerId:8,button:0,clientX:40,clientY:40,view:window}));' +
+            '}' +
+            'out.pinFromStrip=XRAY_MOUNT.pins["bw:premR"]||"";' +
+            'out.writableAway=!!xrayMountWritable(xrayMountFilm("away1"));' +
+            'out.writeAway=!!xrayMountCanWriteRecord(xrayMountFilm("away1"));' +
+            'out.hasAwayOnStrip=!!document.querySelector(\'.xm-strip-item[data-id="away1"]\');' +
+            'host.innerHTML+=\'<section class="xray-clinic-row xray-clinic-row--collapsed"><button type="button" class="xray-strip-tile" data-id="away1"><img data-xray-id="away1" alt=""></button></section>\';' +
+            'xrayMountAttachChartStrips();' +
+            'out.awayOpen=!!document.querySelector("#xrayMountChartStrips .xray-clinic-row:not(.xray-clinic-row--collapsed) .xray-strip-tile[data-id=\\"away1\\"]");' +
+            'var away=document.querySelector(\'.xray-strip-tile[data-id="away1"]\');' +
+            'var dest3=document.querySelector(\'.xm-slot[data-row="bw"][data-slot="molarL"]\');' +
+            'if(away && dest3){' +
+            '  away.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,cancelable:true,pointerId:9,button:0,clientX:12,clientY:12,view:window}));' +
+            '  dest3.dispatchEvent(new PointerEvent("pointermove",{bubbles:true,cancelable:true,pointerId:9,button:0,clientX:48,clientY:48,view:window}));' +
+            '  dest3.dispatchEvent(new PointerEvent("pointerup",{bubbles:true,cancelable:true,pointerId:9,button:0,clientX:48,clientY:48,view:window}));' +
+            '}' +
+            'out.pinAway=XRAY_MOUNT.pins["bw:molarL"]||"";' +
+            'var afterAway=document.querySelector(\'.xm-slot[data-row="bw"][data-slot="molarL"]\');' +
+            'out.filledAway=!!(afterAway && afterAway.getAttribute("data-id")==="away1");' +
             'return out;' +
             '})()', true, 40000);
 
@@ -290,9 +365,32 @@ function finish(code) {
             pass('live: dropping a strip film mounts it in that slot',
                 live.pin === 'bw2' && live.filled === true,
                 JSON.stringify(live));
+            pass('live: pointer drag from the strip places the film without HTML5 drop',
+                live.hasSrc === true && live.pin === 'bw2' && live.filled === true && live.assignedDirect !== true,
+                JSON.stringify({ src: live.hasSrc, pin: live.pin, filled: live.filled, fallback: live.assignedDirect }));
+            pass('live: a URL in the drag payload still resolves to the film id',
+                live.resolvedUrl === 'bw2' && live.readPrefersId === 'bw2',
+                JSON.stringify({ resolved: live.resolvedUrl, read: live.readPrefersId }));
+            pass('live: a home film stays writable even if the write-target helper is stale',
+                live.writable === true && live.writableStale === true,
+                JSON.stringify({ writable: live.writable, stale: live.writableStale }));
+            pass('live: a failed remote save keeps the film on the slot',
+                live.keptOnFail === true,
+                JSON.stringify({ kept: live.keptOnFail }));
             pass('live: dragend keeps the id until after drop, then clears it',
                 live.dragIdAfterEndSameTick === 'bw2' && live.dragIdAfterEnd === '',
                 JSON.stringify({ same: live.dragIdAfterEndSameTick, later: live.dragIdAfterEnd }));
+            pass('live: the mount strip lists films from other types, not only this slot',
+                live.hasPaOnStrip === true && (live.stripTypes || []).indexOf('Periapical') >= 0,
+                JSON.stringify({ types: live.stripTypes, pa: live.hasPaOnStrip }));
+            pass('live: a chart click-strip tile drops onto a mount slot',
+                live.fromTile === 'pa1' && live.docked === true && live.pinFromStrip === 'pa1',
+                JSON.stringify({ id: live.fromTile, docked: live.docked, pin: live.pinFromStrip }));
+            pass('live: a film from another clinic strip mounts without writing that chart',
+                live.writableAway === true && live.writeAway === false &&
+                live.hasAwayOnStrip === true && live.awayOpen === true &&
+                live.pinAway === 'away1' && live.filledAway === true,
+                JSON.stringify({ writable: live.writableAway, write: live.writeAway, strip: live.hasAwayOnStrip, open: live.awayOpen, pin: live.pinAway, filled: live.filledAway }));
         }
     } catch (e) {
         pass('CDP live page', false, e && e.message ? e.message : String(e));

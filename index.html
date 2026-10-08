@@ -4417,7 +4417,7 @@
 <div id="xrayMountModal" class="modal" style="z-index:10000;">
   <div class="xray-mount-box">
     <button class="mclose" data-i18n-aria-label="common.closeAria"
-            onclick="closeModal('xrayMountModal')">×</button>
+            onclick="xrayMountClose()">×</button>
     <h3 class="xray-mount-title" data-i18n="xv.mountTitle"></h3>
     <div class="xray-mount-bar">
       <select id="xrayMountLayout" class="xray-cmp-sel" onchange="xrayMountRender()">
@@ -4430,6 +4430,9 @@
     <div id="xrayMountStrip" class="xm-strip" hidden>
       <div id="xrayMountStripHead" class="xm-strip-head"></div>
       <div id="xrayMountStripTrack" class="xm-strip-track"></div>
+    </div>
+    <div id="xrayMountChartStrips" class="xm-chart-strips" hidden>
+      <div class="xm-chart-strips-head" data-i18n="xv.mountFromStrips"></div>
     </div>
   </div>
 </div>
@@ -8013,7 +8016,7 @@
     'app-xray-ai-20260909.js',
     'app-charts.js?v=20261003cbe',
     'app-xray-wire.js?v=20261003cbe',
-    'app-xray-viewer.js?v=20261009mount6',
+    'app-xray-viewer.js?v=20261009mount9',
     'app-xray-dicom.js?v=20261003cbe',
     'app-xray-cbct.js?v=20261003cbe',
     'app-xray-cs3d.js?v=20261003cbe',

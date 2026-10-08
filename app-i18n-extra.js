@@ -5284,6 +5284,11 @@
         },
         'con.forms.updatedOk': { en: 'Document updated.', 'zh-CN': '文件已更新。', 'zh-Hant': '文件已更新。' },
         'con.forms.btnPrintOne': { en: 'Print', 'zh-CN': '打印', 'zh-Hant': '列印' },
+        'con.forms.printPdfPreparing': {
+            en: 'Preparing the saved PDF…',
+            'zh-CN': '正在准备已保存的 PDF…',
+            'zh-Hant': '正在準備已儲存的 PDF…'
+        },
         'con.forms.patientLabel': { en: '{NAME} (#{NO})', 'zh-CN': '{NAME}（#{NO}）', 'zh-Hant': '{NAME}（#{NO}）' },
         'con.forms.generateTitle': { en: 'Generate Document', 'zh-CN': '生成文件', 'zh-Hant': '產生文件' },
         'con.forms.doctorLine': { en: 'Doctor:', 'zh-CN': '医生：', 'zh-Hant': '醫生：' },

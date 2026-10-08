@@ -3066,8 +3066,9 @@ function conOpenPdfEditorWithRecord(d) {
     });
 }
 
-function printConFormsHtml(html) {
-    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
+function printConFormsHtml(html, opts) {
+    opts = opts || {};
+    if (!opts.skipConfirm && typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return;
     var cid = (typeof currentClinicId !== 'undefined' && currentClinicId)
         ? String(currentClinicId) : '';
 
@@ -3291,47 +3292,192 @@ function conFormsDeleteSelectedDocs() {
     });
 }
 
+var conFormsPdfLibPromise = null;
+
+function conFormsEnsurePdfLib() {
+    if (window.PDFLib) return Promise.resolve(window.PDFLib);
+    if (conFormsPdfLibPromise) return conFormsPdfLibPromise;
+    conFormsPdfLibPromise = new Promise(function (resolve, reject) {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+        s.onload = function () {
+            if (!window.PDFLib) {
+                conFormsPdfLibPromise = null;
+                reject(new Error('pdf-lib'));
+                return;
+            }
+            resolve(window.PDFLib);
+        };
+        s.onerror = function () {
+            conFormsPdfLibPromise = null;
+            reject(new Error('pdf-lib'));
+        };
+        document.head.appendChild(s);
+    });
+    return conFormsPdfLibPromise;
+}
+
+function conFormsToUint8(buf) {
+    if (buf instanceof Uint8Array) return buf;
+    return new Uint8Array(buf);
+}
+
+function conFormsConcatPdfBuffers(buffers) {
+    if (!buffers || !buffers.length) {
+        return Promise.reject(new Error(conTr('con.forms.pdfOpenMissingPath')));
+    }
+    if (buffers.length === 1) return Promise.resolve(conFormsToUint8(buffers[0]));
+    return conFormsEnsurePdfLib().then(function (PDFLib) {
+        return PDFLib.PDFDocument.create().then(function (out) {
+            return buffers.reduce(function (chain, buf) {
+                return chain.then(function () {
+                    return PDFLib.PDFDocument.load(conFormsToUint8(buf)).then(function (src) {
+                        return out.copyPages(src, src.getPageIndices()).then(function (pages) {
+                            pages.forEach(function (p) { out.addPage(p); });
+                        });
+                    });
+                });
+            }, Promise.resolve()).then(function () { return out.save(); });
+        });
+    });
+}
+
+function conFormsShowPdfInPopup(popup, buf) {
+    var url = URL.createObjectURL(new Blob([conFormsToUint8(buf)], { type: 'application/pdf' }));
+    try { popup.location.href = url; }
+    catch (e0) {
+        try { popup.location = url; } catch (e1) {}
+    }
+    setTimeout(function () {
+        try { popup.focus(); } catch (e2) {}
+        try { popup.print(); } catch (e3) {}
+    }, 600);
+}
+
+function conFormsDownloadStoredPdf(meta) {
+    if (!meta || !meta.path || typeof SB === 'undefined' || !SB.storage) {
+        return Promise.reject(new Error(conTr('con.forms.pdfOpenMissingPath')));
+    }
+    var buckets = [];
+    function addBucket(name) {
+        if (name && buckets.indexOf(name) < 0) buckets.push(name);
+    }
+    addBucket(meta.bucket || 'patient-documents');
+    addBucket('patient-documents');
+    addBucket('photos');
+    function attempt(i) {
+        return SB.storage.from(buckets[i]).download(meta.path).then(function (r) {
+            if (r && !r.error && r.data) {
+                var blob = r.data;
+                if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer();
+                return blob;
+            }
+            if (i + 1 < buckets.length) return attempt(i + 1);
+            throw (r && r.error) || new Error(conTr('con.forms.pdfOpenMissingPath'));
+        });
+    }
+    return attempt(0);
+}
+
+function conFormsOpenPrintPopup() {
+    var popup = window.open('', '_blank',
+        'width=1100,height=780,left=60,top=32,scrollbars=1,resizable=1,toolbar=0,menubar=0');
+    if (!popup) {
+        conFormsNotify(conTr('con.alert.popupBlocked'), 'error');
+        return null;
+    }
+    try {
+        popup.document.open();
+        popup.document.write(
+            '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' +
+            esc(conTr('con.forms.printDocTitle')) + '</title></head><body><p>' +
+            esc(conTr('con.forms.printPdfPreparing')) + '</p></body></html>'
+        );
+        popup.document.close();
+    } catch (e0) {}
+    return popup;
+}
+
+function conFormsPrintStoredPdfDocs(docs) {
+    if (typeof confirmPrintReminder === 'function' && !confirmPrintReminder()) return false;
+    var popup = conFormsOpenPrintPopup();
+    if (!popup) return;
+    var chain = Promise.resolve([]);
+    (docs || []).forEach(function (d) {
+        chain = chain.then(function (buffers) {
+            var meta = conFormsParsePdfStorageMeta(d && d.content_html);
+            if (!meta) throw new Error(conTr('con.forms.pdfOpenMissingPath'));
+            return conFormsDownloadStoredPdf(meta).then(function (buf) {
+                buffers.push(buf);
+                return buffers;
+            });
+        });
+    });
+    chain.then(function (buffers) {
+        return conFormsConcatPdfBuffers(buffers);
+    }).then(function (buf) {
+        conFormsShowPdfInPopup(popup, buf);
+    }).catch(function (e) {
+        try { popup.close(); } catch (e2) {}
+        conFormsNotify(conTrRepl('con.alert.printFailed', { MSG: (e && e.message) || String(e) }), 'error');
+    });
+}
+
+function conFormsLetterPrintHtml(docs) {
+    return (docs || []).map(function (d) {
+        return conFormsPreparePrintHtml((d && d.content_html) || '', true);
+    }).join('<div style="page-break-after:always;"></div>');
+}
+
+function conFormsPrintResolvedDocs(docs) {
+    docs = (docs || []).filter(Boolean);
+    if (!docs.length) return;
+    var pdfs = [];
+    var letters = [];
+    docs.forEach(function (d) {
+        if (conFormsDocIsPdfRecord(d)) pdfs.push(d);
+        else letters.push(d);
+    });
+    if (!pdfs.length) {
+        printConFormsHtml(conFormsLetterPrintHtml(letters));
+        return;
+    }
+    if (conFormsPrintStoredPdfDocs(pdfs) === false) return;
+    if (letters.length) {
+        printConFormsHtml(conFormsLetterPrintHtml(letters), { skipConfirm: true });
+    }
+}
+
 function conFormsPrintSelectedDocs() {
     if (!conFormsSelectedDocIds.length) return;
     var docs = conFormsSelectedDocIds
         .map(function (id) { return conFormsDocsCache[id]; })
         .filter(Boolean);
 
-    // If some weren't cached (unlikely), fetch them.
     if (docs.length !== conFormsSelectedDocIds.length) {
         SB.from('patient_documents')
-          .select('id,content_html')
+          .select('id,content_html,template_type,document_name')
           .in('id', conFormsSelectedDocIds)
         .then(function (r) {
             if (r.error) { conFormsNotify(conTrRepl('con.alert.printFailed', { MSG: r.error.message }), 'error'); return; }
-            var rows = r.data || [];
-            var html = rows.map(function (d) {
-                return conFormsPreparePrintHtml(d.content_html || '', true);
-            }).join(
-                '<div style="page-break-after:always;"></div>'
-            );
-            printConFormsHtml(html);
+            conFormsPrintResolvedDocs(r.data || []);
         });
         return;
     }
 
-    var htmlJoined = docs
-        .map(function (d) { return conFormsPreparePrintHtml(d.content_html || '', true); })
-        .join('<div style="page-break-after:always;"></div>');
-
-    printConFormsHtml(htmlJoined);
+    conFormsPrintResolvedDocs(docs);
 }
 
 function conFormsPrintOneDoc(id) {
     var d = conFormsDocsCache[id];
-    if (d && d.content_html) {
-        printConFormsHtml(conFormsPreparePrintHtml(d.content_html, true));
+    if (d) {
+        conFormsPrintResolvedDocs([d]);
         return;
     }
-    SB.from('patient_documents').select('content_html').eq('id', id).single()
+    SB.from('patient_documents').select('id,content_html,template_type,document_name').eq('id', id).single()
     .then(function (r) {
         if (r.error || !r.data) { conFormsNotify(conTr('con.alert.loadDocFail'), 'error'); return; }
-        printConFormsHtml(conFormsPreparePrintHtml(r.data.content_html || '', true));
+        conFormsPrintResolvedDocs([r.data]);
     });
 }
 

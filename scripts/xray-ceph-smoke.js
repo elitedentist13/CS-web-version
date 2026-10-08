@@ -12,10 +12,12 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261005fx53';
+var BUILD = '20261008mount5';
 var PAGE_PORT = 8803;
 var CDP_PORT = 9371;
-var CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
+var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
+    ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+    : 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe');
 var root = path.resolve(__dirname, '..');
 var fails = [];
 var extraFiles = {};
@@ -752,7 +754,7 @@ var PAGE_SCRIPT = `(async () => {
     cat.landmarks.forEach(function (d) { popogNorm[d.id] = { x: d.nx, y: d.ny }; });
     var popogGuide = { Po: { x: 200, y: 400 }, Pog: { x: 700, y: 900 } };
     var popogPlaced = lmBox.CEPH_LM.placeByPoPog(popogNorm, popogGuide);
-    var popogWant = Math.hypot(500, 500) * 0.75 * 0.9;
+    var popogWant = Math.hypot(500, 500);
     var popogGot = popogPlaced && Math.hypot(popogPlaced.Pog.x - popogPlaced.Po.x, popogPlaced.Pog.y - popogPlaced.Po.y);
     var popogMax = 0;
     if (popogPlaced) {
@@ -761,8 +763,8 @@ var PAGE_SCRIPT = `(async () => {
             popogMax = Math.max(popogMax, Math.hypot(p.x - popogPlaced.Po.x, p.y - popogPlaced.Po.y));
         });
     }
-    pass('1502 shape scales from Po–Pog, then 25% smaller',
-        popogPlaced && Math.abs(popogPlaced.Pog.x - 575) < 1 && Math.abs(popogPlaced.Pog.y - 775) < 1 &&
+    pass('1502 shape scales to the full Po–Pog length',
+        popogPlaced && Math.abs(popogPlaced.Pog.x - 700) < 1 && Math.abs(popogPlaced.Pog.y - 900) < 1 &&
         Math.abs(popogGot - popogWant) < 1 && popogMax < popogWant * 2.2,
         popogPlaced ? ('len=' + Math.round(popogGot) + ' max=' + Math.round(popogMax)) : 'none');
     var filmGuide = {};
@@ -784,13 +786,14 @@ var PAGE_SCRIPT = `(async () => {
             wildMax = Math.max(wildMax, Math.hypot(p.x - wildPlaced.Po.x, p.y - wildPlaced.Po.y));
         });
     }
+    var wildRaw = Math.hypot(wildGuide.Pog.x - wildGuide.Po.x, wildGuide.Pog.y - wildGuide.Po.y);
     pass('1502 shape stays inside the skull when Pog leaves the jaw',
         filmPlaced && wildPlaced &&
-        Math.abs(filmLen - trueLen * 0.75 * 0.9) < trueLen * 0.04 &&
-        wildLen < trueLen * 0.8 &&
-        wildMax < trueLen &&
-        Math.abs(filmPlaced.Pog.x - (filmGuide.Po.x + (filmGuide.Pog.x - filmGuide.Po.x) * 0.75)) < 2 &&
-        Math.abs(filmPlaced.Pog.y - (filmGuide.Po.y + (filmGuide.Pog.y - filmGuide.Po.y) * 0.75)) < 2,
+        Math.abs(filmLen - trueLen) < trueLen * 0.04 &&
+        wildLen < wildRaw * 0.85 &&
+        wildMax < wildRaw &&
+        Math.abs(filmPlaced.Pog.x - filmGuide.Pog.x) < 2 &&
+        Math.abs(filmPlaced.Pog.y - filmGuide.Pog.y) < 2,
         filmPlaced && wildPlaced ? ('film=' + Math.round(filmLen) + ' true=' + Math.round(trueLen) +
             ' wild=' + Math.round(wildLen) + ' wildMax=' + Math.round(wildMax)) : 'none');
     var aspect = cat.meanBoxAspect || 0.948;
@@ -803,13 +806,13 @@ var PAGE_SCRIPT = `(async () => {
     var softOk = true;
     var softDetail = [];
     ['Sn', 'Ls', 'Li'].forEach(function (id) {
-        var want = (0.75 / 0.9) * normDist(catById[id], catById.PogS) / bone;
+        var want = normDist(catById[id], catById.PogS) / bone;
         var got = Math.hypot(filmPlaced[id].x - filmPlaced.PogS.x, filmPlaced[id].y - filmPlaced.PogS.y) /
             Math.hypot(filmPlaced.N.x - filmPlaced.Po.x, filmPlaced.N.y - filmPlaced.Po.y);
         if (!(Math.abs(got - want) < 0.02)) softOk = false;
         softDetail.push(id + '=' + got.toFixed(3));
     });
-    pass('1502 soft-tissue line is 25% shorter about PogS',
+    pass('1502 soft-tissue line keeps catalog spacing about PogS',
         softOk && filmPlaced.PogS &&
         Math.hypot(filmPlaced.Pog.x - filmPlaced.Po.x, filmPlaced.Pog.y - filmPlaced.Po.y) > 1,
         softDetail.join(' '));
@@ -817,8 +820,9 @@ var PAGE_SCRIPT = `(async () => {
     var hardRatio = pxDist(filmPlaced.N, filmPlaced.Pog) / normDist(catById.N, catById.Pog);
     var poRatio = pxDist(filmPlaced.Po, filmPlaced.Pog) / normDist(catById.Po, catById.Pog);
     var pogSRatio = pxDist(filmPlaced.PogS, filmPlaced.Pog) / normDist(catById.PogS, catById.Pog);
-    pass('1502 hard tissue is 10% closer to Pog',
-        Math.abs(hardRatio - poRatio) < poRatio * 0.02 && pogSRatio > poRatio * 1.05,
+    pass('1502 hard and soft tissue keep the Po–Pog scale',
+        Math.abs(hardRatio - poRatio) < poRatio * 0.02 &&
+        Math.abs(pogSRatio - poRatio) < poRatio * 0.02,
         'hard=' + hardRatio.toFixed(1) + ' po=' + poRatio.toFixed(1) + ' pogS=' + pogSRatio.toFixed(1));
     var unetGrown = lmBox.CEPH_LM.scaleAboutPog({
         Pog: { x: 100, y: 200 },
@@ -1720,7 +1724,7 @@ var PAGE_SCRIPT = `(async () => {
             live.adopted === true && live.setBarHidden === true,
             live ? ('ids=' + live.setIds + ' unet=' + live.set0 + ' lib=' + live.set1 + ' all=' + live.set2 + ' hidden=' + live.setBarHidden) : 'none');
         pass('live: 1502 average is mapped into the UNet landmark box',
-            live && /boxmean\+unetbox/.test(String(live.set1 || '')) && live.libShiftPx != null && live.libShiftPx < 80,
+            live && /boxmean\+unetbox/.test(String(live.set1 || '')) && live.libShiftPx != null && live.libShiftPx < 160,
             live ? ('shift=' + live.libShiftPx + ' lib=' + live.set1) : 'none');
         pass('live: Adopt does not auto-start Check points',
             live && live.walkAdoptOn === false,

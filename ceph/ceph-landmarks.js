@@ -198,8 +198,8 @@
         return placeNormOnBox(norm, box);
     }
 
-    // Po is the white circle at the ear hole. Po–Pog sets the direction, then the
-    // 1502 shape is drawn at three quarters of that length so it stays inside the skull.
+    // Po is the white circle at the ear hole. Po–Pog sets the direction and the
+    // length. The 1502 shape is drawn at that full length.
     var PO_POG_LIMIT_IDS = { S: 1, N: 1, A: 1, B: 1, Go: 1, Me: 1, Po: 1, Or: 1, Ar: 1 };
 
     function peelOutliers(list, marginX, marginY) {
@@ -253,31 +253,6 @@
         return maxD;
     }
 
-    function skullShrink(out, po, guide) {
-        var list = [];
-        Object.keys(PO_POG_LIMIT_IDS).forEach(function (id) {
-            var p = guide[id];
-            if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
-            list.push({ id: id, x: p.x, y: p.y });
-        });
-        if (list.length < 4) return 1;
-        var ext = extentsOf(peelOutliers(list, 0.28, 0.28));
-        var minx = ext.minx;
-        var maxx = ext.maxx;
-        var miny = ext.miny;
-        var maxy = ext.maxy;
-        var shrink = 1;
-        Object.keys(out).forEach(function (id) {
-            var dx = out[id].x - po.x;
-            var dy = out[id].y - po.y;
-            if (dx > 1 && po.x + dx > maxx) shrink = Math.min(shrink, (maxx - po.x) / dx);
-            if (dx < -1 && po.x + dx < minx) shrink = Math.min(shrink, (minx - po.x) / dx);
-            if (dy > 1 && po.y + dy > maxy) shrink = Math.min(shrink, (maxy - po.y) / dy);
-            if (dy < -1 && po.y + dy < miny) shrink = Math.min(shrink, (miny - po.y) / dy);
-        });
-        return (shrink > 0 && shrink < 1) ? shrink : 1;
-    }
-
     function placeByPoPog(norm, guide) {
         var po = guide && guide.Po;
         var pog = guide && guide.Pog;
@@ -299,7 +274,7 @@
             pdy *= cap / pLen;
             pLen = cap;
         }
-        var scale = (pLen / dLen) * 0.75;
+        var scale = pLen / dLen;
         var ang = Math.atan2(pdy, pdx) - Math.atan2(ddy, ddx);
         var cos = Math.cos(ang);
         var sin = Math.sin(ang);
@@ -315,32 +290,7 @@
             };
         });
         if (!out.Po || !out.Pog) return null;
-        var fit = skullShrink(out, po, guide);
-        if (fit < 1) {
-            Object.keys(out).forEach(function (id) {
-                out[id] = {
-                    x: po.x + (out[id].x - po.x) * fit,
-                    y: po.y + (out[id].y - po.y) * fit
-                };
-            });
-        }
-        return scaleHardAboutPog(scaleSoftAboutPogS(out));
-    }
-
-    // Bony landmarks sit a little outside the skull after the Po–Pog scale.
-    // Pull them 10% closer to Pog. Soft tissue is left on its own pivot.
-    function scaleHardAboutPog(pts) {
-        var pivot = pts && pts.Pog;
-        if (!pivot || !isFinite(pivot.x) || !isFinite(pivot.y)) return pts;
-        ['S', 'N', 'Or', 'Po', 'A', 'B', 'Me', 'Gn', 'Go', 'L1', 'U1', 'PNS', 'ANS', 'Ar'].forEach(function (id) {
-            var p = pts[id];
-            if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
-            pts[id] = {
-                x: pivot.x + (p.x - pivot.x) * 0.9,
-                y: pivot.y + (p.y - pivot.y) * 0.9
-            };
-        });
-        return pts;
+        return out;
     }
 
     // The UNet landmark box is drawn 15% larger about Pog. Pog stays.
@@ -364,22 +314,6 @@
             };
         });
         return out;
-    }
-
-    // Sn, Ls and Li form the soft-tissue line. Draw that line 25% shorter
-    // about PogS so the lips sit closer to the chin point.
-    function scaleSoftAboutPogS(pts) {
-        var pivot = pts && pts.PogS;
-        if (!pivot || !isFinite(pivot.x) || !isFinite(pivot.y)) return pts;
-        ['Sn', 'Ls', 'Li'].forEach(function (id) {
-            var p = pts[id];
-            if (!p || !isFinite(p.x) || !isFinite(p.y)) return;
-            pts[id] = {
-                x: pivot.x + (p.x - pivot.x) * 0.75,
-                y: pivot.y + (p.y - pivot.y) * 0.75
-            };
-        });
-        return pts;
     }
 
     function catalogIdSet() {
@@ -506,15 +440,7 @@
             : ((box && box.via === 'unet') ? 'boxmean+unetbox' : 'boxmean+edge');
         var norm = averageShapes(all ? allShapeIndices() : neighbourIndices(box, opts.k || 24));
         var fitted = placeByPoPog(norm, opts.guidePts);
-        var fitBox = box ? {
-            x: box.x + box.w * 0.125,
-            y: box.y + box.h * 0.125,
-            w: box.w * 0.75,
-            h: box.h * 0.75,
-            via: box.via
-        } : box;
-        var mean = fitted || (norm.Po ? placeNormOnBox(norm, fitBox) : (all ? globalBoxMean(fitBox) : localBoxMean(fitBox, opts.k || 24)));
-        if (!fitted) scaleHardAboutPog(scaleSoftAboutPogS(mean));
+        var mean = fitted || (norm.Po ? placeNormOnBox(norm, box) : (all ? globalBoxMean(box) : localBoxMean(box, opts.k || 24)));
         if (fitted) tag += '+popog';
         var spanW = box.w;
         var spanH = box.h;

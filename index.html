@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261008slide1';
+  var BUILD = '20261008mount2';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -4427,6 +4427,10 @@
       <span id="xrayMountSummary" class="xray-mount-summary"></span>
     </div>
     <div id="xrayMountBody" class="xray-mount-body"></div>
+    <div id="xrayMountStrip" class="xm-strip" hidden>
+      <div id="xrayMountStripHead" class="xm-strip-head"></div>
+      <div id="xrayMountStripTrack" class="xm-strip-track"></div>
+    </div>
   </div>
 </div>
 
@@ -7895,7 +7899,7 @@
     'app-xray-ai-20260909.js',
     'app-charts.js?v=20261003cbe',
     'app-xray-wire.js?v=20261003cbe',
-    'app-xray-viewer.js?v=20261003cbe',
+    'app-xray-viewer.js?v=20261008mount2',
     'app-xray-dicom.js?v=20261003cbe',
     'app-xray-cbct.js?v=20261003cbe',
     'app-xray-cs3d.js?v=20261003cbe',

@@ -60,7 +60,11 @@
         'xv.mountMissing': { en: 'Missing: {LIST}', 'zh-CN': '缺少：{LIST}', 'zh-Hant': '缺少：{LIST}' },
         'xv.mountComplete': { en: 'Complete', 'zh-CN': '已齐全', 'zh-Hant': '已齊全' },
         'xv.mountEmpty': { en: 'No film', 'zh-CN': '无影像', 'zh-Hant': '無影像' },
-        'xv.mountNeedCtx': { en: 'The mount needs the teeth field: run xray_context.sql in Supabase.', 'zh-CN': '排版需要牙位字段：请在 Supabase 运行 xray_context.sql。', 'zh-Hant': '排版需要牙位欄位：請在 Supabase 執行 xray_context.sql。' }
+        'xv.mountNeedCtx': { en: 'The mount needs the teeth field: run xray_context.sql in Supabase.', 'zh-CN': '排版需要牙位字段：请在 Supabase 运行 xray_context.sql。', 'zh-Hant': '排版需要牙位欄位：請在 Supabase 執行 xray_context.sql。' },
+        'xv.mountDrag': { en: 'Drag a film onto a slot', 'zh-CN': '把影像拖到位置上', 'zh-Hant': '把影像拖到位置上' },
+        'xv.mountNoFilms': { en: 'No film of this kind to drag.', 'zh-CN': '没有可拖动的这类影像。', 'zh-Hant': '沒有可拖動的這類影像。' },
+        'xv.mountAssignFail': { en: 'Could not place the film in that slot.', 'zh-CN': '无法把影像放到该位置。', 'zh-Hant': '無法把影像放到該位置。' },
+        'xv.mountUpdated': { en: 'Updated {WHEN}', 'zh-CN': '更新于 {WHEN}', 'zh-Hant': '更新於 {WHEN}' }
     };
     if (typeof I18N_STRINGS !== 'undefined') {
         Object.keys(MORE).forEach(function (k) { I18N_STRINGS[k] = MORE[k]; });
@@ -711,8 +715,107 @@ var XRAY_MOUNT_ROWS = {
 };
 
 var XRAY_MOUNT_LAYOUTS = { fmx: ['upper', 'lower', 'bw'], bw: ['bw'] };
+var XRAY_MOUNT = { row: '', slot: '', pins: {}, dragId: '', bound: false };
+
+function xvMountPad(n) { return n < 10 ? '0' + n : String(n); }
+
+function xvMountWhen(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso).replace('T', ' ').slice(0, 16);
+    return d.getFullYear() + '-' + xvMountPad(d.getMonth() + 1) + '-' + xvMountPad(d.getDate()) +
+        ' ' + xvMountPad(d.getHours()) + ':' + xvMountPad(d.getMinutes()) + ':' + xvMountPad(d.getSeconds());
+}
+
+function xrayMountAtKey() {
+    var pid = (typeof xrayPatientId !== 'undefined' && xrayPatientId) ? String(xrayPatientId) : '';
+    return 'jsm_xray_mount_at_v1' + (pid ? ':' + pid : '');
+}
+
+function xrayMountAtMap() {
+    try {
+        if (typeof localStorage === 'undefined') return {};
+        var raw = localStorage.getItem(xrayMountAtKey());
+        var map = raw ? JSON.parse(raw) : {};
+        return map && typeof map === 'object' ? map : {};
+    } catch (e) { return {}; }
+}
+
+function xrayMountRememberedAt(id) {
+    if (id == null || id === '') return '';
+    return xrayMountAtMap()[String(id)] || '';
+}
+
+function xrayMountRememberAt(id, iso) {
+    if (id == null || id === '' || !iso) return;
+    try {
+        if (typeof localStorage === 'undefined') return;
+        var map = xrayMountAtMap();
+        map[String(id)] = iso;
+        localStorage.setItem(xrayMountAtKey(), JSON.stringify(map));
+    } catch (e) { /* caption still updates in memory */ }
+}
+
+function xvMountStamp(film) {
+    if (!film) return '';
+    return film._mountAt || xrayMountRememberedAt(film.id) || film.updated_at || film.created_at || '';
+}
+
+function xrayMountPinStoreKey() {
+    var pid = (typeof xrayPatientId !== 'undefined' && xrayPatientId) ? String(xrayPatientId) : 'none';
+    return 'jsm_xray_mount_pin_v1:' + pid;
+}
+
+function xrayMountLoadPins() {
+    XRAY_MOUNT.pins = {};
+    try {
+        if (typeof localStorage === 'undefined') return;
+        var raw = localStorage.getItem(xrayMountPinStoreKey());
+        var map = raw ? JSON.parse(raw) : {};
+        if (map && typeof map === 'object') XRAY_MOUNT.pins = map;
+    } catch (e) { XRAY_MOUNT.pins = {}; }
+}
+
+function xrayMountSavePins() {
+    try {
+        if (typeof localStorage === 'undefined') return;
+        localStorage.setItem(xrayMountPinStoreKey(), JSON.stringify(XRAY_MOUNT.pins || {}));
+    } catch (e) { /* session pins still apply */ }
+}
+
+function xrayMountLayout() {
+    var sel = xvEl('xrayMountLayout');
+    return sel && sel.value === 'bw' ? 'bw' : 'fmx';
+}
+
+function xrayMountSpec(rowKey, slotKey) {
+    var row = XRAY_MOUNT_ROWS[rowKey];
+    if (!row || !slotKey) return null;
+    for (var i = 0; i < row.slots.length; i++) {
+        if (row.slots[i].k === slotKey) return { rowKey: rowKey, row: row, slot: row.slots[i] };
+    }
+    return null;
+}
+
+function xrayMountFilm(id) {
+    if (id == null || id === '') return null;
+    var lists = [xvHomeFilms(), (typeof xrayAllRecords !== 'undefined' && xrayAllRecords) ? xrayAllRecords : []];
+    for (var n = 0; n < lists.length; n++) {
+        for (var i = 0; i < lists[n].length; i++) {
+            if (String(lists[n][i].id) === String(id)) return lists[n][i];
+        }
+    }
+    return null;
+}
+
+function xrayMountWritable(rec) {
+    if (!rec) return false;
+    if (typeof xrayIsHomeRecord === 'function') return !!xrayIsHomeRecord(rec);
+    return rec._isHome !== false;
+}
 
 function xrayMountCompute(layout, films) {
+    var pins = XRAY_MOUNT.pins || {};
     var rows = (XRAY_MOUNT_LAYOUTS[layout] || XRAY_MOUNT_LAYOUTS.fmx).map(function (rk) {
         var row = XRAY_MOUNT_ROWS[rk];
         return {
@@ -722,7 +825,11 @@ function xrayMountCompute(layout, films) {
                 var hits = xvSortFilms((films || []).filter(function (x) {
                     return x.xray_type === row.type && xvExplicitTeeth(x).some(function (c) { return s.teeth.indexOf(c) >= 0; });
                 })).reverse();
-                return { k: s.k, teeth: s.teeth, film: hits[0] || null, more: Math.max(0, hits.length - 1), hits: hits };
+                var pinId = pins[rk + ':' + s.k];
+                var pinned = pinId ? (films || []).filter(function (x) { return String(x.id) === String(pinId); })[0] : null;
+                var film = pinned || hits[0] || null;
+                var allHits = film ? [film].concat(hits.filter(function (h) { return String(h.id) !== String(film.id); })) : hits;
+                return { k: s.k, teeth: s.teeth, film: film, more: Math.max(0, allHits.length - 1), hits: allHits };
             })
         };
     });
@@ -737,11 +844,218 @@ function xrayMountCompute(layout, films) {
     return { rows: rows, total: total, filled: filled, missing: missing };
 }
 
+function xrayMountWhenHtml(film) {
+    var when = xvMountWhen(xvMountStamp(film));
+    if (!when) return '';
+    return '<span class="xm-slot-when" title="' + xvEsc(xvTr('xv.mountUpdated', { WHEN: when })) + '">' + xvEsc(when) + '</span>';
+}
+
+function xrayMountHideStrip() {
+    var strip = xvEl('xrayMountStrip');
+    if (strip) strip.hidden = true;
+    var track = xvEl('xrayMountStripTrack');
+    if (track) track.innerHTML = '';
+    var head = xvEl('xrayMountStripHead');
+    if (head) head.innerHTML = '';
+}
+
+function xrayMountStripFilms(rowKey) {
+    var row = XRAY_MOUNT_ROWS[rowKey];
+    if (!row) return [];
+    return xvSortFilms(xvHomeFilms().filter(function (x) {
+        var t = x.xray_type || '';
+        return !t || t === row.type;
+    })).reverse();
+}
+
+function xrayMountPaintStrip(rowKey, slotKey) {
+    var strip = xvEl('xrayMountStrip');
+    var head = xvEl('xrayMountStripHead');
+    var track = xvEl('xrayMountStripTrack');
+    var spec = xrayMountSpec(rowKey, slotKey);
+    if (!strip || !track || !spec) { xrayMountHideStrip(); return; }
+    var current = null;
+    xrayMountCompute(xrayMountLayout(), xvHomeFilms()).rows.forEach(function (r) {
+        if (r.key !== rowKey) return;
+        r.slots.forEach(function (s) { if (s.k === slotKey) current = s.film; });
+    });
+    var when = current ? xvMountWhen(xvMountStamp(current)) : '';
+    var name = xvTr(spec.row.labelKey) + ' · ' + xvTr('xv.s.' + spec.slot.k);
+    if (head) {
+        head.innerHTML = '<span class="xm-strip-title">' + xvEsc(xvTr('xv.mountDrag')) + '</span>' +
+            '<span class="xm-strip-for">' + xvEsc(name) + '</span>' +
+            (when ? '<span class="xm-slot-when" title="' + xvEsc(xvTr('xv.mountUpdated', { WHEN: when })) + '">' + xvEsc(when) + '</span>' : '');
+    }
+    var films = xrayMountStripFilms(rowKey);
+    if (!films.length) {
+        track.innerHTML = '<div class="xm-strip-empty">' + xvEsc(xvTr('xv.mountNoFilms')) + '</div>';
+    } else {
+        var html = '';
+        films.forEach(function (x) {
+            var url = typeof xrayDisplayUrl === 'function' ? xrayDisplayUrl(x) : (x.file_url || '');
+            var on = current && String(current.id) === String(x.id);
+            var cap = xvMountWhen(xvMountStamp(x)) || xvFilmDay(x);
+            html += '<div class="xm-strip-item' + (on ? ' is-current' : '') + '" draggable="true" role="button" data-id="' + xvEsc(x.id) + '" aria-label="' + xvEsc(cap) + '" title="' + xvEsc(xvFilmLabel(x)) + '">' +
+                '<img src="' + xvEsc(url) + '" alt="" draggable="false">' +
+                '<span class="xm-strip-cap">' + xvEsc(cap) + '</span></div>';
+        });
+        track.innerHTML = html;
+    }
+    strip.hidden = false;
+}
+
+function xrayMountPick(rowKey, slotKey) {
+    if (!xrayMountSpec(rowKey, slotKey)) return;
+    XRAY_MOUNT.row = rowKey;
+    XRAY_MOUNT.slot = slotKey;
+    var body = xvEl('xrayMountBody');
+    if (body) {
+        var nodes = body.querySelectorAll('.xm-slot');
+        for (var i = 0; i < nodes.length; i++) {
+            var el = nodes[i];
+            el.classList.toggle('is-selected', el.getAttribute('data-row') === rowKey && el.getAttribute('data-slot') === slotKey);
+        }
+    }
+    xrayMountPaintStrip(rowKey, slotKey);
+}
+
+function xrayMountClearOver() {
+    var body = xvEl('xrayMountBody');
+    if (!body) return;
+    var nodes = body.querySelectorAll('.xm-slot.is-over');
+    for (var i = 0; i < nodes.length; i++) nodes[i].classList.remove('is-over');
+}
+
+function xrayMountMissingCol(err) {
+    if (typeof xrayCtxIsMissingColErr === 'function' && xrayCtxIsMissingColErr(err)) return true;
+    var msg = String((err && (err.message || err.details || err.hint)) || err || '').toLowerCase();
+    return msg.indexOf('updated_at') >= 0;
+}
+
+function xrayMountAssign(filmId, rowKey, slotKey) {
+    var spec = xrayMountSpec(rowKey, slotKey);
+    var rec = xrayMountFilm(filmId);
+    if (!spec || !rec) return Promise.resolve(false);
+    if (!xrayMountWritable(rec)) { xvToast(xvTr('xv.readonly')); return Promise.resolve(false); }
+    var prevTeeth = Array.isArray(rec.teeth) ? rec.teeth.slice() : [];
+    var prevType = rec.xray_type;
+    var prevAt = rec._mountAt || '';
+    var pinKey = rowKey + ':' + slotKey;
+    var prevPin = XRAY_MOUNT.pins[pinKey];
+    var iso = new Date().toISOString();
+    rec.teeth = spec.slot.teeth.slice();
+    rec.xray_type = spec.row.type;
+    rec._mountAt = iso;
+    xrayMountRememberAt(rec.id, iso);
+    Object.keys(XRAY_MOUNT.pins).forEach(function (k) {
+        if (String(XRAY_MOUNT.pins[k]) === String(rec.id)) delete XRAY_MOUNT.pins[k];
+    });
+    XRAY_MOUNT.pins[pinKey] = String(rec.id);
+    xrayMountSavePins();
+    XRAY_MOUNT.row = rowKey;
+    XRAY_MOUNT.slot = slotKey;
+    xrayMountRender();
+    function revert() {
+        rec.teeth = prevTeeth;
+        rec.xray_type = prevType;
+        rec._mountAt = prevAt;
+        if (prevPin) XRAY_MOUNT.pins[pinKey] = prevPin;
+        else delete XRAY_MOUNT.pins[pinKey];
+        xrayMountSavePins();
+        xrayMountRender();
+        xvToast(xvTr('xv.mountAssignFail'));
+    }
+    if (typeof xrayCtxUpdate !== 'function') return Promise.resolve(true);
+    var payload = { teeth: rec.teeth.slice(), xray_type: spec.row.type };
+    if (Object.prototype.hasOwnProperty.call(rec, 'updated_at')) payload.updated_at = iso;
+    return Promise.resolve().then(function () { return xrayCtxUpdate(rec.id, payload); }).then(function (r) {
+        if (r && r.error && payload.updated_at && xrayMountMissingCol(r.error)) {
+            delete payload.updated_at;
+            return xrayCtxUpdate(rec.id, payload);
+        }
+        return r;
+    }).then(function (r) {
+        if (r && r.error) { revert(); return false; }
+        var saved = r && r.data && r.data[0];
+        if (saved && saved.updated_at) {
+            rec.updated_at = saved.updated_at;
+            rec._mountAt = saved.updated_at;
+            xrayMountRememberAt(rec.id, rec._mountAt);
+            xrayMountRender();
+        }
+        if (typeof filterXrays === 'function') {
+            try { filterXrays(); } catch (e) { /* mount caption already updated */ }
+        }
+        return true;
+    }, function () { revert(); return false; });
+}
+
+function xrayMountBind() {
+    if (XRAY_MOUNT.bound) return;
+    var body = xvEl('xrayMountBody');
+    var strip = xvEl('xrayMountStrip');
+    if (!body || !strip) return;
+    XRAY_MOUNT.bound = true;
+    body.addEventListener('click', function (ev) {
+        var b = ev.target.closest ? ev.target.closest('.xm-slot') : null;
+        if (!b) return;
+        xrayMountPick(b.getAttribute('data-row'), b.getAttribute('data-slot'));
+    });
+    body.addEventListener('dblclick', function (ev) {
+        var b = ev.target.closest ? ev.target.closest('.xm-slot.is-filled') : null;
+        if (!b) return;
+        var rec = xrayMountFilm(b.getAttribute('data-id'));
+        if (!rec) return;
+        if (typeof closeModal === 'function') closeModal('xrayMountModal');
+        if (typeof openLightboxRecord === 'function') openLightboxRecord(rec, body._navList || [rec]);
+    });
+    body.addEventListener('dragover', function (ev) {
+        var b = ev.target.closest ? ev.target.closest('.xm-slot') : null;
+        if (!b || !XRAY_MOUNT.dragId) return;
+        ev.preventDefault();
+        if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+        if (!b.classList.contains('is-over')) {
+            xrayMountClearOver();
+            b.classList.add('is-over');
+        }
+    });
+    body.addEventListener('drop', function (ev) {
+        var b = ev.target.closest ? ev.target.closest('.xm-slot') : null;
+        if (!b) return;
+        ev.preventDefault();
+        xrayMountClearOver();
+        var id = (ev.dataTransfer && ev.dataTransfer.getData('text/plain')) || XRAY_MOUNT.dragId;
+        XRAY_MOUNT.dragId = '';
+        if (id) xrayMountAssign(id, b.getAttribute('data-row'), b.getAttribute('data-slot'));
+    });
+    strip.addEventListener('dragstart', function (ev) {
+        var item = ev.target.closest ? ev.target.closest('.xm-strip-item') : null;
+        if (!item) return;
+        var id = item.getAttribute('data-id') || '';
+        XRAY_MOUNT.dragId = id;
+        item.classList.add('is-dragging');
+        if (ev.dataTransfer) {
+            ev.dataTransfer.effectAllowed = 'copy';
+            try { ev.dataTransfer.setData('text/plain', id); } catch (e) {}
+        }
+    });
+    strip.addEventListener('dragend', function () {
+        var nodes = strip.querySelectorAll('.xm-strip-item.is-dragging');
+        for (var i = 0; i < nodes.length; i++) nodes[i].classList.remove('is-dragging');
+        XRAY_MOUNT.dragId = '';
+        xrayMountClearOver();
+    });
+}
+
 function xrayMountRender() {
     var body = xvEl('xrayMountBody');
     if (!body) return;
-    var sel = xvEl('xrayMountLayout');
-    var layout = sel && sel.value === 'bw' ? 'bw' : 'fmx';
+    var layout = xrayMountLayout();
+    var rowsInLayout = XRAY_MOUNT_LAYOUTS[layout] || XRAY_MOUNT_LAYOUTS.fmx;
+    if (XRAY_MOUNT.row && rowsInLayout.indexOf(XRAY_MOUNT.row) < 0) {
+        XRAY_MOUNT.row = '';
+        XRAY_MOUNT.slot = '';
+    }
     var films = xvHomeFilms();
     var m = xrayMountCompute(layout, films);
     var navList = [];
@@ -751,15 +1065,18 @@ function xrayMountRender() {
         r.slots.forEach(function (s) {
             var teeth = '<span class="xm-slot-teeth">' + xvEsc(s.teeth.join(' ')) + '</span>';
             var name = '<span class="xm-slot-name">' + xvEsc(xvTr('xv.s.' + s.k)) + '</span>';
+            var selected = XRAY_MOUNT.row === r.key && XRAY_MOUNT.slot === s.k ? ' is-selected' : '';
             if (!s.film) {
-                html += '<div class="xm-slot is-empty">' + name + teeth + '<span class="xm-slot-none">' + xvEsc(xvTr('xv.mountEmpty')) + '</span></div>';
+                html += '<button type="button" class="xm-slot is-empty' + selected + '" data-row="' + r.key + '" data-slot="' + s.k + '" data-no-click-guard="1">' +
+                    name + teeth + '<span class="xm-slot-none">' + xvEsc(xvTr('xv.mountEmpty')) + '</span></button>';
                 return;
             }
             navList.push(s.film);
             var url = typeof xrayDisplayUrl === 'function' ? xrayDisplayUrl(s.film) : (s.film.file_url || '');
-            html += '<button type="button" class="xm-slot is-filled" data-id="' + xvEsc(s.film.id) + '" data-no-click-guard="1">' +
-                '<span class="xm-slot-img"><img src="' + xvEsc(url) + '" alt="" loading="lazy" data-xray-id="' + xvEsc(s.film.id) + '"></span>' + name + teeth +
-                '<span class="xm-slot-date">' + xvEsc(xvFilmDay(s.film)) + (s.more ? ' <b>+' + s.more + '</b>' : '') + '</span></button>';
+            html += '<button type="button" class="xm-slot is-filled' + selected + '" data-row="' + r.key + '" data-slot="' + s.k + '" data-id="' + xvEsc(s.film.id) + '" data-no-click-guard="1">' +
+                '<span class="xm-slot-img"><img src="' + xvEsc(url) + '" alt="" loading="lazy" draggable="false" data-xray-id="' + xvEsc(s.film.id) + '"></span>' + name + teeth +
+                '<span class="xm-slot-date">' + xvEsc(xvFilmDay(s.film)) + (s.more ? ' <b>+' + s.more + '</b>' : '') + '</span>' +
+                xrayMountWhenHtml(s.film) + '</button>';
         });
         html += '</div>';
     });
@@ -771,21 +1088,17 @@ function xrayMountRender() {
             (m.missing.length ? xvTr('xv.mountMissing', { LIST: m.missing.join(', ') }) : xvTr('xv.mountComplete'));
         sum.classList.toggle('is-complete', !m.missing.length);
     }
-    if (!body._xvBound) {
-        body._xvBound = true;
-        body.addEventListener('click', function (ev) {
-            var b = ev.target.closest ? ev.target.closest('.xm-slot.is-filled') : null;
-            if (!b) return;
-            var rec = xrayCmpFilm(b.getAttribute('data-id'));
-            if (!rec) return;
-            if (typeof closeModal === 'function') closeModal('xrayMountModal');
-            if (typeof openLightboxRecord === 'function') openLightboxRecord(rec, body._navList || [rec]);
-        });
-    }
+    xrayMountBind();
+    if (XRAY_MOUNT.row && XRAY_MOUNT.slot) xrayMountPaintStrip(XRAY_MOUNT.row, XRAY_MOUNT.slot);
+    else xrayMountHideStrip();
 }
 
 function xrayMountOpen() {
     if (typeof XRAY_CTX !== 'undefined' && XRAY_CTX.ok !== true) { xvToast(xvTr('xv.mountNeedCtx')); return; }
+    xrayMountLoadPins();
+    XRAY_MOUNT.row = '';
+    XRAY_MOUNT.slot = '';
+    XRAY_MOUNT.dragId = '';
     xrayMountRender();
     if (typeof openModal === 'function') openModal('xrayMountModal');
 }

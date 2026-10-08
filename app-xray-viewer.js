@@ -729,9 +729,8 @@ function xvMountWhen(iso) {
 
 function xvMountWhenMini(iso) {
     var d = new Date(iso);
-    if (!iso || isNaN(d.getTime())) return xvMountWhen(iso).slice(5, 16);
-    return xvMountPad(d.getMonth() + 1) + '-' + xvMountPad(d.getDate()) +
-        ' ' + xvMountPad(d.getHours()) + ':' + xvMountPad(d.getMinutes());
+    if (!iso || isNaN(d.getTime())) return xvMountWhen(iso).slice(0, 10);
+    return d.getFullYear() + '-' + xvMountPad(d.getMonth() + 1) + '-' + xvMountPad(d.getDate());
 }
 
 function xrayMountAtKey() {
@@ -857,6 +856,14 @@ function xrayMountWhenHtml(film) {
     return '<span class="xm-slot-when" title="' + xvEsc(xvTr('xv.mountUpdated', { WHEN: when })) + '">' + xvEsc(xvMountWhenMini(xvMountStamp(film))) + '</span>';
 }
 
+function xrayMountPlaceTip(rowKey, slotKey, teeth) {
+    var spec = xrayMountSpec(rowKey, slotKey);
+    if (!spec) return '';
+    var bits = [xvTr(spec.row.labelKey), xvTr('xv.s.' + spec.slot.k)];
+    if (teeth && teeth.length) bits.push(teeth.join(' '));
+    return bits.join(' · ');
+}
+
 function xrayMountHideStrip() {
     var strip = xvEl('xrayMountStrip');
     if (strip) strip.hidden = true;
@@ -903,9 +910,10 @@ function xrayMountPaintStrip(rowKey, slotKey) {
             var on = current && String(current.id) === String(x.id);
             var full = xvMountWhen(xvMountStamp(x));
             var cap = xvMountWhenMini(xvMountStamp(x)) || xvFilmDay(x);
-            html += '<div class="xm-strip-item' + (on ? ' is-current' : '') + '" draggable="true" role="button" data-id="' + xvEsc(x.id) + '" aria-label="' + xvEsc(full || cap) + '" title="' + xvEsc(full ? xvTr('xv.mountUpdated', { WHEN: full }) : xvFilmLabel(x)) + '">' +
-                '<span class="xm-strip-img"><img src="' + xvEsc(url) + '" alt="" draggable="false"></span>' +
-                '<span class="xm-strip-cap">' + xvEsc(cap) + '</span></div>';
+            html += '<div class="xm-strip-item' + (on ? ' is-current' : '') + '" draggable="true" role="button" data-id="' + xvEsc(x.id) + '" aria-label="' + xvEsc(full ? xvTr('xv.mountUpdated', { WHEN: full }) : cap) + '">' +
+                '<span class="xm-strip-img"><img src="' + xvEsc(url) + '" alt="" draggable="false">' +
+                (cap ? '<span class="xm-strip-cap" title="' + xvEsc(full ? xvTr('xv.mountUpdated', { WHEN: full }) : cap) + '">' + xvEsc(cap) + '</span>' : '') +
+                '</span></div>';
         });
         track.innerHTML = html;
     }
@@ -1081,10 +1089,11 @@ function xrayMountRender() {
             }
             navList.push(s.film);
             var url = typeof xrayDisplayUrl === 'function' ? xrayDisplayUrl(s.film) : (s.film.file_url || '');
-            html += '<button type="button" class="xm-slot is-filled' + selected + '" data-row="' + r.key + '" data-slot="' + s.k + '" data-id="' + xvEsc(s.film.id) + '" data-no-click-guard="1">' +
-                '<span class="xm-slot-img"><img src="' + xvEsc(url) + '" alt="" loading="lazy" draggable="false" data-xray-id="' + xvEsc(s.film.id) + '"></span>' + name + teeth +
-                '<span class="xm-slot-date">' + xvEsc(xvFilmDay(s.film)) + (s.more ? ' <b>+' + s.more + '</b>' : '') + '</span>' +
-                xrayMountWhenHtml(s.film) + '</button>';
+            var place = xrayMountPlaceTip(r.key, s.k, s.teeth);
+            html += '<button type="button" class="xm-slot is-filled' + selected + '" data-row="' + r.key + '" data-slot="' + s.k + '" data-id="' + xvEsc(s.film.id) + '" data-no-click-guard="1" aria-label="' + xvEsc(place) + '">' +
+                '<span class="xm-slot-img"><img src="' + xvEsc(url) + '" alt="" loading="lazy" draggable="false" data-xray-id="' + xvEsc(s.film.id) + '">' +
+                xrayMountWhenHtml(s.film) + '</span>' +
+                '<span class="xm-slot-tip">' + xvEsc(place) + '</span></button>';
         });
         html += '</div>';
     });

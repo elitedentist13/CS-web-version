@@ -3643,14 +3643,23 @@
         }
 
         var unetReady = !!(lm.available || lm.unet);
-        xrayPrepareMark('ceph', unetReady ? 'ok' : 'bad',
-            xrayAiTr(unetReady ? 'media.xrayAi.prepare.ready' : 'media.xrayAi.prepare.miss'));
+        var lmAnswered = !!(body && body.landmarks && typeof body.landmarks === 'object');
+        if (unetReady) {
+            xrayPrepareMark('ceph', 'ok', xrayAiTr('media.xrayAi.prepare.ready'));
+        } else if (lmAnswered && health && health.ok) {
+            xrayPrepareMark('ceph', 'warn', xrayAiTr('media.xrayAi.prepare.cephMean'));
+        } else {
+            xrayPrepareMark('ceph', 'bad', xrayAiTr('media.xrayAi.prepare.miss'));
+        }
 
         var cvmReady = !!(cvm.available || cvm.classifier);
+        var cvmAnswered = !!(body && body.cvm && typeof body.cvm === 'object');
         if (cvmReady && cvm.detector) {
             xrayPrepareMark('cvm', 'ok', xrayAiTr('media.xrayAi.prepare.ready'));
         } else if (cvmReady) {
             xrayPrepareMark('cvm', 'ok', xrayAiTr('media.xrayAi.prepare.cvmCrop'));
+        } else if (cvmAnswered && health && health.ok) {
+            xrayPrepareMark('cvm', 'warn', xrayAiTr('media.xrayAi.prepare.cvmManual'));
         } else {
             xrayPrepareMark('cvm', 'bad', xrayAiTr('media.xrayAi.prepare.miss'));
         }
@@ -3659,9 +3668,10 @@
     }
 
     /**
-     * X-ray tab header. One click runs install-xray-ai.bat, then
-     * register-xray-ai-protocol.bat, then start-xray-ai.bat when the
-     * helper is down. The checklist is filled from the local service.
+     * X-ray tab header. One click installs every model, registers
+     * csxrayai://, and restarts the helper when Ceph auto-landmarks or
+     * Ceph CVM are not already loaded. The checklist is filled from
+     * the local service.
      * The protocol link is opened before any await so the browser
      * still treats it as the user's click.
      */

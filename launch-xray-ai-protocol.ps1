@@ -225,7 +225,47 @@ function Read-LocalJson([string]$Path) {
     return "null"
 }
 
-# Runs install, protocol registration, and (only if needed) the AI service.
+function Test-JsonTrue([string]$Json, [string]$Name) {
+    if ([string]::IsNullOrWhiteSpace($Json) -or $Json -eq "null") { return $false }
+    return [bool]($Json -match ('"' + [regex]::Escape($Name) + '"\s*:\s*true'))
+}
+
+function Get-AiListenerPid {
+    foreach ($line in @(netstat -ano)) {
+        if ($line -match ':8877\s+.*LISTENING\s+(\d+)') { return [int]$Matches[1] }
+    }
+    return $null
+}
+
+# UNet weights and the CVM classifier are the required models.
+# The YOLO neck detector is optional; Auto CVM crops from landmarks without it.
+function Get-CephSnapshot {
+    $lm = Read-LocalJson "/ceph/landmarks"
+    $cvm = Read-LocalJson "/ceph/cvm"
+    $unet = (Test-JsonTrue $lm "unet") -or (Test-JsonTrue $lm "available")
+    $cls = (Test-JsonTrue $cvm "classifier") -or (Test-JsonTrue $cvm "available")
+    return @{ landmarks = $lm; cvm = $cvm; ready = ($unet -and $cls) }
+}
+
+# start-xray-ai.bat frees port 8877, then binds the current code.
+# Do not read Ceph status from the listener that was already up.
+function Wait-CephAfterRestart([int]$Seconds) {
+    $oldPid = Get-AiListenerPid
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ((Get-Date) -lt $deadline) {
+        $snap = Get-CephSnapshot
+        if ($snap.ready) { return $snap }
+        $pidNow = Get-AiListenerPid
+        if ($null -eq $pidNow) { $oldPid = $null }
+        $replaced = ($null -eq $oldPid -and $null -ne $pidNow) -or ($null -ne $oldPid -and $null -ne $pidNow -and $pidNow -ne $oldPid)
+        if ($replaced -and $snap.landmarks -ne "null" -and $snap.cvm -ne "null") { return $snap }
+        Start-Sleep -Seconds 2
+    }
+    return (Get-CephSnapshot)
+}
+
+# Runs install, protocol registration, and the AI service when Ceph
+# auto-landmarks or Ceph CVM are not already loaded.
 # The page inserts the checklist row as status=running so a worker that is
 # already up does not claim it and answer before the installer finishes.
 function Invoke-Prepare([string]$RawUrl) {
@@ -266,11 +306,27 @@ function Invoke-Prepare([string]$RawUrl) {
             Write-ProtoLog "prepare status unreadable: $($_.Exception.Message)"
         }
     }
-    if ($service -eq "started") { $script:AiStartRequested = $true }
-    if (-not (Test-AiHealth)) { [void](Wait-AiHealth 180) }
+    $snap = Get-CephSnapshot
+    if ($service -eq "started") {
+        $script:AiStartRequested = $true
+        $snap = Wait-CephAfterRestart 180
+    } elseif (-not $snap.ready) {
+        # /health can be up on a process that never loaded Ceph routes.
+        $startBat = Resolve-StartBat
+        if ($startBat) {
+            Write-ProtoLog "ceph models not live; starting $startBat"
+            Start-Process -FilePath $startBat -WorkingDirectory (Split-Path -Parent $startBat) | Out-Null
+            $service = "started"
+            $script:AiStartRequested = $true
+            $snap = Wait-CephAfterRestart 180
+        } elseif (-not (Test-AiHealth)) {
+            [void](Wait-AiHealth 180)
+            $snap = Get-CephSnapshot
+        }
+    }
     $health = Read-LocalJson "/health"
-    $landmarks = Read-LocalJson "/ceph/landmarks"
-    $cvm = Read-LocalJson "/ceph/cvm"
+    $landmarks = $snap.landmarks
+    $cvm = $snap.cvm
     $body = '{"installExit":' + $installExit + ',"registerExit":' + $registerExit + ',"service":"' + $service + '","health":' + $health + ',"landmarks":' + $landmarks + ',"cvm":' + $cvm + '}'
     if (-not $jobId) { return }
     try {
@@ -283,7 +339,8 @@ function Invoke-Prepare([string]$RawUrl) {
 }
 
 # start-xray-ai.bat stops whatever service is already on 8877 before it
-# starts, so it is only run when /health does not answer.
+# starts. Prepare uses it when Ceph models are not live; this helper
+# still starts it only when /health does not answer.
 function Start-AiIfDown {
     if (Test-AiHealth) { return $true }
     $bat = Resolve-StartBat

@@ -134,6 +134,15 @@ if "%NEED_MODELS%"=="1" (
     echo [4/4] Models already downloaded.
 )
 
+REM Ceph UNet and CVM are separate from the tooth / caries cache.
+REM Download only when the weight files are missing.
+echo [ceph] Auto landmarks and Auto CVM weights ^(download only if missing^)...
+"%VENV_PY%" -c "import json; from ceph import unet, cvm; print(json.dumps({'unet': unet.ensure_weights(), 'cvm': cvm.ensure_weights()}, default=str))"
+if errorlevel 1 (
+    echo [WARN] Ceph weight check failed. Tooth AI can still start.
+    echo        Auto landmarks falls back to the 1502 mean. Auto CVM stays manual.
+)
+
 if exist "%~dp0register-xray-ai-protocol.bat" (
     call "%~dp0register-xray-ai-protocol.bat" nopause
 )

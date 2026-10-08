@@ -6422,6 +6422,16 @@
             'zh-CN': '分类器就绪；颈椎检测器可选',
             'zh-Hant': '分類器就緒；頸椎檢測器可選'
         },
+        'media.xrayAi.prepare.cephMean': {
+            en: '1502 mean (UNet weights unavailable)',
+            'zh-CN': '1502 均值（UNet 权重未能安装）',
+            'zh-Hant': '1502 均值（UNet 權重未能安裝）'
+        },
+        'media.xrayAi.prepare.cvmManual': {
+            en: 'manual staging (CVM classifier unavailable)',
+            'zh-CN': '手动分期（CVM 分类器未能安装）',
+            'zh-Hant': '手動分期（CVM 分類器未能安裝）'
+        },
         'media.xrayAi.prepare.noConsole': {
             en: 'If no console opened, double-click register-xray-ai-protocol.bat once, then press Prepare AI again.',
             'zh-CN': '若没有弹出控制台，请先双击一次 register-xray-ai-protocol.bat，再按准备 AI。',

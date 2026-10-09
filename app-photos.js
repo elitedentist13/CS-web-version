@@ -3461,20 +3461,28 @@ function photoOrthoPlace(setKey, slotKey, id, from) {
   if (show && !show.hasAttribute('hidden')) photoOrthoSlidePaint();
 }
 
+function photoOrthoTeethFrontal(text) {
+  var s = String(text || '').toLowerCase().replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ');
+  return /front(?:al)?[\s.]*teeth|front(?:al)?[\s.]*tooth|teeth[\s.]*front(?:al)?|tooth[\s.]*front(?:al)?|正面牙|正面口|口内正面|口內正面|intraoral/.test(s);
+}
+
 function photoOrthoNameHitsSlot(rec, slotKey) {
   var s = (String((rec && rec.file_path) || '') + ' ' + String((rec && rec.caption) || '')).toLowerCase();
+  var loose = s.replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ');
+  if (slotKey === 'face' && photoOrthoTeethFrontal(loose)) return false;
   var hints = {
     profile: /profile|side\b|lateral|侧面|側面/,
-    face: /repose|frontal-face|face-front|正面(?!口)|fr(on)?tal(?!\s*smile)/,
+    face: /repose|frontal face|face front|facial|正面(?!口|牙)|fr(?:on)?tal(?![\s.]*smile)/,
     smile: /smile|微笑/,
     upper: /upper|occlusal-u|maxilla|上颌|上顎/,
     extra: /extra|three-quarter|3\/4|补充|補充/,
     lower: /lower|occlusal-l|mandible|下颌|下顎/,
     buccalR: /right.?buccal|buccal.?r|右侧|右側/,
-    intra: /intraoral|front.?teeth|正面口/,
+    intra: /intraoral|front(?:al)?[\s.]*teeth|front(?:al)?[\s.]*tooth|teeth[\s.]*front(?:al)?|tooth[\s.]*front(?:al)?|正面口|正面牙|口内正面|口內正面/,
     buccalL: /left.?buccal|buccal.?l|左侧|左側/
   };
-  return hints[slotKey] ? hints[slotKey].test(s) : false;
+  var hay = (slotKey === 'face' || slotKey === 'intra') ? loose : s;
+  return hints[slotKey] ? hints[slotKey].test(hay) : false;
 }
 
 function photoOrthoAutoPlaceList() {

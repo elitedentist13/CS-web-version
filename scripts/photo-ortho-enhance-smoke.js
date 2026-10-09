@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261010dl1';
-var STEP = 34;
+var BUILD = '20261010name1';
+var STEP = 35;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -193,7 +193,10 @@ function finish(code) {
     pass('auto-place fills a set from selected photos or the newest visit',
         html.indexOf('photoOrthoAutoPlace(\'before\')') >= 0 &&
         photos.indexOf('function photoOrthoAutoPlace') >= 0 &&
-        photos.indexOf('function photoOrthoNameHitsSlot') >= 0);
+        photos.indexOf('function photoOrthoNameHitsSlot') >= 0 &&
+        photos.indexOf('function photoOrthoTeethFrontal') >= 0 &&
+        extractFn(photos, 'photoOrthoNameHitsSlot').indexOf("slotKey === 'face' && photoOrthoTeethFrontal") >= 0 &&
+        extractFn(photos, 'photoOrthoTeethFrontal').indexOf('front(?:al)?') >= 0);
     pass('copy Before onto After and pick a visit for each column',
         html.indexOf('photoOrthoCopySet(\'before\',\'after\')') >= 0 &&
         html.indexOf('id="photoOrthoSitBefore"') >= 0 &&
@@ -694,6 +697,38 @@ function finish(code) {
                 folderSave && folderSave.prepared === 0 && folderSave.n === 2 &&
                 folderSave.profile === 'fold-profile.jpg' && folderSave.smile === 'fold-smile.jpg',
                 JSON.stringify(folderSave));
+            var names = await cdp.js('(function(){' +
+                'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
+                'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
+                'function rec(name){ return { file_path:name, caption:name.replace(/\\.[^.]+$/, "") }; }' +
+                'window.photoPatientId="e1-patient";' +
+                'window.photoAllRecords=[' +
+                '{id:"fac", category:"Before", file_path:"frontal.jpg", caption:"frontal"},' +
+                '{id:"tee", category:"Before", file_path:"frontal-teeth.jpg", caption:"frontal teeth"},' +
+                '{id:"pro", category:"Before", file_path:"profile.jpg", caption:"profile"}' +
+                '];' +
+                'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{},progress:{}}));' +
+                'photoSelected=new Set(["fac","tee","pro"]);' +
+                'photoOrthoAutoPlace("before");' +
+                'var bag=(photoOrthoLoad().before)||{};' +
+                'return {' +
+                '  frontalFace: photoOrthoNameHitsSlot(rec("frontal.jpg"), "face"),' +
+                '  frontalIntra: photoOrthoNameHitsSlot(rec("frontal.jpg"), "intra"),' +
+                '  teethFace: photoOrthoNameHitsSlot(rec("frontal teeth.jpg"), "face"),' +
+                '  teethIntra: photoOrthoNameHitsSlot(rec("frontal teeth.jpg"), "intra"),' +
+                '  hyphenFace: photoOrthoNameHitsSlot(rec("Frontal-Teeth.JPG"), "face"),' +
+                '  hyphenIntra: photoOrthoNameHitsSlot(rec("Frontal-Teeth.JPG"), "intra"),' +
+                '  swappedIntra: photoOrthoNameHitsSlot(rec("teeth frontal.jpg"), "intra"),' +
+                '  face: bag.face, intra: bag.intra, profile: bag.profile' +
+                '};' +
+                '})()', false, 15000);
+            pass('live: frontal is the face frame and frontal teeth is the bottom middle frame',
+                names && names.frontalFace === true && names.frontalIntra === false &&
+                names.teethFace === false && names.teethIntra === true &&
+                names.hyphenFace === false && names.hyphenIntra === true &&
+                names.swappedIntra === true &&
+                names.face === 'fac' && names.intra === 'tee' && names.profile === 'pro',
+                JSON.stringify(names));
             var outsideName = 'jsm-ortho-outside-' + Date.now() + '.jpg';
             var outsideFile = path.join(os.tmpdir(), outsideName);
             fs.writeFileSync(outsideFile, Buffer.from([0xFF, 0xD8, 0xFF, 0xD9]));

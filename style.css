@@ -20831,6 +20831,9 @@ button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: 
 .ortho-board-bar strong { font-size: 15px; color: #0f172a; margin-right: 12px; }
 .ortho-board-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; max-width: 100%; box-sizing: border-box; margin: 0 0 8px; }
 .ortho-board-export { padding-top: 8px; border-top: 1px solid #e2e8f0; }
+.ortho-export-ready { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; padding: 8px 10px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 12px; color: #1e3a8a; }
+.ortho-export-ready[hidden] { display: none !important; }
+.ortho-export-ready a { text-decoration: none; }
 .ortho-save-chart { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #334155; white-space: nowrap; }
 .ortho-tile[role="button"] { appearance: none; -webkit-appearance: none; width: 100%; box-sizing: border-box; }
 .ortho-meter { margin-right: auto; font-size: 12px; font-weight: 700; color: #0f766e; }

@@ -5953,6 +5953,7 @@
         'media.ortho.pdf': { en: 'Export PDF', 'zh-CN': '导出 PDF', 'zh-Hant': '匯出 PDF' },
         'media.ortho.exporting': { en: 'Preparing…', 'zh-CN': '正在准备…', 'zh-Hant': '正在準備…' },
         'media.ortho.compositeOk': { en: 'Saved {N} lossless PNG composite(s).', 'zh-CN': '已保存 {N} 张无损 PNG 拼图。', 'zh-Hant': '已儲存 {N} 張無損 PNG 拼圖。' },
+        'media.ortho.compositeReady': { en: 'Composite is ready. Click a file if it did not download.', 'zh-CN': '拼图已生成。如果没有自动下载，请点击文件保存。', 'zh-Hant': '拼圖已產生。如果沒有自動下載，請點選檔案儲存。' },
         'media.ortho.pdfOk': { en: 'Saved the Initial / Final PDF.', 'zh-CN': '已保存初诊 / 完成对照 PDF。', 'zh-Hant': '已儲存初診 / 完成對照 PDF。' },
         'media.ortho.exportCancel': { en: 'Save cancelled.', 'zh-CN': '已取消保存。', 'zh-Hant': '已取消儲存。' },
         'media.ortho.exportFail': { en: 'Could not export: {MSG}', 'zh-CN': '无法导出：{MSG}', 'zh-Hant': '無法匯出：{MSG}' },

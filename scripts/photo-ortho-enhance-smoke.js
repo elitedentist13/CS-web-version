@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261010warm1';
-var STEP = 25;
+var BUILD = '20261010comp1';
+var STEP = 26;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -307,7 +307,12 @@ function finish(code) {
         photos.indexOf('function photoOrthoPrintPdf') >= 0 &&
         extractFn(photos, 'photoOrthoDrawSet').indexOf('photoOrthoBagDateLabel') >= 0 &&
         extractFn(photos, 'photoOrthoDrawPdfPage').indexOf('media.ortho.lblDr') >= 0 &&
-        extractFn(photos, 'photoOrthoComposite').indexOf('photoOrthoSaveCompositesToChart') >= 0);
+        extractFn(photos, 'photoOrthoComposite').indexOf('photoOrthoSaveCompositesToChart') >= 0 &&
+        extractFn(photos, 'photoOrthoComposite').indexOf('photoOrthoExportViews') >= 0 &&
+        extractFn(photos, 'photoOrthoComposite').indexOf('photoOrthoOfferDownloads') >= 0 &&
+        extractFn(photos, 'photoOrthoLoadImg').indexOf('photoOrthoBitmapFromBlob') >= 0 &&
+        photos.indexOf('createImageBitmap') >= 0 &&
+        extractFn(photos, 'photoOrthoDrawSet').indexOf('Math.min(1000, cell)') >= 0);
     pass('empty tiles are divs so a drop can land, and export buttons sit on their own row',
         html.indexOf('class="ortho-board-tools ortho-board-export"') >= 0 &&
         html.indexOf('id="photoOrthoCompBtn"') >= 0 &&
@@ -327,7 +332,8 @@ function finish(code) {
         'media.ortho.folderBefore', 'media.ortho.folderAfter', 'media.ortho.dropCount', 'media.ortho.dropNone',
         'media.ortho.skipEmpty', 'media.ortho.modePair', 'media.ortho.modeSlider', 'media.ortho.modeFade',
         'media.ortho.lblDr', 'media.ortho.print', 'media.ortho.printOk', 'media.ortho.saveChart',
-        'media.ortho.chartCaption', 'media.ortho.chartOk', 'media.ortho.attachFail'].forEach(function (key) {
+        'media.ortho.chartCaption', 'media.ortho.chartOk', 'media.ortho.attachFail',
+        'media.ortho.compositeReady'].forEach(function (key) {
         pass('i18n ' + key + ' en / zh-CN / zh-Hant', i18nHasAll(i18n, key));
     });
 
@@ -941,6 +947,56 @@ function finish(code) {
                 livePhoto.missing === false && /data:image\/gif/.test(livePhoto.src || '') &&
                 livePhoto.fit === 'contain' && livePhoto.emptyTag === 'DIV' && livePhoto.exportRow === true,
                 JSON.stringify(livePhoto));
+
+            var mosaic = await cdp.js('(async function(){' +
+                'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
+                'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
+                'photoUploadOne=function(){ return Promise.resolve({ok:true,id:"chart-mosaic"}); };' +
+                'function swatch(hex){ var c=document.createElement("canvas"); c.width=80; c.height=80; var g=c.getContext("2d"); g.fillStyle=hex; g.fillRect(0,0,80,80); return c.toDataURL("image/png"); }' +
+                'var slots=["profile","face","smile","upper","extra","lower","buccalR","intra","buccalL"];' +
+                'var colors=["#ff0000","#00aa00","#0000ff","#ff8800","#8800ff","#00cccc","#cc0066","#226622","#003399"];' +
+                'var recs=[]; var bag={};' +
+                'slots.forEach(function(s,i){ var id="mos"+i; recs.push({id:id, category:"Before", file_path:id+".png", public_url:swatch(colors[i])}); bag[s]=id; });' +
+                'window.photoPatientId="mosaic-patient";' +
+                'window.photoPatientData={full_name:"Chan Tai Man", patient_no:"P1001", dob:"1990-05-01"};' +
+                'window.photoAllRecords=recs.concat([' +
+                '{id:"prA", category:"Progress", file_path:"prA.png", public_url:swatch("#111111")},' +
+                '{id:"prB", category:"Progress", file_path:"prB.png", public_url:swatch("#eeeeee")}' +
+                ']);' +
+                'var cat=document.getElementById("photoFilterCat"); if(cat) cat.value="";' +
+                'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:bag, after:{}, progress:{}, focus:"before", setMeta:{before:{date:""},after:{date:""}}, progressSets:[' +
+                '{id:"os-a", date:"2024-05-01", slots:{face:"prA"}},' +
+                '{id:"os-b", date:"2024-06-01", slots:{smile:"prB"}}' +
+                '], compareLeft:"", compareRight:""}));' +
+                'var focused=photoOrthoExportViews(photoOrthoLoad());' +
+                'var imgs=await photoOrthoCollectImages(photoOrthoLoad(), focused);' +
+                'var canvas=photoOrthoDrawSet(focused[0].key, focused[0].slots, imgs, focused[0].xf);' +
+                'var px=canvas.getContext("2d").getImageData(560, 720, 1, 1).data;' +
+                'var cmpMap=photoOrthoLoad(); cmpMap.focus=""; cmpMap.compareLeft="2024-05-01"; cmpMap.compareRight="2024-06-01"; cmpMap.progress={};' +
+                'var cmp=photoOrthoExportViews(cmpMap);' +
+                'var files={};' +
+                'function fakeHandle(name){ return { createWritable:function(){ var chunks=[]; return Promise.resolve({ write:function(blob){ return (blob.arrayBuffer?blob.arrayBuffer():Promise.resolve(blob)).then(function(buf){ chunks.push(buf instanceof Uint8Array?buf:new Uint8Array(buf)); }); }, close:function(){ var n=0; chunks.forEach(function(c){ n+=c.length; }); var u=new Uint8Array(n); var p=0; chunks.forEach(function(c){ u.set(c,p); p+=c.length; }); files[name]={ png:u[0]===137&&u[1]===80&&u[2]===78&&u[3]===71, bytes:n }; return Promise.resolve(); } }); } }; }' +
+                'window.showDirectoryPicker=function(){ return Promise.resolve({ getFileHandle:function(name){ return Promise.resolve(fakeHandle(name)); } }); };' +
+                'window.showSaveFilePicker=function(){ return Promise.resolve(fakeHandle("save.png")); };' +
+                'var box=document.getElementById("photoOrthoSaveChart"); if(box) box.checked=false;' +
+                'document.getElementById("photoOrthoCompBtn").click();' +
+                'var t=Date.now()+12000; while(Date.now()<t){ if(!document.getElementById("photoOrthoCompBtn").disabled && Object.keys(files).length>=1) break; await new Promise(function(r){ setTimeout(r,40); }); }' +
+                'var fname=Object.keys(files)[0]||"";' +
+                'window.showDirectoryPicker=null; window.showSaveFilePicker=null;' +
+                'photoOrthoComposite();' +
+                'var t2=Date.now()+12000; while(Date.now()<t2){ var link=document.querySelector("#photoOrthoExportReady a[download]"); if(link && !document.getElementById("photoOrthoCompBtn").disabled) break; await new Promise(function(r){ setTimeout(r,40); }); }' +
+                'var link=document.querySelector("#photoOrthoExportReady a[download]");' +
+                'photoOrthoReleaseImages(imgs);' +
+                'return { n:focused.length, key:focused[0]&&focused[0].key, w:canvas.width, h:canvas.height, r:px[0], g:px[1], b:px[2], file:fname, png:files[fname]||null, cmpN:cmp.length, cmpKeys:cmp.map(function(v){ return v.key; }), cmpSlots:[cmp[0]&&cmp[0].slots&&cmp[0].slots.face, cmp[1]&&cmp[1].slots&&cmp[1].slots.smile], offer:!!link, offerName:link?link.download:"" };' +
+                '})()', true, 30000);
+            pass('live: 9-frame composite paints the photos and can be saved without a folder picker',
+                mosaic && mosaic.n === 1 && mosaic.key === 'before' &&
+                mosaic.w === 3180 && mosaic.h === 3340 && mosaic.r > 200 && mosaic.g < 40 && mosaic.b < 40 &&
+                /before\.png$/i.test(mosaic.file || '') && mosaic.png && mosaic.png.png === true && mosaic.png.bytes > 1000 &&
+                mosaic.cmpN === 2 && mosaic.cmpKeys && mosaic.cmpKeys[0] === 'progress' && mosaic.cmpKeys[1] === 'progress' &&
+                mosaic.cmpSlots && mosaic.cmpSlots[0] === 'prA' && mosaic.cmpSlots[1] === 'prB' &&
+                mosaic.offer === true && /before\.png$/i.test(mosaic.offerName || ''),
+                JSON.stringify(mosaic));
 
             if (live5500) {
                 await cdp.call('Page.navigate', { url: 'http://xray-ai.test:5500/index.html?_lr=' + BUILD });

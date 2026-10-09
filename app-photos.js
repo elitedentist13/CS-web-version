@@ -5956,37 +5956,117 @@ function photoOrthoDecodeImg(url, cors) {
   });
 }
 
-function photoOrthoLoadImg(rec) {
-  var url = photoBareUrl(rec) || photoDisplayUrl(rec);
-  if (!url) return Promise.resolve(null);
-  if (url.indexOf('data:') === 0) return photoOrthoDecodeImg(url, false);
-  return fetch(url, { mode: 'cors', credentials: 'omit' }).then(function(res) {
-    if (!res.ok) throw new Error('http');
-    return res.blob();
-  }).then(function(blob) {
-    var obj = URL.createObjectURL(blob);
-    return photoOrthoDecodeImg(obj, false).then(function(img) {
-      URL.revokeObjectURL(obj);
-      return img;
-    }, function(err) {
-      URL.revokeObjectURL(obj);
-      throw err;
-    });
-  }).catch(function() {
-    return photoOrthoDecodeImg(photoDisplayUrl(rec) || url, true);
+function photoOrthoImageFromBlob(blob) {
+  var obj = URL.createObjectURL(blob);
+  return photoOrthoDecodeImg(obj, false).then(function(img) {
+    img._orthoObjectUrl = obj;
+    var ready = (img.decode && typeof img.decode === 'function') ? img.decode() : Promise.resolve();
+    return ready.then(function() { return img; }, function() { return img; });
+  }, function(err) {
+    try { URL.revokeObjectURL(obj); } catch (e) {}
+    throw err;
   });
 }
 
-function photoOrthoCollectImages(map) {
+function photoOrthoBitmapFromBlob(blob) {
+  if (!blob || typeof createImageBitmap !== 'function') return photoOrthoImageFromBlob(blob);
+  function shrink(bmp) {
+    var w = bmp.width || 0;
+    var h = bmp.height || 0;
+    var edge = Math.max(w, h);
+    if (!edge || edge <= 1400 || typeof bmp.close !== 'function') return Promise.resolve(bmp);
+    var scale = 1400 / edge;
+    return createImageBitmap(bmp, {
+      resizeWidth: Math.max(1, Math.round(w * scale)),
+      resizeHeight: Math.max(1, Math.round(h * scale)),
+      resizeQuality: 'high'
+    }).then(function(small) {
+      try { bmp.close(); } catch (e) {}
+      return small;
+    }, function() { return bmp; });
+  }
+  return createImageBitmap(blob, { imageOrientation: 'from-image' }).catch(function() {
+    return createImageBitmap(blob);
+  }).then(shrink).catch(function() {
+    return photoOrthoImageFromBlob(blob);
+  });
+}
+
+function photoOrthoStorageBlob(rec) {
+  var path = rec && rec.file_path ? String(rec.file_path) : '';
+  if (!path || typeof SB === 'undefined' || !SB || !SB.storage || typeof SB.storage.from !== 'function') {
+    return Promise.reject(new Error('storage'));
+  }
+  var req;
+  try { req = SB.storage.from(PHOTO_BUCKET).download(path); }
+  catch (e) { return Promise.reject(e); }
+  return new Promise(function(resolve, reject) {
+    var done = false;
+    var timer = setTimeout(function() {
+      if (done) return;
+      done = true;
+      reject(new Error('timeout'));
+    }, 8000);
+    Promise.resolve(req).then(function(r) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (r && r.error) { reject(r.error); return; }
+      var blob = r && r.data ? r.data : r;
+      if (!blob || typeof blob.size !== 'number') { reject(new Error('storage')); return; }
+      resolve(blob);
+    }, function(err) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+function photoOrthoLoadImg(rec) {
+  var url = photoBareUrl(rec) || photoDisplayUrl(rec);
+  if (!url && !(rec && rec.file_path)) return Promise.resolve(null);
+  if (url && url.indexOf('data:') === 0) return photoOrthoDecodeImg(url, false);
+  return photoOrthoStorageBlob(rec).catch(function() {
+    if (!url) throw new Error('nourl');
+    return fetch(url, { mode: 'cors', credentials: 'omit' }).then(function(res) {
+      if (!res.ok) throw new Error('http');
+      return res.blob();
+    });
+  }).then(function(blob) {
+    return photoOrthoBitmapFromBlob(blob);
+  }).catch(function() {
+    if (!url) return null;
+    return photoOrthoDecodeImg(photoDisplayUrl(rec) || url, true).catch(function() { return null; });
+  });
+}
+
+function photoOrthoReleaseImages(imgs) {
+  Object.keys(imgs || {}).forEach(function(id) {
+    var im = imgs[id];
+    if (!im) return;
+    if (im._orthoObjectUrl) {
+      try { URL.revokeObjectURL(im._orthoObjectUrl); } catch (e) {}
+      im._orthoObjectUrl = '';
+    }
+    if (typeof im.close === 'function') {
+      try { im.close(); } catch (e2) {}
+    }
+  });
+}
+
+function photoOrthoCollectImages(map, views) {
   var seen = {};
-  photoOrthoKnownSets().forEach(function(setKey) {
-    var bag = (map && map[setKey]) || {};
+  function addBag(bag) {
     PHOTO_ORTHO_SLOTS.forEach(function(slot) {
-      var id = bag[slot[0]];
+      var id = bag && bag[slot[0]];
       if (id) seen[String(id)] = true;
     });
-    if (bag.composite) seen[String(bag.composite)] = true;
-  });
+    if (bag && bag.composite) seen[String(bag.composite)] = true;
+  }
+  if (views && views.length) views.forEach(function(view) { addBag(view && view.slots); });
+  else photoOrthoKnownSets().forEach(function(setKey) { addBag((map && map[setKey]) || {}); });
   var ids = Object.keys(seen);
   var out = {};
   return Promise.all(ids.map(function(id) {
@@ -6093,8 +6173,16 @@ function photoOrthoFitImage(ctx, img, x, y, w, h, xf) {
   ctx.restore();
 }
 
-function photoOrthoDrawCompositeSet(setKey, bag, imgs) {
-  var xfMap = photoOrthoLoad();
+function photoOrthoDrawXfMap(setKey, xfBag) {
+  var live = photoOrthoLoad();
+  if (!xfBag) return live;
+  var wrap = { xf: {}, input: live.input || {} };
+  wrap.xf[setKey] = xfBag;
+  return wrap;
+}
+
+function photoOrthoDrawCompositeSet(setKey, bag, imgs, xfBag) {
+  var xfMap = photoOrthoDrawXfMap(setKey, xfBag);
   var img = imgs[String((bag && bag.composite) || '')] || null;
   var cell = 1600;
   if (img) {
@@ -6137,10 +6225,10 @@ function photoOrthoDrawCompositeSet(setKey, bag, imgs) {
   return canvas;
 }
 
-function photoOrthoDrawSet(setKey, bag, imgs) {
-  var xfMap = photoOrthoLoad();
+function photoOrthoDrawSet(setKey, bag, imgs, xfBag) {
+  var xfMap = photoOrthoDrawXfMap(setKey, xfBag);
   if (photoOrthoInputMode(xfMap, setKey) === 'composite') {
-    return photoOrthoDrawCompositeSet(setKey, bag, imgs);
+    return photoOrthoDrawCompositeSet(setKey, bag, imgs, xfBag);
   }
   var loaded = [];
   PHOTO_ORTHO_SLOTS.forEach(function(slot) {
@@ -6152,7 +6240,7 @@ function photoOrthoDrawSet(setKey, bag, imgs) {
     var side = Math.max(im.naturalWidth || im.width || 0, im.naturalHeight || im.height || 0);
     if (side > cell) cell = side;
   });
-  cell = Math.max(900, Math.min(1600, cell));
+  cell = Math.max(900, Math.min(1000, cell));
   var gap = Math.round(cell * 0.03);
   var pad = Math.round(cell * 0.06);
   var titleH = Math.round(cell * 0.16);
@@ -6346,9 +6434,12 @@ function photoOrthoSaveCompositesToChart(blobs, names) {
   keys.forEach(function(k) {
     chain = chain.then(function() {
       var file = photoOrthoBlobToFile(blobs[k], names[k] || (k + '.png'));
+      var setKey = String(k).split(':')[0];
+      var setLabel = photoOrthoSetLabel(setKey);
+      if (String(k).indexOf(':') > 0) setLabel += ' ' + String(k).split(':').slice(1).join(':');
       return photoUploadOne(file, {
         category: 'Scanned Document',
-        caption: mediaTrRepl('media.ortho.chartCaption', { SET: photoOrthoSetLabel(k) }),
+        caption: mediaTrRepl('media.ortho.chartCaption', { SET: setLabel }),
         taken_date: typeof todayISO === 'function' ? todayISO() : null
       }).then(function(res) {
         if (res && res.ok) {
@@ -6362,11 +6453,134 @@ function photoOrthoSaveCompositesToChart(blobs, names) {
   return chain.then(function() { return acc; });
 }
 
+function photoOrthoViewOfSet(map, setKey) {
+  var date = '';
+  if (setKey === 'before' || setKey === 'after') {
+    date = map.setMeta && map.setMeta[setKey] && map.setMeta[setKey].date;
+  } else if (setKey === 'progress') date = map.progressDate;
+  var fallback = (setKey === 'after' || setKey === 'progress') ? setKey : 'before';
+  return photoOrthoResolveVisitView(map, date || '', fallback);
+}
+
+function photoOrthoViewFilled(map, view) {
+  if (!view) return false;
+  var bag = view.slots || {};
+  if (photoOrthoInputMode(map, view.key) === 'composite') {
+    var crec = photoOrthoFind(bag.composite);
+    return !!(crec && photoOrthoIsImage(crec));
+  }
+  var i, rec;
+  for (i = 0; i < PHOTO_ORTHO_SLOTS.length; i++) {
+    rec = photoOrthoFind(bag[PHOTO_ORTHO_SLOTS[i][0]]);
+    if (rec && photoOrthoIsImage(rec)) return true;
+  }
+  return false;
+}
+
+function photoOrthoExportViews(map) {
+  map = map || photoOrthoLoad();
+  var list = [];
+  var cmp = photoOrthoComparePair(map);
+  if (cmp) list = [cmp.left, cmp.right];
+  else photoOrthoVisibleSets().forEach(function(k) { list.push(photoOrthoViewOfSet(map, k)); });
+  var filled = list.filter(function(v) { return photoOrthoViewFilled(map, v); });
+  if (filled.length) return filled;
+  return photoOrthoKnownSets().map(function(k) { return photoOrthoViewOfSet(map, k); })
+    .filter(function(v) { return photoOrthoViewFilled(map, v); });
+}
+
+function photoOrthoExportBlobKey(views, view, i) {
+  var date = String((view && view.date) || '').slice(0, 10);
+  var key = (view && view.key) ? view.key : 'set';
+  if (date) key += ':' + date;
+  var n = 0;
+  var j;
+  for (j = 0; j < i; j++) {
+    var other = views[j];
+    var odate = String((other && other.date) || '').slice(0, 10);
+    var okey = (other && other.key) ? other.key : 'set';
+    if (odate) okey += ':' + odate;
+    if (okey === key) n++;
+  }
+  if (n) key += '#' + i;
+  return key;
+}
+
+function photoOrthoExportFileName(view) {
+  var date = String((view && view.date) || '').slice(0, 10);
+  var key = (view && view.key) ? view.key : 'set';
+  return photoOrthoFileBase() + '-' + key + (date ? '-' + date : '') + '.png';
+}
+
+function photoOrthoViewsHavePixels(views, imgs) {
+  var want = 0;
+  var got = 0;
+  (views || []).forEach(function(view) {
+    var bag = (view && view.slots) || {};
+    var mode = photoOrthoInputMode(photoOrthoLoad(), view.key);
+    var slots = mode === 'composite' ? ['composite'] : PHOTO_ORTHO_SLOTS.map(function(s) { return s[0]; });
+    slots.forEach(function(slot) {
+      var id = bag[slot];
+      if (!id || !photoOrthoFind(id) || !photoOrthoIsImage(photoOrthoFind(id))) return;
+      want++;
+      if (imgs && imgs[String(id)]) got++;
+    });
+  });
+  return got > 0 || !want;
+}
+
+function photoOrthoHideExportOffer() {
+  var host = g('photoOrthoExportReady');
+  if (!host) return;
+  if (host._orthoUrls) {
+    host._orthoUrls.forEach(function(u) { try { URL.revokeObjectURL(u); } catch (e) {} });
+  }
+  host._orthoUrls = [];
+  host.hidden = true;
+  host.innerHTML = '';
+}
+
+function photoOrthoOfferDownloads(items) {
+  var host = g('photoOrthoExportReady');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'photoOrthoExportReady';
+    host.className = 'ortho-export-ready';
+    var tools = document.querySelector('.ortho-board-export');
+    if (tools && tools.parentNode) tools.parentNode.insertBefore(host, tools.nextSibling);
+    else {
+      var panel = g('photoOrthoPanel');
+      if (panel) panel.appendChild(host);
+      else return;
+    }
+  }
+  if (host._orthoUrls) {
+    host._orthoUrls.forEach(function(u) { try { URL.revokeObjectURL(u); } catch (e) {} });
+  }
+  host._orthoUrls = [];
+  host.hidden = false;
+  host.innerHTML = '<span>' + esc(mediaTr('media.ortho.compositeReady')) + '</span>';
+  (items || []).forEach(function(item) {
+    if (!item || !item.blob) return;
+    var url = URL.createObjectURL(item.blob);
+    host._orthoUrls.push(url);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = item.name || 'ortho.png';
+    a.className = 'xray-btn';
+    a.textContent = item.name || 'ortho.png';
+    host.appendChild(a);
+    photoOrthoDownloadBlob(item.blob, item.name);
+  });
+}
+
 function photoOrthoBuildPdfBlob(map) {
-  return photoOrthoCollectImages(map).then(function(imgs) {
-    var sets = photoOrthoExportSets(map);
-    var left = sets[0] ? photoOrthoDrawSet(sets[0], map[sets[0]] || {}, imgs) : null;
-    var right = sets[1] ? photoOrthoDrawSet(sets[1], map[sets[1]] || {}, imgs) : null;
+  var views = photoOrthoExportViews(map);
+  var held = null;
+  return photoOrthoCollectImages(map, views).then(function(imgs) {
+    held = imgs;
+    var left = views[0] ? photoOrthoDrawSet(views[0].key, views[0].slots || {}, imgs, views[0].xf) : null;
+    var right = views[1] ? photoOrthoDrawSet(views[1].key, views[1].slots || {}, imgs, views[1].xf) : null;
     var page = photoOrthoDrawPdfPage(left, right);
     return photoOrthoToBlob(page, 'image/jpeg', 0.92).then(function(jpegBlob) {
       return jpegBlob.arrayBuffer().then(function(buf) {
@@ -6377,6 +6591,12 @@ function photoOrthoBuildPdfBlob(map) {
         });
       });
     });
+  }).then(function(pdf) {
+    photoOrthoReleaseImages(held);
+    return pdf;
+  }, function(err) {
+    photoOrthoReleaseImages(held);
+    throw err;
   });
 }
 
@@ -6424,30 +6644,43 @@ function photoOrthoPrintPdf() {
 }
 
 function photoOrthoExportSets(map) {
-  var vis = photoOrthoVisibleSets();
-  var filled = vis.filter(function(k) { return photoOrthoSetFilled(map, k); });
-  if (filled.length) return filled;
-  return photoOrthoKnownSets().filter(function(k) { return photoOrthoSetFilled(map, k); });
+  var seen = {};
+  var keys = [];
+  photoOrthoExportViews(map).forEach(function(view) {
+    if (!view || !view.key || seen[view.key]) return;
+    seen[view.key] = true;
+    keys.push(view.key);
+  });
+  return keys;
 }
 
 function photoOrthoComposite() {
   var map = photoOrthoLoad();
-  var sets = photoOrthoExportSets(map);
-  if (!sets.length) {
+  var views = photoOrthoExportViews(map);
+  if (!views.length) {
     mediaNotify(mediaTr('media.ortho.noPins'), 'error');
     return;
   }
   var names = {};
-  sets.forEach(function(k) {
-    names[k] = photoOrthoFileBase() + '-' + k + '.png';
+  var keys = [];
+  var usedNames = {};
+  views.forEach(function(view, i) {
+    var key = photoOrthoExportBlobKey(views, view, i);
+    var name = photoOrthoExportFileName(view);
+    if (usedNames[name]) name = name.replace(/\.png$/, '-' + i + '.png');
+    usedNames[name] = true;
+    keys.push(key);
+    names[key] = name;
+    view._exportKey = key;
   });
+  photoOrthoHideExportOffer();
   var usedDir = typeof window.showDirectoryPicker === 'function';
   var pickP;
   try {
     if (usedDir) {
       pickP = window.showDirectoryPicker({ id: 'jsm-ortho-export', mode: 'readwrite' });
     } else {
-      pickP = photoOrthoPickSave(names[sets[0]], 'image/png', '.png', mediaTr('media.ortho.pngDesc'));
+      pickP = photoOrthoPickSave(names[keys[0]], 'image/png', '.png', mediaTr('media.ortho.pngDesc'));
     }
   } catch (err) {
     if (photoOrthoIsAbort(err)) {
@@ -6458,58 +6691,83 @@ function photoOrthoComposite() {
     pickP = Promise.resolve(null);
   }
   photoOrthoSetBusy('photoOrthoCompBtn', true);
+  photoOrthoProgress(true, mediaTr('media.ortho.preparing'));
+  var held = null;
   Promise.resolve(pickP).then(function(picked) {
+    return picked;
+  }, function(err) {
+    if (photoOrthoIsAbort(err)) throw err;
+    usedDir = false;
+    return null;
+  }).then(function(picked) {
     return photoOrthoEnsureWrite(picked).then(function() {
-      return photoOrthoCollectImages(map);
+      return photoOrthoCollectImages(map, views);
     }).then(function(imgs) {
+      held = imgs;
+      if (!photoOrthoViewsHavePixels(views, imgs)) throw new Error('photo');
       var blobs = {};
       var chain = Promise.resolve();
-      sets.forEach(function(k) {
+      views.forEach(function(view) {
         chain = chain.then(function() {
-          var canvas = photoOrthoDrawSet(k, map[k] || {}, imgs);
+          var canvas = photoOrthoDrawSet(view.key, view.slots || {}, imgs, view.xf);
           return photoOrthoToBlob(canvas, 'image/png').then(function(blob) {
-            blobs[k] = blob;
+            blobs[view._exportKey] = blob;
           });
         });
       });
       return chain.then(function() {
+        photoOrthoReleaseImages(held);
+        held = null;
         return { picked: picked, blobs: blobs };
       });
     });
   }).then(function(pack) {
     var seq = Promise.resolve();
+    var items = keys.map(function(k) { return { name: names[k], blob: pack.blobs[k] }; });
     if (usedDir && pack.picked && typeof pack.picked.getFileHandle === 'function') {
-      sets.forEach(function(k) {
+      var missed = [];
+      keys.forEach(function(k) {
         seq = seq.then(function() {
-          return photoOrthoWriteDirFile(pack.picked, names[k], pack.blobs[k]);
+          return photoOrthoEnsureWrite(pack.picked).then(function(ok) {
+            if (!ok) throw new Error('permission');
+            return pack.picked.getFileHandle(names[k], { create: true });
+          }).then(function(fh) {
+            return photoOrthoWriteHandle(fh, pack.blobs[k]);
+          }).catch(function() {
+            missed.push({ name: names[k], blob: pack.blobs[k] });
+          });
         });
       });
-      return seq.then(function() { return pack; });
+      return seq.then(function() {
+        if (missed.length) photoOrthoOfferDownloads(missed);
+        return pack;
+      });
     }
-    seq = photoOrthoWriteOrDownload(pack.picked, pack.blobs[sets[0]], names[sets[0]]);
-    sets.slice(1).forEach(function(k) {
-      seq = seq.then(function() {
-        return photoOrthoPickSave(names[k], 'image/png', '.png', mediaTr('media.ortho.pngDesc')).then(function(h) {
-          return photoOrthoWriteOrDownload(h, pack.blobs[k], names[k]);
-        }, function(err) {
-          if (photoOrthoIsAbort(err)) return;
-          photoOrthoDownloadBlob(pack.blobs[k], names[k]);
-        });
+    if (pack.picked && typeof pack.picked.createWritable === 'function') {
+      return photoOrthoWriteOrDownload(pack.picked, pack.blobs[keys[0]], names[keys[0]]).then(function() {
+        if (items.length > 1) photoOrthoOfferDownloads(items.slice(1));
+        return pack;
+      }, function() {
+        photoOrthoOfferDownloads(items);
+        return pack;
       });
-    });
-    return seq.then(function() { return pack; });
+    }
+    photoOrthoOfferDownloads(items);
+    return pack;
   }).then(function(pack) {
-    mediaNotify(mediaTrRepl('media.ortho.compositeOk', { N: String(sets.length) }), 'info');
+    mediaNotify(mediaTrRepl('media.ortho.compositeOk', { N: String(views.length) }), 'info');
     var box = g('photoOrthoSaveChart');
     if (box && !box.checked) return;
     if (!pack || !pack.blobs) return;
     return photoOrthoSaveCompositesToChart(pack.blobs, names).then(function(acc) {
       if (acc && acc.n) mediaNotify(mediaTrRepl('media.ortho.chartOk', { N: String(acc.n) }), 'info');
-    });
+    }, function() {});
   }).catch(function(err) {
     if (photoOrthoIsAbort(err)) mediaNotify(mediaTr('media.ortho.exportCancel'));
     else mediaNotify(mediaTrRepl('media.ortho.exportFail', { MSG: (err && err.message) || String(err) }), 'error');
   }).then(function() {
+    if (held) photoOrthoReleaseImages(held);
+    photoOrthoProgress(false);
     photoOrthoSetBusy('photoOrthoCompBtn', false);
   });
 }

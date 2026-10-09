@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261010comp1';
-var STEP = 26;
+var BUILD = '20261010play1';
+var STEP = 27;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -297,7 +297,11 @@ function finish(code) {
         photos.indexOf('function photoOrthoSlideSteps') >= 0 &&
         photos.indexOf('photoOrthoSlideSkipEmpty') >= 0 &&
         css.indexOf('clip-path') >= 0 &&
-        css.indexOf('--ortho-mix') >= 0);
+        css.indexOf('--ortho-mix') >= 0 &&
+        photos.indexOf('function photoOrthoSlidePlay') >= 0 &&
+        extractFn(photos, 'photoOrthoSlidePaint').indexOf('photoOrthoSlidePlay') >= 0 &&
+        extractFn(photos, 'photoOrthoSlideClose').indexOf('photoOrthoSlideStopPlay') >= 0 &&
+        css.indexOf('.ortho-show-mix input[type=range] { display: none; }') >= 0);
     pass('export prints sitting dates and doctor, can save the PNG into Photos, and print',
         html.indexOf('id="photoOrthoPrintBtn"') >= 0 &&
         html.indexOf('id="photoOrthoSaveChart"') >= 0 &&
@@ -858,6 +862,27 @@ function finish(code) {
                 slide.slider.pairHidden === true && /is-slider/.test(slide.slider.cls || '') &&
                 String(slide.slider.mix || '').indexOf('25') >= 0 && slide.fadeOn === true,
                 JSON.stringify(slide && { allN: slide.allN, slider: slide.slider, fadeOn: slide.fadeOn }));
+            var play = await cdp.js('(async function(){' +
+                'photoOrthoSlideSetMode("slider");' +
+                'var mix=document.getElementById("photoOrthoShowMix");' +
+                'var range=document.getElementById("photoOrthoSlideMix");' +
+                'function pct(){ return Number(String((mix && mix.style.getPropertyValue("--ortho-mix")) || "0").replace("%","")) || 0; }' +
+                'var start=pct();' +
+                'await new Promise(function(r){ setTimeout(r, 500); });' +
+                'var mid=pct();' +
+                'var shown=range ? getComputedStyle(range).display : "";' +
+                'photoOrthoSlideSetMode("fade");' +
+                'await new Promise(function(r){ setTimeout(r, 400); });' +
+                'var fadeMid=pct();' +
+                'var fadeOn=mix && mix.classList.contains("is-fade");' +
+                'photoOrthoSlideSetMode("pair");' +
+                'photoOrthoSlideClose();' +
+                'return { start:start, mid:mid, shown:shown, fadeMid:fadeMid, fadeOn:fadeOn };' +
+                '})()', true, 15000);
+            pass('live: Slide and Fade play across the two photos without the range bar',
+                play && play.mid > play.start && play.mid < 100 && play.shown === 'none' &&
+                play.fadeOn === true && play.fadeMid > 0 && play.fadeMid < 100,
+                JSON.stringify(play));
             var exp = await cdp.js('(async function(){' +
                 'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
                 'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +

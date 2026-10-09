@@ -20947,7 +20947,7 @@ button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: 
 .ortho-show-mix-layer img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
 .ortho-show-mix.is-slider .ortho-show-mix-after { clip-path: inset(0 calc(100% - var(--ortho-mix, 50%)) 0 0); }
 .ortho-show-mix.is-fade .ortho-show-mix-after { opacity: calc(var(--ortho-mix, 50%) / 100); }
-.ortho-show-mix input[type=range] { position: absolute; left: 10%; right: 10%; bottom: 10px; z-index: 2; }
+.ortho-show-mix input[type=range] { display: none; }
 .ortho-show-close { color: #e2e8f0; }
 .ortho-show-stage { flex: 1; display: grid; grid-template-columns: 72px minmax(0, 1fr) 72px; min-height: calc(100vh - 140px); padding: 0 8px 18px; }
 .ortho-show-nav { background: transparent; border: 0; color: #fff; font-size: 56px; cursor: pointer; }

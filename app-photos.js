@@ -5679,6 +5679,7 @@ function photoOrthoSlideshow() {
 }
 
 function photoOrthoSlideClose() {
+  photoOrthoSlideStopPlay();
   var el = g('photoOrthoShow');
   if (el) el.setAttribute('hidden', '');
   photoOrthoShowChrome(false);
@@ -5709,6 +5710,46 @@ function photoOrthoSlideSkipChange(on) {
   photoOrthoSlideSkipEmpty = !!on;
   photoOrthoSlideIdx = 0;
   photoOrthoSlidePaint();
+}
+
+var photoOrthoSlidePlayGen = 0;
+
+function photoOrthoSlideStopPlay() {
+  photoOrthoSlidePlayGen++;
+}
+
+function photoOrthoSlidePlay() {
+  var gen = ++photoOrthoSlidePlayGen;
+  var show = g('photoOrthoShow');
+  if (!show || show.hasAttribute('hidden')) return;
+  if (photoOrthoSlideMode !== 'slider' && photoOrthoSlideMode !== 'fade') return;
+  var mix = g('photoOrthoShowMix');
+  if (!mix || mix.hasAttribute('hidden')) return;
+  photoOrthoSlideSetMix(0);
+  var start = Date.now();
+  var dur = photoOrthoSlideMode === 'fade' ? 1500 : 1300;
+  function tick() {
+    if (gen !== photoOrthoSlidePlayGen) return;
+    var el = g('photoOrthoShow');
+    if (!el || el.hasAttribute('hidden')) return;
+    if (photoOrthoSlideMode !== 'slider' && photoOrthoSlideMode !== 'fade') return;
+    var t = Math.min(1, (Date.now() - start) / dur);
+    var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    photoOrthoSlideSetMix(Math.round(e * 100));
+    if (t < 1) {
+      setTimeout(tick, 40);
+      return;
+    }
+    setTimeout(function() {
+      if (gen !== photoOrthoSlidePlayGen) return;
+      var el2 = g('photoOrthoShow');
+      if (!el2 || el2.hasAttribute('hidden')) return;
+      if (photoOrthoSlideMode !== 'slider' && photoOrthoSlideMode !== 'fade') return;
+      if (photoOrthoSlideSteps().length > 1) photoOrthoSlideStep(1);
+      else photoOrthoSlidePlay();
+    }, 800);
+  }
+  setTimeout(tick, 40);
 }
 
 function photoOrthoSlideSetMode(mode) {
@@ -5833,6 +5874,8 @@ function photoOrthoSlidePaint() {
   document.querySelectorAll('#photoOrthoShow .ortho-show-nav').forEach(function(nav) {
     nav.hidden = oneStep;
   });
+  if (isMix) photoOrthoSlidePlay();
+  else photoOrthoSlideStopPlay();
 }
 
 function photoOrthoIsAbort(err) {

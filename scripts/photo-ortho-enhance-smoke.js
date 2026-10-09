@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261010visit1';
-var STEP = 18;
+var BUILD = '20261010cmp1';
+var STEP = 24;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -205,6 +205,11 @@ function finish(code) {
         photos.indexOf('function photoOrthoCollectDropFiles') >= 0 &&
         photos.indexOf('photoOrthoHasExternalFiles') >= 0 &&
         extractFn(photos, 'photoOrthoRender').indexOf('data-set="') >= 0 &&
+        extractFn(photos, 'photoOrthoRender').indexOf('photoOrthoFolderSetBtnHtml') >= 0 &&
+        extractFn(photos, 'photoOrthoBind').indexOf('data-ortho-folder') >= 0 &&
+        extractFn(photos, 'photoOrthoBind').indexOf('photoOrthoPickFolder') >= 0 &&
+        photos.indexOf('function photoOrthoFolderSetBtnHtml') >= 0 &&
+        i18nHasAll(i18n, 'media.ortho.folderLoad') &&
         css.indexOf('.ortho-set.is-over') >= 0);
     var uploadFn = extractFn(photos, 'photoOrthoUploadDropped');
     var commitFn = extractFn(photos, 'photoOrthoCommitDrop');
@@ -238,6 +243,11 @@ function finish(code) {
         extractFn(photos, 'photoOrthoTileHtml').indexOf('photoOrthoBrowseBtnHtml') >= 0 &&
         extractFn(photos, 'photoOrthoBrowseBtnHtml').indexOf('data-ortho-browse') >= 0 &&
         photos.indexOf('function photoOrthoBrowseFile') >= 0 &&
+        html.indexOf('id="photoOrthoProgress"') >= 0 &&
+        photos.indexOf('function photoOrthoProgress') >= 0 &&
+        extractFn(photos, 'photoOrthoBrowseFile').indexOf('photoOrthoProgress') >= 0 &&
+        extractFn(photos, 'photoOrthoUploadDropped').indexOf('photoOrthoPrepareUploadFile') >= 0 &&
+        i18nHasAll(i18n, 'media.ortho.reading') &&
         extractFn(photos, 'photoOrthoBrowseFile').indexOf("startIn: 'downloads'") >= 0 &&
         extractFn(photos, 'photoOrthoBrowseFile').indexOf('image/jpeg') >= 0 &&
         extractFn(photos, 'photoOrthoBrowseFile').indexOf('image/*') < 0 &&
@@ -255,8 +265,18 @@ function finish(code) {
         html.indexOf('data-ortho-cat="progress"') >= 0 &&
         html.indexOf('data-ortho-cat="final"') >= 0 &&
         html.indexOf('id="photoOrthoRecords"') < 0 &&
+        html.indexOf('id="photoOrthoCompareBtn"') >= 0 &&
+        photos.indexOf('function photoOrthoToggleCompare') >= 0 &&
+        photos.indexOf('function photoOrthoComparePick') >= 0 &&
+        extractFn(photos, 'photoOrthoRender').indexOf('photoOrthoComparePair') >= 0 &&
+        extractFn(photos, 'photoOrthoSlidePaint').indexOf('photoOrthoComparePair') >= 0 &&
+        i18nHasAll(i18n, 'media.ortho.compare') &&
         photos.indexOf('function photoOrthoSelectVisit') >= 0 &&
         photos.indexOf('function photoOrthoSetVisitCategory') >= 0 &&
+        extractFn(photos, 'photoOrthoNavVisitOptions').indexOf('conMediaApptLabel') < 0 &&
+        extractFn(photos, 'photoOrthoSyncLayoutTools').indexOf("vis('photoOrthoSitBefore', false)") >= 0 &&
+        html.indexOf('id="photoOrthoSitBefore"') >= 0 &&
+        html.indexOf('id="photoOrthoSitBefore" class="xray-filter-sel" hidden') >= 0 &&
         extractFn(photos, 'photoOrthoToggle').indexOf('photoOrthoArmLibraryView') >= 0 &&
         extractFn(photos, 'photoOrthoArmLibraryView').indexOf("setPhotoKind('photos')") >= 0 &&
         extractFn(photos, 'photoOrthoCategoryPairs').indexOf('photoOrthoDocCategory') >= 0 &&
@@ -483,8 +503,8 @@ function finish(code) {
                 (live.opts || []).indexOf('Before/After') >= 0,
                 JSON.stringify(live.opts));
             pass('live: labels distinguish the new timepoints from the old combined tag',
-                live.labels.before === 'Before' && live.labels.after === 'After' &&
-                live.labels.progress === 'Progress' && /Before\/After/.test(live.labels.legacy || ''),
+                live.labels.before === 'Initial' && live.labels.after === 'Final' &&
+                live.labels.progress === 'Progress' && /Initial\/Final/.test(live.labels.legacy || ''),
                 JSON.stringify(live.labels));
             pass('live: photoTimepointOf returns before/after/progress and ignores other cats',
                 live.tp.before === 'before' && live.tp.after === 'after' &&
@@ -496,7 +516,7 @@ function finish(code) {
                 JSON.stringify(live.legacyIds) === JSON.stringify(['4']),
                 JSON.stringify({ before: live.beforeIds, after: live.afterIds, legacy: live.legacyIds }));
             pass('live: Before badge renders and ortho board button remains',
-                /Before/.test(live.badge || '') && live.orthoBtn === true);
+                /Initial/.test(live.badge || '') && live.orthoBtn === true);
             pass('live: PDFs and consent/lab scans count as docs; still photos do not',
                 live.docPdf === true && live.docConsent === true && live.docPhoto === false && live.kindBtns === true);
             pass('live: Photos kind hides the PDF; Docs kind keeps it; All keeps both',

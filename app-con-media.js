@@ -1076,6 +1076,7 @@ function conMediaWireUploadSurface() {
         var depth = 0;
         pane.addEventListener('dragenter', function (e) {
             if (!e.dataTransfer || Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') < 0) return;
+            e.preventDefault();
             depth++;
             pane.classList.add('is-drop');
         });
@@ -1089,6 +1090,10 @@ function conMediaWireUploadSurface() {
         pane.addEventListener('drop', function (e) {
             depth = 0;
             pane.classList.remove('is-drop');
+            if (e.target && e.target.closest && e.target.closest('#photoOrthoPanel')) {
+                e.preventDefault();
+                return;
+            }
             if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
             e.preventDefault();
             photoHandleFiles(e.dataTransfer.files);

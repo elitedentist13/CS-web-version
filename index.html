@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261009od3';
+  var BUILD = '20261009ortho6';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -4854,10 +4854,31 @@
           </label>
         </div>
         <div class="ortho-board-banner" data-i18n="media.ortho.hint"></div>
+        <div id="photoOrthoDataset" class="ortho-dataset" hidden>
+          <p id="photoOrthoDatasetLead" class="ortho-dataset-lead"></p>
+          <div class="ortho-dataset-row">
+            <span data-i18n="media.ortho.clinic"></span>
+            <strong id="photoOrthoDatasetClinic"></strong>
+          </div>
+          <div class="ortho-dataset-row">
+            <label for="photoOrthoDatasetAppt" data-i18n="media.ortho.appt"></label>
+            <select id="photoOrthoDatasetAppt" class="xray-filter-sel"></select>
+          </div>
+          <p id="photoOrthoDatasetNote" class="ortho-dataset-note"></p>
+          <div class="ortho-dataset-actions">
+            <button type="button" class="xray-btn" id="photoOrthoDatasetSave"
+                    onclick="photoOrthoDatasetSave()" data-i18n="media.ortho.datasetSave"></button>
+            <button type="button" class="xray-btn" id="photoOrthoDatasetCancel"
+                    onclick="photoOrthoDatasetCancel()" data-i18n="media.ortho.datasetCancel"></button>
+          </div>
+        </div>
         <input type="file" id="photoOrthoFolderInput" multiple accept="image/*,.jpg,.jpeg,.png,.webp,.heic,.gif,.bmp"
                hidden onchange="photoOrthoFolderInputChange(this)">
-        <div id="photoOrthoSets"></div>
+        <input type="file" id="photoOrthoFrameInput"
+               accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.bmp,.heic,.heif,.tif,.tiff,.avif"
+               hidden onchange="photoOrthoFrameInputChange(this)">
         <div id="photoOrthoPick" class="ortho-pick" hidden></div>
+        <div id="photoOrthoSets"></div>
       </div>
 
       <!-- ── GRID VIEW ─────────────────────────────────── -->
@@ -8014,7 +8035,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20261006fx64',
-    'app-i18n-extra.js?v=20261009od3',
+    'app-i18n-extra.js?v=20261009ortho6',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20261003cbe',
@@ -8028,7 +8049,7 @@
     'app-report.js',
     'app-ai-helper.js',
     'app-memo-ai.js',
-    'app-photos.js?v=20261009od3',
+    'app-photos.js?v=20261009ortho6',
     'app-patient.js?v=20261003cbe',
     'app-patient-advanced-search.js',
     'app-patient-views.js?v=20261003cbe',
@@ -8041,7 +8062,7 @@
     'app-rx-phrases.js?v=20260520b',
     'app-consultation.js?v=20261008pdfprint1',
     'app-con-dictation-fix.js',
-    'app-con-media.js?v=20261003cbe',
+    'app-con-media.js?v=20261009ortho3',
     'app-con-phonescan.js?v=20261003cbe',
     'app-con-notes.js?v=20261003cbe',
     'app-xray.js?v=20261008slide1',

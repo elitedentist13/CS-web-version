@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261008e12';
-var STEP = 12;
+var BUILD = '20261009ortho6';
+var STEP = 13;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -206,6 +206,39 @@ function finish(code) {
         photos.indexOf('photoOrthoHasExternalFiles') >= 0 &&
         extractFn(photos, 'photoOrthoRender').indexOf('data-set="') >= 0 &&
         css.indexOf('.ortho-set.is-over') >= 0);
+    var uploadFn = extractFn(photos, 'photoOrthoUploadDropped');
+    var commitFn = extractFn(photos, 'photoOrthoCommitDrop');
+    pass('ortho drops confirm clinic and appointment, then upload to the photos bucket',
+        html.indexOf('id="photoOrthoDataset"') >= 0 &&
+        html.indexOf('id="photoOrthoDatasetAppt"') >= 0 &&
+        html.indexOf('id="photoOrthoDatasetClinic"') >= 0 &&
+        photos.indexOf('function photoOrthoConfirmDataset') >= 0 &&
+        uploadFn.indexOf('photoUploadOne') >= 0 &&
+        uploadFn.indexOf('appointment_id') >= 0 &&
+        uploadFn.indexOf('createObjectURL') < 0 &&
+        uploadFn.indexOf('_localFile') < 0 &&
+        commitFn.indexOf('photoOrthoConfirmDataset') >= 0 &&
+        commitFn.indexOf('photoOrthoUploadDropped') >= 0 &&
+        photos.indexOf('function photoOrthoSnapshotFiles') >= 0 &&
+        photos.indexOf('photoOrthoDragTypesFiles') >= 0 &&
+        photos.indexOf('function photoOrthoAcceptOsDrag') >= 0 &&
+        extractFn(photos, 'photoOrthoAcceptOsDrag').indexOf('preventDefault') >= 0 &&
+        extractFn(photos, 'photoOrthoAcceptOsDrag').indexOf('stopPropagation') < 0 &&
+        extractFn(photos, 'photoOrthoBind').indexOf("document.addEventListener('dragover'") >= 0 &&
+        extractFn(photos, 'photoOrthoBind').indexOf("document.addEventListener('drop'") >= 0 &&
+        extractFn(photos, 'photoOrthoBind').indexOf('photoOrthoAimFrame') >= 0 &&
+        extractFn(photos, 'photoOrthoBind').indexOf('photoOrthoBrowseFile') >= 0 &&
+        extractFn(photos, 'photoOrthoTileHtml').indexOf('photoOrthoBrowseBtnHtml') >= 0 &&
+        extractFn(photos, 'photoOrthoBrowseBtnHtml').indexOf('data-ortho-browse') >= 0 &&
+        photos.indexOf('function photoOrthoBrowseFile') >= 0 &&
+        extractFn(photos, 'photoOrthoBrowseFile').indexOf("startIn: 'downloads'") >= 0 &&
+        html.indexOf('id="photoOrthoFrameInput"') >= 0 &&
+        extractFn(photos, 'photoOrthoToggle').indexOf('photoOrthoChartPickerOpen') >= 0 &&
+        photos.indexOf('function photoOrthoChartPickerOpen') >= 0 &&
+        extractFn(photos, 'photoOrthoImages').indexOf('photoIsOrthoSidecar') >= 0 &&
+        read('app-con-media.js').indexOf("closest('#photoOrthoPanel')") >= 0 &&
+        i18nHasAll(i18n, 'media.ortho.datasetSave') &&
+        i18nHasAll(i18n, 'media.ortho.apptNone'));
     pass('slideshow skips empty tiles, shows dates, and can slider or fade',
         html.indexOf('id="photoOrthoSlideSkip"') >= 0 &&
         html.indexOf('id="photoOrthoShowBeforeDate"') >= 0 &&
@@ -494,7 +527,19 @@ function finish(code) {
             var drop = await cdp.js('(async function(){' +
                 'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
                 'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
-                'photoOrthoUploadDropped=function(){ return Promise.resolve({skipped:true}); };' +
+                'var uploaded=[];' +
+                'photoOrthoConfirmDataset=function(){ return Promise.resolve({ appointment_id:"appt-1", clinic:"TKO Clinic", taken_date:"2024-06-01", dr:"Dr A" }); };' +
+                'photoUploadOne=function(file, meta){' +
+                '  uploaded.push({ name:file.name, clinic:meta.clinic, appt:meta.ctx&&meta.ctx.appointment_id, cat:meta.category, date:meta.taken_date, tags:meta.ctx&&meta.ctx.tags });' +
+                '  return Promise.resolve({ ok:true, id:"up-"+file.name, path:"pid/"+file.name });' +
+                '};' +
+                'loadPhotoRecords=function(){' +
+                '  uploaded.forEach(function(u){' +
+                '    if(photoOrthoFind("up-"+u.name)) return;' +
+                '    photoAllRecords.push({ id:"up-"+u.name, category:u.cat, file_path:u.name, caption:u.name.replace(/\\.[^.]+$/,""), public_url:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", taken_date:u.date, clinic:u.clinic, appointment_id:u.appt });' +
+                '  });' +
+                '  return Promise.resolve();' +
+                '};' +
                 'window.photoPatientId="e1-patient";' +
                 'window.photoAllRecords=[];' +
                 'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{}}));' +
@@ -504,20 +549,25 @@ function finish(code) {
                 'var f2=new File([blob],"smile.jpg",{type:"image/jpeg"});' +
                 'var pdf=new File([blob],"note.pdf",{type:"application/pdf"});' +
                 'var asked=false; window.confirm=function(){ asked=true; return true; };' +
-                'var n=photoOrthoPlaceFiles("before",[f1,f2]);' +
+                'var n=await photoOrthoPlaceFiles("before",[f1,f2]);' +
                 'var map=photoOrthoLoad();' +
                 'window.confirm=function(){ asked=true; return false; };' +
-                'var cancelled=photoOrthoPlaceFiles("after",[f1]);' +
+                'var cancelled=await photoOrthoPlaceFiles("after",[f1]);' +
                 'var collected=await photoOrthoCollectDropFiles({files:[f1,f2,pdf],items:null});' +
                 'var dirDone=false;' +
                 'var fromDir=await photoOrthoCollectDropFiles({files:[],items:[{kind:"file",webkitGetAsEntry:function(){ return {isFile:false,isDirectory:true,createReader:function(){ return {readEntries:function(cb){ if(dirDone){ cb([]); return; } dirDone=true; cb([{isFile:true,isDirectory:false,file:function(ok){ ok(f1); }}]); }}; }}; }}]});' +
                 'var setEl=document.querySelector(".ortho-set[data-set=before]");' +
-                'return { n:n, asked:asked, cancelled:cancelled, collected:(collected||[]).map(function(f){ return f.name; }), fromDir:(fromDir||[]).map(function(f){ return f.name; }), before:map.before, folderBtns:!!document.getElementById("photoOrthoFolderBeforeBtn") && !!document.getElementById("photoOrthoFolderInput"), setData: setEl && setEl.getAttribute("data-set") };' +
+                'var localLeft=(photoAllRecords||[]).some(function(r){ return r && (r._localFile || String(r.id||"").indexOf("drop-")===0); });' +
+                'return { n:n, asked:asked, cancelled:cancelled, uploaded:uploaded, localLeft:localLeft, collected:(collected||[]).map(function(f){ return f.name; }), fromDir:(fromDir||[]).map(function(f){ return f.name; }), before:map.before, folderBtns:!!document.getElementById("photoOrthoFolderBeforeBtn") && !!document.getElementById("photoOrthoFolderInput"), setData: setEl && setEl.getAttribute("data-set"), dataset:!!document.getElementById("photoOrthoDataset") };' +
                 '})()', true, 20000);
             pass('live: dropping two named files onto Before maps profile and smile after confirm',
                 drop && drop.n === 2 && drop.asked === true &&
-                drop.before && drop.before.profile && drop.before.smile,
-                JSON.stringify(drop && { n: drop.n, asked: drop.asked, before: drop.before }));
+                drop.before && drop.before.profile === 'up-profile.jpg' && drop.before.smile === 'up-smile.jpg' &&
+                drop.localLeft === false &&
+                drop.uploaded && drop.uploaded.length === 2 &&
+                drop.uploaded[0].clinic === 'TKO Clinic' && drop.uploaded[0].appt === 'appt-1' &&
+                drop.uploaded[0].cat === 'Before' && drop.uploaded[0].date === '2024-06-01',
+                JSON.stringify(drop && { n: drop.n, asked: drop.asked, before: drop.before, uploaded: drop.uploaded, localLeft: drop.localLeft }));
             pass('live: cancelling a non-9 drop leaves After empty',
                 drop && drop.cancelled === 0,
                 JSON.stringify(drop && drop.cancelled));
@@ -526,6 +576,119 @@ function finish(code) {
                 JSON.stringify(drop.fromDir) === JSON.stringify(['profile.jpg']) &&
                 drop.folderBtns === true && drop.setData === 'before',
                 JSON.stringify(drop && { collected: drop.collected, fromDir: drop.fromDir, folderBtns: drop.folderBtns, setData: drop.setData }));
+            var outsideName = 'jsm-ortho-outside-' + Date.now() + '.jpg';
+            var outsideFile = path.join(os.tmpdir(), outsideName);
+            fs.writeFileSync(outsideFile, Buffer.from([0xFF, 0xD8, 0xFF, 0xD9]));
+            var armed = await cdp.js('(function(){' +
+                'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
+                'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
+                'photoOrthoUploadBusy=false;' +
+                'photoOrthoHover=null;' +
+                'window.__paneHits=0;' +
+                'window.__orthoAsked=false;' +
+                'window.photoHandleFiles=function(){ window.__paneHits++; };' +
+                'window.confirm=function(){ window.__orthoAsked=true; return false; };' +
+                'photoOrthoConfirmDataset=function(){ return Promise.resolve({ appointment_id:"appt-1", clinic:"TKO Clinic", taken_date:"2024-06-01", dr:"Dr A" }); };' +
+                'photoUploadOne=function(file){ return Promise.resolve({ ok:true, id:"ext-"+file.name, path:"pid/"+file.name }); };' +
+                'loadPhotoRecords=function(){ return Promise.resolve(); };' +
+                'window.photoPatientId="e1-patient";' +
+                'window.photoAllRecords=[];' +
+                'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{},progress:{}}));' +
+                'var sec=document.getElementById("consultationSection"); if(sec) sec.style.display="block";' +
+                'var pane=document.getElementById("con-photos"); if(pane) pane.style.display="block";' +
+                'var main=document.getElementById("photoMainContent"); if(main) main.style.display="block";' +
+                'photoOrthoToggle(true);' +
+                'photoOrthoRender();' +
+                'var tile=document.querySelector(".ortho-tile[data-set=before][data-slot=buccalR]");' +
+                'if(!tile) return { ok:false };' +
+                'tile.scrollIntoView({block:"center", inline:"center"});' +
+                'var r=tile.getBoundingClientRect();' +
+                'var hit=document.elementFromPoint(r.left+r.width/2, r.top+r.height/2);' +
+                'var hitTile = hit && hit.closest ? hit.closest(".ortho-tile") : null;' +
+                'return { ok:r.width>8 && r.height>8, x:r.left+r.width/2, y:r.top+r.height/2, hit: hitTile ? (hitTile.getAttribute("data-slot") || "") : "", hitTag: hit ? hit.tagName : "", hitId: hit && hit.id || "", hitCls: hit && hit.className ? String(hit.className).slice(0,80) : "" };' +
+                '})()', false, 15000);
+            if (armed && armed.ok) {
+                var dragData = { items: [], files: [outsideFile], dragOperationsMask: 1 };
+                await cdp.call('Input.dispatchDragEvent', { type: 'dragEnter', x: armed.x, y: armed.y, data: dragData });
+                await cdp.call('Input.dispatchDragEvent', { type: 'dragOver', x: armed.x, y: armed.y, data: dragData });
+                await sleep(80);
+                await cdp.call('Input.dispatchDragEvent', { type: 'drop', x: armed.x, y: armed.y, data: dragData });
+            }
+            var pinned = null;
+            var pinDeadline = Date.now() + 8000;
+            while (Date.now() < pinDeadline) {
+                pinned = await cdp.js('(function(){ var m=photoOrthoLoad(); return { slot: m && m.before && m.before.buccalR || "", pane: window.__paneHits||0, asked: !!window.__orthoAsked, hit: ' + JSON.stringify((armed && armed.hit) || '') + ' }; })()', false, 8000);
+                if (pinned && pinned.slot) break;
+                await sleep(200);
+            }
+            try { fs.unlinkSync(outsideFile); } catch (eUn) { /* temp jpeg */ }
+            pass('live: a desktop photo dropped on one frame pins that frame',
+                armed && armed.ok && armed.hit === 'buccalR' &&
+                pinned && pinned.slot === 'ext-' + outsideName && pinned.pane === 0 && pinned.asked === false,
+                JSON.stringify({ armed: armed, pinned: pinned, file: outsideName }));
+            var browsed = await cdp.js('(async function(){' +
+                'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
+                'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
+                'photoOrthoUploadBusy=false;' +
+                'photoOrthoConfirmDataset=function(){ return Promise.resolve({ appointment_id:"appt-1", clinic:"TKO Clinic", taken_date:"2024-06-01", dr:"Dr A" }); };' +
+                'photoUploadOne=function(file){ return Promise.resolve({ ok:true, id:"ext-"+file.name, path:"pid/"+file.name }); };' +
+                'loadPhotoRecords=function(){ return Promise.resolve(); };' +
+                'window.photoPatientId="e1-patient";' +
+                'window.photoAllRecords=[];' +
+                'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{},progress:{}}));' +
+                'photoOrthoToggle(true);' +
+                'photoOrthoRender();' +
+                'var pickerOpts=null;' +
+                'window.showOpenFilePicker=function(opts){' +
+                '  pickerOpts=opts;' +
+                '  return Promise.resolve([{ getFile:function(){ return Promise.resolve(new File([new Blob(["x"],{type:"image/jpeg"})],"from-downloads.jpg",{type:"image/jpeg"})); } }]);' +
+                '};' +
+                'var tile=document.querySelector(".ortho-tile[data-set=before][data-slot=buccalL]");' +
+                'if(!tile) return { ok:false };' +
+                'tile.click();' +
+                'var aimed=photoOrthoPickTarget && photoOrthoPickTarget.slot;' +
+                'var openedOnFrame=!!pickerOpts;' +
+                'var browse=tile.querySelector("[data-ortho-browse]");' +
+                'if(browse) browse.click();' +
+                'var slot="";' +
+                'var deadline=Date.now()+4000;' +
+                'while(Date.now()<deadline){' +
+                '  slot=(photoOrthoLoad().before||{}).buccalL||"";' +
+                '  if(slot) break;' +
+                '  await new Promise(function(r){ setTimeout(r,50); });' +
+                '}' +
+                'return { ok:true, aimed:aimed, openedOnFrame:openedOnFrame, slot:slot, startIn: pickerOpts && pickerOpts.startIn, multiple: pickerOpts && pickerOpts.multiple, input: !!document.getElementById("photoOrthoFrameInput") };' +
+                '})()', true, 15000);
+            pass('live: clicking a frame aims the chart strip; Browse opens Downloads',
+                browsed && browsed.ok && browsed.aimed === 'buccalL' && browsed.openedOnFrame === false &&
+                browsed.startIn === 'downloads' && browsed.multiple === false &&
+                browsed.slot === 'ext-from-downloads.jpg' && browsed.input === true,
+                JSON.stringify(browsed));
+            var chartPick = await cdp.js('(function(){' +
+                'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
+                'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
+                'photoOrthoChartDismissed=false;' +
+                'window.photoPatientId="e1-patient";' +
+                'window.photoAllRecords=[' +
+                '{id:"chart-face", category:"Intraoral", file_path:"face.jpg", caption:"face", public_url:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", taken_date:"2024-02-02"},' +
+                '{id:"side", category:"Other", file_path:"e1-patient/ortho-board.json", caption:"jsm-ortho-mount-v1:{}", public_url:""}' +
+                '];' +
+                'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{},progress:{}}));' +
+                'photoOrthoToggle(false);' +
+                'photoOrthoToggle(true);' +
+                'var box=document.getElementById("photoOrthoPick");' +
+                'var items=box ? box.querySelectorAll(".ortho-pick-item") : [];' +
+                'var ids=[].map.call(items, function(el){ return el.getAttribute("data-id"); });' +
+                'if(items[0]) items[0].click();' +
+                'var pin=(photoOrthoLoad().before||{}).profile||"";' +
+                'var still=box && !box.hasAttribute("hidden");' +
+                'return { hidden: !(box && !box.hasAttribute("hidden")), ids: ids, pin: pin, still: still, title: box ? (box.querySelector("strong")||{}).textContent||"" : "" };' +
+                '})()', false, 15000);
+            pass('live: opening the ortho panel loads the chart picker',
+                chartPick && chartPick.hidden === false &&
+                JSON.stringify(chartPick.ids) === JSON.stringify(['chart-face']) &&
+                chartPick.pin === 'chart-face' && chartPick.still === true,
+                JSON.stringify(chartPick));
             var slide = await cdp.js('(function(){' +
                 'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
                 'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
@@ -676,7 +839,7 @@ function finish(code) {
                     'return { ready:true, build: window.__JSM_BUILD, pin:(photoOrthoLoad().before||{}).face, filled:!!filled, missing:!!(filled && filled.querySelector(".ortho-tile-miss")), src: img && img.getAttribute("src") || "", exportRow:!!document.querySelector(".ortho-board-export") };' +
                     '})()', true, 25000);
                 pass('live clinic :5500: photos script and attach helpers loaded',
-                    clinic && clinic.ready === true && String(clinic.build || '').indexOf('20261008e12') >= 0,
+                    clinic && clinic.ready === true && String(clinic.build || '').indexOf(BUILD) >= 0,
                     JSON.stringify(clinic && { ready: clinic.ready, build: clinic.build }));
                 pass('live clinic :5500 photo: placing a chart photo fills the tile',
                     clinic && clinic.pin === 'live-face' && clinic.filled === true &&

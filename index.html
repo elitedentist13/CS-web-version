@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261008e12';
+  var BUILD = '20261009od3';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -4820,16 +4820,24 @@
           <select id="photoOrthoSitAfter" class="xray-filter-sel" onchange="photoOrthoApplySitting('after', this.value)">
             <option value="" data-i18n="media.ortho.sitPh"></option>
           </select>
+          <select id="photoOrthoSitProgress" class="xray-filter-sel" hidden
+                  onchange="photoOrthoApplySitting('progress', this.value)">
+            <option value="" data-i18n="media.ortho.sitPh"></option>
+          </select>
           <button type="button" class="xray-btn" id="photoOrthoCopyBtn"
                   onclick="photoOrthoCopySet('before','after')" data-i18n="media.ortho.copyAfter"></button>
           <button type="button" class="xray-btn" id="photoOrthoPlaceBeforeBtn"
                   onclick="photoOrthoAutoPlace('before')" data-i18n="media.ortho.placeBefore"></button>
           <button type="button" class="xray-btn" id="photoOrthoPlaceAfterBtn"
                   onclick="photoOrthoAutoPlace('after')" data-i18n="media.ortho.placeAfter"></button>
+          <button type="button" class="xray-btn" id="photoOrthoPlaceProgressBtn" hidden
+                  onclick="photoOrthoAutoPlace('progress')" data-i18n="media.ortho.placeProgress"></button>
           <button type="button" class="xray-btn" id="photoOrthoFolderBeforeBtn"
                   onclick="photoOrthoPickFolder('before')" data-i18n="media.ortho.folderBefore"></button>
           <button type="button" class="xray-btn" id="photoOrthoFolderAfterBtn"
                   onclick="photoOrthoPickFolder('after')" data-i18n="media.ortho.folderAfter"></button>
+          <button type="button" class="xray-btn" id="photoOrthoFolderProgressBtn" hidden
+                  onclick="photoOrthoPickFolder('progress')" data-i18n="media.ortho.folderProgress"></button>
         </div>
         <div class="ortho-board-tools ortho-board-export">
           <button type="button" class="xray-btn ortho-slide-btn" id="photoOrthoSlideBtn"
@@ -4863,6 +4871,8 @@
 
       <!-- ── SLIDE VIEW ────────────────────────────────── -->
       <div id="photoSlideView" style="display:none;">
+        <button type="button" class="photo-slide-back" onclick="photoSlideBack()"
+                data-i18n="media.ortho.back">← Back</button>
         <div class="xray-slide-container">
 
           <!-- Main viewer -->
@@ -4873,7 +4883,7 @@
 
             <div class="xray-slide-viewer" id="photoSlideViewer">
               <img id="photoSlideImg" src="" data-i18n-alt="media.alt.photo" alt="Photo"
-                   style="max-width:100%;max-height:100%;
+                   style="max-width:100%;max-height:100%;width:auto;height:auto;
                           object-fit:contain;">
               <div class="xray-slide-tools">
                 <button onclick="photoSlideDownload()"
@@ -4910,6 +4920,8 @@
 
 <div id="photoOrthoShow" class="ortho-show" hidden>
   <div class="ortho-show-bar">
+    <button type="button" class="ortho-show-back" id="photoOrthoShowBack"
+            onclick="photoOrthoSlideBack()" data-i18n="media.ortho.back">← Back</button>
     <div class="ortho-show-heading">
       <strong id="photoOrthoShowTitle"></strong>
       <span id="photoOrthoShowStep"></span>
@@ -4978,8 +4990,15 @@
       <!-- View -->
       <div class="xray-lb-tgroup">
         <span class="xray-lb-tglabel" data-i18n="media.lb.view"></span>
+        <button type="button" id="photoLbPrevBtn" data-i18n-title="media.slide.prevAria"
+                onclick="photoLbNav(-1)">‹</button>
+        <button type="button" id="photoLbNextBtn" data-i18n-title="media.slide.nextAria"
+                onclick="photoLbNav(1)">›</button>
         <button type="button" data-i18n-title="media.lb.zoomIn"   onclick="photoLbZoom(1.25)">🔍+</button>
         <button type="button" data-i18n-title="media.lb.zoomOut"  onclick="photoLbZoom(0.8)">🔍−</button>
+        <button type="button" id="photoLbLoupeBtn" class="xray-lb-tool-btn"
+                data-i18n-title="media.lb.loupe"
+                onclick="photoLbToggleLoupe(event)">🔍</button>
         <button type="button" data-i18n="media.lb.resetBtn" data-i18n-title="media.lb.resetBtn" onclick="photoLbReset()"></button>
         <button type="button" data-i18n-title="media.lb.print"     onclick="photoLbPrint()">🖨️</button>
         <button type="button" data-i18n-title="media.lb.download"  onclick="downloadPhotoLb()">💾</button>
@@ -5015,7 +5034,21 @@
                    oninput="photoLbSetContrast(this.value)">
             <span id="photoLbContrastVal">100%</span>
           </label>
+          <label class="xray-lb-slider-lbl" data-i18n-title="media.lb.sharp">
+            ✦
+            <input type="range" id="photoLbSharpSlider" min="0" max="100" value="0"
+                   oninput="photoLbSetSharpness(this.value)">
+            <span id="photoLbSharpVal">0</span>
+          </label>
+          <button type="button" class="xray-lb-tool-btn" data-i18n="media.lb.adjustReset"
+                  data-i18n-title="media.lb.adjustReset" onclick="photoLbResetTune()"></button>
         </div>
+        <svg id="photoLbTuneSvg" width="0" height="0" aria-hidden="true" focusable="false">
+          <filter id="photoLbSharpenFx" color-interpolation-filters="sRGB" x="-8%" y="-8%" width="116%" height="116%">
+            <feConvolveMatrix id="photoLbSharpenKernel" order="3" preserveAlpha="true"
+                              kernelMatrix="0 0 0 0 1 0 0 0 0"></feConvolveMatrix>
+          </filter>
+        </svg>
         <!-- Draw -->
         <div class="xray-lb-tgroup">
           <span class="xray-lb-tglabel" data-i18n="media.lb.draw"></span>
@@ -5103,6 +5136,10 @@
               <canvas id="photoLbCanvas"></canvas>
             </div>
           </div>
+        </div>
+        <div id="photoLbLoupe" class="xray-lb-loupe" hidden>
+          <canvas id="photoLbLoupeCanvas" width="192" height="192"></canvas>
+          <span class="xray-lb-loupe-badge">3×</span>
         </div>
         <button id="photoLbCropApplyBtn" type="button" class="xray-lb-crop-apply-btn"
                 onclick="photoLbCropApply()"
@@ -7977,7 +8014,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20261006fx64',
-    'app-i18n-extra.js?v=20261008e12',
+    'app-i18n-extra.js?v=20261009od3',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20261003cbe',
@@ -7991,7 +8028,7 @@
     'app-report.js',
     'app-ai-helper.js',
     'app-memo-ai.js',
-    'app-photos.js?v=20261008e12',
+    'app-photos.js?v=20261009od3',
     'app-patient.js?v=20261003cbe',
     'app-patient-advanced-search.js',
     'app-patient-views.js?v=20261003cbe',

@@ -12103,6 +12103,13 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     transition: transform 0.2s;
     cursor: crosshair;
 }
+#photoSlideImg {
+    display: block;
+    max-width: 100%;
+    max-height: 420px;
+    object-fit: contain;
+}
+#photoSlidePdf[hidden], #photoSlideEmpty[hidden] { display: none !important; }
 #xraySlideEmpty {
     height: 100%;
     min-height: 420px;
@@ -12679,7 +12686,9 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
  * clickable. Raise the section while maxed so the full toolbar wins. */
 body:has(#xrayLightbox.xray-lb-maximized) #consultationSection,
 body:has(#photoLightbox.xray-lb-maximized) #consultationSection,
-body.xray-lb-maximized #consultationSection {
+body:has(#photoOrthoShow:not([hidden])) #consultationSection,
+body.xray-lb-maximized #consultationSection,
+body.photo-ortho-show-open #consultationSection {
     z-index: 20000;
 }
 
@@ -12687,8 +12696,12 @@ body:has(#xrayLightbox.xray-lb-maximized) .app-session-strip,
 body:has(#xrayLightbox.xray-lb-maximized) .active-patient-dock,
 body:has(#photoLightbox.xray-lb-maximized) .app-session-strip,
 body:has(#photoLightbox.xray-lb-maximized) .active-patient-dock,
+body:has(#photoOrthoShow:not([hidden])) .app-session-strip,
+body:has(#photoOrthoShow:not([hidden])) .active-patient-dock,
 body.xray-lb-maximized .app-session-strip,
-body.xray-lb-maximized .active-patient-dock {
+body.xray-lb-maximized .active-patient-dock,
+body.photo-ortho-show-open .app-session-strip,
+body.photo-ortho-show-open .active-patient-dock {
     visibility: hidden !important;
     pointer-events: none !important;
 }
@@ -20814,8 +20827,15 @@ button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: 
 .ortho-board-x, .ortho-show-close, .ortho-pick-x { border: 0; background: transparent; color: #64748b; font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px; }
 .ortho-board-banner { background: #e0f2fe; color: #0c4a6e; border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
 .ortho-sets, #photoOrthoSets { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+#photoOrthoSets.is-single { grid-template-columns: minmax(240px, 560px); justify-content: start; }
 .ortho-set.is-over { outline: 2px dashed #0284c7; outline-offset: 4px; background: #f0f9ff; border-radius: 10px; }
-.ortho-set-title { margin: 0 0 8px; font-size: 14px; font-weight: 800; color: #0f172a; }
+.ortho-set-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 8px; flex-wrap: wrap; }
+.ortho-set-title { margin: 0; font-size: 14px; font-weight: 800; color: #0f172a; }
+.ortho-input-toggle { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #fff; }
+.ortho-mode-btn { border: 0; background: #f8fafc; padding: 5px 10px; font-size: 12px; font-weight: 700; cursor: pointer; color: #475569; }
+.ortho-mode-btn.is-on { background: #0f766e; color: #fff; }
+.ortho-comp-tile { aspect-ratio: 4 / 3; min-height: 220px; }
+.ortho-comp-tile.is-empty { min-height: 220px; }
 .ortho-set-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .ortho-tile { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: #fff; border: 1px solid #e5e7eb; padding: 0; font: inherit; }
 .ortho-tile.is-empty { border-style: dashed; border-color: #cbd5e1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #64748b; cursor: pointer; text-align: center; padding: 8px; }
@@ -20828,7 +20848,17 @@ button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: 
 .ortho-tile.is-filled .ortho-tile-name { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 4px; background: rgba(15, 23, 42, .62); color: #fff; font-size: 11px; text-align: center; }
 .ortho-tile-add, .ortho-tile-miss { font-size: 11px; line-height: 1.3; color: #64748b; }
 .ortho-tile-miss { color: #b45309; font-weight: 700; }
-.ortho-tile-edit { position: absolute; right: 6px; bottom: 22px; width: 26px; height: 26px; border-radius: 50%; background: #475569; color: #fff; font-size: 13px; line-height: 26px; text-align: center; pointer-events: none; }
+.ortho-tile-edit { position: absolute; right: 6px; bottom: 22px; width: 26px; height: 26px; border: 0; border-radius: 50%; background: #475569; color: #fff; font-size: 13px; line-height: 26px; text-align: center; pointer-events: auto; cursor: pointer; z-index: 3; padding: 0; box-shadow: 0 1px 4px rgba(15,23,42,.35); }
+.ortho-tile-edit:hover { background: #0f172a; }
+.ortho-tile-menu { position: fixed; z-index: 11000; min-width: 220px; padding: 6px 0; background: #fff; color: #0f172a; border-radius: 10px; box-shadow: 0 12px 32px rgba(15,23,42,.22); border: 1px solid #e2e8f0; }
+.ortho-tile-menu[hidden] { display: none !important; }
+.ortho-tile-menu-item { display: flex; align-items: center; gap: 12px; width: 100%; border: 0; background: transparent; padding: 9px 16px; font-size: 14px; color: #0f172a; cursor: pointer; text-align: left; }
+.ortho-tile-menu-item:hover { background: #f1f5f9; }
+.ortho-tile-menu-item.is-sep { border-top: 1px solid #e2e8f0; }
+.ortho-tile-menu-item.is-danger { color: #dc2626; }
+.ortho-tile-menu-item.is-danger:hover { background: #fef2f2; }
+.ortho-tile-menu-ico { width: 22px; text-align: center; font-size: 15px; color: #334155; }
+.ortho-tile-menu-item.is-danger .ortho-tile-menu-ico { color: #dc2626; }
 .ortho-pick { margin-top: 12px; padding: 10px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; }
 .ortho-pick-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .ortho-pick-bar strong { margin-right: auto; font-size: 13px; color: #0f172a; }
@@ -20838,8 +20868,15 @@ button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: 
 .ortho-pick-item.is-on { border-color: #0284c7; }
 .ortho-pick-item img { width: 84px; height: 72px; object-fit: cover; display: block; border-radius: 6px; }
 .ortho-pick-empty { margin: 0; color: #64748b; font-size: 13px; }
-.ortho-show { position: fixed; inset: 0; z-index: 10050; background: rgba(15, 23, 42, .94); display: flex; flex-direction: column; color: #f8fafc; }
-.ortho-show-bar { display: flex; align-items: center; gap: 16px; padding: 12px 18px; }
+.ortho-show { position: fixed; inset: 0; z-index: 20050; background: rgba(15, 23, 42, .94); display: flex; flex-direction: column; color: #f8fafc; }
+.ortho-show-bar { display: flex; align-items: center; gap: 16px; padding: 12px 18px; padding-top: max(12px, env(safe-area-inset-top, 0px)); flex-shrink: 0; position: relative; z-index: 2; }
+.ortho-show-back, .photo-slide-back {
+  border: 0; border-radius: 8px; background: #e2e8f0; color: #0f172a;
+  font-size: 14px; font-weight: 800; padding: 8px 14px; cursor: pointer; white-space: nowrap;
+}
+.ortho-show-back { background: #38bdf8; color: #0f172a; position: relative; z-index: 3; }
+.ortho-show-back:hover, .photo-slide-back:hover { filter: brightness(1.06); }
+.photo-slide-back { margin: 0 0 10px; position: sticky; top: 8px; z-index: 40; }
 .ortho-show-heading { display: flex; align-items: baseline; gap: 10px; min-width: 180px; }
 .ortho-show-heading strong { font-size: 18px; }
 .ortho-show-heading span { color: #94a3b8; font-weight: 700; }
@@ -20852,22 +20889,26 @@ button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: 
 .ortho-show-pair[hidden], .ortho-show-mix[hidden] { display: none !important; }
 .ortho-show-mix { min-height: 0; display: flex; flex-direction: column; flex: 1; }
 .ortho-show-mix-caps { display: flex; justify-content: space-between; padding: 0 8px 8px; font-size: 12px; color: #94a3b8; }
-.ortho-show-mix-stage { position: relative; flex: 1; min-height: 0; display: grid; }
-.ortho-show-mix-layer { grid-area: 1 / 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
-.ortho-show-mix-layer img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.ortho-show-mix-stage { position: relative; flex: 1; min-height: 280px; display: grid; }
+.ortho-show-mix-layer { grid-area: 1 / 1; display: flex; align-items: center; justify-content: center; min-height: 280px; }
+.ortho-show-mix-layer img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
 .ortho-show-mix.is-slider .ortho-show-mix-after { clip-path: inset(0 calc(100% - var(--ortho-mix, 50%)) 0 0); }
 .ortho-show-mix.is-fade .ortho-show-mix-after { opacity: calc(var(--ortho-mix, 50%) / 100); }
 .ortho-show-mix input[type=range] { position: absolute; left: 10%; right: 10%; bottom: 10px; z-index: 2; }
 .ortho-show-close { color: #e2e8f0; }
-.ortho-show-stage { flex: 1; display: grid; grid-template-columns: 72px minmax(0, 1fr) 72px; min-height: 0; padding: 0 8px 18px; }
+.ortho-show-stage { flex: 1; display: grid; grid-template-columns: 72px minmax(0, 1fr) 72px; min-height: calc(100vh - 140px); padding: 0 8px 18px; }
 .ortho-show-nav { background: transparent; border: 0; color: #fff; font-size: 56px; cursor: pointer; }
+.ortho-show-nav[hidden] { display: none !important; }
 .ortho-show-nav:hover { color: #7dd3fc; }
-.ortho-show-main { min-height: 0; display: flex; flex-direction: column; }
-.ortho-show-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-height: 0; flex: 1; }
+.ortho-show-main { min-height: 0; height: 100%; display: flex; flex-direction: column; }
+.ortho-show-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-height: 0; flex: 1; height: 100%; }
+.ortho-show-pair.is-single { grid-template-columns: 1fr; }
 .ortho-show-pane { display: flex; flex-direction: column; min-height: 0; background: #020617; border-radius: 12px; overflow: hidden; }
+.ortho-show-pane[hidden] { display: none !important; }
 .ortho-show-pane h3 { margin: 0; padding: 10px 14px; font-size: 14px; color: #e2e8f0; }
-.ortho-show-frame { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; padding: 8px 12px 16px; }
-.ortho-show-frame img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.ortho-show-frame { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 280px; height: 100%; padding: 8px 12px 16px; }
+.ortho-show-frame img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.ortho-show-mix-layer img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
 .ortho-show-empty { color: #94a3b8; font-size: 16px; font-weight: 700; }
 @media (max-width: 900px) {
   .ortho-sets, #photoOrthoSets { grid-template-columns: 1fr; }

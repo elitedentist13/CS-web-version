@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261010pause1';
-var STEP = 33;
+var BUILD = '20261010dl1';
+var STEP = 34;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -342,6 +342,11 @@ function finish(code) {
         extractFn(photos, 'photoOrthoComposite').indexOf('photoOrthoSaveCompositesToChart') >= 0 &&
         extractFn(photos, 'photoOrthoComposite').indexOf('photoOrthoExportViews') >= 0 &&
         extractFn(photos, 'photoOrthoComposite').indexOf('photoOrthoOfferDownloads') >= 0 &&
+        extractFn(photos, 'photoOrthoComposite').indexOf('showDirectoryPicker') < 0 &&
+        extractFn(photos, 'photoOrthoComposite').indexOf('photoOrthoPickSave') < 0 &&
+        extractFn(photos, 'photoOrthoExportPdf').indexOf('photoOrthoOfferDownloads') >= 0 &&
+        extractFn(photos, 'photoOrthoExportPdf').indexOf('showDirectoryPicker') < 0 &&
+        extractFn(photos, 'photoOrthoExportPdf').indexOf('photoOrthoPickSave') < 0 &&
         extractFn(photos, 'photoOrthoLoadImg').indexOf('photoOrthoBitmapFromBlob') >= 0 &&
         photos.indexOf('createImageBitmap') >= 0 &&
         extractFn(photos, 'photoOrthoDrawSet').indexOf('Math.min(1000, cell)') >= 0);
@@ -365,7 +370,7 @@ function finish(code) {
         'media.ortho.skipEmpty', 'media.ortho.modePair', 'media.ortho.modeSlider', 'media.ortho.modeFade',
         'media.ortho.lblDr', 'media.ortho.print', 'media.ortho.printOk', 'media.ortho.saveChart',
         'media.ortho.chartCaption', 'media.ortho.chartOk', 'media.ortho.attachFail',
-        'media.ortho.compositeReady'].forEach(function (key) {
+        'media.ortho.compositeReady', 'media.ortho.pdfReady'].forEach(function (key) {
         pass('i18n ' + key + ' en / zh-CN / zh-Hant', i18nHasAll(i18n, key));
     });
 
@@ -1118,28 +1123,40 @@ function finish(code) {
                 'var px=canvas.getContext("2d").getImageData(560, 720, 1, 1).data;' +
                 'var cmpMap=photoOrthoLoad(); cmpMap.focus=""; cmpMap.compareLeft="2024-05-01"; cmpMap.compareRight="2024-06-01"; cmpMap.progress={};' +
                 'var cmp=photoOrthoExportViews(cmpMap);' +
-                'var files={};' +
-                'function fakeHandle(name){ return { createWritable:function(){ var chunks=[]; return Promise.resolve({ write:function(blob){ return (blob.arrayBuffer?blob.arrayBuffer():Promise.resolve(blob)).then(function(buf){ chunks.push(buf instanceof Uint8Array?buf:new Uint8Array(buf)); }); }, close:function(){ var n=0; chunks.forEach(function(c){ n+=c.length; }); var u=new Uint8Array(n); var p=0; chunks.forEach(function(c){ u.set(c,p); p+=c.length; }); files[name]={ png:u[0]===137&&u[1]===80&&u[2]===78&&u[3]===71, bytes:n }; return Promise.resolve(); } }); } }; }' +
-                'window.showDirectoryPicker=function(){ return Promise.resolve({ getFileHandle:function(name){ return Promise.resolve(fakeHandle(name)); } }); };' +
-                'window.showSaveFilePicker=function(){ return Promise.resolve(fakeHandle("save.png")); };' +
+                'var files=[];' +
+                'var pickerCalled=0;' +
+                'var origDl=photoOrthoDownloadBlob;' +
+                'photoOrthoDownloadBlob=function(blob, name){' +
+                '  return blob.arrayBuffer().then(function(buf){' +
+                '    var u=new Uint8Array(buf);' +
+                '    files.push({ name:name, b0:u[0], b1:u[1], b2:u[2], b3:u[3], bytes:u.length });' +
+                '    origDl(new Blob([u], { type: blob.type || "" }), name);' +
+                '  });' +
+                '};' +
+                'window.showDirectoryPicker=function(){ pickerCalled++; return Promise.reject(new Error("blocked")); };' +
+                'window.showSaveFilePicker=function(){ pickerCalled++; return Promise.reject(new Error("blocked")); };' +
                 'var box=document.getElementById("photoOrthoSaveChart"); if(box) box.checked=false;' +
                 'document.getElementById("photoOrthoCompBtn").click();' +
-                'var t=Date.now()+12000; while(Date.now()<t){ if(!document.getElementById("photoOrthoCompBtn").disabled && Object.keys(files).length>=1) break; await new Promise(function(r){ setTimeout(r,40); }); }' +
-                'var fname=Object.keys(files)[0]||"";' +
-                'window.showDirectoryPicker=null; window.showSaveFilePicker=null;' +
-                'photoOrthoComposite();' +
-                'var t2=Date.now()+12000; while(Date.now()<t2){ var link=document.querySelector("#photoOrthoExportReady a[download]"); if(link && !document.getElementById("photoOrthoCompBtn").disabled) break; await new Promise(function(r){ setTimeout(r,40); }); }' +
+                'var t=Date.now()+12000; while(Date.now()<t){ var link=document.querySelector("#photoOrthoExportReady a[download]"); if(link && files.length>=1 && !document.getElementById("photoOrthoCompBtn").disabled) break; await new Promise(function(r){ setTimeout(r,40); }); }' +
                 'var link=document.querySelector("#photoOrthoExportReady a[download]");' +
+                'var png=files[0]||null;' +
+                'files.length=0;' +
+                'document.getElementById("photoOrthoPdfBtn").click();' +
+                'var t2=Date.now()+12000; while(Date.now()<t2){ var pdfLink=document.querySelector("#photoOrthoExportReady a[download]"); if(pdfLink && /\\.pdf$/i.test(pdfLink.download||"") && files.length>=1 && !document.getElementById("photoOrthoPdfBtn").disabled) break; await new Promise(function(r){ setTimeout(r,40); }); }' +
+                'var pdfLink=document.querySelector("#photoOrthoExportReady a[download]");' +
+                'var pdf=files[0]||null;' +
                 'photoOrthoReleaseImages(imgs);' +
-                'return { n:focused.length, key:focused[0]&&focused[0].key, w:canvas.width, h:canvas.height, r:px[0], g:px[1], b:px[2], file:fname, png:files[fname]||null, cmpN:cmp.length, cmpKeys:cmp.map(function(v){ return v.key; }), cmpSlots:[cmp[0]&&cmp[0].slots&&cmp[0].slots.face, cmp[1]&&cmp[1].slots&&cmp[1].slots.smile], offer:!!link, offerName:link?link.download:"" };' +
+                'return { n:focused.length, key:focused[0]&&focused[0].key, w:canvas.width, h:canvas.height, r:px[0], g:px[1], b:px[2], file:png&&png.name, png:png, cmpN:cmp.length, cmpKeys:cmp.map(function(v){ return v.key; }), cmpSlots:[cmp[0]&&cmp[0].slots&&cmp[0].slots.face, cmp[1]&&cmp[1].slots&&cmp[1].slots.smile], offer:!!link, offerName:link?link.download:"", pdfName:pdf&&pdf.name, pdf:pdf, pdfOffer:pdfLink?pdfLink.download:"", pickerCalled:pickerCalled };' +
                 '})()', true, 30000);
-            pass('live: 9-frame composite paints the photos and can be saved without a folder picker',
+            pass('live: 9-frame composite and PDF download in the browser without a folder picker',
                 mosaic && mosaic.n === 1 && mosaic.key === 'before' &&
                 mosaic.w === 3180 && mosaic.h === 3340 && mosaic.r > 200 && mosaic.g < 40 && mosaic.b < 40 &&
-                /before\.png$/i.test(mosaic.file || '') && mosaic.png && mosaic.png.png === true && mosaic.png.bytes > 1000 &&
+                /before\.png$/i.test(mosaic.file || '') && mosaic.png && mosaic.png.b0 === 137 && mosaic.png.b1 === 80 && mosaic.png.b2 === 78 && mosaic.png.b3 === 71 && mosaic.png.bytes > 1000 &&
                 mosaic.cmpN === 2 && mosaic.cmpKeys && mosaic.cmpKeys[0] === 'progress' && mosaic.cmpKeys[1] === 'progress' &&
                 mosaic.cmpSlots && mosaic.cmpSlots[0] === 'prA' && mosaic.cmpSlots[1] === 'prB' &&
-                mosaic.offer === true && /before\.png$/i.test(mosaic.offerName || ''),
+                mosaic.offer === true && /before\.png$/i.test(mosaic.offerName || '') &&
+                /\.pdf$/i.test(mosaic.pdfName || '') && mosaic.pdf && mosaic.pdf.b0 === 37 && mosaic.pdf.b1 === 80 && mosaic.pdf.b2 === 68 && mosaic.pdf.b3 === 70 && mosaic.pdf.bytes > 100 &&
+                /\.pdf$/i.test(mosaic.pdfOffer || '') && mosaic.pickerCalled === 0,
                 JSON.stringify(mosaic));
 
             if (live5500) {

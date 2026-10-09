@@ -6678,7 +6678,7 @@ function photoOrthoHideExportOffer() {
   host.innerHTML = '';
 }
 
-function photoOrthoOfferDownloads(items) {
+function photoOrthoOfferDownloads(items, hintKey) {
   var host = g('photoOrthoExportReady');
   if (!host) {
     host = document.createElement('div');
@@ -6697,7 +6697,7 @@ function photoOrthoOfferDownloads(items) {
   }
   host._orthoUrls = [];
   host.hidden = false;
-  host.innerHTML = '<span>' + esc(mediaTr('media.ortho.compositeReady')) + '</span>';
+  host.innerHTML = '<span>' + esc(mediaTr(hintKey || 'media.ortho.compositeReady')) + '</span>';
   (items || []).forEach(function(item) {
     if (!item || !item.blob) return;
     var url = URL.createObjectURL(item.blob);
@@ -6812,92 +6812,34 @@ function photoOrthoComposite() {
     view._exportKey = key;
   });
   photoOrthoHideExportOffer();
-  var usedDir = typeof window.showDirectoryPicker === 'function';
-  var pickP;
-  try {
-    if (usedDir) {
-      pickP = window.showDirectoryPicker({ id: 'jsm-ortho-export', mode: 'readwrite' });
-    } else {
-      pickP = photoOrthoPickSave(names[keys[0]], 'image/png', '.png', mediaTr('media.ortho.pngDesc'));
-    }
-  } catch (err) {
-    if (photoOrthoIsAbort(err)) {
-      mediaNotify(mediaTr('media.ortho.exportCancel'));
-      return;
-    }
-    usedDir = false;
-    pickP = Promise.resolve(null);
-  }
   photoOrthoSetBusy('photoOrthoCompBtn', true);
   photoOrthoProgress(true, mediaTr('media.ortho.preparing'));
   var held = null;
-  Promise.resolve(pickP).then(function(picked) {
-    return picked;
-  }, function(err) {
-    if (photoOrthoIsAbort(err)) throw err;
-    usedDir = false;
-    return null;
-  }).then(function(picked) {
-    return photoOrthoEnsureWrite(picked).then(function() {
-      return photoOrthoCollectImages(map, views);
-    }).then(function(imgs) {
-      held = imgs;
-      if (!photoOrthoViewsHavePixels(views, imgs)) throw new Error('photo');
-      var blobs = {};
-      var chain = Promise.resolve();
-      views.forEach(function(view) {
-        chain = chain.then(function() {
-          var canvas = photoOrthoDrawSet(view.key, view.slots || {}, imgs, view.xf);
-          return photoOrthoToBlob(canvas, 'image/png').then(function(blob) {
-            blobs[view._exportKey] = blob;
-          });
+  photoOrthoCollectImages(map, views).then(function(imgs) {
+    held = imgs;
+    if (!photoOrthoViewsHavePixels(views, imgs)) throw new Error('photo');
+    var blobs = {};
+    var chain = Promise.resolve();
+    views.forEach(function(view) {
+      chain = chain.then(function() {
+        var canvas = photoOrthoDrawSet(view.key, view.slots || {}, imgs, view.xf);
+        return photoOrthoToBlob(canvas, 'image/png').then(function(blob) {
+          blobs[view._exportKey] = blob;
         });
-      });
-      return chain.then(function() {
-        photoOrthoReleaseImages(held);
-        held = null;
-        return { picked: picked, blobs: blobs };
       });
     });
-  }).then(function(pack) {
-    var seq = Promise.resolve();
-    var items = keys.map(function(k) { return { name: names[k], blob: pack.blobs[k] }; });
-    if (usedDir && pack.picked && typeof pack.picked.getFileHandle === 'function') {
-      var missed = [];
-      keys.forEach(function(k) {
-        seq = seq.then(function() {
-          return photoOrthoEnsureWrite(pack.picked).then(function(ok) {
-            if (!ok) throw new Error('permission');
-            return pack.picked.getFileHandle(names[k], { create: true });
-          }).then(function(fh) {
-            return photoOrthoWriteHandle(fh, pack.blobs[k]);
-          }).catch(function() {
-            missed.push({ name: names[k], blob: pack.blobs[k] });
-          });
-        });
-      });
-      return seq.then(function() {
-        if (missed.length) photoOrthoOfferDownloads(missed);
-        return pack;
-      });
-    }
-    if (pack.picked && typeof pack.picked.createWritable === 'function') {
-      return photoOrthoWriteOrDownload(pack.picked, pack.blobs[keys[0]], names[keys[0]]).then(function() {
-        if (items.length > 1) photoOrthoOfferDownloads(items.slice(1));
-        return pack;
-      }, function() {
-        photoOrthoOfferDownloads(items);
-        return pack;
-      });
-    }
+    return chain.then(function() {
+      photoOrthoReleaseImages(held);
+      held = null;
+      return blobs;
+    });
+  }).then(function(blobs) {
+    var items = keys.map(function(k) { return { name: names[k], blob: blobs[k] }; });
     photoOrthoOfferDownloads(items);
-    return pack;
-  }).then(function(pack) {
     mediaNotify(mediaTrRepl('media.ortho.compositeOk', { N: String(views.length) }), 'info');
     var box = g('photoOrthoSaveChart');
     if (box && !box.checked) return;
-    if (!pack || !pack.blobs) return;
-    return photoOrthoSaveCompositesToChart(pack.blobs, names).then(function(acc) {
+    return photoOrthoSaveCompositesToChart(blobs, names).then(function(acc) {
       if (acc && acc.n) mediaNotify(mediaTrRepl('media.ortho.chartOk', { N: String(acc.n) }), 'info');
     }, function() {});
   }).catch(function(err) {
@@ -6917,33 +6859,10 @@ function photoOrthoExportPdf() {
     return;
   }
   var name = photoOrthoFileBase() + '.pdf';
-  var usedDir = typeof window.showDirectoryPicker === 'function';
-  var pickP;
-  try {
-    pickP = usedDir
-      ? window.showDirectoryPicker({ id: 'jsm-ortho-export', mode: 'readwrite' })
-      : photoOrthoPickSave(name, 'application/pdf', '.pdf', mediaTr('media.ortho.pdfDesc'));
-  } catch (err) {
-    if (photoOrthoIsAbort(err)) {
-      mediaNotify(mediaTr('media.ortho.exportCancel'));
-      return;
-    }
-    usedDir = false;
-    pickP = photoOrthoPickSave(name, 'application/pdf', '.pdf', mediaTr('media.ortho.pdfDesc')).catch(function() {
-      return null;
-    });
-  }
+  photoOrthoHideExportOffer();
   photoOrthoSetBusy('photoOrthoPdfBtn', true);
-  Promise.resolve(pickP).then(function(handle) {
-    return photoOrthoEnsureWrite(handle).then(function() {
-      return photoOrthoBuildPdfBlob(map);
-    }).then(function(pdf) {
-      if (usedDir && handle && typeof handle.getFileHandle === 'function') {
-        return photoOrthoWriteDirFile(handle, name, pdf);
-      }
-      return photoOrthoWriteOrDownload(handle, pdf, name);
-    });
-  }).then(function() {
+  photoOrthoBuildPdfBlob(map).then(function(pdf) {
+    photoOrthoOfferDownloads([{ name: name, blob: pdf }], 'media.ortho.pdfReady');
     mediaNotify(mediaTr('media.ortho.pdfOk'), 'info');
   }).catch(function(err) {
     if (photoOrthoIsAbort(err)) mediaNotify(mediaTr('media.ortho.exportCancel'));

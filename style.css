@@ -20873,6 +20873,17 @@ button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: 
 .ortho-tile-menu-item.is-danger:hover { background: #fef2f2; }
 .ortho-tile-menu-ico { width: 22px; text-align: center; font-size: 15px; color: #334155; }
 .ortho-tile-menu-item.is-danger .ortho-tile-menu-ico { color: #dc2626; }
+.ortho-records { margin: 0 0 12px; padding: 10px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; }
+.ortho-records-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ortho-records-bar strong { margin-right: auto; font-size: 13px; color: #0f172a; }
+.ortho-records-empty { margin: 0; color: #64748b; font-size: 13px; }
+.ortho-records-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ortho-records-table th { text-align: left; font-size: 11px; color: #64748b; font-weight: 700; padding: 4px 6px; border-bottom: 1px solid #e2e8f0; }
+.ortho-records-table td { padding: 4px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+.ortho-record { cursor: pointer; }
+.ortho-record.is-on { background: #e0f2fe; }
+.ortho-record-id { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: #0f172a; }
+.ortho-record input[type="text"], .ortho-record input[type="date"] { width: 100%; max-width: 180px; box-sizing: border-box; font: inherit; padding: 3px 6px; border: 1px solid #cbd5e1; border-radius: 6px; }
 .ortho-pick { margin-top: 12px; padding: 10px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; }
 .ortho-pick-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .ortho-pick-bar strong { margin-right: auto; font-size: 13px; color: #0f172a; }

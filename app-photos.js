@@ -118,22 +118,39 @@ function photoCategoryLabel(cat) {
     return s;
 }
 
+var photoOrthoCatNarrow = false;
+var photoOrthoViewRestore = null;
+
+function photoOrthoDocCategory(value) {
+    var v = String(value || '');
+    return v === 'Consent Form' || v === 'Lab Report' || v === 'Scanned Document' || v === '__consent_lab';
+}
+
+function photoOrthoCategoryPairs() {
+    if (!photoOrthoCatNarrow) return PHOTO_CATEGORY_PAIRS;
+    return PHOTO_CATEGORY_PAIRS.filter(function(pair) {
+        return !photoOrthoDocCategory(pair[0]);
+    });
+}
+
 function refreshPhotoCategorySelects() {
     function fill(selId, includeAll) {
         var sel = g(selId);
         if (!sel) return;
         var prev = sel.value;
+        var pairs = (selId === 'photoFilterCat') ? photoOrthoCategoryPairs() : PHOTO_CATEGORY_PAIRS;
         var html = includeAll
             ? '<option value="">' + esc(mediaTr('media.allCategories')) + '</option>'
             : '';
-        PHOTO_CATEGORY_PAIRS.forEach(function(pair) {
+        pairs.forEach(function(pair) {
             html += '<option value="' + esc(pair[0]) + '">' + esc(mediaTr(pair[1])) + '</option>';
         });
-        if (includeAll && typeof conMediaTr === 'function') {
+        if (includeAll && !photoOrthoCatNarrow && typeof conMediaTr === 'function') {
             html += '<option value="__consent_lab">' + esc(conMediaTr('cm.hub.consent')) + '</option>';
         }
         sel.innerHTML = html;
-        if (prev) sel.value = prev;
+        if (prev && !photoOrthoDocCategory(prev)) sel.value = prev;
+        else if (photoOrthoDocCategory(prev)) sel.value = '';
     }
     fill('photoFilterCat', true);
     fill('photoUploadCat', false);
@@ -2717,21 +2734,137 @@ function photoOrthoKey() {
 }
 
 function photoOrthoEmptyMap() {
-  return { before: {}, after: {}, progress: {}, xf: {}, input: {} };
+  return {
+    before: {}, after: {}, progress: {}, xf: {}, input: {},
+    setMeta: { before: { id: '', date: '', remarks: '' }, after: { id: '', date: '', remarks: '' } },
+    progressSets: [], progressDate: '', activeRecordId: '', focus: ''
+  };
 }
 
 function photoOrthoBagOf(o, key) {
   return (o && o[key] && typeof o[key] === 'object' && !Array.isArray(o[key])) ? o[key] : {};
 }
 
-function photoOrthoNormalizeMap(o) {
+function photoOrthoBagHasContent(bag) {
+  var k;
+  if (!bag) return false;
+  for (k in bag) {
+    if (Object.prototype.hasOwnProperty.call(bag, k) && bag[k]) return true;
+  }
+  return false;
+}
+
+function photoOrthoCopyBag(bag) {
+  var out = {};
+  var k;
+  for (k in (bag || {})) {
+    if (Object.prototype.hasOwnProperty.call(bag, k) && bag[k]) out[k] = bag[k];
+  }
+  return out;
+}
+
+function photoOrthoNewSetId() {
+  return 'os-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function photoOrthoMetaOf(raw) {
+  raw = raw || {};
   return {
+    id: String(raw.id || ''),
+    date: String(raw.date || '').slice(0, 10),
+    remarks: String(raw.remarks || '')
+  };
+}
+
+function photoOrthoNormalizeMap(o) {
+  o = o || {};
+  var metaIn = photoOrthoBagOf(o, 'setMeta');
+  var map = {
     before: photoOrthoBagOf(o, 'before'),
     after: photoOrthoBagOf(o, 'after'),
     progress: photoOrthoBagOf(o, 'progress'),
     xf: photoOrthoBagOf(o, 'xf'),
-    input: photoOrthoBagOf(o, 'input')
+    input: photoOrthoBagOf(o, 'input'),
+    setMeta: {
+      before: photoOrthoMetaOf(metaIn.before),
+      after: photoOrthoMetaOf(metaIn.after)
+    },
+    progressSets: [],
+    progressDate: String(o.progressDate || '').slice(0, 10),
+    activeRecordId: String(o.activeRecordId || ''),
+    focus: (o.focus === 'before' || o.focus === 'after' || o.focus === 'progress') ? o.focus : ''
   };
+  var list = Array.isArray(o.progressSets) ? o.progressSets : [];
+  var i;
+  for (i = 0; i < list.length; i++) {
+    var src = list[i];
+    if (!src || typeof src !== 'object') continue;
+    var date = String(src.date || '').slice(0, 10);
+    var dup = false;
+    var j;
+    for (j = 0; j < map.progressSets.length; j++) {
+      if (map.progressSets[j].date === date) { dup = true; break; }
+    }
+    if (dup) continue;
+    map.progressSets.push({
+      id: String(src.id || '') || photoOrthoNewSetId(),
+      date: date,
+      remarks: String(src.remarks || ''),
+      slots: photoOrthoCopyBag(src.slots),
+      xf: photoOrthoCopyBag(src.xf)
+    });
+  }
+  if (!map.progressSets.length && photoOrthoBagHasContent(map.progress)) {
+    map.progressSets.push({
+      id: photoOrthoNewSetId(),
+      date: map.progressDate || '',
+      remarks: '',
+      slots: photoOrthoCopyBag(map.progress),
+      xf: photoOrthoCopyBag(map.xf && map.xf.progress)
+    });
+  }
+  photoOrthoApplyProgressDate(map);
+  photoOrthoTouchSetIds(map);
+  return map;
+}
+
+function photoOrthoApplyProgressDate(map) {
+  var date = String(map.progressDate || '');
+  var hit = null;
+  var i;
+  for (i = 0; i < map.progressSets.length; i++) {
+    if (String(map.progressSets[i].date || '') === date) { hit = map.progressSets[i]; break; }
+  }
+  if (!hit) return;
+  map.progress = photoOrthoCopyBag(hit.slots);
+  if (!map.xf) map.xf = {};
+  map.xf.progress = photoOrthoCopyBag(hit.xf);
+}
+
+function photoOrthoTouchSetIds(map) {
+  ['before', 'after'].forEach(function(key) {
+    if (!map.setMeta[key]) map.setMeta[key] = { id: '', date: '', remarks: '' };
+    if (photoOrthoBagHasContent(map[key]) && !map.setMeta[key].id) map.setMeta[key].id = photoOrthoNewSetId();
+  });
+}
+
+function photoOrthoWriteProgressSnapshot(map) {
+  if (!map) return;
+  if (!Array.isArray(map.progressSets)) map.progressSets = [];
+  var date = String(map.progressDate || '').slice(0, 10);
+  var hit = null;
+  var i;
+  for (i = 0; i < map.progressSets.length; i++) {
+    if (String(map.progressSets[i].date || '') === date) { hit = map.progressSets[i]; break; }
+  }
+  if (!hit && !photoOrthoBagHasContent(map.progress)) return;
+  if (!hit) {
+    hit = { id: photoOrthoNewSetId(), date: date, remarks: '', slots: {}, xf: {} };
+    map.progressSets.push(hit);
+  }
+  if (!hit.id) hit.id = photoOrthoNewSetId();
+  hit.slots = photoOrthoCopyBag(map.progress);
+  hit.xf = photoOrthoCopyBag(map.xf && map.xf.progress);
 }
 
 function photoOrthoIsSetKey(k) {
@@ -2747,6 +2880,8 @@ function photoOrthoFilterCat() {
 }
 
 function photoOrthoVisibleSets() {
+  var map = photoOrthoLoad();
+  if (map.focus === 'before' || map.focus === 'after' || map.focus === 'progress') return [map.focus];
   var cat = photoOrthoFilterCat();
   if (cat === 'before') return ['before'];
   if (cat === 'after') return ['after'];
@@ -2796,6 +2931,8 @@ function photoOrthoLoad() {
 }
 
 function photoOrthoSave(map) {
+  photoOrthoWriteProgressSnapshot(map);
+  photoOrthoTouchSetIds(map);
   try { localStorage.setItem(photoOrthoKey(), JSON.stringify(map)); } catch (e) {}
   if (photoOrthoPushTimer) clearTimeout(photoOrthoPushTimer);
   photoOrthoPushTimer = setTimeout(function() {
@@ -2940,9 +3077,30 @@ function photoOrthoToggle(force) {
     if (wasHidden) photoOrthoPickTarget = null;
     photoOrthoChartDismissed = false;
     photoOrthoBind();
+    photoOrthoArmLibraryView();
     photoOrthoRender();
     photoOrthoChartPickerOpen();
+  } else {
+    photoOrthoDisarmLibraryView();
   }
+}
+
+function photoOrthoArmLibraryView() {
+  if (!photoOrthoViewRestore) photoOrthoViewRestore = { kind: photoKindFilter };
+  photoOrthoCatNarrow = true;
+  var sel = g('photoFilterCat');
+  if (sel && photoOrthoDocCategory(sel.value)) sel.value = '';
+  refreshPhotoCategorySelects();
+  if (photoKindFilter !== 'photos') setPhotoKind('photos');
+  else if (typeof filterPhotos === 'function') filterPhotos();
+}
+
+function photoOrthoDisarmLibraryView() {
+  photoOrthoCatNarrow = false;
+  refreshPhotoCategorySelects();
+  var kind = photoOrthoViewRestore && photoOrthoViewRestore.kind;
+  photoOrthoViewRestore = null;
+  if (kind && kind !== photoKindFilter && typeof setPhotoKind === 'function') setPhotoKind(kind);
 }
 
 function photoOrthoTileFromEvent(e) {
@@ -3112,6 +3270,22 @@ function photoOrthoBind() {
   var panel = g('photoOrthoPanel');
   if (!root || photoOrthoBound) return;
   photoOrthoBound = true;
+  var recBox = g('photoOrthoRecords');
+  if (recBox && !recBox.dataset.bound) {
+    recBox.dataset.bound = '1';
+    recBox.addEventListener('click', function(e) {
+      if (e.target.closest && e.target.closest('input, button, select, textarea')) return;
+      var tr = e.target.closest ? e.target.closest('[data-record]') : null;
+      if (!tr) return;
+      photoOrthoLoadRecord(tr.getAttribute('data-record'));
+    });
+    recBox.addEventListener('change', function(e) {
+      var note = e.target.getAttribute ? e.target.getAttribute('data-record-note') : '';
+      var date = e.target.getAttribute ? e.target.getAttribute('data-record-date') : '';
+      if (note) photoOrthoRecordRemark(note, e.target.value);
+      else if (date) photoOrthoRecordDate(date, e.target.value);
+    });
+  }
   function onOver(e) {
     var tile = photoOrthoTileFromEvent(e);
     var setEl = photoOrthoSetFromEvent(e);
@@ -4118,6 +4292,179 @@ function photoOrthoSyncLayoutTools(sets) {
   vis('photoOrthoFolderProgressBtn', showP);
 }
 
+function photoOrthoRecordCatLabel(cat) {
+  if (cat === 'final') return mediaTr('media.ortho.catFinal');
+  if (cat === 'progress') return mediaTr('media.ortho.catProgress');
+  return mediaTr('media.ortho.catInitial');
+}
+
+function photoOrthoRecordRows(map) {
+  map = map || photoOrthoLoad();
+  var rows = [];
+  if (map.setMeta && map.setMeta.before && map.setMeta.before.id && photoOrthoBagHasContent(map.before)) {
+    rows.push({
+      id: map.setMeta.before.id,
+      date: map.setMeta.before.date || '',
+      category: 'initial',
+      remarks: map.setMeta.before.remarks || '',
+      focus: 'before'
+    });
+  }
+  var seen = {};
+  (map.progressSets || []).forEach(function(set) {
+    if (!set || !set.id || seen[set.id]) return;
+    var slots = String(map.progressDate || '') === String(set.date || '') ? map.progress : set.slots;
+    if (!photoOrthoBagHasContent(slots)) return;
+    seen[set.id] = true;
+    rows.push({
+      id: set.id,
+      date: set.date || '',
+      category: 'progress',
+      remarks: set.remarks || '',
+      focus: 'progress'
+    });
+  });
+  if (map.setMeta && map.setMeta.after && map.setMeta.after.id && photoOrthoBagHasContent(map.after)) {
+    rows.push({
+      id: map.setMeta.after.id,
+      date: map.setMeta.after.date || '',
+      category: 'final',
+      remarks: map.setMeta.after.remarks || '',
+      focus: 'after'
+    });
+  }
+  return rows;
+}
+
+function photoOrthoLoadRecord(id) {
+  var map = photoOrthoLoad();
+  var sid = String(id || '');
+  photoOrthoWriteProgressSnapshot(map);
+  if (map.setMeta.before.id === sid) {
+    map.focus = 'before';
+    map.activeRecordId = sid;
+  } else if (map.setMeta.after.id === sid) {
+    map.focus = 'after';
+    map.activeRecordId = sid;
+  } else {
+    var hit = null;
+    var i;
+    for (i = 0; i < map.progressSets.length; i++) {
+      if (map.progressSets[i].id === sid) { hit = map.progressSets[i]; break; }
+    }
+    if (!hit) return;
+    map.progressDate = hit.date || '';
+    map.progress = photoOrthoCopyBag(hit.slots);
+    if (!map.xf) map.xf = {};
+    map.xf.progress = photoOrthoCopyBag(hit.xf);
+    map.focus = 'progress';
+    map.activeRecordId = sid;
+  }
+  photoOrthoSave(map);
+  photoOrthoRender();
+  var show = g('photoOrthoShow');
+  if (show && !show.hasAttribute('hidden')) photoOrthoSlidePaint();
+}
+
+function photoOrthoOpenProgressDate(date) {
+  date = String(date || '').slice(0, 10);
+  if (!date) return;
+  var map = photoOrthoLoad();
+  photoOrthoWriteProgressSnapshot(map);
+  var hit = null;
+  var i;
+  for (i = 0; i < map.progressSets.length; i++) {
+    if (map.progressSets[i].date === date) { hit = map.progressSets[i]; break; }
+  }
+  if (!hit) {
+    hit = { id: photoOrthoNewSetId(), date: date, remarks: '', slots: {}, xf: {} };
+    map.progressSets.push(hit);
+  }
+  map.progressDate = date;
+  map.progress = photoOrthoCopyBag(hit.slots);
+  if (!map.xf) map.xf = {};
+  map.xf.progress = photoOrthoCopyBag(hit.xf);
+  map.focus = 'progress';
+  map.activeRecordId = hit.id;
+  photoOrthoSave(map);
+  photoOrthoRender();
+}
+
+function photoOrthoShowPair() {
+  var map = photoOrthoLoad();
+  photoOrthoWriteProgressSnapshot(map);
+  map.focus = '';
+  map.activeRecordId = '';
+  photoOrthoSave(map);
+  photoOrthoRender();
+}
+
+function photoOrthoRecordById(map, id) {
+  var sid = String(id || '');
+  if (map.setMeta && map.setMeta.before && map.setMeta.before.id === sid) return map.setMeta.before;
+  if (map.setMeta && map.setMeta.after && map.setMeta.after.id === sid) return map.setMeta.after;
+  var i;
+  for (i = 0; i < (map.progressSets || []).length; i++) {
+    if (map.progressSets[i].id === sid) return map.progressSets[i];
+  }
+  return null;
+}
+
+function photoOrthoRecordRemark(id, text) {
+  var map = photoOrthoLoad();
+  var hit = photoOrthoRecordById(map, id);
+  if (!hit) return;
+  hit.remarks = String(text || '');
+  photoOrthoSave(map);
+}
+
+function photoOrthoRecordDate(id, date) {
+  date = String(date || '').slice(0, 10);
+  var map = photoOrthoLoad();
+  var sid = String(id || '');
+  if (map.setMeta.before.id === sid) map.setMeta.before.date = date;
+  else if (map.setMeta.after.id === sid) map.setMeta.after.date = date;
+  else {
+    var hit = photoOrthoRecordById(map, sid);
+    var i;
+    if (!hit) return;
+    for (i = 0; i < map.progressSets.length; i++) {
+      if (map.progressSets[i].date === date && map.progressSets[i].id !== sid) return;
+    }
+    hit.date = date;
+    if (map.activeRecordId === sid) map.progressDate = date;
+  }
+  photoOrthoSave(map);
+  photoOrthoRender();
+}
+
+function photoOrthoPaintRecords(map) {
+  var body = g('photoOrthoRecordsBody');
+  if (!body) return;
+  var rows = photoOrthoRecordRows(map);
+  if (!rows.length) {
+    body.innerHTML = '<p class="ortho-records-empty">' + esc(mediaTr('media.ortho.recordsEmpty')) + '</p>';
+    return;
+  }
+  var html = '<table class="ortho-records-table"><thead><tr>' +
+    '<th>' + esc(mediaTr('media.ortho.recId')) + '</th>' +
+    '<th>' + esc(mediaTr('media.ortho.recDate')) + '</th>' +
+    '<th>' + esc(mediaTr('media.ortho.recCat')) + '</th>' +
+    '<th>' + esc(mediaTr('media.ortho.recNote')) + '</th>' +
+    '</tr></thead><tbody>';
+  rows.forEach(function(row) {
+    var on = map.activeRecordId === row.id ? ' is-on' : '';
+    html += '<tr class="ortho-record' + on + '" data-record="' + esc(row.id) + '">' +
+      '<td class="ortho-record-id">' + esc(row.id) + '</td>' +
+      '<td><input type="date" data-record-date="' + esc(row.id) + '" value="' + esc(row.date || '') + '"></td>' +
+      '<td>' + esc(photoOrthoRecordCatLabel(row.category)) + '</td>' +
+      '<td><input type="text" data-record-note="' + esc(row.id) + '" value="' + esc(row.remarks || '') + '"></td>' +
+      '</tr>';
+  });
+  html += '</tbody></table>';
+  body.innerHTML = html;
+}
+
 function photoOrthoRender() {
   var root = g('photoOrthoSets');
   if (!root) return;
@@ -4174,6 +4521,7 @@ function photoOrthoRender() {
       }
     }
   }
+  photoOrthoPaintRecords(map);
 }
 
 var photoOrthoMenuTarget = null;
@@ -4306,7 +4654,7 @@ function photoOrthoRenderIfOpen() {
 
 function photoOrthoImages() {
   return (photoAllRecords || []).filter(function(rec) {
-    return photoOrthoIsImage(rec) && !photoIsOrthoSidecar(rec);
+    return photoOrthoIsImage(rec) && !photoIsOrthoSidecar(rec) && !photoIsDocRec(rec);
   });
 }
 

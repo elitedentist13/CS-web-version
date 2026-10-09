@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261010rec1';
+  var BUILD = '20261010rec2';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -4877,6 +4877,7 @@
         <input type="file" id="photoOrthoFrameInput" class="ortho-offscreen-file"
                accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.bmp,.heic,.heif,.tif,.tiff,.avif"
                onchange="photoOrthoFrameInputChange(this)">
+        <div id="photoOrthoSets"></div>
         <div id="photoOrthoPick" class="ortho-pick" hidden></div>
         <div id="photoOrthoRecords" class="ortho-records">
           <div class="ortho-records-bar">
@@ -4887,7 +4888,6 @@
           </div>
           <div id="photoOrthoRecordsBody"></div>
         </div>
-        <div id="photoOrthoSets"></div>
       </div>
 
       <!-- ── GRID VIEW ─────────────────────────────────── -->
@@ -8044,7 +8044,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20261006fx64',
-    'app-i18n-extra.js?v=20261010rec1',
+    'app-i18n-extra.js?v=20261010rec2',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20261003cbe',
@@ -8058,7 +8058,7 @@
     'app-report.js',
     'app-ai-helper.js',
     'app-memo-ai.js',
-    'app-photos.js?v=20261010rec1',
+    'app-photos.js?v=20261010rec2',
     'app-patient.js?v=20261003cbe',
     'app-patient-advanced-search.js',
     'app-patient-views.js?v=20261003cbe',

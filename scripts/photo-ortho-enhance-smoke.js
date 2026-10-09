@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261010rec1';
-var STEP = 16;
+var BUILD = '20261010rec2';
+var STEP = 17;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -263,7 +263,12 @@ function finish(code) {
         i18nHasAll(i18n, 'media.ortho.catInitial') &&
         i18nHasAll(i18n, 'media.ortho.catProgress') &&
         i18nHasAll(i18n, 'media.ortho.catFinal') &&
-        i18nHasAll(i18n, 'media.ortho.recNote'));
+        i18nHasAll(i18n, 'media.ortho.recNote') &&
+        i18nHasAll(i18n, 'media.ortho.recVisit') &&
+        photos.indexOf('function photoOrthoRecordVisit') >= 0 &&
+        photos.indexOf('function photoOrthoVisitForDate') >= 0 &&
+        html.indexOf('id="photoOrthoSets"') < html.indexOf('id="photoOrthoPick"') &&
+        html.indexOf('id="photoOrthoPick"') < html.indexOf('id="photoOrthoRecords"'));
     pass('slideshow skips empty tiles, shows dates, and can slider or fade',
         html.indexOf('id="photoOrthoSlideSkip"') >= 0 &&
         html.indexOf('id="photoOrthoShowBeforeDate"') >= 0 &&
@@ -734,6 +739,16 @@ function finish(code) {
                 'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
                 'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
                 'window.photoPatientId="e1-patient";' +
+                'photoOrthoVisitReq=(photoOrthoVisitReq||0)+1;' +
+                'photoOrthoVisitCachePid="e1-patient";' +
+                'photoOrthoVisitCache=[' +
+                '{id:"appt-apr", date:"2024-04-01", start_time:"10:00", dentist_name:"Dr Lee"},' +
+                '{id:"appt-may", date:"2024-05-02", start_time:"11:30", dentist_name:"Dr Lee"}' +
+                '];' +
+                'var shell=photoOrthoRecordRows(photoOrthoNormalizeMap({before:{},after:{},progress:{}}));' +
+                'var shellCats=shell.map(function(r){ return r.category; });' +
+                'function orthoIdx(id){ var el=document.getElementById(id); if(!el||!el.parentNode) return -1; return [].indexOf.call(el.parentNode.children, el); }' +
+                'var iSets=orthoIdx("photoOrthoSets"); var iPick=orthoIdx("photoOrthoPick"); var iRec=orthoIdx("photoOrthoRecords");' +
                 'window.photoAllRecords=[' +
                 '{id:"p1", category:"Intraoral", file_path:"p1.jpg", public_url:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", taken_date:"2024-04-01"},' +
                 '{id:"p2", category:"Intraoral", file_path:"p2.jpg", public_url:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", taken_date:"2024-05-02"},' +
@@ -757,6 +772,12 @@ function finish(code) {
                 'photoOrthoRecordRemark(first && first.id, "wire check");' +
                 'var noted=(photoOrthoRecordRows(photoOrthoLoad()).filter(function(r){ return r.id===(first&&first.id); })[0]||{}).remarks||"";' +
                 'var exportSet=(photoOrthoExportSets(photoOrthoLoad())||[])[0]||"";' +
+                'var wiredApr=(photoOrthoRecordById(photoOrthoLoad(), first && first.id)||{}).appointmentId||"";' +
+                'var may=prog.filter(function(r){ return r.date==="2024-05-02"; })[0];' +
+                'var wiredMay=(photoOrthoRecordById(photoOrthoLoad(), may && may.id)||{}).appointmentId||"";' +
+                'photoOrthoRecordDate(initials[0] && initials[0].id, "2024-05-02");' +
+                'var beforeWire=(photoOrthoLoad().setMeta.before||{}).appointmentId||"";' +
+                'var visitSel=(document.querySelector(\'select[data-record-visit="\'+(first&&first.id)+\'"]\')||{}).value||"";' +
                 'var strip=photoOrthoImages().map(function(r){ return r.id; });' +
                 'photoOrthoToggle(true);' +
                 'var openCats=[].map.call((document.getElementById("photoFilterCat")||{}).options||[], function(o){ return o.value; });' +
@@ -765,11 +786,15 @@ function finish(code) {
                 'photoOrthoToggle(false);' +
                 'var closedCats=[].map.call((document.getElementById("photoFilterCat")||{}).options||[], function(o){ return o.value; });' +
                 'if(typeof setPhotoKind==="function") setPhotoKind("all");' +
-                'return { id1:id1, initialN:initials.length, sameId:initials[0] && initials[0].id===id1, progN:prog.length, progDates:prog.map(function(r){ return r.date; }), finalN:finals.length, loadedFace:loaded.progress && loaded.progress.face||"", loadedSmile:loaded.progress && loaded.progress.smile||"", focus:loaded.focus, noted:noted, exportSet:exportSet, strip:strip, openCats:openCats, kindOpen:kindOpen, closedCats:closedCats };' +
+                'return { id1:id1, initialN:initials.length, sameId:initials[0] && initials[0].id===id1, shellCats:shellCats, order:[iSets,iPick,iRec], progN:prog.length, progDates:prog.map(function(r){ return r.date; }), finalN:finals.length, loadedFace:loaded.progress && loaded.progress.face||"", loadedSmile:loaded.progress && loaded.progress.smile||"", focus:loaded.focus, noted:noted, exportSet:exportSet, wiredApr:wiredApr, wiredMay:wiredMay, beforeWire:beforeWire, visitSel:visitSel, strip:strip, openCats:openCats, kindOpen:kindOpen, closedCats:closedCats };' +
                 '})()', false, 15000);
             pass('live: Records keeps one Initial id, one Progress set per date, and loads that set',
                 records && records.initialN === 1 && records.sameId === true && records.id1.indexOf('os-') === 0 &&
-                records.progN === 2 && records.finalN === 0 &&
+                JSON.stringify(records.shellCats) === JSON.stringify(['initial','progress','final']) &&
+                records.order && records.order[0] >= 0 && records.order[0] < records.order[1] && records.order[1] < records.order[2] &&
+                records.progN === 2 && records.finalN === 1 &&
+                records.wiredApr === 'appt-apr' && records.wiredMay === 'appt-may' &&
+                records.beforeWire === 'appt-may' && records.visitSel === 'appt-apr' &&
                 JSON.stringify((records.progDates || []).slice().sort()) === JSON.stringify(['2024-04-01','2024-05-02']) &&
                 records.loadedFace === 'p1' && !records.loadedSmile && records.focus === 'progress' &&
                 records.noted === 'wire check' && records.exportSet === 'progress' &&

@@ -3086,6 +3086,7 @@ function photoOrthoToggle(force) {
     photoOrthoArmLibraryView();
     photoOrthoRender();
     photoOrthoChartPickerOpen();
+    photoOrthoWarmBrowse();
   } else {
     photoOrthoDisarmLibraryView();
   }
@@ -3393,9 +3394,7 @@ function photoOrthoBind() {
     if (folderBtn) {
       e.preventDefault();
       e.stopPropagation();
-      var folderDate = folderBtn.getAttribute('data-compare-date') || '';
-      if (folderDate) photoOrthoEnsureCompareLive(folderDate);
-      photoOrthoPickFolder(folderBtn.getAttribute('data-set'));
+      photoOrthoPickFolder(folderBtn.getAttribute('data-set'), folderBtn.getAttribute('data-compare-date') || '');
       return;
     }
     var modeBtn = e.target.closest ? e.target.closest('[data-ortho-mode]') : null;
@@ -3416,9 +3415,7 @@ function photoOrthoBind() {
     if (browse) {
       e.preventDefault();
       e.stopPropagation();
-      var browseDate = browse.getAttribute('data-compare-date') || '';
-      if (browseDate) photoOrthoEnsureCompareLive(browseDate);
-      photoOrthoBrowseFile(browse.getAttribute('data-set'), browse.getAttribute('data-slot'));
+      photoOrthoBrowseFile(browse.getAttribute('data-set'), browse.getAttribute('data-slot'), browse.getAttribute('data-compare-date') || '');
       return;
     }
     var tile = e.target.closest ? e.target.closest('.ortho-tile') : null;
@@ -4164,6 +4161,90 @@ function photoOrthoPlaceFiles(setKey, files) {
 }
 
 var photoOrthoBrowseTarget = null;
+var photoOrthoBrowseDir = null;
+var photoOrthoBrowseWarmed = false;
+var photoOrthoFolderDate = '';
+
+function photoOrthoBrowseDb() {
+  return new Promise(function(resolve) {
+    if (typeof indexedDB === 'undefined') { resolve(null); return; }
+    var req;
+    try { req = indexedDB.open('jsm-ortho-browse', 1); } catch (e) { resolve(null); return; }
+    req.onupgradeneeded = function() {
+      try { req.result.createObjectStore('handles'); } catch (errStore) {}
+    };
+    req.onsuccess = function() { resolve(req.result); };
+    req.onerror = function() { resolve(null); };
+  });
+}
+
+function photoOrthoSaveBrowseDir(dir) {
+  if (!dir || dir.kind !== 'directory') return;
+  photoOrthoBrowseDir = dir;
+  photoOrthoBrowseDb().then(function(db) {
+    if (!db) return;
+    try {
+      db.transaction('handles', 'readwrite').objectStore('handles').put(dir, 'folder');
+    } catch (e) {}
+  }, function() {});
+}
+
+function photoOrthoWarmBrowseDir() {
+  photoOrthoBrowseDb().then(function(db) {
+    if (!db) return null;
+    return new Promise(function(resolve) {
+      var get;
+      try { get = db.transaction('handles', 'readonly').objectStore('handles').get('folder'); }
+      catch (e) { resolve(null); return; }
+      get.onsuccess = function() { resolve(get.result || null); };
+      get.onerror = function() { resolve(null); };
+    });
+  }).then(function(dir) {
+    if (!dir || typeof dir.queryPermission !== 'function') return;
+    return Promise.resolve(dir.queryPermission({ mode: 'read' })).then(function(state) {
+      if (state !== 'granted') return;
+      photoOrthoBrowseDir = dir;
+      if (typeof dir.values !== 'function') return;
+      var it = dir.values();
+      var n = 0;
+      function step() {
+        return Promise.resolve(it.next()).then(function(item) {
+          if (!item || item.done || n >= 40) return;
+          n++;
+          return step();
+        }, function() {});
+      }
+      return step();
+    }, function() {});
+  }, function() {});
+}
+
+function photoOrthoWarmEncoder() {
+  try {
+    var canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    var ctx = canvas.getContext('2d');
+    if (ctx) ctx.fillRect(0, 0, 2, 2);
+    if (typeof canvas.toBlob === 'function') canvas.toBlob(function() {}, 'image/jpeg', 0.82);
+  } catch (e) {}
+}
+
+function photoOrthoWarmStorage() {
+  if (!photoPatientId || typeof SB === 'undefined' || !SB || !SB.storage || typeof SB.storage.from !== 'function') return;
+  try {
+    Promise.resolve(SB.storage.from(PHOTO_BUCKET).list(String(photoPatientId), { limit: 1 })).then(function() {}, function() {});
+  } catch (e) {}
+}
+
+function photoOrthoWarmBrowse() {
+  photoOrthoEnsureVisitCache();
+  photoOrthoWarmStorage();
+  if (photoOrthoBrowseWarmed) return;
+  photoOrthoBrowseWarmed = true;
+  photoOrthoWarmEncoder();
+  photoOrthoWarmBrowseDir();
+}
 
 function photoOrthoBrowseFileInput() {
   var inp = g('photoOrthoFrameInput');
@@ -4206,9 +4287,9 @@ function photoOrthoMarkAimed(setKey, slotKey) {
   }
 }
 
-function photoOrthoBrowseFile(setKey, slotKey) {
+function photoOrthoBrowseFile(setKey, slotKey, date) {
   if (!photoOrthoIsSetKey(setKey) || !slotKey) return;
-  photoOrthoBrowseTarget = { set: setKey, slot: slotKey };
+  photoOrthoBrowseTarget = { set: setKey, slot: slotKey, date: String(date || '') };
   photoOrthoChartDismissed = false;
   var picker = null;
   var wide = [{
@@ -4237,13 +4318,15 @@ function photoOrthoBrowseFile(setKey, slotKey) {
   // Open the dialog in this click. A wildcard type throws before the
   // promise exists, and the plain file input only opens during the click.
   if (typeof window.showOpenFilePicker === 'function') {
+    var frameOpt = {
+      id: 'jsm-ortho-frame',
+      startIn: 'downloads',
+      multiple: false,
+      types: wide
+    };
+    if (photoOrthoBrowseDir) frameOpt.startIn = photoOrthoBrowseDir;
     try {
-      picker = window.showOpenFilePicker({
-        id: 'jsm-ortho-frame',
-        startIn: 'downloads',
-        multiple: false,
-        types: wide
-      });
+      picker = window.showOpenFilePicker(frameOpt);
     } catch (errWide) {
       try {
         picker = window.showOpenFilePicker({
@@ -4272,6 +4355,7 @@ function photoOrthoBrowseFile(setKey, slotKey) {
       return;
     }
     var target = photoOrthoBrowseTarget;
+    if (target.date) photoOrthoEnsureCompareLive(target.date);
     photoOrthoCommitDrop(target.set, [file], target.slot);
   }).catch(function(err) {
     photoOrthoProgress(false);
@@ -4279,10 +4363,13 @@ function photoOrthoBrowseFile(setKey, slotKey) {
   });
 }
 
-function photoOrthoPickFolder(setKey) {
+function photoOrthoPickFolder(setKey, date) {
   photoOrthoFolderTarget = photoOrthoIsSetKey(setKey) ? setKey : 'before';
+  photoOrthoFolderDate = String(date || '');
   if (typeof window.showDirectoryPicker === 'function') {
     window.showDirectoryPicker({ id: 'jsm-ortho-folder' }).then(function(dir) {
+      photoOrthoSaveBrowseDir(dir);
+      if (photoOrthoFolderDate) photoOrthoEnsureCompareLive(photoOrthoFolderDate);
       return photoOrthoReadDirHandle(dir);
     }).then(function(files) {
       return photoOrthoPlaceFiles(photoOrthoFolderTarget, files);
@@ -4299,6 +4386,7 @@ function photoOrthoPickFolder(setKey) {
 function photoOrthoFolderInputChange(inp) {
   var files = inp && inp.files ? Array.prototype.slice.call(inp.files) : [];
   if (inp) inp.value = '';
+  if (photoOrthoFolderDate) photoOrthoEnsureCompareLive(photoOrthoFolderDate);
   photoOrthoPlaceFiles(photoOrthoFolderTarget, files);
 }
 

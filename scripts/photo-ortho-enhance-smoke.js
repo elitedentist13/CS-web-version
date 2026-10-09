@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261010cmp1';
-var STEP = 24;
+var BUILD = '20261010warm1';
+var STEP = 25;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -253,6 +253,8 @@ function finish(code) {
         extractFn(photos, 'photoOrthoBrowseFile').indexOf('image/*') < 0 &&
         html.indexOf('id="photoOrthoFrameInput"') >= 0 &&
         extractFn(photos, 'photoOrthoToggle').indexOf('photoOrthoChartPickerOpen') >= 0 &&
+        extractFn(photos, 'photoOrthoToggle').indexOf('photoOrthoWarmBrowse') >= 0 &&
+        photos.indexOf('function photoOrthoWarmBrowse') >= 0 &&
         photos.indexOf('function photoOrthoChartPickerOpen') >= 0 &&
         extractFn(photos, 'photoOrthoImages').indexOf('photoIsOrthoSidecar') >= 0 &&
         read('app-con-media.js').indexOf("closest('#photoOrthoPanel')") >= 0 &&

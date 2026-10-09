@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261010rec2';
+  var BUILD = '20261010visit1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -4877,17 +4877,19 @@
         <input type="file" id="photoOrthoFrameInput" class="ortho-offscreen-file"
                accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.bmp,.heic,.heif,.tif,.tiff,.avif"
                onchange="photoOrthoFrameInputChange(this)">
+        <div id="photoOrthoVisitNav" class="ortho-visit-nav">
+          <span class="ortho-visit-label" data-i18n="media.ortho.visitNav"></span>
+          <button type="button" class="xray-btn ortho-visit-step" onclick="photoOrthoStepVisit(-1)" data-i18n-aria-label="media.ortho.visitPrev">‹</button>
+          <select id="photoOrthoVisitSelect" class="xray-filter-sel" onchange="photoOrthoSelectVisit(this.value)"></select>
+          <button type="button" class="xray-btn ortho-visit-step" onclick="photoOrthoStepVisit(1)" data-i18n-aria-label="media.ortho.visitNext">›</button>
+          <div class="ortho-cat-picks" role="group">
+            <button type="button" class="xray-btn ortho-cat-pick" data-ortho-cat="initial" onclick="photoOrthoSetVisitCategory('initial')" data-i18n="media.ortho.catInitial"></button>
+            <button type="button" class="xray-btn ortho-cat-pick" data-ortho-cat="progress" onclick="photoOrthoSetVisitCategory('progress')" data-i18n="media.ortho.catProgress"></button>
+            <button type="button" class="xray-btn ortho-cat-pick" data-ortho-cat="final" onclick="photoOrthoSetVisitCategory('final')" data-i18n="media.ortho.catFinal"></button>
+          </div>
+        </div>
         <div id="photoOrthoSets"></div>
         <div id="photoOrthoPick" class="ortho-pick" hidden></div>
-        <div id="photoOrthoRecords" class="ortho-records">
-          <div class="ortho-records-bar">
-            <strong data-i18n="media.ortho.records"></strong>
-            <button type="button" class="xray-btn" onclick="photoOrthoShowPair()" data-i18n="media.ortho.showPair"></button>
-            <input type="date" id="photoOrthoProgressDate" class="xray-filter-input">
-            <button type="button" class="xray-btn" onclick="photoOrthoOpenProgressDate(document.getElementById('photoOrthoProgressDate').value)" data-i18n="media.ortho.progressAdd"></button>
-          </div>
-          <div id="photoOrthoRecordsBody"></div>
-        </div>
       </div>
 
       <!-- ── GRID VIEW ─────────────────────────────────── -->
@@ -8044,7 +8046,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20261006fx64',
-    'app-i18n-extra.js?v=20261010rec2',
+    'app-i18n-extra.js?v=20261010visit1',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20261003cbe',
@@ -8058,7 +8060,7 @@
     'app-report.js',
     'app-ai-helper.js',
     'app-memo-ai.js',
-    'app-photos.js?v=20261010rec2',
+    'app-photos.js?v=20261010visit1',
     'app-patient.js?v=20261003cbe',
     'app-patient-advanced-search.js',
     'app-patient-views.js?v=20261003cbe',

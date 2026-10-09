@@ -20873,6 +20873,11 @@ button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: 
 .ortho-tile-menu-item.is-danger:hover { background: #fef2f2; }
 .ortho-tile-menu-ico { width: 22px; text-align: center; font-size: 15px; color: #334155; }
 .ortho-tile-menu-item.is-danger .ortho-tile-menu-ico { color: #dc2626; }
+.ortho-visit-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; padding: 10px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; }
+.ortho-visit-label { font-size: 13px; font-weight: 700; color: #0f172a; }
+.ortho-visit-nav select { min-width: 220px; max-width: 420px; }
+.ortho-cat-picks { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.ortho-cat-pick.is-on { background: #0284c7; color: #fff; border-color: #0284c7; }
 .ortho-records { margin: 12px 0 0; padding: 10px; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; }
 .ortho-records-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
 .ortho-records-bar strong { margin-right: auto; font-size: 13px; color: #0f172a; }

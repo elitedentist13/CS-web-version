@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261010rec2';
-var STEP = 17;
+var BUILD = '20261010visit1';
+var STEP = 18;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -248,27 +248,25 @@ function finish(code) {
         read('app-con-media.js').indexOf("closest('#photoOrthoPanel')") >= 0 &&
         i18nHasAll(i18n, 'media.ortho.datasetSave') &&
         i18nHasAll(i18n, 'media.ortho.apptNone'));
-    pass('records list one Initial, one Final, and a Progress set per date',
-        html.indexOf('id="photoOrthoRecords"') >= 0 &&
-        html.indexOf('id="photoOrthoRecordsBody"') >= 0 &&
-        photos.indexOf('function photoOrthoRecordRows') >= 0 &&
-        photos.indexOf('function photoOrthoLoadRecord') >= 0 &&
-        photos.indexOf('function photoOrthoOpenProgressDate') >= 0 &&
-        photos.indexOf('function photoOrthoRecordRemark') >= 0 &&
+    pass('a clinic visit opens one 9-frame set, and that set can be Initial, Progress, or Final',
+        html.indexOf('id="photoOrthoVisitNav"') >= 0 &&
+        html.indexOf('id="photoOrthoVisitSelect"') >= 0 &&
+        html.indexOf('data-ortho-cat="initial"') >= 0 &&
+        html.indexOf('data-ortho-cat="progress"') >= 0 &&
+        html.indexOf('data-ortho-cat="final"') >= 0 &&
+        html.indexOf('id="photoOrthoRecords"') < 0 &&
+        photos.indexOf('function photoOrthoSelectVisit') >= 0 &&
+        photos.indexOf('function photoOrthoSetVisitCategory') >= 0 &&
         extractFn(photos, 'photoOrthoToggle').indexOf('photoOrthoArmLibraryView') >= 0 &&
         extractFn(photos, 'photoOrthoArmLibraryView').indexOf("setPhotoKind('photos')") >= 0 &&
         extractFn(photos, 'photoOrthoCategoryPairs').indexOf('photoOrthoDocCategory') >= 0 &&
         extractFn(photos, 'photoOrthoImages').indexOf('photoIsDocRec') >= 0 &&
-        i18nHasAll(i18n, 'media.ortho.records') &&
+        i18nHasAll(i18n, 'media.ortho.visitNav') &&
         i18nHasAll(i18n, 'media.ortho.catInitial') &&
         i18nHasAll(i18n, 'media.ortho.catProgress') &&
         i18nHasAll(i18n, 'media.ortho.catFinal') &&
-        i18nHasAll(i18n, 'media.ortho.recNote') &&
-        i18nHasAll(i18n, 'media.ortho.recVisit') &&
-        photos.indexOf('function photoOrthoRecordVisit') >= 0 &&
-        photos.indexOf('function photoOrthoVisitForDate') >= 0 &&
-        html.indexOf('id="photoOrthoSets"') < html.indexOf('id="photoOrthoPick"') &&
-        html.indexOf('id="photoOrthoPick"') < html.indexOf('id="photoOrthoRecords"'));
+        html.indexOf('id="photoOrthoVisitNav"') < html.indexOf('id="photoOrthoSets"') &&
+        html.indexOf('id="photoOrthoSets"') < html.indexOf('id="photoOrthoPick"'));
     pass('slideshow skips empty tiles, shows dates, and can slider or fade',
         html.indexOf('id="photoOrthoSlideSkip"') >= 0 &&
         html.indexOf('id="photoOrthoShowBeforeDate"') >= 0 &&
@@ -745,39 +743,32 @@ function finish(code) {
                 '{id:"appt-apr", date:"2024-04-01", start_time:"10:00", dentist_name:"Dr Lee"},' +
                 '{id:"appt-may", date:"2024-05-02", start_time:"11:30", dentist_name:"Dr Lee"}' +
                 '];' +
-                'var shell=photoOrthoRecordRows(photoOrthoNormalizeMap({before:{},after:{},progress:{}}));' +
-                'var shellCats=shell.map(function(r){ return r.category; });' +
                 'function orthoIdx(id){ var el=document.getElementById(id); if(!el||!el.parentNode) return -1; return [].indexOf.call(el.parentNode.children, el); }' +
-                'var iSets=orthoIdx("photoOrthoSets"); var iPick=orthoIdx("photoOrthoPick"); var iRec=orthoIdx("photoOrthoRecords");' +
+                'var iNav=orthoIdx("photoOrthoVisitNav"); var iSets=orthoIdx("photoOrthoSets"); var iPick=orthoIdx("photoOrthoPick");' +
+                'var noRecords=!document.getElementById("photoOrthoRecords");' +
                 'window.photoAllRecords=[' +
                 '{id:"p1", category:"Intraoral", file_path:"p1.jpg", public_url:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", taken_date:"2024-04-01"},' +
                 '{id:"p2", category:"Intraoral", file_path:"p2.jpg", public_url:"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", taken_date:"2024-05-02"},' +
                 '{id:"doc1", category:"Consent Form", file_path:"form.pdf", public_url:"", taken_date:"2024-04-01"}' +
                 '];' +
                 'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{},progress:{}}));' +
-                'photoOrthoPlace("before","face","p1");' +
-                'var id1=(photoOrthoRecordRows(photoOrthoLoad()).filter(function(r){ return r.category==="initial"; })[0]||{}).id||"";' +
-                'photoOrthoPlace("before","smile","p2");' +
-                'var initials=photoOrthoRecordRows(photoOrthoLoad()).filter(function(r){ return r.category==="initial"; });' +
-                'photoOrthoOpenProgressDate("2024-04-01");' +
+                'photoOrthoSelectVisit("2024-04-01");' +
                 'photoOrthoPlace("progress","face","p1");' +
-                'photoOrthoOpenProgressDate("2024-05-02");' +
+                'photoOrthoSetVisitCategory("initial");' +
+                'var id1=(photoOrthoLoad().setMeta.before||{}).id||"";' +
+                'photoOrthoSetVisitCategory("initial");' +
+                'var sameId=(photoOrthoLoad().setMeta.before||{}).id===id1;' +
+                'var apr=photoOrthoLoad();' +
+                'photoOrthoSelectVisit("2024-05-02");' +
                 'photoOrthoPlace("progress","smile","p2");' +
-                'photoOrthoOpenProgressDate("2024-04-01");' +
-                'var prog=photoOrthoRecordRows(photoOrthoLoad()).filter(function(r){ return r.category==="progress"; });' +
-                'var finals=photoOrthoRecordRows(photoOrthoLoad()).filter(function(r){ return r.category==="final"; });' +
-                'var first=prog.filter(function(r){ return r.date==="2024-04-01"; })[0];' +
-                'photoOrthoLoadRecord(first && first.id);' +
-                'var loaded=photoOrthoLoad();' +
-                'photoOrthoRecordRemark(first && first.id, "wire check");' +
-                'var noted=(photoOrthoRecordRows(photoOrthoLoad()).filter(function(r){ return r.id===(first&&first.id); })[0]||{}).remarks||"";' +
+                'var mid=photoOrthoLoad();' +
+                'photoOrthoSetVisitCategory("final");' +
+                'var fin=photoOrthoLoad();' +
+                'photoOrthoSelectVisit("2024-04-01");' +
+                'var back=photoOrthoLoad();' +
+                'var onCat=(document.querySelector("[data-ortho-cat].is-on")||{}).getAttribute ? document.querySelector("[data-ortho-cat].is-on").getAttribute("data-ortho-cat") : "";' +
+                'var visitVals=[].map.call((document.getElementById("photoOrthoVisitSelect")||{}).options||[], function(o){ return o.value; });' +
                 'var exportSet=(photoOrthoExportSets(photoOrthoLoad())||[])[0]||"";' +
-                'var wiredApr=(photoOrthoRecordById(photoOrthoLoad(), first && first.id)||{}).appointmentId||"";' +
-                'var may=prog.filter(function(r){ return r.date==="2024-05-02"; })[0];' +
-                'var wiredMay=(photoOrthoRecordById(photoOrthoLoad(), may && may.id)||{}).appointmentId||"";' +
-                'photoOrthoRecordDate(initials[0] && initials[0].id, "2024-05-02");' +
-                'var beforeWire=(photoOrthoLoad().setMeta.before||{}).appointmentId||"";' +
-                'var visitSel=(document.querySelector(\'select[data-record-visit="\'+(first&&first.id)+\'"]\')||{}).value||"";' +
                 'var strip=photoOrthoImages().map(function(r){ return r.id; });' +
                 'photoOrthoToggle(true);' +
                 'var openCats=[].map.call((document.getElementById("photoFilterCat")||{}).options||[], function(o){ return o.value; });' +
@@ -786,18 +777,17 @@ function finish(code) {
                 'photoOrthoToggle(false);' +
                 'var closedCats=[].map.call((document.getElementById("photoFilterCat")||{}).options||[], function(o){ return o.value; });' +
                 'if(typeof setPhotoKind==="function") setPhotoKind("all");' +
-                'return { id1:id1, initialN:initials.length, sameId:initials[0] && initials[0].id===id1, shellCats:shellCats, order:[iSets,iPick,iRec], progN:prog.length, progDates:prog.map(function(r){ return r.date; }), finalN:finals.length, loadedFace:loaded.progress && loaded.progress.face||"", loadedSmile:loaded.progress && loaded.progress.smile||"", focus:loaded.focus, noted:noted, exportSet:exportSet, wiredApr:wiredApr, wiredMay:wiredMay, beforeWire:beforeWire, visitSel:visitSel, strip:strip, openCats:openCats, kindOpen:kindOpen, closedCats:closedCats };' +
+                'return { noRecords:noRecords, order:[iNav,iSets,iPick], id1:id1, sameId:sameId, aprFace:apr.before&&apr.before.face||"", aprAppt:(apr.setMeta&&apr.setMeta.before&&apr.setMeta.before.appointmentId)||"", aprFocus:apr.focus, midSmile:mid.progress&&mid.progress.smile||"", midFocus:mid.focus, finSmile:fin.after&&fin.after.smile||"", finAppt:(fin.setMeta&&fin.setMeta.after&&fin.setMeta.after.appointmentId)||"", finDate:(fin.setMeta&&fin.setMeta.after&&fin.setMeta.after.date)||"", backFace:back.before&&back.before.face||"", backSmile:back.before&&back.before.smile||"", backFocus:back.focus, onCat:onCat, visitVals:visitVals, exportSet:exportSet, strip:strip, openCats:openCats, kindOpen:kindOpen, closedCats:closedCats };' +
                 '})()', false, 15000);
-            pass('live: Records keeps one Initial id, one Progress set per date, and loads that set',
-                records && records.initialN === 1 && records.sameId === true && records.id1.indexOf('os-') === 0 &&
-                JSON.stringify(records.shellCats) === JSON.stringify(['initial','progress','final']) &&
+            pass('live: a clinic visit opens its 9-frame set, and the set can be marked Initial or Final',
+                records && records.noRecords === true && records.sameId === true && records.id1.indexOf('os-') === 0 &&
                 records.order && records.order[0] >= 0 && records.order[0] < records.order[1] && records.order[1] < records.order[2] &&
-                records.progN === 2 && records.finalN === 1 &&
-                records.wiredApr === 'appt-apr' && records.wiredMay === 'appt-may' &&
-                records.beforeWire === 'appt-may' && records.visitSel === 'appt-apr' &&
-                JSON.stringify((records.progDates || []).slice().sort()) === JSON.stringify(['2024-04-01','2024-05-02']) &&
-                records.loadedFace === 'p1' && !records.loadedSmile && records.focus === 'progress' &&
-                records.noted === 'wire check' && records.exportSet === 'progress' &&
+                records.aprFace === 'p1' && records.aprAppt === 'appt-apr' && records.aprFocus === 'before' &&
+                records.midSmile === 'p2' && records.midFocus === 'progress' &&
+                records.finSmile === 'p2' && records.finAppt === 'appt-may' && records.finDate === '2024-05-02' &&
+                records.backFace === 'p1' && !records.backSmile && records.backFocus === 'before' && records.onCat === 'initial' &&
+                (records.visitVals || []).indexOf('2024-04-01') >= 0 && (records.visitVals || []).indexOf('2024-05-02') >= 0 &&
+                records.exportSet === 'before' &&
                 JSON.stringify(records.strip) === JSON.stringify(['p1','p2']) &&
                 (records.openCats || []).indexOf('Consent Form') < 0 &&
                 (records.openCats || []).indexOf('Intraoral') >= 0 &&

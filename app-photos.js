@@ -4383,12 +4383,248 @@ function photoOrthoEnsureVisitCache() {
     if (!panel || panel.hasAttribute('hidden')) return;
     var map = photoOrthoLoad();
     photoOrthoApplyVisitMatches(map);
-    photoOrthoPaintRecords(photoOrthoLoad());
+    photoOrthoPaintVisitNav(photoOrthoLoad());
   }, function() {
     if (req !== photoOrthoVisitReq) return;
     photoOrthoVisitCachePid = pid;
     photoOrthoVisitCache = [];
   });
+}
+
+function photoOrthoProgressByDate(map, date) {
+  date = String(date || '');
+  var i;
+  for (i = 0; i < (map.progressSets || []).length; i++) {
+    if (String(map.progressSets[i].date || '') === date) return map.progressSets[i];
+  }
+  return null;
+}
+
+function photoOrthoActiveVisitDate(map) {
+  map = map || photoOrthoLoad();
+  if (map.focus === 'before') return (map.setMeta && map.setMeta.before && map.setMeta.before.date) || '';
+  if (map.focus === 'after') return (map.setMeta && map.setMeta.after && map.setMeta.after.date) || '';
+  if (map.focus === 'progress') return String(map.progressDate || '').slice(0, 10);
+  return '';
+}
+
+function photoOrthoSetForDate(map, date) {
+  date = String(date || '').slice(0, 10);
+  if (!date) return null;
+  if (map.setMeta && map.setMeta.before && String(map.setMeta.before.date || '') === date) return { key: 'before', category: 'initial' };
+  if (map.setMeta && map.setMeta.after && String(map.setMeta.after.date || '') === date) return { key: 'after', category: 'final' };
+  if (photoOrthoProgressByDate(map, date)) return { key: 'progress', category: 'progress' };
+  return null;
+}
+
+function photoOrthoNavVisitOptions(map) {
+  var byValue = {};
+  function put(value, label) {
+    value = String(value || '');
+    if (!value || byValue[value]) return;
+    byValue[value] = { value: value, label: label || value };
+  }
+  photoOrthoVisitList().forEach(function(a) {
+    if (!a || !a.date) return;
+    var label = (typeof conMediaApptLabel === 'function') ? conMediaApptLabel(a) : String(a.date);
+    put(String(a.date).slice(0, 10), label);
+  });
+  function mark(date, cat) {
+    date = String(date || '').slice(0, 10);
+    if (!date) return;
+    var suffix = photoOrthoRecordCatLabel(cat);
+    if (!byValue[date]) byValue[date] = { value: date, label: date + ' · ' + suffix };
+    else if (byValue[date].label.indexOf(suffix) < 0) byValue[date].label += ' · ' + suffix;
+  }
+  if (map.setMeta && map.setMeta.before) mark(map.setMeta.before.date, 'initial');
+  if (map.setMeta && map.setMeta.after) mark(map.setMeta.after.date, 'final');
+  (map.progressSets || []).forEach(function(set) {
+    if (set && set.date) mark(set.date, 'progress');
+    else if (set && set.id) put('id:' + set.id, photoOrthoRecordCatLabel('progress'));
+  });
+  return Object.keys(byValue).map(function(k) { return byValue[k]; }).sort(function(a, b) {
+    return String(a.value) < String(b.value) ? 1 : (String(a.value) > String(b.value) ? -1 : 0);
+  });
+}
+
+function photoOrthoWireAppointment(meta, date) {
+  if (!meta) return;
+  var visit = photoOrthoVisitForDate(date);
+  if (visit && !meta.appointmentId) meta.appointmentId = String(visit.id);
+}
+
+function photoOrthoSelectVisit(value) {
+  value = String(value || '');
+  if (!value) {
+    photoOrthoShowPair();
+    return;
+  }
+  if (value.indexOf('id:') === 0) {
+    photoOrthoLoadRecord(value.slice(3));
+    return;
+  }
+  var date = value.slice(0, 10);
+  var map = photoOrthoLoad();
+  photoOrthoWriteProgressSnapshot(map);
+  var found = photoOrthoSetForDate(map, date);
+  if (!found) {
+    photoOrthoSave(map);
+    photoOrthoOpenProgressDate(date);
+    map = photoOrthoLoad();
+    var created = photoOrthoProgressByDate(map, date);
+    photoOrthoWireAppointment(created, date);
+    photoOrthoSave(map);
+    photoOrthoRender();
+    return;
+  }
+  if (found.key === 'progress') {
+    photoOrthoSave(map);
+    photoOrthoOpenProgressDate(date);
+    map = photoOrthoLoad();
+    photoOrthoWireAppointment(photoOrthoProgressByDate(map, date), date);
+    photoOrthoSave(map);
+    photoOrthoRender();
+    return;
+  }
+  photoOrthoWireAppointment(map.setMeta[found.key], date);
+  map.focus = found.key;
+  map.activeRecordId = map.setMeta[found.key].id || '';
+  photoOrthoSave(map);
+  photoOrthoRender();
+}
+
+function photoOrthoStepVisit(dir) {
+  var sel = g('photoOrthoVisitSelect');
+  if (!sel || !sel.options || sel.options.length < 2) return;
+  var idx = sel.selectedIndex;
+  if (idx < 0) idx = 0;
+  var next = idx + (dir < 0 ? -1 : 1);
+  if (next < 1) next = 1;
+  if (next >= sel.options.length) next = sel.options.length - 1;
+  if (!sel.options[next] || sel.options[next].value === sel.value) return;
+  photoOrthoSelectVisit(sel.options[next].value);
+}
+
+function photoOrthoClearExclusive(map, key) {
+  map[key] = {};
+  if (!map.xf) map.xf = {};
+  map.xf[key] = {};
+  if (map.setMeta && map.setMeta[key]) {
+    map.setMeta[key].date = '';
+    map.setMeta[key].appointmentId = '';
+  }
+}
+
+function photoOrthoDemoteExclusive(map, key, keepDate) {
+  var meta = map.setMeta && map.setMeta[key];
+  if (!meta) return;
+  var oldDate = String(meta.date || '').slice(0, 10);
+  if (oldDate === String(keepDate || '')) return;
+  if (!photoOrthoBagHasContent(map[key]) && !oldDate) return;
+  var dest = photoOrthoProgressByDate(map, oldDate);
+  if (!dest) {
+    dest = { id: photoOrthoNewSetId(), date: oldDate, remarks: meta.remarks || '', appointmentId: meta.appointmentId || '', slots: {}, xf: {} };
+    map.progressSets.push(dest);
+  }
+  if (!photoOrthoBagHasContent(dest.slots)) {
+    dest.slots = photoOrthoCopyBag(map[key]);
+    dest.xf = photoOrthoCopyBag(map.xf && map.xf[key]);
+  }
+  if (!dest.appointmentId) dest.appointmentId = meta.appointmentId || '';
+  photoOrthoClearExclusive(map, key);
+}
+
+function photoOrthoRemoveProgressDate(map, date) {
+  date = String(date || '');
+  var next = '';
+  map.progressSets = (map.progressSets || []).filter(function(set) {
+    var keep = String(set.date || '') !== date;
+    if (keep && !next && set.date) next = set.date;
+    return keep;
+  });
+  if (String(map.progressDate || '') !== date) return;
+  var hit = next ? photoOrthoProgressByDate(map, next) : null;
+  map.progressDate = next;
+  map.progress = hit ? photoOrthoCopyBag(hit.slots) : {};
+  if (!map.xf) map.xf = {};
+  map.xf.progress = hit ? photoOrthoCopyBag(hit.xf) : {};
+}
+
+function photoOrthoSetVisitCategory(cat) {
+  cat = (cat === 'final' || cat === 'progress') ? cat : 'initial';
+  var map = photoOrthoLoad();
+  photoOrthoWriteProgressSnapshot(map);
+  var date = photoOrthoActiveVisitDate(map);
+  if (!date) return;
+  var found = photoOrthoSetForDate(map, date);
+  var curKey = found ? found.key : (map.focus || 'progress');
+  if (!map[curKey]) map[curKey] = {};
+  var slots = photoOrthoCopyBag(map[curKey]);
+  var xf = photoOrthoCopyBag(map.xf && map.xf[curKey]);
+  var appt = '';
+  if (curKey === 'before' || curKey === 'after') appt = (map.setMeta[curKey] && map.setMeta[curKey].appointmentId) || '';
+  else {
+    var curSet = photoOrthoProgressByDate(map, date);
+    appt = (curSet && curSet.appointmentId) || '';
+  }
+  if (!appt) {
+    var visit = photoOrthoVisitForDate(date);
+    appt = visit ? String(visit.id) : '';
+  }
+  if (cat === 'initial' || cat === 'final') {
+    var key = cat === 'final' ? 'after' : 'before';
+    if (curKey !== key) photoOrthoDemoteExclusive(map, key, date);
+    if (curKey === 'progress') photoOrthoRemoveProgressDate(map, date);
+    if (curKey === 'before' || curKey === 'after') {
+      if (curKey !== key) photoOrthoClearExclusive(map, curKey);
+    }
+    map[key] = slots;
+    if (!map.xf) map.xf = {};
+    map.xf[key] = xf;
+    if (!map.setMeta[key]) map.setMeta[key] = { id: '', date: '', remarks: '', appointmentId: '' };
+    map.setMeta[key].date = date;
+    map.setMeta[key].appointmentId = appt;
+    map.focus = key;
+    map.activeRecordId = map.setMeta[key].id || '';
+  } else {
+    var hit = photoOrthoProgressByDate(map, date);
+    if (!hit) {
+      hit = { id: photoOrthoNewSetId(), date: date, remarks: '', appointmentId: appt, slots: {}, xf: {} };
+      map.progressSets.push(hit);
+    }
+    hit.slots = slots;
+    hit.xf = xf;
+    hit.appointmentId = appt || hit.appointmentId || '';
+    if (curKey === 'before' || curKey === 'after') photoOrthoClearExclusive(map, curKey);
+    map.progressDate = date;
+    map.progress = photoOrthoCopyBag(slots);
+    if (!map.xf) map.xf = {};
+    map.xf.progress = photoOrthoCopyBag(xf);
+    map.focus = 'progress';
+    map.activeRecordId = hit.id;
+  }
+  photoOrthoSave(map);
+  photoOrthoRender();
+}
+
+function photoOrthoPaintVisitNav(map) {
+  var sel = g('photoOrthoVisitSelect');
+  if (!sel) return;
+  map = map || photoOrthoLoad();
+  photoOrthoEnsureVisitCache();
+  var current = photoOrthoActiveVisitDate(map);
+  var options = photoOrthoNavVisitOptions(map);
+  var html = '<option value="">' + esc(mediaTr('media.ortho.visitPh')) + '</option>';
+  options.forEach(function(o) {
+    html += '<option value="' + esc(o.value) + '"' + (o.value === current ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+  });
+  sel.innerHTML = html;
+  var cat = map.focus === 'after' ? 'final' : (map.focus === 'progress' ? 'progress' : (map.focus === 'before' ? 'initial' : ''));
+  var picks = document.querySelectorAll('[data-ortho-cat]');
+  var i;
+  for (i = 0; i < picks.length; i++) {
+    picks[i].classList.toggle('is-on', picks[i].getAttribute('data-ortho-cat') === cat);
+  }
 }
 
 function photoOrthoRecordShell(meta, category, focus, token) {
@@ -4678,7 +4914,7 @@ function photoOrthoRender() {
       }
     }
   }
-  photoOrthoPaintRecords(map);
+  photoOrthoPaintVisitNav(map);
 }
 
 var photoOrthoMenuTarget = null;

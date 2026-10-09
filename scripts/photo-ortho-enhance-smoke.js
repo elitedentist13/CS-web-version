@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261010fold2';
-var STEP = 32;
+var BUILD = '20261010pause1';
+var STEP = 33;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -316,7 +316,16 @@ function finish(code) {
         extractFn(photos, 'photoOrthoSlidePlay').indexOf('photoOrthoSlideDuration') >= 0 &&
         extractFn(photos, 'photoOrthoSlidePaint').indexOf('photoOrthoSpeedWrap') >= 0 &&
         css.indexOf('.ortho-show-speed.is-on { display: flex; }') >= 0 &&
-        i18nHasAll(i18n, 'media.ortho.speed'));
+        i18nHasAll(i18n, 'media.ortho.speed') &&
+        html.indexOf('id="photoOrthoPlayBtn"') >= 0 &&
+        html.indexOf('photoOrthoSlideTogglePlay()') >= 0 &&
+        photos.indexOf('function photoOrthoSlideTogglePlay') >= 0 &&
+        extractFn(photos, 'photoOrthoSlidePlay').indexOf('photoOrthoSlidePaused') >= 0 &&
+        extractFn(photos, 'photoOrthoSlidePaint').indexOf('photoOrthoSlidePaused') >= 0 &&
+        extractFn(photos, 'photoOrthoSlidePaint').indexOf('photoOrthoPlayBtn') >= 0 &&
+        css.indexOf('.ortho-show-play.is-on { display: flex; align-items: center; }') >= 0 &&
+        i18nHasAll(i18n, 'media.ortho.play') &&
+        i18nHasAll(i18n, 'media.ortho.pause'));
     pass('the page becomes hittable even when no paint frame runs',
         extractFn(appJs, 'scheduleMarkAppReady').indexOf('setTimeout(markAppReady') >= 0 &&
         extractFn(appJs, 'markAppReady').indexOf("classList.add('app-ready')") >= 0 &&
@@ -932,6 +941,7 @@ function finish(code) {
                 Math.abs(play.fadeOp - play.fadeMid / 100) < 0.08,
                 JSON.stringify(play));
             var speed = await cdp.js('(async function(){' +
+                'photoOrthoSlidePaused=false;' +
                 'photoOrthoSlideshow();' +
                 'function pct(){ var mix=document.getElementById("photoOrthoShowMix"); return Number(String((mix && mix.style.getPropertyValue("--ortho-mix")) || "0").replace("%","")) || 0; }' +
                 'function shown(){ var wrap=document.getElementById("photoOrthoSpeedWrap"); return wrap ? getComputedStyle(wrap).display : ""; }' +
@@ -955,6 +965,43 @@ function finish(code) {
                 speed.fastShown === 'flex' && speed.pairShown === 'none' &&
                 speed.dur === 1400,
                 JSON.stringify(speed));
+            var freeze = await cdp.js('(async function(){' +
+                'photoOrthoSlidePaused=false;' +
+                'photoOrthoSlideshow();' +
+                'photoOrthoSlideSetSpeed(5);' +
+                'photoOrthoSlideSetMode("slider");' +
+                'function pct(){ var mix=document.getElementById("photoOrthoShowMix"); return Number(String((mix && mix.style.getPropertyValue("--ortho-mix")) || "0").replace("%","")) || 0; }' +
+                'function playShown(){ var b=document.getElementById("photoOrthoPlayBtn"); return b ? getComputedStyle(b).display : ""; }' +
+                'function title(){ return (document.getElementById("photoOrthoShowTitle")||{}).textContent||""; }' +
+                'await new Promise(function(r){ setTimeout(r, 450); });' +
+                'photoOrthoSlideTogglePlay();' +
+                'var frozen=pct();' +
+                'var frozenTitle=title();' +
+                'var label=(document.getElementById("photoOrthoPlayBtn")||{}).textContent||"";' +
+                'var shown=playShown();' +
+                'await new Promise(function(r){ setTimeout(r, 700); });' +
+                'var still=pct();' +
+                'var stillTitle=title();' +
+                'photoOrthoSlideTogglePlay();' +
+                'var resumed=(document.getElementById("photoOrthoPlayBtn")||{}).textContent||"";' +
+                'await new Promise(function(r){ setTimeout(r, 450); });' +
+                'var later=pct();' +
+                'photoOrthoSlideSetMode("fade");' +
+                'var fadeShown=playShown();' +
+                'photoOrthoSlideSetMode("pair");' +
+                'var pairShown=playShown();' +
+                'photoOrthoSlideClose();' +
+                'return { frozen:frozen, still:still, later:later, label:label, resumed:resumed, shown:shown, fadeShown:fadeShown, pairShown:pairShown, frozenTitle:frozenTitle, stillTitle:stillTitle };' +
+                '})()', true, 15000);
+            pass('live: Pause freezes Slide and Fade, and Play continues that picture',
+                freeze && freeze.frozen > 0 && freeze.frozen < 95 &&
+                freeze.still === freeze.frozen && freeze.stillTitle === freeze.frozenTitle &&
+                freeze.later > freeze.frozen &&
+                /Play|播放/.test(freeze.label || '') &&
+                /Pause|暂停|暫停/.test(freeze.resumed || '') &&
+                freeze.shown === 'flex' && freeze.fadeShown === 'flex' &&
+                freeze.pairShown === 'none',
+                JSON.stringify(freeze));
             var exp = await cdp.js('(async function(){' +
                 'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
                 'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +

@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261010fold2';
+  var BUILD = '20261010pause1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -4977,6 +4977,8 @@
               onclick="photoOrthoSlideSetMode('slider')" data-i18n="media.ortho.modeSlider"></button>
       <button type="button" class="xray-btn" id="photoOrthoModeFade"
               onclick="photoOrthoSlideSetMode('fade')" data-i18n="media.ortho.modeFade"></button>
+      <button type="button" class="xray-btn ortho-show-play" id="photoOrthoPlayBtn"
+              onclick="photoOrthoSlideTogglePlay()" data-i18n="media.ortho.pause">Pause</button>
       <label class="ortho-show-speed" id="photoOrthoSpeedWrap">
         <span data-i18n="media.ortho.speed">Speed</span>
         <input type="range" id="photoOrthoSlideSpeed" min="1" max="10" value="5" step="1"
@@ -8058,7 +8060,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20261006fx64',
-    'app-i18n-extra.js?v=20261010fold2',
+    'app-i18n-extra.js?v=20261010pause1',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20261010hit1',
@@ -8072,7 +8074,7 @@
     'app-report.js',
     'app-ai-helper.js',
     'app-memo-ai.js',
-    'app-photos.js?v=20261010fold2',
+    'app-photos.js?v=20261010pause1',
     'app-patient.js?v=20261003cbe',
     'app-patient-advanced-search.js',
     'app-patient-views.js?v=20261003cbe',

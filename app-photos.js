@@ -5672,6 +5672,8 @@ function photoOrthoSlideshow() {
   var panel = g('photoOrthoPanel');
   if (panel && panel.hasAttribute('hidden')) photoOrthoToggle(true);
   photoOrthoSlideIdx = 0;
+  photoOrthoSlidePaused = false;
+  photoOrthoSlideHoldLeft = 0;
   var el = g('photoOrthoShow');
   if (!el) return;
   el.removeAttribute('hidden');
@@ -5681,6 +5683,9 @@ function photoOrthoSlideshow() {
 
 function photoOrthoSlideClose() {
   photoOrthoSlideStopPlay();
+  photoOrthoSlidePaused = false;
+  photoOrthoSlideHoldLeft = 0;
+  photoOrthoSlideHoldUntil = 0;
   var el = g('photoOrthoShow');
   if (el) el.setAttribute('hidden', '');
   photoOrthoShowChrome(false);
@@ -5710,14 +5715,51 @@ function photoSlideBack() {
 function photoOrthoSlideSkipChange(on) {
   photoOrthoSlideSkipEmpty = !!on;
   photoOrthoSlideIdx = 0;
+  if (photoOrthoSlidePaused) {
+    photoOrthoSlideHoldLeft = 0;
+    photoOrthoSlideMixPct = 0;
+  }
   photoOrthoSlidePaint();
 }
 
 var photoOrthoSlidePlayGen = 0;
 var photoOrthoSlideSpeed = 5;
+var photoOrthoSlidePaused = false;
+var photoOrthoSlideHoldUntil = 0;
+var photoOrthoSlideHoldLeft = 0;
 
 function photoOrthoSlideStopPlay() {
   photoOrthoSlidePlayGen++;
+}
+
+function photoOrthoSlideSyncPlayBtn() {
+  var btn = g('photoOrthoPlayBtn');
+  if (!btn) return;
+  var key = photoOrthoSlidePaused ? 'media.ortho.play' : 'media.ortho.pause';
+  btn.setAttribute('data-i18n', key);
+  btn.textContent = mediaTr(key);
+  btn.classList.toggle('is-paused', !!photoOrthoSlidePaused);
+}
+
+function photoOrthoSlideTogglePlay() {
+  var show = g('photoOrthoShow');
+  if (!show || show.hasAttribute('hidden')) return;
+  if (photoOrthoSlideMode !== 'slider' && photoOrthoSlideMode !== 'fade') return;
+  if (photoOrthoSlidePaused) {
+    photoOrthoSlidePaused = false;
+    photoOrthoSlideSyncPlayBtn();
+    var left = photoOrthoSlideHoldLeft;
+    photoOrthoSlideHoldLeft = 0;
+    if (left > 0) photoOrthoSlidePlay(100, left);
+    else photoOrthoSlidePlay(photoOrthoSlideMixPct);
+    return;
+  }
+  photoOrthoSlidePaused = true;
+  if (photoOrthoSlideHoldUntil > Date.now()) photoOrthoSlideHoldLeft = photoOrthoSlideHoldUntil - Date.now();
+  else photoOrthoSlideHoldLeft = 0;
+  photoOrthoSlideHoldUntil = 0;
+  photoOrthoSlideStopPlay();
+  photoOrthoSlideSyncPlayBtn();
 }
 
 function photoOrthoSlideDuration() {
@@ -5736,43 +5778,67 @@ function photoOrthoSlideSetSpeed(val) {
   if (lab) lab.textContent = String(photoOrthoSlideSpeed);
 }
 
-function photoOrthoSlidePlay() {
+function photoOrthoSlidePlay(fromPct, holdMs) {
+  if (photoOrthoSlidePaused) return;
+  if (holdMs == null) photoOrthoSlideHoldLeft = 0;
   var gen = ++photoOrthoSlidePlayGen;
   var show = g('photoOrthoShow');
   if (!show || show.hasAttribute('hidden')) return;
   if (photoOrthoSlideMode !== 'slider' && photoOrthoSlideMode !== 'fade') return;
   var mix = g('photoOrthoShowMix');
   if (!mix || mix.hasAttribute('hidden')) return;
-  photoOrthoSlideSetMix(0);
+  var origin = (fromPct == null) ? 0 : Number(fromPct);
+  if (!isFinite(origin)) origin = 0;
+  origin = Math.max(0, Math.min(100, origin));
+  photoOrthoSlideSetMix(origin);
+  photoOrthoSlideHoldUntil = 0;
   var start = Date.now();
-  function tick() {
-    if (gen !== photoOrthoSlidePlayGen) return;
-    var el = g('photoOrthoShow');
-    if (!el || el.hasAttribute('hidden')) return;
+  function afterMix() {
+    if (gen !== photoOrthoSlidePlayGen || photoOrthoSlidePaused) return;
+    var el2 = g('photoOrthoShow');
+    if (!el2 || el2.hasAttribute('hidden')) return;
     if (photoOrthoSlideMode !== 'slider' && photoOrthoSlideMode !== 'fade') return;
-    var dur = photoOrthoSlideDuration();
-    var t = Math.min(1, (Date.now() - start) / dur);
-    var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-    photoOrthoSlideSetMix(Math.round(e * 100));
-    if (t < 1) {
-      setTimeout(tick, 40);
-      return;
-    }
-    var hold = Math.round(Math.min(900, photoOrthoSlideDuration() * 0.45));
+    var hold = (holdMs != null && isFinite(Number(holdMs)))
+      ? Math.max(0, Math.round(Number(holdMs)))
+      : Math.round(Math.min(900, photoOrthoSlideDuration() * 0.45));
+    photoOrthoSlideHoldUntil = Date.now() + hold;
     setTimeout(function() {
-      if (gen !== photoOrthoSlidePlayGen) return;
-      var el2 = g('photoOrthoShow');
-      if (!el2 || el2.hasAttribute('hidden')) return;
+      if (gen !== photoOrthoSlidePlayGen || photoOrthoSlidePaused) return;
+      photoOrthoSlideHoldUntil = 0;
+      var el3 = g('photoOrthoShow');
+      if (!el3 || el3.hasAttribute('hidden')) return;
       if (photoOrthoSlideMode !== 'slider' && photoOrthoSlideMode !== 'fade') return;
       if (photoOrthoSlideSteps().length > 1) photoOrthoSlideStep(1);
       else photoOrthoSlidePlay();
     }, hold);
   }
-  setTimeout(tick, 40);
+  function tick() {
+    if (gen !== photoOrthoSlidePlayGen || photoOrthoSlidePaused) return;
+    var el = g('photoOrthoShow');
+    if (!el || el.hasAttribute('hidden')) return;
+    if (photoOrthoSlideMode !== 'slider' && photoOrthoSlideMode !== 'fade') return;
+    var dur = photoOrthoSlideDuration();
+    var span = Math.max(40, Math.round(dur * (100 - origin) / 100));
+    var t = Math.min(1, (Date.now() - start) / span);
+    var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    photoOrthoSlideSetMix(Math.round(origin + (100 - origin) * e));
+    if (t < 1) {
+      setTimeout(tick, 40);
+      return;
+    }
+    afterMix();
+  }
+  if (origin >= 100) afterMix();
+  else setTimeout(tick, 40);
 }
 
 function photoOrthoSlideSetMode(mode) {
-  photoOrthoSlideMode = (mode === 'slider' || mode === 'fade') ? mode : 'pair';
+  var next = (mode === 'slider' || mode === 'fade') ? mode : 'pair';
+  if (next === 'pair') {
+    photoOrthoSlidePaused = false;
+    photoOrthoSlideHoldLeft = 0;
+  }
+  photoOrthoSlideMode = next;
   photoOrthoSlidePaint();
 }
 
@@ -5788,6 +5854,10 @@ function photoOrthoSlideSetMix(val) {
 function photoOrthoSlideStep(delta) {
   var n = photoOrthoSlideSteps().length || PHOTO_ORTHO_SLOTS.length;
   photoOrthoSlideIdx = (photoOrthoSlideIdx + delta + n) % n;
+  if (photoOrthoSlidePaused) {
+    photoOrthoSlideHoldLeft = 0;
+    photoOrthoSlideMixPct = 0;
+  }
   photoOrthoSlidePaint();
 }
 
@@ -5892,11 +5962,14 @@ function photoOrthoSlidePaint() {
   var speedWrap = g('photoOrthoSpeedWrap');
   if (speedWrap) speedWrap.classList.toggle('is-on', !!isMix);
   photoOrthoSlideSetSpeed(photoOrthoSlideSpeed);
+  var playBtn = g('photoOrthoPlayBtn');
+  if (playBtn) playBtn.classList.toggle('is-on', !!isMix);
+  photoOrthoSlideSyncPlayBtn();
   var oneStep = steps.length <= 1;
   document.querySelectorAll('#photoOrthoShow .ortho-show-nav').forEach(function(nav) {
     nav.hidden = oneStep;
   });
-  if (isMix) photoOrthoSlidePlay();
+  if (isMix && !photoOrthoSlidePaused) photoOrthoSlidePlay();
   else photoOrthoSlideStopPlay();
 }
 

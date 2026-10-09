@@ -20936,6 +20936,9 @@ button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: 
 .ortho-show-hint { margin: 0; flex: 1; color: #cbd5e1; font-size: 13px; }
 .ortho-show-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ortho-show-skip { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #e2e8f0; cursor: pointer; }
+.ortho-show-play { display: none; }
+.ortho-show-play.is-on { display: flex; align-items: center; }
+.ortho-show-tools .ortho-show-play.is-paused { background: #0284c7; border-color: #38bdf8; color: #fff; }
 .ortho-show-speed { display: none; align-items: center; gap: 8px; font-size: 13px; color: #e2e8f0; }
 .ortho-show-speed.is-on { display: flex; }
 .ortho-show-speed input[type=range] { width: 110px; accent-color: #38bdf8; }

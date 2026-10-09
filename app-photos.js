@@ -3030,31 +3030,25 @@ function photoOrthoEventInPanel(e) {
   return !!(el && el.closest && el.closest('#photoOrthoPanel'));
 }
 
-function photoOrthoOsDropEffect(dt) {
-  var allowed = '';
-  try { allowed = String((dt && dt.effectAllowed) || '').toLowerCase(); } catch (err) { allowed = ''; }
-  if (allowed === 'move' || allowed === 'linkmove') return 'move';
-  if (allowed === 'link' || allowed === 'copylink') return 'link';
-  return 'copy';
-}
-
 function photoOrthoAcceptOsDrag(e) {
   if (!photoOrthoEventInPanel(e)) return;
-  var external = photoOrthoDragTypesFiles(e.dataTransfer);
-  if (!external && !(photoOrthoDrag && photoOrthoDrag.id)) return;
+  // Explorer only completes a desktop drop when dragover is accepted and
+  // left alone. Choosing an effect, or stopping the event, from document
+  // capture makes Chrome cancel the drop before it reaches the frame.
   e.preventDefault();
-  if (e.dataTransfer) {
-    try {
-      e.dataTransfer.dropEffect = external
-        ? photoOrthoOsDropEffect(e.dataTransfer)
-        : (photoOrthoDrag && photoOrthoDrag.fromSet ? 'move' : 'copy');
-    } catch (err2) { /* effect not writable */ }
-  }
   photoOrthoRememberHover(e);
   var tile = photoOrthoTileFromEvent(e);
   var setEl = photoOrthoSetFromEvent(e);
   if (tile) tile.classList.add('is-over');
   if (setEl) setEl.classList.add('is-over');
+}
+
+function photoOrthoOsDropAllow(e) {
+  if (!photoOrthoEventInPanel(e)) return;
+  var external = photoOrthoDragTypesFiles(e.dataTransfer) || photoOrthoHasExternalFiles(e.dataTransfer);
+  var internal = !!(photoOrthoDrag && photoOrthoDrag.id);
+  if (!external && !internal) return;
+  e.preventDefault();
 }
 
 function photoOrthoFirstOpenSlot(setKey) {
@@ -3144,7 +3138,12 @@ function photoOrthoBind() {
   }
   function onDrop(e) {
     var where = photoOrthoDropTarget(e);
-    var snappedRaw = (e && e._orthoFiles) ? e._orthoFiles : photoOrthoSnapshotFiles(e && e.dataTransfer);
+    // Read the file list on the frame. A document capture listener sees an
+    // empty list for a real Explorer drag, and an empty snapshot must not
+    // hide the files that are present once the drop reaches this element.
+    var snappedRaw = (e && e._orthoFiles && e._orthoFiles.length)
+      ? e._orthoFiles
+      : photoOrthoSnapshotFiles(e && e.dataTransfer);
     var snapped = photoOrthoImageFiles(snappedRaw);
     if (!where.tile && !where.setEl && !snapped.length && !photoOrthoHasExternalFiles(e.dataTransfer)) return;
     e.preventDefault();
@@ -3170,19 +3169,9 @@ function photoOrthoBind() {
     if (!id) return;
     photoOrthoPlace(where.tile.dataset.set, where.tile.dataset.slot, id, from);
   }
-  function onDocDrop(e) {
-    if (!photoOrthoEventInPanel(e)) return;
-    var external = photoOrthoHasExternalFiles(e.dataTransfer) || photoOrthoDragTypesFiles(e.dataTransfer);
-    var internal = !!(photoOrthoDrag && photoOrthoDrag.id);
-    if (!external && !internal) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (external) e._orthoFiles = photoOrthoSnapshotFiles(e.dataTransfer);
-    onDrop(e);
-  }
   document.addEventListener('dragenter', photoOrthoAcceptOsDrag, true);
   document.addEventListener('dragover', photoOrthoAcceptOsDrag, true);
-  document.addEventListener('drop', onDocDrop, true);
+  document.addEventListener('drop', photoOrthoOsDropAllow, true);
   ['dragenter', 'dragover'].forEach(function(name) {
     root.addEventListener(name, onOver);
     if (panel) panel.addEventListener(name, onOver);
@@ -3753,7 +3742,8 @@ function photoOrthoCommitDrop(setKey, files, slotKey) {
   var pinSlot = slotKey || null;
   if (!pinSlot && photoOrthoInputMode(photoOrthoLoad(), setKey) === 'composite') pinSlot = 'composite';
   if (pinSlot === 'composite') images = images.slice(0, 1);
-  if (!pinSlot && images.length !== PHOTO_ORTHO_SLOTS.length) {
+  if (pinSlot) return photoOrthoQuietSave(setKey, images, pinSlot);
+  if (images.length !== PHOTO_ORTHO_SLOTS.length) {
     var ok = window.confirm(mediaTrRepl('media.ortho.dropCount', {
       N: String(images.length),
       SET: photoOrthoSetLabel(setKey),
@@ -3783,6 +3773,56 @@ function photoOrthoCommitDrop(setKey, files, slotKey) {
         return n;
       });
     });
+  }).catch(function(err) {
+    mediaNotify(mediaTrRepl('media.ortho.saveFail', { MSG: (err && err.message) || String(err) }), 'error');
+    return 0;
+  }).then(function(n) {
+    if (photoOrthoUploadBusy === job) photoOrthoUploadBusy = false;
+    return n;
+  });
+}
+
+function photoOrthoQuietContext() {
+  var clinic = photoOrthoClinicName() || null;
+  var today = (typeof todayISO === 'function') ? todayISO() : null;
+  var dr = photoOrthoDoctorName() || null;
+  var sel = g('photoOrthoDatasetAppt');
+  var id = sel && sel.value ? String(sel.value) : '';
+  var opt = (id && sel && sel.options && sel.selectedIndex >= 0) ? sel.options[sel.selectedIndex] : null;
+  if (id && opt) {
+    return {
+      appointment_id: id,
+      clinic: clinic,
+      taken_date: opt.getAttribute('data-date') || today,
+      dr: opt.getAttribute('data-dr') || dr
+    };
+  }
+  return { appointment_id: null, clinic: clinic, taken_date: today, dr: dr };
+}
+
+function photoOrthoQuietSave(setKey, images, pinSlot) {
+  var job = {};
+  var ctx = photoOrthoQuietContext();
+  photoOrthoUploadBusy = job;
+  return photoOrthoUploadDropped(images, setKey, ctx).then(function(pack) {
+    pack = pack || { recs: [], error: '' };
+    photoOrthoMergeUploaded(pack.recs);
+    var id = pack.recs[0] && pack.recs[0].id;
+    var n = 0;
+    if (id) {
+      photoOrthoPlace(setKey, pinSlot, id, null);
+      n = photoOrthoFind(id) ? 1 : 0;
+    }
+    try { if (typeof filterPhotos === 'function') filterPhotos(); } catch (errGrid) { /* grid refresh */ }
+    if (typeof conSchedulePatientTimelineRefresh === 'function' && photoPatientId) {
+      conSchedulePatientTimelineRefresh(photoPatientId);
+    }
+    if (pack.error) {
+      mediaNotify(mediaTrRepl('media.ortho.saveFail', { MSG: pack.error }), 'error');
+    } else if (n) {
+      mediaNotify(mediaTrRepl('media.ortho.savedOk', { N: String(n), SET: photoOrthoSetLabel(setKey) }), 'info');
+    }
+    return n;
   }).catch(function(err) {
     mediaNotify(mediaTrRepl('media.ortho.saveFail', { MSG: (err && err.message) || String(err) }), 'error');
     return 0;
@@ -3839,22 +3879,59 @@ function photoOrthoBrowseFile(setKey, slotKey) {
   if (!photoOrthoIsSetKey(setKey) || !slotKey) return;
   photoOrthoBrowseTarget = { set: setKey, slot: slotKey };
   photoOrthoChartDismissed = false;
+  var picker = null;
+  var wide = [{
+    description: 'Images',
+    accept: {
+      'image/jpeg': ['.jpg', '.jpeg', '.jpe', '.jfif'],
+      'image/png': ['.png'],
+      'image/webp': ['.webp'],
+      'image/gif': ['.gif'],
+      'image/bmp': ['.bmp'],
+      'image/tiff': ['.tif', '.tiff'],
+      'image/avif': ['.avif'],
+      'image/heic': ['.heic'],
+      'image/heif': ['.heif']
+    }
+  }];
+  var narrow = [{
+    description: 'Images',
+    accept: {
+      'image/jpeg': ['.jpg', '.jpeg', '.jfif'],
+      'image/png': ['.png'],
+      'image/webp': ['.webp'],
+      'image/gif': ['.gif']
+    }
+  }];
+  // Open the dialog in this click. A wildcard type throws before the
+  // promise exists, and the plain file input only opens during the click.
+  if (typeof window.showOpenFilePicker === 'function') {
+    try {
+      picker = window.showOpenFilePicker({
+        id: 'jsm-ortho-frame',
+        startIn: 'downloads',
+        multiple: false,
+        types: wide
+      });
+    } catch (errWide) {
+      try {
+        picker = window.showOpenFilePicker({
+          id: 'jsm-ortho-frame',
+          startIn: 'downloads',
+          multiple: false,
+          types: narrow
+        });
+      } catch (errNarrow) {
+        picker = null;
+      }
+    }
+  }
   if (typeof photoOrthoPick === 'function') photoOrthoPick(setKey, slotKey, { quiet: true });
-  if (typeof window.showOpenFilePicker !== 'function') {
+  if (!picker) {
     photoOrthoBrowseFileInput();
     return;
   }
-  window.showOpenFilePicker({
-    id: 'jsm-ortho-frame',
-    startIn: 'downloads',
-    multiple: false,
-    types: [{
-      description: 'Images',
-      accept: {
-        'image/*': ['.jpg', '.jpeg', '.jfif', '.png', '.webp', '.gif', '.bmp', '.heic', '.heif', '.tif', '.tiff', '.avif']
-      }
-    }]
-  }).then(function(handles) {
+  Promise.resolve(picker).then(function(handles) {
     var handle = handles && handles[0];
     if (!handle || typeof handle.getFile !== 'function') return null;
     return handle.getFile();
@@ -3864,7 +3941,6 @@ function photoOrthoBrowseFile(setKey, slotKey) {
     photoOrthoCommitDrop(target.set, [file], target.slot);
   }).catch(function(err) {
     if (err && err.name === 'AbortError') return;
-    photoOrthoBrowseFileInput();
   });
 }
 

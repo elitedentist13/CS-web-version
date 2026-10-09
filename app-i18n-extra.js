@@ -5899,7 +5899,7 @@
         'media.slide': { en: '▶ Slide', 'zh-CN': '▶ 幻灯', 'zh-Hant': '▶ 投影片' },
         'media.ortho.btn': { en: 'Ortho board', 'zh-CN': '矫治对照板', 'zh-Hant': '矯治對照板' },
         'media.ortho.title': { en: 'Orthodontic before / after', 'zh-CN': '正畸治疗前后对照', 'zh-Hant': '牙齒矯正治療前後對照' },
-        'media.ortho.hint': { en: 'Confirm this clinic and an existing appointment. Click a frame to aim the chart strip. Use Browse on a frame to pick a file from this computer — Downloads opens first. You can also drop a photo onto a frame. New files are saved in the clinic photo library.', 'zh-CN': '请先确认本院和已有预约。点击格子，把上方的病历照片对准该格。用格子上的“浏览”从这台电脑选文件，默认打开下载文件夹。也可把照片拖到格子上。新文件会存入诊所照片库。', 'zh-Hant': '請先確認本院和已有預約。點擊格子，把上方的病歷相片對準該格。用格子上的「瀏覽」從這台電腦選檔案，預設打開下載資料夾。也可把相片拖到格子上。新檔案會存入診所相片庫。' },
+        'media.ortho.hint': { en: 'Drop a photo from this computer onto a frame, or use Browse. It is saved to the photo library, then that new photo is placed on the frame. Click a frame only to aim the chart strip.', 'zh-CN': '把电脑里的照片拖到格子上，或用“浏览”选择。照片会先存入照片库，再用这张新照片放到该格。点击格子只对准上方病历条。', 'zh-Hant': '把電腦裡的相片拖到格子上，或用「瀏覽」選擇。相片會先存入相片庫，再用這張新相片放到該格。點擊格子只對準上方病歷條。' },
         'media.ortho.slide': { en: 'Slideshow', 'zh-CN': '对照放映', 'zh-Hant': '對照放映' },
         'media.ortho.meter': { en: '{BEFORE} {BN}/{M} · {AFTER} {AN}/{M}', 'zh-CN': '{BEFORE} {BN}/{M} · {AFTER} {AN}/{M}', 'zh-Hant': '{BEFORE} {BN}/{M} · {AFTER} {AN}/{M}' },
         'media.ortho.placeBefore': { en: 'Place on Before', 'zh-CN': '放到治疗前', 'zh-Hant': '放到治療前' },

@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261009ortho6';
-var STEP = 13;
+var BUILD = '20261009ortho8';
+var STEP = 15;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -218,20 +218,29 @@ function finish(code) {
         uploadFn.indexOf('createObjectURL') < 0 &&
         uploadFn.indexOf('_localFile') < 0 &&
         commitFn.indexOf('photoOrthoConfirmDataset') >= 0 &&
+        commitFn.indexOf('photoOrthoQuietSave') >= 0 &&
         commitFn.indexOf('photoOrthoUploadDropped') >= 0 &&
+        extractFn(photos, 'photoOrthoQuietSave').indexOf('photoOrthoUploadDropped') >= 0 &&
+        extractFn(photos, 'photoOrthoQuietSave').indexOf('photoOrthoPlace') >= 0 &&
         photos.indexOf('function photoOrthoSnapshotFiles') >= 0 &&
         photos.indexOf('photoOrthoDragTypesFiles') >= 0 &&
         photos.indexOf('function photoOrthoAcceptOsDrag') >= 0 &&
         extractFn(photos, 'photoOrthoAcceptOsDrag').indexOf('preventDefault') >= 0 &&
         extractFn(photos, 'photoOrthoAcceptOsDrag').indexOf('stopPropagation') < 0 &&
+        extractFn(photos, 'photoOrthoAcceptOsDrag').indexOf('dropEffect') < 0 &&
+        extractFn(photos, 'photoOrthoOsDropAllow').indexOf('preventDefault') >= 0 &&
+        extractFn(photos, 'photoOrthoOsDropAllow').indexOf('stopPropagation') < 0 &&
+        extractFn(photos, 'photoOrthoOsDropAllow').indexOf('_orthoFiles') < 0 &&
         extractFn(photos, 'photoOrthoBind').indexOf("document.addEventListener('dragover'") >= 0 &&
-        extractFn(photos, 'photoOrthoBind').indexOf("document.addEventListener('drop'") >= 0 &&
+        extractFn(photos, 'photoOrthoBind').indexOf("document.addEventListener('drop', photoOrthoOsDropAllow, true)") >= 0 &&
         extractFn(photos, 'photoOrthoBind').indexOf('photoOrthoAimFrame') >= 0 &&
         extractFn(photos, 'photoOrthoBind').indexOf('photoOrthoBrowseFile') >= 0 &&
         extractFn(photos, 'photoOrthoTileHtml').indexOf('photoOrthoBrowseBtnHtml') >= 0 &&
         extractFn(photos, 'photoOrthoBrowseBtnHtml').indexOf('data-ortho-browse') >= 0 &&
         photos.indexOf('function photoOrthoBrowseFile') >= 0 &&
         extractFn(photos, 'photoOrthoBrowseFile').indexOf("startIn: 'downloads'") >= 0 &&
+        extractFn(photos, 'photoOrthoBrowseFile').indexOf('image/jpeg') >= 0 &&
+        extractFn(photos, 'photoOrthoBrowseFile').indexOf('image/*') < 0 &&
         html.indexOf('id="photoOrthoFrameInput"') >= 0 &&
         extractFn(photos, 'photoOrthoToggle').indexOf('photoOrthoChartPickerOpen') >= 0 &&
         photos.indexOf('function photoOrthoChartPickerOpen') >= 0 &&
@@ -594,6 +603,7 @@ function finish(code) {
                 'window.photoPatientId="e1-patient";' +
                 'window.photoAllRecords=[];' +
                 'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{},progress:{}}));' +
+                'var login=document.getElementById("loginOverlay"); if(login) login.style.display="none";' +
                 'var sec=document.getElementById("consultationSection"); if(sec) sec.style.display="block";' +
                 'var pane=document.getElementById("con-photos"); if(pane) pane.style.display="block";' +
                 'var main=document.getElementById("photoMainContent"); if(main) main.style.display="block";' +
@@ -603,9 +613,24 @@ function finish(code) {
                 'if(!tile) return { ok:false };' +
                 'tile.scrollIntoView({block:"center", inline:"center"});' +
                 'var r=tile.getBoundingClientRect();' +
-                'var hit=document.elementFromPoint(r.left+r.width/2, r.top+r.height/2);' +
-                'var hitTile = hit && hit.closest ? hit.closest(".ortho-tile") : null;' +
-                'return { ok:r.width>8 && r.height>8, x:r.left+r.width/2, y:r.top+r.height/2, hit: hitTile ? (hitTile.getAttribute("data-slot") || "") : "", hitTag: hit ? hit.tagName : "", hitId: hit && hit.id || "", hitCls: hit && hit.className ? String(hit.className).slice(0,80) : "" };' +
+                'var samples=[' +
+                '  [r.left+r.width/2, r.top+r.height/2],' +
+                '  [r.left+r.width/2, r.top+Math.min(18, r.height/3)],' +
+                '  [r.left+Math.min(14, r.width/4), r.top+r.height/2],' +
+                '  [r.left+r.width/2, r.top+r.height-Math.min(16, r.height/4)]' +
+                '];' +
+                'var chosen=null, last=null, i, el, hitTile;' +
+                'for(i=0;i<samples.length;i++){' +
+                '  el=document.elementFromPoint(samples[i][0], samples[i][1]);' +
+                '  last=el;' +
+                '  hitTile=el && el.closest ? el.closest(".ortho-tile") : null;' +
+                '  if(hitTile===tile){ chosen={x:samples[i][0], y:samples[i][1], hit:tile.getAttribute("data-slot")||"", hitTag:el.tagName, hitId:el.id||"", hitCls:el.className?String(el.className).slice(0,80):""}; break; }' +
+                '}' +
+                'if(!chosen){' +
+                '  var stack=document.elementsFromPoint ? document.elementsFromPoint(r.left+r.width/2, r.top+r.height/2) : [];' +
+                '  return { ok:false, x:r.left+r.width/2, y:r.top+r.height/2, hit:"", hitTag:last?last.tagName:"", hitId:last&&last.id||"", hitCls:last&&last.className?String(last.className).slice(0,80):"", w:r.width, h:r.height, top:r.top, left:r.left, iw:window.innerWidth, ih:window.innerHeight, stack:(stack||[]).slice(0,6).map(function(n){ return n.tagName+"#"+(n.id||"")+"."+String(n.className||"").slice(0,40); }) };' +
+                '}' +
+                'return { ok:r.width>8 && r.height>8, x:chosen.x, y:chosen.y, hit:chosen.hit, hitTag:chosen.hitTag, hitId:chosen.hitId, hitCls:chosen.hitCls };' +
                 '})()', false, 15000);
             if (armed && armed.ok) {
                 var dragData = { items: [], files: [outsideFile], dragOperationsMask: 1 };

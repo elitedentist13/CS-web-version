@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261010copy1';
-var STEP = 30;
+var BUILD = '20261010fold2';
+var STEP = 32;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -228,6 +228,8 @@ function finish(code) {
         commitFn.indexOf('photoOrthoUploadDropped') >= 0 &&
         extractFn(photos, 'photoOrthoQuietSave').indexOf('photoOrthoUploadDropped') >= 0 &&
         extractFn(photos, 'photoOrthoQuietSave').indexOf('asImport: true') >= 0 &&
+        extractFn(photos, 'photoOrthoPlaceFiles').indexOf('asImport: true') >= 0 &&
+        extractFn(photos, 'photoOrthoCommitDrop').indexOf('photoOrthoUploadDropped(images, setKey, ctx, opts)') >= 0 &&
         extractFn(photos, 'photoOrthoQuietSave').indexOf('photoOrthoPlace') >= 0 &&
         extractFn(photos, 'photoOrthoUploadDropped').indexOf('opts.asImport') >= 0 &&
         photos.indexOf('function photoOrthoSnapshotFiles') >= 0 &&
@@ -306,7 +308,15 @@ function finish(code) {
         extractFn(photos, 'photoOrthoSlideClose').indexOf('photoOrthoSlideStopPlay') >= 0 &&
         css.indexOf('.ortho-show-mix input[type=range] { display: none; }') >= 0 &&
         css.indexOf('.ortho-show-mix.is-fade .ortho-show-mix-after { opacity: var(--ortho-mix, 0%); }') >= 0 &&
-        css.indexOf('opacity: calc(var(--ortho-mix') < 0);
+        css.indexOf('opacity: calc(var(--ortho-mix') < 0 &&
+        html.indexOf('id="photoOrthoSlideSpeed"') >= 0 &&
+        html.indexOf('photoOrthoSlideSetSpeed(this.value)') >= 0 &&
+        photos.indexOf('function photoOrthoSlideSetSpeed') >= 0 &&
+        photos.indexOf('function photoOrthoSlideDuration') >= 0 &&
+        extractFn(photos, 'photoOrthoSlidePlay').indexOf('photoOrthoSlideDuration') >= 0 &&
+        extractFn(photos, 'photoOrthoSlidePaint').indexOf('photoOrthoSpeedWrap') >= 0 &&
+        css.indexOf('.ortho-show-speed.is-on { display: flex; }') >= 0 &&
+        i18nHasAll(i18n, 'media.ortho.speed'));
     pass('the page becomes hittable even when no paint frame runs',
         extractFn(appJs, 'scheduleMarkAppReady').indexOf('setTimeout(markAppReady') >= 0 &&
         extractFn(appJs, 'markAppReady').indexOf("classList.add('app-ready')") >= 0 &&
@@ -646,6 +656,30 @@ function finish(code) {
                 JSON.stringify(drop.fromDir) === JSON.stringify(['profile.jpg']) &&
                 drop.folderBtns === true && drop.setData === 'before',
                 JSON.stringify(drop && { collected: drop.collected, fromDir: drop.fromDir, folderBtns: drop.folderBtns, setData: drop.setData }));
+            var folderSave = await cdp.js('(async function(){' +
+                'var prepared=0;' +
+                'photoOrthoPrepareUploadFile=function(file){ prepared++; return Promise.resolve(file); };' +
+                'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
+                'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
+                'photoOrthoUploadBusy=false;' +
+                'photoOrthoConfirmDataset=function(){ return Promise.resolve({ appointment_id:"appt-1", clinic:"TKO Clinic", taken_date:"2024-06-01", dr:"Dr A" }); };' +
+                'var uploaded=[];' +
+                'photoUploadOne=function(file){ uploaded.push(file && file.name); return Promise.resolve({ ok:true, id:"fold-"+file.name, path:"pid/"+file.name }); };' +
+                'loadPhotoRecords=function(){ return Promise.resolve(); };' +
+                'window.confirm=function(){ return true; };' +
+                'window.photoPatientId="e1-patient";' +
+                'window.photoAllRecords=[];' +
+                'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{},progress:{}}));' +
+                'photoOrthoRender();' +
+                'var blob=new Blob(["x"],{type:"image/jpeg"});' +
+                'var n=await photoOrthoPlaceFiles("before",[new File([blob],"profile.jpg",{type:"image/jpeg"}), new File([blob],"smile.jpg",{type:"image/jpeg"})]);' +
+                'var map=photoOrthoLoad();' +
+                'return { n:n, prepared:prepared, uploaded:uploaded, profile:map.before&&map.before.profile, smile:map.before&&map.before.smile };' +
+                '})()', true, 15000);
+            pass('live: folder load imports the original photos and pins those copies',
+                folderSave && folderSave.prepared === 0 && folderSave.n === 2 &&
+                folderSave.profile === 'fold-profile.jpg' && folderSave.smile === 'fold-smile.jpg',
+                JSON.stringify(folderSave));
             var outsideName = 'jsm-ortho-outside-' + Date.now() + '.jpg';
             var outsideFile = path.join(os.tmpdir(), outsideName);
             fs.writeFileSync(outsideFile, Buffer.from([0xFF, 0xD8, 0xFF, 0xD9]));
@@ -893,10 +927,34 @@ function finish(code) {
                 'return { start:start, mid:mid, shown:shown, fadeMid:fadeMid, fadeOn:fadeOn, fadeOp:fadeOp };' +
                 '})()', true, 15000);
             pass('live: Slide and Fade play across the two photos without the range bar',
-                play && play.mid > play.start && play.mid < 100 && play.shown === 'none' &&
-                play.fadeOn === true && play.fadeMid > 0 && play.fadeMid < 100 &&
+                play && play.mid > play.start && play.mid <= 100 && play.shown === 'none' &&
+                play.fadeOn === true && play.fadeMid > 0 && play.fadeMid <= 100 &&
                 Math.abs(play.fadeOp - play.fadeMid / 100) < 0.08,
                 JSON.stringify(play));
+            var speed = await cdp.js('(async function(){' +
+                'photoOrthoSlideshow();' +
+                'function pct(){ var mix=document.getElementById("photoOrthoShowMix"); return Number(String((mix && mix.style.getPropertyValue("--ortho-mix")) || "0").replace("%","")) || 0; }' +
+                'function shown(){ var wrap=document.getElementById("photoOrthoSpeedWrap"); return wrap ? getComputedStyle(wrap).display : ""; }' +
+                'photoOrthoSlideSetSpeed(10);' +
+                'photoOrthoSlideSetMode("slider");' +
+                'await new Promise(function(r){ setTimeout(r, 320); });' +
+                'var fast=pct();' +
+                'var fastShown=shown();' +
+                'photoOrthoSlideSetSpeed(1);' +
+                'photoOrthoSlideSetMode("fade");' +
+                'await new Promise(function(r){ setTimeout(r, 320); });' +
+                'var slow=pct();' +
+                'photoOrthoSlideSetMode("pair");' +
+                'var pairShown=shown();' +
+                'photoOrthoSlideSetSpeed(5);' +
+                'photoOrthoSlideClose();' +
+                'return { fast:fast, slow:slow, fastShown:fastShown, pairShown:pairShown, dur:photoOrthoSlideDuration() };' +
+                '})()', true, 15000);
+            pass('live: Speed shortens Slide and Fade, and the control is only on those modes',
+                speed && speed.fast > speed.slow + 15 &&
+                speed.fastShown === 'flex' && speed.pairShown === 'none' &&
+                speed.dur === 1400,
+                JSON.stringify(speed));
             var exp = await cdp.js('(async function(){' +
                 'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
                 'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +

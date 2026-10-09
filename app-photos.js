@@ -3994,7 +3994,7 @@ function photoOrthoApplyUploaded(setKey, recs, slotKey) {
   return n;
 }
 
-function photoOrthoCommitDrop(setKey, files, slotKey) {
+function photoOrthoCommitDrop(setKey, files, slotKey, opts) {
   if (!photoOrthoIsSetKey(setKey)) return Promise.resolve(0);
   var images = photoOrthoImageFiles(files);
   if (!images.length) {
@@ -4033,7 +4033,7 @@ function photoOrthoCommitDrop(setKey, files, slotKey) {
       return 0;
     }
     photoOrthoUploadBusy = job;
-    return photoOrthoUploadDropped(images, setKey, ctx).then(function(pack) {
+    return photoOrthoUploadDropped(images, setKey, ctx, opts).then(function(pack) {
       pack = pack || { recs: [], error: '' };
       var reload = (typeof loadPhotoRecords === 'function') ? loadPhotoRecords() : Promise.resolve();
       return Promise.resolve(reload).then(function() {
@@ -4158,7 +4158,7 @@ function photoOrthoQuietSave(setKey, images, pinSlot) {
 }
 
 function photoOrthoPlaceFiles(setKey, files) {
-  return photoOrthoCommitDrop(setKey, files, null);
+  return photoOrthoCommitDrop(setKey, files, null, { asImport: true });
 }
 
 var photoOrthoBrowseTarget = null;
@@ -5714,9 +5714,26 @@ function photoOrthoSlideSkipChange(on) {
 }
 
 var photoOrthoSlidePlayGen = 0;
+var photoOrthoSlideSpeed = 5;
 
 function photoOrthoSlideStopPlay() {
   photoOrthoSlidePlayGen++;
+}
+
+function photoOrthoSlideDuration() {
+  var n = Number(photoOrthoSlideSpeed);
+  if (!isFinite(n)) n = 5;
+  n = Math.max(1, Math.min(10, Math.round(n)));
+  return Math.round(7000 / n);
+}
+
+function photoOrthoSlideSetSpeed(val) {
+  var n = Number(val);
+  photoOrthoSlideSpeed = isFinite(n) ? Math.max(1, Math.min(10, Math.round(n))) : 5;
+  var range = g('photoOrthoSlideSpeed');
+  if (range && String(range.value) !== String(photoOrthoSlideSpeed)) range.value = String(photoOrthoSlideSpeed);
+  var lab = g('photoOrthoSpeedVal');
+  if (lab) lab.textContent = String(photoOrthoSlideSpeed);
 }
 
 function photoOrthoSlidePlay() {
@@ -5728,12 +5745,12 @@ function photoOrthoSlidePlay() {
   if (!mix || mix.hasAttribute('hidden')) return;
   photoOrthoSlideSetMix(0);
   var start = Date.now();
-  var dur = photoOrthoSlideMode === 'fade' ? 1500 : 1300;
   function tick() {
     if (gen !== photoOrthoSlidePlayGen) return;
     var el = g('photoOrthoShow');
     if (!el || el.hasAttribute('hidden')) return;
     if (photoOrthoSlideMode !== 'slider' && photoOrthoSlideMode !== 'fade') return;
+    var dur = photoOrthoSlideDuration();
     var t = Math.min(1, (Date.now() - start) / dur);
     var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
     photoOrthoSlideSetMix(Math.round(e * 100));
@@ -5741,6 +5758,7 @@ function photoOrthoSlidePlay() {
       setTimeout(tick, 40);
       return;
     }
+    var hold = Math.round(Math.min(900, photoOrthoSlideDuration() * 0.45));
     setTimeout(function() {
       if (gen !== photoOrthoSlidePlayGen) return;
       var el2 = g('photoOrthoShow');
@@ -5748,7 +5766,7 @@ function photoOrthoSlidePlay() {
       if (photoOrthoSlideMode !== 'slider' && photoOrthoSlideMode !== 'fade') return;
       if (photoOrthoSlideSteps().length > 1) photoOrthoSlideStep(1);
       else photoOrthoSlidePlay();
-    }, 800);
+    }, hold);
   }
   setTimeout(tick, 40);
 }
@@ -5871,6 +5889,9 @@ function photoOrthoSlidePaint() {
       b.hidden = !dual && k !== 'pair';
     }
   });
+  var speedWrap = g('photoOrthoSpeedWrap');
+  if (speedWrap) speedWrap.classList.toggle('is-on', !!isMix);
+  photoOrthoSlideSetSpeed(photoOrthoSlideSpeed);
   var oneStep = steps.length <= 1;
   document.querySelectorAll('#photoOrthoShow .ortho-show-nav').forEach(function(nav) {
     nav.hidden = oneStep;

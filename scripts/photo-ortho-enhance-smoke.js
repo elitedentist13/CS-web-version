@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261010play1';
-var STEP = 27;
+var BUILD = '20261010copy1';
+var STEP = 30;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -151,6 +151,7 @@ function finish(code) {
     var i18n = read('app-i18n-extra.js');
     var html = read('index.html');
     var css = read('style.css');
+    var appJs = read('app.js');
 
     console.log('=== source (step ' + STEP + ') ===');
     pass('index loads enhance build ' + BUILD,
@@ -226,7 +227,9 @@ function finish(code) {
         commitFn.indexOf('photoOrthoQuietSave') >= 0 &&
         commitFn.indexOf('photoOrthoUploadDropped') >= 0 &&
         extractFn(photos, 'photoOrthoQuietSave').indexOf('photoOrthoUploadDropped') >= 0 &&
+        extractFn(photos, 'photoOrthoQuietSave').indexOf('asImport: true') >= 0 &&
         extractFn(photos, 'photoOrthoQuietSave').indexOf('photoOrthoPlace') >= 0 &&
+        extractFn(photos, 'photoOrthoUploadDropped').indexOf('opts.asImport') >= 0 &&
         photos.indexOf('function photoOrthoSnapshotFiles') >= 0 &&
         photos.indexOf('photoOrthoDragTypesFiles') >= 0 &&
         photos.indexOf('function photoOrthoAcceptOsDrag') >= 0 &&
@@ -301,7 +304,13 @@ function finish(code) {
         photos.indexOf('function photoOrthoSlidePlay') >= 0 &&
         extractFn(photos, 'photoOrthoSlidePaint').indexOf('photoOrthoSlidePlay') >= 0 &&
         extractFn(photos, 'photoOrthoSlideClose').indexOf('photoOrthoSlideStopPlay') >= 0 &&
-        css.indexOf('.ortho-show-mix input[type=range] { display: none; }') >= 0);
+        css.indexOf('.ortho-show-mix input[type=range] { display: none; }') >= 0 &&
+        css.indexOf('.ortho-show-mix.is-fade .ortho-show-mix-after { opacity: var(--ortho-mix, 0%); }') >= 0 &&
+        css.indexOf('opacity: calc(var(--ortho-mix') < 0);
+    pass('the page becomes hittable even when no paint frame runs',
+        extractFn(appJs, 'scheduleMarkAppReady').indexOf('setTimeout(markAppReady') >= 0 &&
+        extractFn(appJs, 'markAppReady').indexOf("classList.add('app-ready')") >= 0 &&
+        html.indexOf('html:not(.app-ready) body') >= 0);
     pass('export prints sitting dates and doctor, can save the PNG into Photos, and print',
         html.indexOf('id="photoOrthoPrintBtn"') >= 0 &&
         html.indexOf('id="photoOrthoSaveChart"') >= 0 &&
@@ -425,6 +434,7 @@ function finish(code) {
             'const origNotify=typeof mediaNotify==="function"?mediaNotify:function(){};' +
             'mediaNotify=function(msg,kind){ out.notes.push({msg:String(msg),kind:kind||""}); origNotify(msg,kind); };' +
             'const login=document.getElementById("loginOverlay"); if(login) login.style.display="none";' +
+            'if(typeof markAppReady==="function") markAppReady();' +
             'const sec=document.getElementById("consultationSection"); if(sec){ sec.style.display="block"; }' +
             'const pane=document.getElementById("con-photos"); if(pane) pane.style.display="block";' +
             'const main=document.getElementById("photoMainContent"); if(main) main.style.display="block";' +
@@ -655,6 +665,7 @@ function finish(code) {
                 'window.photoAllRecords=[];' +
                 'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{},progress:{}}));' +
                 'var login=document.getElementById("loginOverlay"); if(login) login.style.display="none";' +
+                'if(typeof markAppReady==="function") markAppReady();' +
                 'var sec=document.getElementById("consultationSection"); if(sec) sec.style.display="block";' +
                 'var pane=document.getElementById("con-photos"); if(pane) pane.style.display="block";' +
                 'var main=document.getElementById("photoMainContent"); if(main) main.style.display="block";' +
@@ -679,7 +690,7 @@ function finish(code) {
                 '}' +
                 'if(!chosen){' +
                 '  var stack=document.elementsFromPoint ? document.elementsFromPoint(r.left+r.width/2, r.top+r.height/2) : [];' +
-                '  return { ok:false, x:r.left+r.width/2, y:r.top+r.height/2, hit:"", hitTag:last?last.tagName:"", hitId:last&&last.id||"", hitCls:last&&last.className?String(last.className).slice(0,80):"", w:r.width, h:r.height, top:r.top, left:r.left, iw:window.innerWidth, ih:window.innerHeight, stack:(stack||[]).slice(0,6).map(function(n){ return n.tagName+"#"+(n.id||"")+"."+String(n.className||"").slice(0,40); }) };' +
+                '  return { ok:false, x:r.left+r.width/2, y:r.top+r.height/2, hit:"", hitTag:last?last.tagName:"", hitId:last&&last.id||"", hitCls:last&&last.className?String(last.className).slice(0,80):"", w:r.width, h:r.height, top:r.top, left:r.left, iw:window.innerWidth, ih:window.innerHeight, ready:document.documentElement.classList.contains("app-ready"), bodyVis:getComputedStyle(document.body).visibility, stack:(stack||[]).slice(0,6).map(function(n){ return n.tagName+"#"+(n.id||"")+"."+String(n.className||"").slice(0,40); }) };' +
                 '}' +
                 'return { ok:r.width>8 && r.height>8, x:chosen.x, y:chosen.y, hit:chosen.hit, hitTag:chosen.hitTag, hitId:chosen.hitId, hitCls:chosen.hitCls };' +
                 '})()', false, 15000);
@@ -875,13 +886,16 @@ function finish(code) {
                 'await new Promise(function(r){ setTimeout(r, 400); });' +
                 'var fadeMid=pct();' +
                 'var fadeOn=mix && mix.classList.contains("is-fade");' +
+                'var after=document.getElementById("photoOrthoMixAfter");' +
+                'var fadeOp=after ? Number(getComputedStyle(after).opacity) : 0;' +
                 'photoOrthoSlideSetMode("pair");' +
                 'photoOrthoSlideClose();' +
-                'return { start:start, mid:mid, shown:shown, fadeMid:fadeMid, fadeOn:fadeOn };' +
+                'return { start:start, mid:mid, shown:shown, fadeMid:fadeMid, fadeOn:fadeOn, fadeOp:fadeOp };' +
                 '})()', true, 15000);
             pass('live: Slide and Fade play across the two photos without the range bar',
                 play && play.mid > play.start && play.mid < 100 && play.shown === 'none' &&
-                play.fadeOn === true && play.fadeMid > 0 && play.fadeMid < 100,
+                play.fadeOn === true && play.fadeMid > 0 && play.fadeMid < 100 &&
+                Math.abs(play.fadeOp - play.fadeMid / 100) < 0.08,
                 JSON.stringify(play));
             var exp = await cdp.js('(async function(){' +
                 'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +

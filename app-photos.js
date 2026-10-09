@@ -3902,7 +3902,7 @@ function photoOrthoPrepareUploadFile(file) {
   });
 }
 
-function photoOrthoUploadDropped(files, setKey, ctx) {
+function photoOrthoUploadDropped(files, setKey, ctx, opts) {
   var images = photoOrthoImageFiles(files);
   var cat = photoOrthoCategoryForSet(setKey);
   var recs = [];
@@ -3920,7 +3920,8 @@ function photoOrthoUploadDropped(files, setKey, ctx) {
       });
       photoOrthoProgress(true, label, Math.round((i / images.length) * 90));
       var caption = String(file.name || '').replace(/\.[^.]+$/, '');
-      return photoOrthoPrepareUploadFile(file).then(function(ready) {
+      var prepared = (opts && opts.asImport) ? Promise.resolve(file) : photoOrthoPrepareUploadFile(file);
+      return prepared.then(function(ready) {
       return photoUploadOne(ready, {
         category: cat,
         caption: caption,
@@ -4120,7 +4121,7 @@ function photoOrthoQuietSave(setKey, images, pinSlot) {
   var ctx = photoOrthoQuietContext();
   photoOrthoShowLocalPreview(setKey, pinSlot, images && images[0]);
   photoOrthoUploadBusy = job;
-  return photoOrthoUploadDropped(images, setKey, ctx).then(function(pack) {
+  return photoOrthoUploadDropped(images, setKey, ctx, { asImport: true }).then(function(pack) {
     pack = pack || { recs: [], error: '' };
     photoOrthoMergeUploaded(pack.recs);
     var id = pack.recs[0] && pack.recs[0].id;

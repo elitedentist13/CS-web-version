@@ -3058,9 +3058,10 @@ function scheduleMarkAppReady() {
         requestAnimationFrame(function () {
             requestAnimationFrame(markAppReady);
         });
-        return;
     }
-    markAppReady();
+    // A background window may never paint, which leaves the body
+    // visibility:hidden so a drop hits nothing.
+    setTimeout(markAppReady, 50);
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -5999,7 +5999,7 @@
         'media.ortho.extra': { en: 'Extra', 'zh-CN': '补充', 'zh-Hant': '補充' },
         'media.ortho.lower': { en: 'Lower occlusal', 'zh-CN': '下颌咬合面', 'zh-Hant': '下顎咬合面' },
         'media.ortho.buccalR': { en: 'Right buccal', 'zh-CN': '右侧颊侧', 'zh-Hant': '右側頰側' },
-        'media.ortho.intra': { en: 'Front teeth', 'zh-CN': '正面口内', 'zh-Hant': '正面口內' },
+        'media.ortho.intra': { en: 'Frontal teeth', 'zh-CN': '正面牙齿', 'zh-Hant': '正面牙齒' },
         'media.ortho.buccalL': { en: 'Left buccal', 'zh-CN': '左侧颊侧', 'zh-Hant': '左側頰側' },
         'media.ortho.progress': { en: 'Progress', 'zh-CN': '进度', 'zh-Hant': '進度' },
         'media.ortho.modeTiles': { en: '9 photos', 'zh-CN': '九张分格', 'zh-Hant': '九張分格' },

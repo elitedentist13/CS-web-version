@@ -3461,28 +3461,55 @@ function photoOrthoPlace(setKey, slotKey, id, from) {
   if (show && !show.hasAttribute('hidden')) photoOrthoSlidePaint();
 }
 
+function photoOrthoNameLoose(text) {
+  return String(text || '').toLowerCase().replace(/[_\-./\\()]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function photoOrthoRecName(rec) {
+  var cap = String((rec && rec.caption) || '').trim();
+  if (cap) return photoOrthoNameLoose(cap);
+  var path = String((rec && rec.file_path) || '');
+  var base = path.split(/[/\\]/).pop() || path;
+  return photoOrthoNameLoose(base);
+}
+
 function photoOrthoTeethFrontal(text) {
-  var s = String(text || '').toLowerCase().replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ');
-  return /front(?:al)?[\s.]*teeth|front(?:al)?[\s.]*tooth|teeth[\s.]*front(?:al)?|tooth[\s.]*front(?:al)?|正面牙|正面口|口内正面|口內正面|intraoral/.test(s);
+  var s = photoOrthoNameLoose(text);
+  if (/(^| )anterior( |$)/.test(s) || /前牙/.test(s)) return true;
+  if (/smile|微笑/.test(s) && !/teeth|tooth|牙|intra|retract/.test(s)) return false;
+  if (/upper|lower|buccal|occlusal|maxilla|mandible|上颌|下颌|上顎|下顎|颊|頰|侧面|側面|profile|lateral/.test(s) && !/frontal|正面|(^| )front( |$)/.test(s)) return false;
+  if (/intraoral|intra oral|口内|口內|前牙|正面牙|正面口|牙齿|牙齒/.test(s)) return true;
+  if (/(^| )(in|io|intra) front/.test(s) || /front(?:al)? intra/.test(s)) return true;
+  if (/(frontal|front|anterior|正面)/.test(s) && /(teeth|tooth|牙)/.test(s)) return true;
+  if (/anterior|centric|retract/.test(s)) return true;
+  if (/(^| )(center|centre)( |$)/.test(s)) return true;
+  return false;
+}
+
+function photoOrthoFrontFamily(text) {
+  var s = photoOrthoNameLoose(text);
+  if (photoOrthoTeethFrontal(s)) return false;
+  if (/smile|微笑|profile|侧面|側面|lateral|upper|lower|buccal|occlusal|extra|补充|補充/.test(s)) return false;
+  return /(frontal|(^| )front( |$)|正面)/.test(s);
 }
 
 function photoOrthoNameHitsSlot(rec, slotKey) {
-  var s = (String((rec && rec.file_path) || '') + ' ' + String((rec && rec.caption) || '')).toLowerCase();
-  var loose = s.replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ');
-  if (slotKey === 'face' && photoOrthoTeethFrontal(loose)) return false;
+  var loose = photoOrthoRecName(rec);
+  var teeth = photoOrthoTeethFrontal(loose);
+  if (slotKey === 'intra') return teeth;
+  if (teeth) return false;
+  if (slotKey === 'extra' && /extraoral|extra oral/.test(loose)) return false;
   var hints = {
     profile: /profile|side\b|lateral|侧面|側面/,
     face: /repose|frontal face|face front|facial|正面(?!口|牙)|fr(?:on)?tal(?![\s.]*smile)/,
     smile: /smile|微笑/,
     upper: /upper|occlusal-u|maxilla|上颌|上顎/,
-    extra: /extra|three-quarter|3\/4|补充|補充/,
+    extra: /(^| )extra( |$)|three quarter|3 4|补充|補充/,
     lower: /lower|occlusal-l|mandible|下颌|下顎/,
     buccalR: /right.?buccal|buccal.?r|右侧|右側/,
-    intra: /intraoral|front(?:al)?[\s.]*teeth|front(?:al)?[\s.]*tooth|teeth[\s.]*front(?:al)?|tooth[\s.]*front(?:al)?|正面口|正面牙|口内正面|口內正面/,
     buccalL: /left.?buccal|buccal.?l|左侧|左側/
   };
-  var hay = (slotKey === 'face' || slotKey === 'intra') ? loose : s;
-  return hints[slotKey] ? hints[slotKey].test(hay) : false;
+  return hints[slotKey] ? hints[slotKey].test(loose) : false;
 }
 
 function photoOrthoAutoPlaceList() {
@@ -3501,8 +3528,9 @@ function photoOrthoAutoPlaceList() {
   return images;
 }
 
-function photoOrthoAutoPlace(setKey) {
+function photoOrthoAutoPlace(setKey, opts) {
   if (!photoOrthoIsSetKey(setKey)) return;
+  var blockExtra = !!(opts && opts.skipExtra);
   var images = photoOrthoAutoPlaceList();
   if (!images.length) {
     mediaNotify(mediaTr('media.ortho.placeNone'), 'error');
@@ -3519,28 +3547,38 @@ function photoOrthoAutoPlace(setKey) {
   }
   map[setKey] = {};
   var used = {};
-  PHOTO_ORTHO_SLOTS.forEach(function(slot) {
+  function take(pred) {
     var hit = null;
     images.forEach(function(rec) {
       if (hit || used[String(rec.id)]) return;
-      if (photoOrthoNameHitsSlot(rec, slot[0])) hit = rec;
+      if (pred(rec)) hit = rec;
     });
-    if (hit) {
-      map[setKey][slot[0]] = String(hit.id);
-      used[String(hit.id)] = true;
-    }
+    return hit;
+  }
+  function keep(slot, rec) {
+    if (!rec) return;
+    map[setKey][slot] = String(rec.id);
+    used[String(rec.id)] = true;
+  }
+  keep('face', take(function(rec) { return photoOrthoNameHitsSlot(rec, 'face'); }));
+  ['profile', 'smile', 'upper', 'lower', 'buccalR', 'buccalL'].forEach(function(slot) {
+    keep(slot, take(function(rec) { return photoOrthoNameHitsSlot(rec, slot); }));
   });
-  PHOTO_ORTHO_SLOTS.forEach(function(slot) {
-    if (map[setKey][slot[0]]) return;
-    var next = null;
-    images.forEach(function(rec) {
-      if (next || used[String(rec.id)]) return;
-      next = rec;
-    });
-    if (next) {
-      map[setKey][slot[0]] = String(next.id);
-      used[String(next.id)] = true;
-    }
+  keep('intra', take(function(rec) { return photoOrthoTeethFrontal(photoOrthoRecName(rec)); }));
+  if (!map[setKey].intra) {
+    keep('intra', take(function(rec) { return photoOrthoFrontFamily(photoOrthoRecName(rec)); }));
+  }
+  if (!blockExtra) {
+    keep('extra', take(function(rec) { return photoOrthoNameHitsSlot(rec, 'extra'); }));
+  }
+  ['profile', 'face', 'smile', 'upper', 'lower', 'buccalR', 'intra', 'buccalL', 'extra'].forEach(function(slot) {
+    if (map[setKey][slot]) return;
+    if (blockExtra && slot === 'extra') return;
+    keep(slot, take(function(rec) {
+      var name = photoOrthoRecName(rec);
+      if (slot === 'extra' && (photoOrthoTeethFrontal(name) || photoOrthoFrontFamily(name))) return false;
+      return true;
+    }));
   });
   photoOrthoSave(map);
   photoOrthoRender();
@@ -3984,7 +4022,7 @@ function photoOrthoMergeUploaded(recs) {
   });
 }
 
-function photoOrthoApplyUploaded(setKey, recs, slotKey) {
+function photoOrthoApplyUploaded(setKey, recs, slotKey, opts) {
   if (!recs || !recs.length) return 0;
   if (slotKey) {
     photoOrthoPlace(setKey, slotKey, recs[0].id, null);
@@ -3997,7 +4035,11 @@ function photoOrthoApplyUploaded(setKey, recs, slotKey) {
   }
   var prev = photoSelected;
   photoSelected = new Set(recs.map(function(x) { return x.id; }));
-  var n = photoOrthoAutoPlace(setKey);
+  (recs || []).forEach(function(rec) {
+    var row = photoOrthoFind(rec.id);
+    if (row && rec.caption) row.caption = rec.caption;
+  });
+  var n = photoOrthoAutoPlace(setKey, opts);
   photoSelected = prev;
   return n;
 }
@@ -4047,7 +4089,7 @@ function photoOrthoCommitDrop(setKey, files, slotKey, opts) {
       return Promise.resolve(reload).then(function() {
         photoOrthoMergeUploaded(pack.recs);
         if (typeof filterPhotos === 'function') filterPhotos();
-        var n = photoOrthoApplyUploaded(setKey, pack.recs, pinSlot);
+        var n = photoOrthoApplyUploaded(setKey, pack.recs, pinSlot, opts);
         if (typeof conSchedulePatientTimelineRefresh === 'function' && photoPatientId) {
           conSchedulePatientTimelineRefresh(photoPatientId);
         }
@@ -4166,7 +4208,7 @@ function photoOrthoQuietSave(setKey, images, pinSlot) {
 }
 
 function photoOrthoPlaceFiles(setKey, files) {
-  return photoOrthoCommitDrop(setKey, files, null, { asImport: true });
+  return photoOrthoCommitDrop(setKey, files, null, { asImport: true, skipExtra: true });
 }
 
 var photoOrthoBrowseTarget = null;

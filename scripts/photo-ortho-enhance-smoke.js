@@ -9,8 +9,8 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261010name1';
-var STEP = 35;
+var BUILD = '20261010fold1';
+var STEP = 39;
 var PAGE_PORT = 8825;
 var CDP_PORT = 9394;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -195,8 +195,12 @@ function finish(code) {
         photos.indexOf('function photoOrthoAutoPlace') >= 0 &&
         photos.indexOf('function photoOrthoNameHitsSlot') >= 0 &&
         photos.indexOf('function photoOrthoTeethFrontal') >= 0 &&
-        extractFn(photos, 'photoOrthoNameHitsSlot').indexOf("slotKey === 'face' && photoOrthoTeethFrontal") >= 0 &&
-        extractFn(photos, 'photoOrthoTeethFrontal').indexOf('front(?:al)?') >= 0);
+        extractFn(photos, 'photoOrthoNameHitsSlot').indexOf("slotKey === 'intra'") >= 0 &&
+        extractFn(photos, 'photoOrthoNameHitsSlot').indexOf('if (teeth) return false') >= 0 &&
+        extractFn(photos, 'photoOrthoAutoPlace').indexOf("keep('intra'") >= 0 &&
+        extractFn(photos, 'photoOrthoAutoPlace').indexOf('photoOrthoFrontFamily') >= 0 &&
+        extractFn(photos, 'photoOrthoTeethFrontal').indexOf('anterior') >= 0 &&
+        extractFn(photos, 'photoOrthoTeethFrontal').indexOf('teeth') >= 0);
     pass('copy Before onto After and pick a visit for each column',
         html.indexOf('photoOrthoCopySet(\'before\',\'after\')') >= 0 &&
         html.indexOf('id="photoOrthoSitBefore"') >= 0 &&
@@ -232,6 +236,10 @@ function finish(code) {
         extractFn(photos, 'photoOrthoQuietSave').indexOf('photoOrthoUploadDropped') >= 0 &&
         extractFn(photos, 'photoOrthoQuietSave').indexOf('asImport: true') >= 0 &&
         extractFn(photos, 'photoOrthoPlaceFiles').indexOf('asImport: true') >= 0 &&
+        extractFn(photos, 'photoOrthoPlaceFiles').indexOf('skipExtra: true') >= 0 &&
+        extractFn(photos, 'photoOrthoAutoPlace').indexOf('skipExtra') >= 0 &&
+        extractFn(photos, 'photoOrthoApplyUploaded').indexOf('photoOrthoAutoPlace(setKey, opts)') >= 0 &&
+        extractFn(photos, 'photoOrthoCommitDrop').indexOf('photoOrthoApplyUploaded(setKey, pack.recs, pinSlot, opts)') >= 0 &&
         extractFn(photos, 'photoOrthoCommitDrop').indexOf('photoOrthoUploadDropped(images, setKey, ctx, opts)') >= 0 &&
         extractFn(photos, 'photoOrthoQuietSave').indexOf('photoOrthoPlace') >= 0 &&
         extractFn(photos, 'photoOrthoUploadDropped').indexOf('opts.asImport') >= 0 &&
@@ -703,32 +711,90 @@ function finish(code) {
                 'function rec(name){ return { file_path:name, caption:name.replace(/\\.[^.]+$/, "") }; }' +
                 'window.photoPatientId="e1-patient";' +
                 'window.photoAllRecords=[' +
-                '{id:"fac", category:"Before", file_path:"frontal.jpg", caption:"frontal"},' +
-                '{id:"tee", category:"Before", file_path:"frontal-teeth.jpg", caption:"frontal teeth"},' +
-                '{id:"pro", category:"Before", file_path:"profile.jpg", caption:"profile"}' +
+                '{id:"fac", category:"Before", file_path:"pid/1.jpg", caption:"EX-Frontal"},' +
+                '{id:"tee", category:"Before", file_path:"pid/2.jpg", caption:"IN-Front"},' +
+                '{id:"pro", category:"Before", file_path:"pid/3.jpg", caption:"profile"},' +
+                '{id:"ext", category:"Before", file_path:"pid/4.jpg", caption:"extra"},' +
+                '{id:"smi", category:"Before", file_path:"pid/5.jpg", caption:"smile"},' +
+                '{id:"up", category:"Before", file_path:"pid/6.jpg", caption:"upper occlusal"}' +
                 '];' +
                 'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{},progress:{}}));' +
-                'photoSelected=new Set(["fac","tee","pro"]);' +
+                'photoSelected=new Set(["fac","tee","pro","ext","smi","up"]);' +
                 'photoOrthoAutoPlace("before");' +
                 'var bag=(photoOrthoLoad().before)||{};' +
                 'return {' +
                 '  frontalFace: photoOrthoNameHitsSlot(rec("frontal.jpg"), "face"),' +
                 '  frontalIntra: photoOrthoNameHitsSlot(rec("frontal.jpg"), "intra"),' +
+                '  frontalExtra: photoOrthoNameHitsSlot(rec("frontal.jpg"), "extra"),' +
                 '  teethFace: photoOrthoNameHitsSlot(rec("frontal teeth.jpg"), "face"),' +
                 '  teethIntra: photoOrthoNameHitsSlot(rec("frontal teeth.jpg"), "intra"),' +
-                '  hyphenFace: photoOrthoNameHitsSlot(rec("Frontal-Teeth.JPG"), "face"),' +
-                '  hyphenIntra: photoOrthoNameHitsSlot(rec("Frontal-Teeth.JPG"), "intra"),' +
+                '  teethExtra: photoOrthoNameHitsSlot(rec("frontal teeth.jpg"), "extra"),' +
+                '  parenIntra: photoOrthoNameHitsSlot(rec("Frontal (Teeth).JPG"), "intra"),' +
+                '  parenExtra: photoOrthoNameHitsSlot(rec("Frontal (Teeth).JPG"), "extra"),' +
+                '  inFrontIntra: photoOrthoNameHitsSlot(rec("IN-Front.jpg"), "intra"),' +
+                '  inFrontExtra: photoOrthoNameHitsSlot(rec("IN-Front.jpg"), "extra"),' +
+                '  inFrontFace: photoOrthoNameHitsSlot(rec("IN-Front.jpg"), "face"),' +
+                '  antIntra: photoOrthoNameHitsSlot(rec(" anterior.jpg"), "intra"),' +
+                '  antFace: photoOrthoNameHitsSlot(rec(" anterior.jpg"), "face"),' +
+                '  antExtra: photoOrthoNameHitsSlot(rec(" anterior.jpg"), "extra"),' +
+                '  antUpper: photoOrthoNameHitsSlot(rec("upper anterior.jpg"), "upper"),' +
+                '  upperAntIntra: photoOrthoNameHitsSlot(rec("upper anterior.jpg"), "intra"),' +
                 '  swappedIntra: photoOrthoNameHitsSlot(rec("teeth frontal.jpg"), "intra"),' +
-                '  face: bag.face, intra: bag.intra, profile: bag.profile' +
+                '  face: bag.face, intra: bag.intra, profile: bag.profile, extra: bag.extra, smile: bag.smile, upper: bag.upper' +
                 '};' +
                 '})()', false, 15000);
             pass('live: frontal is the face frame and frontal teeth is the bottom middle frame',
-                names && names.frontalFace === true && names.frontalIntra === false &&
-                names.teethFace === false && names.teethIntra === true &&
-                names.hyphenFace === false && names.hyphenIntra === true &&
+                names && names.frontalFace === true && names.frontalIntra === false && names.frontalExtra === false &&
+                names.teethFace === false && names.teethIntra === true && names.teethExtra === false &&
+                names.parenIntra === true && names.parenExtra === false &&
+                names.inFrontIntra === true && names.inFrontExtra === false && names.inFrontFace === false &&
+                names.antIntra === true && names.antFace === false && names.antExtra === false &&
+                names.antUpper === false && names.upperAntIntra === true &&
                 names.swappedIntra === true &&
-                names.face === 'fac' && names.intra === 'tee' && names.profile === 'pro',
+                names.face === 'fac' && names.intra === 'tee' && names.profile === 'pro' && names.extra === 'ext' &&
+                names.smile === 'smi' && names.upper === 'up',
                 JSON.stringify(names));
+            var antPlace = await cdp.js('(function(){' +
+                'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
+                'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
+                'window.photoPatientId="e1-patient";' +
+                'window.photoAllRecords=[' +
+                '{id:"fac", category:"Before", file_path:"pid/1.jpg", caption:"frontal"},' +
+                '{id:"ant", category:"Before", file_path:"pid/2.jpg", caption:"upper anterior"},' +
+                '{id:"up", category:"Before", file_path:"pid/3.jpg", caption:"upper occlusal"},' +
+                '{id:"ext", category:"Before", file_path:"pid/4.jpg", caption:"extra"}' +
+                '];' +
+                'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{},progress:{}}));' +
+                'photoSelected=new Set(["fac","ant","up","ext"]);' +
+                'photoOrthoAutoPlace("before");' +
+                'var bag=(photoOrthoLoad().before)||{};' +
+                'return { face:bag.face, intra:bag.intra, upper:bag.upper, extra:bag.extra };' +
+                '})()', false, 15000);
+            pass('live: a photo named anterior lands on the bottom middle front-teeth frame',
+                antPlace && antPlace.face === 'fac' && antPlace.intra === 'ant' &&
+                antPlace.upper === 'up' && antPlace.extra === 'ext',
+                JSON.stringify(antPlace));
+            var foldExtra = await cdp.js('(function(){' +
+                'photoOrthoPushRemote=function(){ return Promise.resolve(); };' +
+                'if(photoOrthoPushTimer){ clearTimeout(photoOrthoPushTimer); photoOrthoPushTimer=null; }' +
+                'window.photoPatientId="e1-patient";' +
+                'window.photoAllRecords=[' +
+                '{id:"fac", category:"Before", file_path:"pid/1.jpg", caption:"frontal"},' +
+                '{id:"ant", category:"Before", file_path:"pid/2.jpg", caption:"anterior"},' +
+                '{id:"up", category:"Before", file_path:"pid/3.jpg", caption:"upper occlusal"},' +
+                '{id:"ext", category:"Before", file_path:"pid/4.jpg", caption:"extra"},' +
+                '{id:"junk", category:"Before", file_path:"pid/5.jpg", caption:"DSC0999"}' +
+                '];' +
+                'localStorage.setItem(photoOrthoKey(), JSON.stringify({before:{},after:{},progress:{}}));' +
+                'photoSelected=new Set(["fac","ant","up","ext","junk"]);' +
+                'photoOrthoAutoPlace("before", { skipExtra: true });' +
+                'var bag=(photoOrthoLoad().before)||{};' +
+                'return { face:bag.face, intra:bag.intra, upper:bag.upper, extra:bag.extra||"" };' +
+                '})()', false, 15000);
+            pass('live: folder upload leaves the extra frame empty',
+                foldExtra && foldExtra.face === 'fac' && foldExtra.intra === 'ant' &&
+                foldExtra.upper === 'up' && foldExtra.extra === '',
+                JSON.stringify(foldExtra));
             var outsideName = 'jsm-ortho-outside-' + Date.now() + '.jpg';
             var outsideFile = path.join(os.tmpdir(), outsideName);
             fs.writeFileSync(outsideFile, Buffer.from([0xFF, 0xD8, 0xFF, 0xD9]));

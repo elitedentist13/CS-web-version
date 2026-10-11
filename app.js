@@ -4547,7 +4547,8 @@ function jsmLocalStoragePreserveKeys() {
         joyful_working_clinic_follow_v1: true,
         cal_doctor_colors_v1: true,
         cal_doctor_visible_v1: true,
-        gcal_settings_v2: true
+        gcal_settings_v2: true,
+        receipt_print_options_v1: true
     };
     keys[JSM_POST_LOGIN_REFRESH_LS] = true;
     keys[JSM_ASSET_CACHE_BUST_LS] = true;

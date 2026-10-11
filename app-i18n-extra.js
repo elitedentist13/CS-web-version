@@ -4251,7 +4251,7 @@
         'bill.receipt.optPrintPaymentHistory': { en: 'Print payment history', 'zh-CN': '列印详细付款记录', 'zh-Hant': '列印詳細付款記錄' },
         'bill.receipt.optPrintBillDate': { en: 'Print bill date', 'zh-CN': '列印发单日期', 'zh-Hant': '列印發單日期' },
         'bill.receipt.optPrintDiagnosis': { en: 'Include diagnosis', 'zh-CN': '采用病因', 'zh-Hant': '採用病因' },
-        'bill.receipt.optPrintTreatmentNotes': { en: 'Treatment notes', 'zh-CN': '治疗记录', 'zh-Hant': '治療記錄' },
+        'bill.receipt.optPrintTreatmentNotes': { en: 'Print treatment notes', 'zh-CN': '列印治疗记录', 'zh-Hant': '列印治療記錄' },
         'bill.receipt.diagnosisInputLabel': { en: 'Diagnosis', 'zh-CN': '诊断', 'zh-Hant': '診斷' },
         'bill.receipt.diagnosisInputPh': { en: 'Enter diagnosis for this receipt…', 'zh-CN': '输入此收据的诊断…', 'zh-Hant': '輸入此收據的診斷…' },
         'bill.receipt.reasonInputLabel': { en: 'Reason for treatment', 'zh-CN': '治疗原因', 'zh-Hant': '治療原因' },

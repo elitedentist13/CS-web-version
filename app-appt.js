@@ -24927,17 +24927,27 @@ function loadReceiptPrintOptions() {
         var parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== 'object') return defs;
         Object.keys(defs).forEach(function(k) {
-            if (typeof parsed[k] === 'boolean') defs[k] = parsed[k];
+            if (typeof defs[k] === 'boolean' && typeof parsed[k] === 'boolean') {
+                defs[k] = parsed[k];
+            } else if (typeof defs[k] === 'string' && typeof parsed[k] === 'string') {
+                defs[k] = parsed[k];
+            }
         });
     } catch (_) {}
     return defs;
 }
 
 function saveReceiptPrintOptions(opts) {
+    opts = opts || {};
     var persist = defaultReceiptPrintOptions();
     Object.keys(persist).forEach(function(k) {
-        if (typeof opts[k] === 'boolean') persist[k] = opts[k];
+        if (typeof persist[k] === 'boolean') persist[k] = !!opts[k];
+        else if (typeof persist[k] === 'string') persist[k] = String(opts[k] == null ? '' : opts[k]).trim();
     });
+    // Remember "include diagnosis" once the user has actually typed a diagnosis or reason.
+    if (opts.printDiagnosis && (persist.diagnosisText || persist.reasonForTreatment)) {
+        persist.printDiagnosis = true;
+    }
     try {
         localStorage.setItem(RECEIPT_PRINT_OPTS_KEY, JSON.stringify(persist));
     } catch (_) {}
@@ -25133,6 +25143,10 @@ function openReceiptPrintOptionsModal(pending) {
     }
     applyReceiptPrintOptionsToForm(opts);
     openModal('receiptPrintOptionsModal');
+    if (typeof applyI18nInRoot === 'function') {
+        var rpoModal = g('receiptPrintOptionsModal');
+        if (rpoModal) applyI18nInRoot(rpoModal);
+    }
 }
 
 function confirmReceiptPrintOptions() {

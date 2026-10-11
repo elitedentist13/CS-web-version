@@ -11753,9 +11753,9 @@ function remarksRichSplitHostSpanAtCaret(editor, hostSpan, styleObj) {
         } else if (offset >= container.length) {
             parent.insertBefore(newSpan, hostSpan.nextSibling);
         } else {
+            // Keep the text after the caret. Only an empty typing span is inserted.
             var tail = container.splitText(offset);
-            newSpan.appendChild(tail);
-            parent.insertBefore(newSpan, hostSpan.nextSibling);
+            container.parentNode.insertBefore(newSpan, tail);
         }
     } else if (container.nodeType === 1 && hostSpan.contains(container)) {
         parent.insertBefore(newSpan, hostSpan.nextSibling);
@@ -11850,7 +11850,8 @@ function remarksRichPlaceTypingSpanAtCaret(editor, styleObj) {
 
     if (hostSpan && remarksRichSpanMatchesStyle(hostSpan, styleObj)) {
         hostSpan.classList.add('appt-rm-typing');
-        remarksRichSetCaretInSpan(hostSpan);
+        // Caret is already inside this span. Moving it to offset 0 would
+        // jump to the start of the remark on every keystroke.
         return hostSpan;
     }
 
@@ -11869,8 +11870,7 @@ function remarksRichPlaceTypingSpanAtCaret(editor, styleObj) {
                 styledWrap.parentNode.insertBefore(span, styledWrap);
             } else {
                 var tail2 = tn.splitText(offset);
-                span.appendChild(tail2);
-                styledWrap.parentNode.insertBefore(span, styledWrap.nextSibling);
+                tn.parentNode.insertBefore(span, tail2);
             }
         } else if (offset === 0) {
             parent.insertBefore(span, tn);
@@ -11878,8 +11878,12 @@ function remarksRichPlaceTypingSpanAtCaret(editor, styleObj) {
             if (tn.nextSibling) parent.insertBefore(span, tn.nextSibling);
             else parent.appendChild(span);
         } else {
+            // splitText keeps the right-hand text in the parent. Insert the
+            // empty span in front of it. Moving that text into the span and
+            // then insertBefore(span, tail) detaches the tail, because tail
+            // is no longer a child of parent — Backspace then wiped every
+            // character to the right of the caret.
             var tail = tn.splitText(offset);
-            span.appendChild(tail);
             parent.insertBefore(span, tail);
         }
     } else if (container.nodeType === 1) {
@@ -12366,7 +12370,11 @@ function remarksRichWireWrap(wrap) {
             remarksRichSyncColorPickerFromCaret(editor, wrap);
         });
     }
-    editor.addEventListener('input', function() {
+    editor.addEventListener('input', function(e) {
+        var kind = (e && e.inputType) || '';
+        // Deleting, undo, and redo must stay native. The typing-span
+        // rewrite runs only when new text is inserted.
+        if (kind.indexOf('delete') === 0 || kind === 'historyUndo' || kind === 'historyRedo') return;
         remarksRichEnsureTypingColorOnInput(editor);
     });
     editor.addEventListener('keydown', function(e) {

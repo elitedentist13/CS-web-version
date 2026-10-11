@@ -262,9 +262,12 @@ function classifyHost(src, host) {
         xraySrc.indexOf("classList.toggle('xray-lb-scroll-host-fit'") >= 0 &&
         xraySrc.indexOf('contained && !wideMax') >= 0 &&
         xraySrc.indexOf('if (wideMax) lbResetScrollHost()') >= 0);
-    pass('github page does not fetch local film strips',
-        nntSrc.indexOf('function clinicPageIsLocalServer()') >= 0 &&
-        nntSrc.indexOf('!clinicPageIsLocalServer()') >= 0);
+    pass('CS scan strip loads on GitHub except TKO; Carestream stays on MCP',
+        nntSrc.indexOf('function csScanStripAllowed()') >= 0 &&
+        nntSrc.indexOf('!csScanStripAllowed()') >= 0 &&
+        nntSrc.indexOf('!isMcpClinicContext()') >= 0 &&
+        nntSrc.indexOf('function isTkoClinicContext()') >= 0 &&
+        nntSrc.indexOf('clinicPageIsLocalServer') < 0);
     pass('cmd hands every URL to the handler, quoted',
         cmd.indexOf('launch-xray-ai-protocol.ps1" "%~1"') >= 0 && cmd.indexOf('echo %URL%') < 0);
     pass('jobs table SQL', sql.indexOf('xray_ai_jobs') >= 0 && sql.indexOf('xray_ai_jobs_anon_all') >= 0);
@@ -318,13 +321,27 @@ function classifyHost(src, host) {
         parsed && parsed.findings && parsed.findings.length === 1 && parsed.findings[0].type === 'caries_enamel',
         parsed && parsed.findings ? String(parsed.findings.length) : 'none');
 
-    var filmFn = extractFn(nntSrc, 'clinicPageIsLocalServer');
-    [['127.0.0.1', true], ['localhost', true], ['elitedentist13.github.io', false], ['xray-ai.test', false]].forEach(function (row) {
-        var filmCtx = { window: { location: { hostname: row[0] } }, result: null };
+    var clinicFns = extractFn(nntSrc, 'xrayWorkingClinicBlob') + '\n' +
+        extractFn(nntSrc, 'xrayWorkingClinicHasCode') + '\n' +
+        extractFn(nntSrc, 'isTkoClinicContext') + '\n' +
+        extractFn(nntSrc, 'isMcpClinicContext') + '\n' +
+        extractFn(nntSrc, 'csScanStripAllowed');
+    [
+        ['MK', true, false],
+        ['TKO', false, false],
+        ['MCP', true, true],
+        ['Tseung Kwan O TKO', false, false]
+    ].forEach(function (row) {
+        var filmCtx = {
+            currentClinicCodeForTagging: function () { return row[0].split(' ').pop(); },
+            currentClinicLabel: row[0],
+            result: null
+        };
         vm.createContext(filmCtx);
-        vm.runInContext(filmFn + '\nresult = clinicPageIsLocalServer();', filmCtx);
-        pass('film strips ' + row[0] + (row[1] ? ' stay on the live server' : ' stay off the GitHub page'),
-            filmCtx.result === row[1], String(filmCtx.result));
+        vm.runInContext(clinicFns + '\nresult = { cs: csScanStripAllowed(), mcp: isMcpClinicContext() };', filmCtx);
+        pass('working clinic ' + row[0] + ' CS=' + row[1] + ' Carestream=' + row[2],
+            filmCtx.result && filmCtx.result.cs === row[1] && filmCtx.result.mcp === row[2],
+            JSON.stringify(filmCtx.result));
     });
 
     console.log('\n=== protocol parser ===');
@@ -489,7 +506,8 @@ function classifyHost(src, host) {
             href: href,
             scriptHasProtocol: src.indexOf("'csxrayai://job?' +") >= 0,
             xrayProtocol: xraySrc.indexOf('csxray://open/') >= 0,
-            filmsLocalOnly: nntSrc.indexOf('function clinicPageIsLocalServer()') >= 0
+            filmsGithubCsScan: nntSrc.indexOf('function csScanStripAllowed()') >= 0 &&
+              nntSrc.indexOf('!csScanStripAllowed()') >= 0
           };
         })()`, true, 20000);
 
@@ -497,9 +515,9 @@ function classifyHost(src, host) {
         pass('Runtime.evaluate not the live-server port', live && String(live.port) === String(PAGE_PORT), live && live.port);
         pass('Runtime.evaluate page BUILD', live && live.build === BUILD, live && live.build);
         pass('Runtime.evaluate uses protocol off the live server', live && live.local === false, String(live && live.local));
-        pass('Runtime.evaluate GitHub-style page has csxray and csxrayai',
-            live && live.xrayProtocol === true && live.scriptHasProtocol === true && live.filmsLocalOnly === true,
-            live ? ('xray=' + live.xrayProtocol + ' ai=' + live.scriptHasProtocol) : 'none');
+        pass('Runtime.evaluate GitHub-style page has csxray, csxrayai, and the CS scan strip',
+            live && live.xrayProtocol === true && live.scriptHasProtocol === true && live.filmsGithubCsScan === true,
+            live ? ('xray=' + live.xrayProtocol + ' ai=' + live.scriptHasProtocol + ' cs=' + live.filmsGithubCsScan) : 'none');
         pass('Runtime.evaluate job link not navigated',
             live && live.href === 'csxrayai://job?id=22222222-2222-4222-8222-222222222222&client=smoke-client-0002',
             live && live.href);

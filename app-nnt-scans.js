@@ -160,16 +160,40 @@ function rememberDetectedCsScanRoot(body) {
     if (root) window.__JSM_CS_SCAN_ROOT = root;
 }
 
-// Local film strips are files on this PC, served by the bridge on :17890.
-// The Banana page (127.0.0.1:5500 / :8123) loads them directly. The GitHub
-// page does not call 127.0.0.1; its X-ray buttons use csxray:// instead.
-function clinicPageIsLocalServer() {
-    try {
-        var host = String(window.location.hostname || '').toLowerCase();
-        return host === 'localhost' || host === '::1' || /^127\.\d+\.\d+\.\d+$/.test(host);
-    } catch (e) {
-        return false;
+// SCAN and Carestream files live on this PC and are served by the bridge on
+// :17890. Both the local page and the GitHub page call 127.0.0.1 once Chrome
+// allows local network access. file:// stays blocked by xrayLauncherBlockedByPage.
+function xrayWorkingClinicBlob() {
+    var parts = [];
+    if (typeof currentClinicCodeForTagging === 'function') {
+        parts.push(currentClinicCodeForTagging());
     }
+    if (typeof currentClinicLabel === 'string') parts.push(currentClinicLabel);
+    if (typeof clinicRecordFromId === 'function' && typeof currentClinicId !== 'undefined') {
+        var rec = clinicRecordFromId(currentClinicId);
+        if (rec) {
+            parts.push(rec.clinic_code, rec.english_name, rec.chinese_name, rec.name);
+        }
+    }
+    return parts.filter(Boolean).join(' ');
+}
+
+function xrayWorkingClinicHasCode(code) {
+    var blob = ' ' + xrayWorkingClinicBlob() + ' ';
+    return new RegExp('(^|[^A-Za-z0-9])' + code + '([^A-Za-z0-9]|$)', 'i').test(blob);
+}
+
+function isTkoClinicContext() {
+    return xrayWorkingClinicHasCode('TKO');
+}
+
+function csScanStripAllowed() {
+    // Clinic Solution SCAN expired at TKO. Every other working clinic loads it.
+    return !isTkoClinicContext();
+}
+
+function localFilmFetchBlocked() {
+    return typeof xrayLauncherBlockedByPage === 'function' && xrayLauncherBlockedByPage();
 }
 
 function nntScanChartNo(patient) {
@@ -373,7 +397,7 @@ function loadNntLocalScans() {
     var patient = (typeof xrayPatientData !== 'undefined') ? xrayPatientData : null;
     var ids = nntScanIdCandidates(patient);
     var no = ids.length ? ids[0] : '';
-    if (!no || !clinicPageIsLocalServer() || (typeof xrayLauncherBlockedByPage === 'function' && xrayLauncherBlockedByPage())) {
+    if (!no || !csScanStripAllowed() || localFilmFetchBlocked()) {
         hideNntLocalScans();
         return;
     }
@@ -686,7 +710,7 @@ function loadCarestreamFiles() {
     var patient = (typeof xrayPatientData !== 'undefined') ? xrayPatientData : null;
     var ids = nntScanIdCandidates(patient);
     var no = ids.length ? ids[0] : '';
-    if (!no || !clinicPageIsLocalServer() || (typeof xrayLauncherBlockedByPage === 'function' && xrayLauncherBlockedByPage())) {
+    if (!no || !isMcpClinicContext() || localFilmFetchBlocked()) {
         hideCarestreamFilms();
         return;
     }
@@ -742,19 +766,7 @@ var mcpScanLightboxIndex = 0;
 var mcpScanLightboxPatient = '';
 
 function isMcpClinicContext() {
-    var parts = [];
-    if (typeof currentClinicCodeForTagging === 'function') {
-        parts.push(currentClinicCodeForTagging());
-    }
-    if (typeof currentClinicLabel === 'string') parts.push(currentClinicLabel);
-    if (typeof clinicRecordFromId === 'function' && typeof currentClinicId !== 'undefined') {
-        var rec = clinicRecordFromId(currentClinicId);
-        if (rec) {
-            parts.push(rec.clinic_code, rec.english_name, rec.chinese_name, rec.name);
-        }
-    }
-    var blob = parts.filter(Boolean).join(' ');
-    return /(^|[^A-Za-z0-9])MCP([^A-Za-z0-9]|$)/i.test(blob);
+    return xrayWorkingClinicHasCode('MCP');
 }
 
 function ensureMcpScanStrip() {
@@ -963,7 +975,7 @@ function loadMcpScanStrip() {
     var patient = (typeof xrayPatientData !== 'undefined') ? xrayPatientData : null;
     var ids = nntScanIdCandidates(patient);
     var no = ids.length ? ids[0] : '';
-    if (!no || !clinicPageIsLocalServer() || (typeof xrayLauncherBlockedByPage === 'function' && xrayLauncherBlockedByPage())) {
+    if (!no || localFilmFetchBlocked()) {
         hideMcpScanStrip();
         return;
     }
@@ -1268,6 +1280,13 @@ function pollCsdbNewFilms() {
 }
 
 function startCsdbNewWatch() {
+    if (!isMcpClinicContext()) {
+        if (csdbNewPollTimer) {
+            clearInterval(csdbNewPollTimer);
+            csdbNewPollTimer = null;
+        }
+        return;
+    }
     if (csdbNewPollTimer) return;
     csdbNewSince = csdbLocalStamp(new Date());
     pollCsdbNewFilms();
@@ -1296,5 +1315,8 @@ document.addEventListener('visibilitychange', function() {
 document.addEventListener('app-lang-change', refreshNntScanStripTitle);
 document.addEventListener('app-session-sync', function() {
     refreshNntScanStripTitle();
+    loadNntLocalScans();
+    loadCarestreamFiles();
     loadMcpScanStrip();
+    startCsdbNewWatch();
 });

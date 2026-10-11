@@ -292,6 +292,8 @@ function finish(code) {
         photos.indexOf('function photoOrthoSelectVisit') >= 0 &&
         photos.indexOf('function photoOrthoSetVisitCategory') >= 0 &&
         extractFn(photos, 'photoOrthoNavVisitOptions').indexOf('conMediaApptLabel') < 0 &&
+        extractFn(photos, 'photoOrthoPaintVisitNav').indexOf('ortho-compare-visit') >= 0 &&
+        extractFn(photos, 'photoOrthoLoadVisitRows').indexOf('.limit(500)') >= 0 &&
         extractFn(photos, 'photoOrthoSyncLayoutTools').indexOf("vis('photoOrthoSitBefore', false)") >= 0 &&
         html.indexOf('id="photoOrthoSitBefore"') >= 0 &&
         html.indexOf('id="photoOrthoSitBefore" class="xray-filter-sel" hidden') >= 0 &&

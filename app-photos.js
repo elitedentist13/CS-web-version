@@ -3807,7 +3807,7 @@ function photoOrthoLoadVisitRows(pid) {
   function run(cols) {
     return Promise.resolve(
       SB.from('appointments').select(cols).eq('patient_id', pid)
-        .order('date', { ascending: false }).limit(40)
+        .order('date', { ascending: false }).limit(500)
     );
   }
   return run('id,date,start_time,dentist_name,doctor_code,treatment_items,clinic_tag').then(function(r) {
@@ -3855,7 +3855,7 @@ function photoOrthoConfirmDataset(setKey, count) {
         sel.innerHTML = '<option value="">' + esc(mediaTr('media.ortho.apptPh')) + '</option>';
         (rows || []).forEach(function(a) {
           if (!a || !a.id) return;
-          if (tag && a.clinic_tag && String(a.clinic_tag) !== tag) return;
+          if (tag && !photoOrthoSameClinic(a.clinic_tag, tag)) return;
           var o = document.createElement('option');
           o.value = String(a.id);
           var label = (typeof conMediaApptLabel === 'function') ? conMediaApptLabel(a) : String(a.date || a.id);
@@ -4628,13 +4628,24 @@ function photoOrthoVisitsReady() {
   return Array.isArray(photoOrthoVisitCache) && photoOrthoVisitCachePid === String(photoPatientId || '');
 }
 
+function photoOrthoSameClinic(stored, working) {
+  stored = String(stored || '').trim();
+  working = String(working || '').trim();
+  if (!stored || !working) return !stored;
+  if (stored.toUpperCase() === working.toUpperCase()) return true;
+  if (typeof clinicIdFromStoredPatientTag !== 'function') return false;
+  var storedId = clinicIdFromStoredPatientTag(stored);
+  var workingId = clinicIdFromStoredPatientTag(working);
+  return !!(storedId && workingId && storedId === workingId);
+}
+
 function photoOrthoVisitList() {
   var rows = photoOrthoVisitCache || [];
   var tag = '';
   try { tag = photoOrthoWorkingClinicTag(); } catch (e) { tag = ''; }
   if (!tag) return rows.slice();
   return rows.filter(function(a) {
-    return a && (!a.clinic_tag || String(a.clinic_tag) === tag);
+    return a && photoOrthoSameClinic(a.clinic_tag, tag);
   });
 }
 
@@ -4939,11 +4950,13 @@ function photoOrthoPaintVisitNav(map) {
   photoOrthoEnsureVisitCache();
   var current = photoOrthoActiveVisitDate(map);
   var options = photoOrthoNavVisitOptions(map);
-  var html = '<option value="">' + esc(mediaTr('media.ortho.visitPh')) + '</option>';
-  options.forEach(function(o) {
-    html += '<option value="' + esc(o.value) + '"' + (o.value === current ? ' selected' : '') + '>' + esc(o.label) + '</option>';
-  });
-  sel.innerHTML = html;
+  sel.innerHTML = photoOrthoVisitOptionHtml(options, current);
+  var compares = document.querySelectorAll('#photoOrthoSets select.ortho-compare-visit');
+  var ci;
+  for (ci = 0; ci < compares.length; ci++) {
+    var keep = compares[ci].value;
+    compares[ci].innerHTML = photoOrthoVisitOptionHtml(options, keep);
+  }
   var cat = map.focus === 'after' ? 'final' : (map.focus === 'progress' ? 'progress' : (map.focus === 'before' ? 'initial' : ''));
   var picks = document.querySelectorAll('[data-ortho-cat]');
   var i;
@@ -5195,15 +5208,18 @@ function photoOrthoToggleCompare() {
   photoOrthoRender();
 }
 
-function photoOrthoCompareSelectHtml(side, selected) {
-  var options = photoOrthoNavVisitOptions(photoOrthoLoad());
-  var html = '<select class="xray-filter-sel ortho-compare-visit" data-compare-side="' + esc(side) + '">';
-  html += '<option value="">' + esc(mediaTr('media.ortho.visitPh')) + '</option>';
-  options.forEach(function(o) {
+function photoOrthoVisitOptionHtml(options, selected) {
+  var html = '<option value="">' + esc(mediaTr('media.ortho.visitPh')) + '</option>';
+  (options || []).forEach(function(o) {
     html += '<option value="' + esc(o.value) + '"' + (o.value === selected ? ' selected' : '') + '>' + esc(o.label) + '</option>';
   });
-  html += '</select>';
   return html;
+}
+
+function photoOrthoCompareSelectHtml(side, selected) {
+  var options = photoOrthoNavVisitOptions(photoOrthoLoad());
+  return '<select class="xray-filter-sel ortho-compare-visit" data-compare-side="' + esc(side) + '">' +
+    photoOrthoVisitOptionHtml(options, selected) + '</select>';
 }
 
 function photoOrthoCompareSectionHtml(map, side, view) {

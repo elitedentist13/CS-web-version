@@ -23071,6 +23071,8 @@ function refreshBillDetailNotesUI(b) {
     var editBar = g('bdNotesEditBar');
     var errEl = g('bdNotesEditErr');
     if (!viewEl) return;
+    var modeSel = g('bdPaymentNotesPrint');
+    if (modeSel) modeSel.value = receiptPaymentNotesMode(loadReceiptPrintOptions());
     var canEdit = canEditBillDetailNotes(b);
     var userNotes = b ? billUserNotesText(b.notes) : '';
 
@@ -23160,6 +23162,16 @@ function wireBillDetailNotesEditOnce() {
                 bdNotesEditing = false;
                 refreshBillDetailNotesUI(bdCurrentBill);
             }
+        });
+    }
+    var notesModeSel = g('bdPaymentNotesPrint');
+    if (notesModeSel && notesModeSel.dataset.billNotesModeBound !== '1') {
+        notesModeSel.dataset.billNotesModeBound = '1';
+        notesModeSel.addEventListener('change', function () {
+            var opts = loadReceiptPrintOptions();
+            opts.paymentNotesMode = receiptPaymentNotesMode({ paymentNotesMode: notesModeSel.value });
+            saveReceiptPrintOptions(opts);
+            if (g('rpoPaymentNotesMode')) g('rpoPaymentNotesMode').value = opts.paymentNotesMode;
         });
     }
 }
@@ -24342,6 +24354,7 @@ function receiptContentPrintStyles() {
         '#rReceiptFooterThanks,.receipt-footer p[data-i18n="bill.receipt.computerGenerated"]{display:none;}' +
         '#rInstalmentsSection{font-size:' + px(t.instal) + ';margin-top:10px;}' +
         '#rInstalmentsSection .receipt-instalments-title{font-size:' + px(t.instal) + ';font-weight:700;margin-bottom:4px;}' +
+        '.receipt-instalments-section--hide-notes .receipt-inst-notes{display:none !important;}' +
         '#rInstalmentsSection table{font-size:' + px(t.instal) + '!important;border-collapse:collapse;width:100%;}' +
         '#rInstalmentsSection th,#rInstalmentsSection td{padding:4px 6px!important;font-size:' + px(t.instal) +
             '!important;line-height:1.25;}' +
@@ -24915,7 +24928,8 @@ function defaultReceiptPrintOptions() {
         reasonForTreatment: '',
         printTreatmentNotes: false,
         patientUndersign: true,
-        printPrescription: false
+        printPrescription: false,
+        paymentNotesMode: 'current'
     };
 }
 
@@ -24948,9 +24962,14 @@ function saveReceiptPrintOptions(opts) {
     if (opts.printDiagnosis && (persist.diagnosisText || persist.reasonForTreatment)) {
         persist.printDiagnosis = true;
     }
+    persist.paymentNotesMode = receiptPaymentNotesMode(persist);
     try {
         localStorage.setItem(RECEIPT_PRINT_OPTS_KEY, JSON.stringify(persist));
     } catch (_) {}
+    var bdMode = g('bdPaymentNotesPrint');
+    var rpoMode = g('rpoPaymentNotesMode');
+    if (bdMode) bdMode.value = persist.paymentNotesMode;
+    if (rpoMode) rpoMode.value = persist.paymentNotesMode;
 }
 
 function readReceiptPrintOptionsFromForm() {
@@ -24962,6 +24981,9 @@ function readReceiptPrintOptionsFromForm() {
     opts.printTreatmentNotes = !!(g('rpoPrintTreatmentNotes') && g('rpoPrintTreatmentNotes').checked);
     opts.patientUndersign = !!(g('rpoPatientUndersign') && g('rpoPatientUndersign').checked);
     opts.printPrescription = !!(g('rpoPrintPrescription') && g('rpoPrintPrescription').checked);
+    opts.paymentNotesMode = receiptPaymentNotesMode({
+        paymentNotesMode: g('rpoPaymentNotesMode') ? g('rpoPaymentNotesMode').value : ''
+    });
     opts.diagnosisText = g('rpoDiagnosisText')
         ? String(g('rpoDiagnosisText').value || '').trim()
         : '';
@@ -24986,6 +25008,7 @@ function applyReceiptPrintOptionsToForm(opts) {
     if (g('rpoPrintTreatmentNotes')) g('rpoPrintTreatmentNotes').checked = !!opts.printTreatmentNotes;
     if (g('rpoPatientUndersign')) g('rpoPatientUndersign').checked = opts.patientUndersign !== false;
     if (g('rpoPrintPrescription')) g('rpoPrintPrescription').checked = !!opts.printPrescription;
+    if (g('rpoPaymentNotesMode')) g('rpoPaymentNotesMode').value = receiptPaymentNotesMode(opts);
     if (g('rpoDiagnosisText')) g('rpoDiagnosisText').value = opts.diagnosisText || '';
     if (g('rpoReasonForTreatment')) g('rpoReasonForTreatment').value = opts.reasonForTreatment || '';
     syncReceiptPrintDiagnosisFieldsVisibility();
@@ -25181,6 +25204,30 @@ function reopenReceiptPrintOptionsFromReceipt() {
     });
 }
 
+function receiptPaymentNotesMode(opts) {
+    var mode = opts && opts.paymentNotesMode != null ? String(opts.paymentNotesMode) : '';
+    if (mode === 'hide' || mode === 'all' || mode === 'current') return mode;
+    return 'current';
+}
+
+function receiptNotesBlockText(opts, bill, pmts) {
+    var mode = receiptPaymentNotesMode(opts);
+    if (mode === 'hide') return '';
+    var billNote = billUserNotesText(bill && bill.notes);
+    if (mode === 'current') return billNote;
+    var parts = [];
+    if (billNote) parts.push(billNote);
+    if (!opts || !opts.printPaymentHistory) {
+        (pmts || []).forEach(function(p) {
+            var t = String(p && p.notes || '').trim();
+            if (!t || t === billNote) return;
+            var date = String(p.paid_date || '').trim();
+            parts.push(date ? (date + ' — ' + t) : t);
+        });
+    }
+    return parts.join('\n');
+}
+
 function applyReceiptPrintOptions(opts, supplement, bill, pmts) {
     opts = opts || loadReceiptPrintOptions();
     supplement = supplement || {};
@@ -25235,7 +25282,8 @@ function applyReceiptPrintOptions(opts, supplement, bill, pmts) {
 
     var billNotesSec = g('rBillNotesSection');
     var billNotesEl = g('rBillNotesBody');
-    var billNotesTxt = billUserNotesText(bill && bill.notes);
+    var notesMode = receiptPaymentNotesMode(opts);
+    var billNotesTxt = receiptNotesBlockText(opts, bill, pmts);
     if (billNotesSec) billNotesSec.style.display = billNotesTxt ? '' : 'none';
     if (billNotesEl) billNotesEl.textContent = billNotesTxt || '—';
 
@@ -25248,6 +25296,7 @@ function applyReceiptPrintOptions(opts, supplement, bill, pmts) {
         showPmts = (pmts || []).length >= 1;
     }
     var secEl = g('rInstalmentsSection');
+    if (secEl) secEl.classList.toggle('receipt-instalments-section--hide-notes', notesMode !== 'all');
     if (secEl && !opts.printPaymentHistory) {
         secEl.style.display = 'none';
     }
@@ -25337,6 +25386,7 @@ function showReceipt(bill, insertedData, payments, autoPrint, printOpts, supplem
             if (i % 2 === 1) row.className += ' receipt-inst-row--alt';
             var clinicLabel = (typeof billPaymentReceivingClinicDisplay === 'function')
                 ? billPaymentReceivingClinicDisplay(p, bill) : '';
+            var showRowNotes = receiptPaymentNotesMode(printOpts) === 'all';
             row.innerHTML =
                 '<td class="receipt-inst-td receipt-inst-td--num">' + (i + 1) + '</td>' +
                 '<td class="receipt-inst-td">' + esc(p.paid_date || '—') + '</td>' +
@@ -25345,8 +25395,8 @@ function showReceipt(bill, insertedData, payments, autoPrint, printOpts, supplem
                     ? dispPayMethod(p.method)
                     : (p.method || '—')) + '</td>' +
                 '<td class="receipt-inst-td receipt-inst-td--clinic">' + esc(clinicLabel) + '</td>' +
-                '<td class="receipt-inst-td receipt-inst-td--notes">' +
-                    esc(p.notes || '') + '</td>';
+                '<td class="receipt-inst-td receipt-inst-td--notes receipt-inst-notes">' +
+                    (showRowNotes ? esc(p.notes || '') : '') + '</td>';
             bodyEl.appendChild(row);
         });
     }

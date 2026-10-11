@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261012rcpt1';
+  var BUILD = '20261012pay1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -6907,6 +6907,14 @@
         <span data-i18n="bill.receipt.optPrintDiagnosis"></span>
       </label>
     </div>
+    <label class="receipt-print-field receipt-print-notes-mode">
+      <span class="receipt-print-field-label" data-i18n="bill.receipt.notesPrintLabel">Print notes</span>
+      <select id="rpoPaymentNotesMode" class="receipt-print-field-input">
+        <option value="hide" data-i18n="bill.receipt.notesPrintHide">Hide</option>
+        <option value="all" data-i18n="bill.receipt.notesPrintAll">Print All Notes</option>
+        <option value="current" data-i18n="bill.receipt.notesPrintCurrent" selected>Print Current only</option>
+      </select>
+    </label>
     <div id="rpoDiagnosisFields" class="receipt-print-diagnosis-fields" style="display:none;">
       <label class="receipt-print-field">
         <span class="receipt-print-field-label" data-i18n="bill.receipt.diagnosisInputLabel"></span>
@@ -7136,7 +7144,7 @@
               <th class="receipt-inst-th-amt" data-i18n="bill.receipt.thInstAmount"></th>
               <th data-i18n="bill.receipt.thInstMethod"></th>
               <th data-i18n="bill.detail.thClinic"></th>
-              <th data-i18n="bill.receipt.thInstNotes"></th>
+              <th class="receipt-inst-notes" data-i18n="bill.receipt.thInstNotes"></th>
             </tr>
           </thead>
           <tbody id="rInstalmentsBody"></tbody>
@@ -7248,6 +7256,14 @@
         <div class="bd-notes-head">
           <div style="font-size:12px;font-weight:700;color:#555;
                       text-transform:uppercase;letter-spacing:.5px;" data-i18n="bill.detail.notesTitle"></div>
+          <label class="bd-notes-print-mode">
+            <span data-i18n="bill.receipt.notesPrintLabel">Print notes</span>
+            <select id="bdPaymentNotesPrint" aria-label="Print notes">
+              <option value="hide" data-i18n="bill.receipt.notesPrintHide">Hide</option>
+              <option value="all" data-i18n="bill.receipt.notesPrintAll">Print All Notes</option>
+              <option value="current" data-i18n="bill.receipt.notesPrintCurrent" selected>Print Current only</option>
+            </select>
+          </label>
           <button type="button" id="bdNotesEditBtn" class="bd-notes-pencil hidden"
                   data-i18n-title="bill.detail.notesEditTitle"
                   data-i18n-aria-label="bill.detail.notesEditAria">✎</button>

@@ -8573,6 +8573,12 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     font-family: inherit;
 }
 
+.receipt-print-notes-mode {
+    margin: -6px 0 14px;
+}
+.receipt-instalments-section--hide-notes .receipt-inst-notes {
+    display: none;
+}
 .receipt-print-options-actions {
     display: flex;
     justify-content: flex-end;
@@ -8942,6 +8948,27 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     justify-content: space-between;
     gap: 8px;
     margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+.bd-notes-print-mode {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    text-transform: none;
+    letter-spacing: 0;
+}
+.bd-notes-print-mode select {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #fff;
+    color: #334155;
 }
 .bd-notes-pencil {
     width: 28px;

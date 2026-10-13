@@ -25,6 +25,8 @@ var rxDrugCatalog  = null;
 var rxDrugCatalogPromise = null;
 /** { pid, text } — allergy text of the consultation patient, for Rx checks. */
 var rxPatientAllergy = null;
+/** Bumped when a medical-history save publishes allergy text, so an older DB read cannot overwrite it. */
+var rxAllergyEpoch = 0;
 /** Set to true after an insert fails because rx_group_id / drug_id are not in the DB yet. */
 var rxHistoryLinkColsMissing = false;
 var rxComboSearchTimer = null;
@@ -6770,6 +6772,35 @@ function rxCurrentAllergyText() {
     return (conPatientData && conPatientData.allergy) ? String(conPatientData.allergy) : '';
 }
 
+/** Re-mark an already-open drug menu so new allergy chips show without reopening the panel. */
+function rxRepaintOpenDrugMenus() {
+    if (typeof document === 'undefined' || !document.querySelectorAll) return;
+    if (typeof rxDrugComboRender !== 'function') return;
+    document.querySelectorAll('.rx-drug-menu').forEach(function (menu) {
+        if (!menu || menu.hidden) return;
+        var m = String(menu.id || '').match(/^rx-drug-menu-(\d+)$/);
+        if (!m) return;
+        rxDrugComboRender(parseInt(m[1], 10));
+    });
+}
+
+/**
+ * Apply allergy text the user just saved (or a load that is still the latest).
+ * The drug dropdown reads this cache, not the textarea, so it has to move with the save.
+ */
+function rxPublishAllergyText(pid, text) {
+    if (!pid) return;
+    text = String(text == null ? '' : text);
+    rxAllergyEpoch++;
+    rxPatientAllergy = { pid: pid, text: text };
+    if (conPatientData && String(conPatientId) === String(pid)) {
+        conPatientData.allergy = text;
+    }
+    if (!conPatientId || String(conPatientId) !== String(pid)) return;
+    if (typeof rxRefreshAllBadges === 'function') rxRefreshAllBadges();
+    rxRepaintOpenDrugMenus();
+}
+
 /** Fresh allergy text for pid (opts.force re-reads the DB). Resolves to the text. */
 function rxLoadPatientAllergy(pid, opts) {
     opts = opts || {};
@@ -6780,9 +6811,11 @@ function rxLoadPatientAllergy(pid, opts) {
     if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
         return Promise.resolve(rxCurrentAllergyText());
     }
+    var epoch = rxAllergyEpoch;
     return Promise.resolve(
         SB.from('patients').select('allergy').eq('id', pid).maybeSingle()
     ).then(function(r) {
+        if (epoch !== rxAllergyEpoch) return rxCurrentAllergyText();
         if (r.error || !r.data) return rxCurrentAllergyText();
         var text = String(r.data.allergy || '');
         rxPatientAllergy = { pid: pid, text: text };
@@ -9986,6 +10019,7 @@ function loadMedicalHistory() {
     var form = g('conMedForm');
     var loadId = conMedPatientId;
     var loadGen = conPatientSelectGen;
+    var epochAtFetch = rxAllergyEpoch;
 
     conHistSelectPatientHistory('med', loadId)
     .then(function(r) {
@@ -10000,6 +10034,7 @@ function loadMedicalHistory() {
         sv('fldMedHistory',  d.medical_history     || '');
         sv('fldMedications', d.current_medications || '');
         sv('fldAllergy',     d.allergy             || '');
+        if (epochAtFetch === rxAllergyEpoch) rxPublishAllergyText(loadId, d.allergy || '');
         conHistApplyReviewFromRow('med', d);
         conHistDirty.med = false;
         conHistBindDirtyOnce();
@@ -10059,6 +10094,7 @@ function saveMedicalHistory(opts) {
     .then(function(r) {
         if (r.error) { conHistToast(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
         syncConMedicalFieldsToPatientData(payload, true);
+        rxPublishAllergyText(conMedPatientId, payload.allergy);
         conHistApplyReviewFromRow('med', payload);
         refreshConPatientAlertBanners(conMedPatientData || conPatientData);
         conHistDirty.med = false;

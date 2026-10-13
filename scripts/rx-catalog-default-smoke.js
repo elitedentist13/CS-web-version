@@ -105,7 +105,9 @@ function buildSandbox(phraseSrc, conSrc) {
         rxLines: [],
         conPatientId: 'p1',
         conPatientData: { allergy: '' },
-        rxPatientAllergy: null
+        rxPatientAllergy: null,
+        rxAllergyEpoch: 0,
+        rxRefreshAllBadges: function () { ctx.badgeRefreshes = (ctx.badgeRefreshes || 0) + 1; }
     };
     vm.createContext(ctx);
     vm.runInContext(phraseSrc, ctx);
@@ -115,6 +117,8 @@ function buildSandbox(phraseSrc, conSrc) {
         extractFn(conSrc, 'rxAllergyTerms'),
         extractFn(conSrc, 'rxAllergyMatch'),
         extractFn(conSrc, 'rxCurrentAllergyText'),
+        extractFn(conSrc, 'rxRepaintOpenDrugMenus'),
+        extractFn(conSrc, 'rxPublishAllergyText'),
         extractFn(conSrc, 'rxCloneSavedLine'),
         extractFn(conSrc, 'rxInferQuantityManual'),
         extractFn(conSrc, 'rxLineHasDrug'),
@@ -225,6 +229,19 @@ function buildSandbox(phraseSrc, conSrc) {
         var hit = run('rxAllergyMatch(' + JSON.stringify(c[0]) + ', ' + JSON.stringify(c[1]) + ')');
         pass('allergy ' + c[0] + ' vs "' + c[1] + '"', !!hit === c[2], hit ? 'hit=' + hit : 'no hit');
     });
+
+    run("rxPatientAllergy = { pid: 'p1', text: '' }; conPatientId = 'p1'; conPatientData = { allergy: '' };");
+    pass('stale cache hides a drug that is not yet an allergy',
+        run("rxAllergyMatch('AMOXYCILLIN 500MG')") === '');
+    run("rxPublishAllergyText('p1', 'Penicillin')");
+    var published = run("rxAllergyMatch('AMOXYCILLIN 500MG')");
+    pass('saving medical-history allergy updates the drug guard immediately',
+        !!published && run('rxPatientAllergy.text') === 'Penicillin',
+        published ? 'hit=' + published : 'no hit');
+    pass('medical history save publishes into the Rx cache',
+        extractFn(conSrc, 'saveMedicalHistory').indexOf('rxPublishAllergyText(conMedPatientId, payload.allergy)') >= 0);
+    pass('in-flight allergy reload cannot overwrite a newer save',
+        extractFn(conSrc, 'rxLoadPatientAllergy').indexOf('epoch !== rxAllergyEpoch') >= 0);
 
     var stripped = run("rxStripLinkCols({ a: 1, rx_group_id: 'x', drug_id: 'y' })");
     pass('strip link cols', stripped.a === 1 && stripped.rx_group_id === undefined && stripped.drug_id === undefined);

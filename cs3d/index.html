@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Banana Dicom Reader</title>
-  <script src="./cs3d-boot.js?v=20261007imp10"></script>
-  <link rel="stylesheet" href="./cs3d.css?v=20261007imp10">
+  <script src="./cs3d-boot.js?v=20261013cbct1"></script>
+  <link rel="stylesheet" href="./cs3d.css?v=20261013cbct1">
 </head>
 <body>
   <div id="app">
@@ -16,10 +16,10 @@
       <button type="button" id="btnFiles">Load files</button>
       <input id="zipPick" type="file" accept=".zip,application/zip">
       <input id="folderPick" type="file" multiple webkitdirectory directory>
-      <input id="filePick" type="file" multiple accept=".dcm,.dicom,.ima,application/dicom">
+      <input id="filePick" type="file" multiple>
       <div id="tools" class="tools"></div>
       <button type="button" id="btnImplant" data-tool="Implant" data-i18n="cs3d.implant.tool">Implant</button>
-      <span id="status" class="status">Load a DICOM zip, folder, or files. Share this window in X-ray Helper to save a view.</span>
+      <span id="status" class="status">Load a CBCT DICOM zip or folder. The CT slice stack is shown; panoramics, photos and reports are skipped.</span>
     </header>
     <div id="work">
       <div id="grid">
@@ -66,13 +66,13 @@
     </div>
     <div id="implantDisclaimer" class="implant-disclaimer" data-i18n="cs3d.implant.disclaimer">Visual planning only. Not a surgical guide. Not a substitute for Blue Sky Plan or a CE-marked implant system.</div>
     <div id="bananaCs3dBar">
-      Banana Dicom Reader — Cornerstone3D volume + three planes. Independent of OHIF. Share THIS window in X-ray Helper to save a view.
+      Banana Dicom Reader — CBCT volume, three planes. Panoramics and reports in the same folder are skipped. Share THIS window in X-ray Helper to save a view.
       <span id="bananaCs3dWho"></span>
     </div>
   </div>
-  <script src="./vendor/cs3d.bundle.js?v=20261007imp10"></script>
-  <script src="./cs3d-load.js?v=20261007imp10"></script>
-  <script src="./cs3d.js?v=20261007imp10"></script>
-  <script src="./cs3d-implant.js?v=20261007imp10"></script>
+  <script src="./vendor/cs3d.bundle.js?v=20261013cbct1"></script>
+  <script src="./cs3d-load.js?v=20261013cbct1"></script>
+  <script src="./cs3d.js?v=20261013cbct1"></script>
+  <script src="./cs3d-implant.js?v=20261013cbct1"></script>
 </body>
 </html>

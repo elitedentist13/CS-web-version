@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261007imp10';
+var BUILD = '20261013cbct1';
 var PAGE_PORT = 8808;
 var CDP_PORT = 9378;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -27,6 +27,9 @@ var BBMRI_SLICES = [
     'bbmri-53323851.dcm'
 ];
 var BBMRI_BASE = 'https://raw.githubusercontent.com/ivmartel/dwv/develop/tests/data/';
+var JUNO_API = 'https://api.github.com/repos/OHIF/viewer-testdata/contents/dcm/Juno';
+var JUNO_BASE = 'https://raw.githubusercontent.com/OHIF/viewer-testdata/master/dcm/Juno/';
+var CT_SOP = '1.2.840.10008.5.1.4.1.1.2';
 
 function pass(name, ok, detail) {
     console.log((ok ? 'PASS' : 'FAIL') + '  ' + name + (detail ? '  -  ' + detail : ''));
@@ -71,6 +74,23 @@ function sbCfg() {
     while ((m = re.exec(block[1]))) parts.push(m[1]);
     return { url: parts[0], key: parts.slice(1).join('') };
 }
+async function mapLimit(items, limit, fn) {
+    var out = new Array(items.length);
+    var next = 0;
+    async function worker() {
+        while (next < items.length) {
+            var i = next++;
+            out[i] = await fn(items[i], i);
+        }
+    }
+    var n = Math.min(limit, items.length);
+    var jobs = [];
+    var w;
+    for (w = 0; w < n; w++) jobs.push(worker());
+    await Promise.all(jobs);
+    return out;
+}
+
 function downloadUrl(url) {
     return new Promise(function (resolve, reject) {
         https.get(url, { headers: { 'User-Agent': 'banana-cs3d-implant-smoke' } }, function (r) {
@@ -234,11 +254,12 @@ function mockDom() {
         /function cylinderSlice/.test(js) && /function syncMprToImplant/.test(js) && /function jumpSliceToWorld/.test(js));
     pass('s4 source: tapered cylinder head>tip',
         /TAPER_TIP/.test(js) && /function radiusAt/.test(js) && /function appendTaper/.test(js));
-    pass('s4 source: add locks the click point then cuts all three planes',
-        /imp\.position = locked\.slice\(\)/.test(js) &&
-        /alignMprToWorld\(locked\)/.test(js) &&
-        /function embedReport/.test(js) &&
-        js.indexOf('syncMprToImplant(imp, vpId)') < 0);
+    var placeFn = js.slice(js.indexOf('function placeAtViewport'), js.indexOf('function nudgeImplant'));
+    pass('s4 source: add keeps the crosshair and places on the clicked plane',
+        /function clickWorld/.test(js) &&
+        /projectToPlane\(world, plane\)/.test(js) &&
+        placeFn.indexOf('alignMprToWorld') < 0 &&
+        /imp\.position = locked\.slice\(\)/.test(placeFn));
     pass('s4 source: Crosshairs snap to implant position',
         /function alignMprToSelectedImplant/.test(js) && /function snapCrosshairsToWorld/.test(page) &&
         /function centerViewportOnWorld/.test(js));
@@ -391,6 +412,15 @@ function mockDom() {
         pass('s8 API: implant plan POST', false, e2.message);
     }
 
+    console.log('\n=== HTML ===');
+    pass('HTML: implant panel, add button, and three planes are on the page',
+        html.indexOf('id="implantPanel"') >= 0 && html.indexOf('id="impAdd"') >= 0 &&
+        html.indexOf('id="vpAxial"') >= 0 && html.indexOf('id="vpSagittal"') >= 0 &&
+        html.indexOf('id="vpCoronal"') >= 0);
+    pass('HTML: page says the reader loads a CBCT volume',
+        html.indexOf('CBCT volume, three planes') >= 0 &&
+        html.indexOf('id="implantDisclaimer"') >= 0);
+
     console.log('\n=== HTTP spot ===');
     var samples = [];
     try {
@@ -402,9 +432,33 @@ function mockDom() {
             samples.push({ name: BBMRI_SLICES[si], buf: gotD.buf });
             extraFiles['/__cs3d-sample/' + BBMRI_SLICES[si]] = { buf: gotD.buf, type: 'application/dicom' };
         }
-        pass('spot: BBMRI CT series downloaded', samples.length === 6, samples.length + ' files');
+        pass('spot: public MR series downloaded (not a CBCT volume)', samples.length === 6, samples.length + ' files');
     } catch (e3) {
-        pass('spot: BBMRI CT series downloaded', false, e3.message);
+        pass('spot: public MR series downloaded (not a CBCT volume)', false, e3.message);
+    }
+    var junoSlices = [];
+    try {
+        var junoList = await downloadUrl(JUNO_API);
+        var junoMeta = JSON.parse(junoList.buf.toString('utf8'));
+        if (!Array.isArray(junoMeta)) throw new Error('Juno listing HTTP ' + junoList.status);
+        var junoPick = junoMeta.filter(function (f) { return f && f.name && f.size > 10000; });
+        var gotJuno = await mapLimit(junoPick, 6, async function (f) {
+            var one = await downloadUrl(JUNO_BASE + encodeURIComponent(f.name));
+            if (one.status !== 200 || one.buf.length < 1000 || one.buf[128] !== 68) {
+                throw new Error(f.name + ' HTTP ' + one.status + ' n=' + one.buf.length);
+            }
+            return { name: f.name, buf: one.buf };
+        });
+        gotJuno.forEach(function (s) {
+            junoSlices.push(s);
+            extraFiles['/__cs3d-sample/juno/' + s.name] = { buf: s.buf, type: 'application/dicom' };
+        });
+        var ctSopN = junoSlices.filter(function (s) { return s.buf.indexOf(CT_SOP) >= 0; }).length;
+        pass('spot: public real CT series downloaded (CT Image Storage)',
+            junoSlices.length >= 40 && ctSopN === junoSlices.length,
+            junoSlices.length + ' slices, CT SOP ' + ctSopN);
+    } catch (eJuno) {
+        pass('spot: public real CT series downloaded (CT Image Storage)', false, eJuno.message);
     }
 
     var server = await startStaticServer(PAGE_PORT);
@@ -418,6 +472,21 @@ function mockDom() {
     pass('s1 spot: panel CSS is display:none', cssGet.status === 200 && /#implantPanel\s*\{[^}]*display:\s*none/.test(cssGet.text));
     var disc = await httpGetText(PAGE_PORT, '/cs3d/index.html');
     pass('s10 spot: disclaimer on served page', /Not a surgical guide/.test(disc.text) && /id="implantDisclaimer"/.test(disc.text));
+    if (junoSlices.length) {
+        var junoGet = await httpGetText(PAGE_PORT, '/__cs3d-sample/juno/' + encodeURIComponent(junoSlices[0].name));
+        pass('spot: GET a real CT slice is DICOM CT Image Storage',
+            junoGet.status === 200 && junoGet.body[128] === 68 && junoGet.body.indexOf(CT_SOP) >= 0,
+            junoGet.body.length + ' bytes');
+    }
+    try {
+        var liveReader = await httpGetText(5500, '/cs3d/index.html?implant=1');
+        pass('spot: live :5500 serves the implant reader page',
+            liveReader.status === 200 && liveReader.text.indexOf('id="impAdd"') >= 0 &&
+            liveReader.text.indexOf('cs3d-implant.js?v=' + BUILD) >= 0,
+            'HTTP ' + liveReader.status);
+    } catch (eLive) {
+        pass('spot: live :5500 serves the implant reader page', false, eLive.message);
+    }
 
     console.log('\n=== CDP live page ===');
     var proc = null;
@@ -540,21 +609,55 @@ function mockDom() {
                 geo.fit.every(function (d) { return d != null && d < 0.6; }),
                 geo ? JSON.stringify(geo.fit) : 'none');
             var embed = await cdp.js(`(function(){
+              function cams() {
+                var engine = csCore.getRenderingEngine('banana-cs3d');
+                return ['CS3D_AXIAL','CS3D_SAGITTAL','CS3D_CORONAL'].map(function (id) {
+                  var cam = engine.getViewport(id).getCamera();
+                  return { id: id, focal: cam.focalPoint.slice(), pos: cam.position.slice() };
+                });
+              }
+              function camShift(a, b) {
+                var m = 0;
+                a.forEach(function (row, i) {
+                  [0,1,2].forEach(function (k) {
+                    m = Math.max(m, Math.abs(row.focal[k] - b[i].focal[k]), Math.abs(row.pos[k] - b[i].pos[k]));
+                  });
+                });
+                return m;
+              }
+              var before = cams();
+              var hair = CS3D_PAGE.crosshairCenter && CS3D_PAGE.crosshairCenter();
               CS3D_IMPLANT.clearImplants();
               var imp = CS3D_IMPLANT.placeAtViewport('CS3D_AXIAL', 0.35, 0.62);
-              var locked = imp.position.slice();
-              var report = CS3D_IMPLANT.embedReport(imp.id);
-              var moved = Math.hypot(imp.position[0]-locked[0], imp.position[1]-locked[1], imp.position[2]-locked[2]);
-              CS3D_IMPLANT.rotateImplant(imp.id, 25, [1, 0, 0]);
-              var tilted = CS3D_IMPLANT.embedReport(imp.id);
-              return { moved: moved, straight: report, tilted: tilted };
+              var after = cams();
+              var ax = csCore.getRenderingEngine('banana-cs3d').getViewport('CS3D_AXIAL');
+              var el = ax.element;
+              var click = ax.canvasToWorld([0.35 * el.clientWidth, 0.62 * el.clientHeight]);
+              var dClick = Math.hypot(imp.position[0]-click[0], imp.position[1]-click[1], imp.position[2]-click[2]);
+              var marks = ['implantSvgAxial','implantSvgSagittal','implantSvgCoronal'].map(function (id) {
+                var node = document.querySelector('#' + id + ' [data-implant]');
+                return node ? { px: Number(node.getAttribute('data-px')), py: Number(node.getAttribute('data-py')), cut: node.getAttribute('data-cut') } : null;
+              });
+              var hair2 = CS3D_PAGE.crosshairCenter && CS3D_PAGE.crosshairCenter();
+              var hairShift = (hair && hair2) ? Math.hypot(hair[0]-hair2[0], hair[1]-hair2[1], hair[2]-hair2[2]) : 0;
+              return {
+                camShift: camShift(before, after),
+                hairShift: hairShift,
+                dClick: dClick,
+                pos: imp.position.slice(),
+                marks: marks,
+                axDist: CS3D_IMPLANT.mprFit(imp.id)[0]
+              };
             })()`);
-            pass('s4 CDP: off-centre implant stays put and is embedded on all 3 planes',
-                embed && embed.moved < 0.05 && embed.straight && embed.straight.ok === true,
-                embed ? JSON.stringify(embed.straight && embed.straight.planes) : 'none');
-            pass('s4 CDP: tilted implant still embedded after the planes follow it',
-                embed && embed.tilted && embed.tilted.ok === true,
-                embed ? JSON.stringify(embed.tilted && embed.tilted.planes) : 'none');
+            pass('s4 CDP: off-centre click keeps the crosshair and the three plane cameras',
+                embed && embed.camShift < 0.05 && embed.hairShift < 0.05,
+                embed ? JSON.stringify({ camShift: embed.camShift, hairShift: embed.hairShift }) : 'none');
+            pass('s4 CDP: implant sits on the clicked axial point and projects on every plane',
+                embed && embed.dClick < 0.75 && embed.axDist < 0.45 &&
+                embed.marks && embed.marks.length === 3 && embed.marks.every(function (m) {
+                    return m && isFinite(m.px) && isFinite(m.py);
+                }),
+                embed ? JSON.stringify({ dClick: embed.dClick, axDist: embed.axDist, marks: embed.marks, pos: embed.pos }) : 'none');
             var taperLive = await cdp.js(`(function(){
               var imp = CS3D_IMPLANT.state().implants[0];
               var rh = CS3D_IMPLANT.radiusAt(imp, 1);
@@ -693,9 +796,88 @@ function mockDom() {
                     err: st.error
                   };
                 })()`, true, 90000);
-                pass('s4/s9 live: real BBMRI volume + implant overlay',
-                    real && real.ok === true && real.mode === 'volume' && real.n === 6 && real.implants >= 1 && real.drawn >= 1,
+                pass('live: a real MR series is not opened as the CBCT volume',
+                    real && real.ok === false && /No CBCT volume/.test(String(real.err || '')),
                     real ? JSON.stringify(real) : 'none');
+            }
+            if (junoSlices.length >= 8) {
+                var junoNames = junoSlices.map(function (s) { return s.name; });
+                var realImp = await cdp.js(`(async () => {
+                  const names = ${JSON.stringify(junoNames)};
+                  const files = [];
+                  for (const name of names) {
+                    const r = await fetch('/__cs3d-sample/juno/' + encodeURIComponent(name));
+                    if (!r.ok) throw new Error('juno HTTP ' + r.status + ' ' + name);
+                    files.push(new File([await r.arrayBuffer()], name, { type: 'application/dicom' }));
+                  }
+                  const ok = await CS3D_PAGE.loadFiles(files, 'real-ct');
+                  const state = CS3D_PAGE.state();
+                  let range = null, dims = null, spacing = null;
+                  const deadline = Date.now() + 45000;
+                  while (Date.now() < deadline) {
+                    try {
+                      const vol = csCore.cache && csCore.cache.getVolume && csCore.cache.getVolume(state.volumeId);
+                      if (vol) {
+                        dims = vol.dimensions;
+                        spacing = vol.spacing;
+                        range = vol.voxelManager && vol.voxelManager.getRange && vol.voxelManager.getRange();
+                      }
+                    } catch (e) {}
+                    if (range && range[1] > range[0]) break;
+                    await new Promise(function (r) { setTimeout(r, 400); });
+                  }
+                  function cams() {
+                    const engine = csCore.getRenderingEngine('banana-cs3d');
+                    return ['CS3D_AXIAL','CS3D_SAGITTAL','CS3D_CORONAL'].map(function (id) {
+                      const cam = engine.getViewport(id).getCamera();
+                      return { focal: cam.focalPoint.slice(), pos: cam.position.slice() };
+                    });
+                  }
+                  const before = cams();
+                  const hair = CS3D_PAGE.crosshairCenter && CS3D_PAGE.crosshairCenter();
+                  CS3D_PAGE.setTool('Implant');
+                  CS3D_IMPLANT.clearImplants();
+                  const imp = CS3D_IMPLANT.placeAtViewport('CS3D_AXIAL', 0.35, 0.62);
+                  const after = cams();
+                  let camShift = 0;
+                  before.forEach(function (row, i) {
+                    [0,1,2].forEach(function (k) {
+                      camShift = Math.max(camShift, Math.abs(row.focal[k] - after[i].focal[k]), Math.abs(row.pos[k] - after[i].pos[k]));
+                    });
+                  });
+                  const hair2 = CS3D_PAGE.crosshairCenter && CS3D_PAGE.crosshairCenter();
+                  const hairShift = (hair && hair2) ? Math.hypot(hair[0]-hair2[0], hair[1]-hair2[1], hair[2]-hair2[2]) : 0;
+                  const ax = csCore.getRenderingEngine('banana-cs3d').getViewport('CS3D_AXIAL');
+                  const el = ax.element;
+                  const click = ax.canvasToWorld([0.35 * el.clientWidth, 0.62 * el.clientHeight]);
+                  const dClick = Math.hypot(imp.position[0]-click[0], imp.position[1]-click[1], imp.position[2]-click[2]);
+                  const marks = ['implantSvgAxial','implantSvgSagittal','implantSvgCoronal'].map(function (id) {
+                    const node = document.querySelector('#' + id + ' [data-implant]');
+                    return node ? { px: Number(node.getAttribute('data-px')), py: Number(node.getAttribute('data-py')) } : null;
+                  });
+                  return {
+                    ok, mode: state.mode, n: state.n, err: state.error,
+                    dims, spacing, range, camShift, hairShift, dClick,
+                    axDist: CS3D_IMPLANT.mprFit(imp.id)[0],
+                    marks, drawn: document.querySelectorAll('[data-implant]').length
+                  };
+                })()`, true, 180000);
+                var spacingOk = realImp && realImp.spacing && realImp.spacing.length >= 3 &&
+                    realImp.spacing.every(function (v) { return isFinite(v) && v > 0; });
+                pass('live: real CT series builds a volume',
+                    realImp && realImp.ok === true && realImp.mode === 'volume' && realImp.n >= 40 &&
+                    realImp.dims && realImp.dims[0] >= 128 && realImp.dims[2] >= 40 &&
+                    spacingOk && realImp.range && realImp.range[1] > realImp.range[0],
+                    realImp ? JSON.stringify({ n: realImp.n, dims: realImp.dims, spacing: realImp.spacing, range: realImp.range, err: realImp.err }) : 'none');
+                pass('live: implant on the real CT click keeps the crosshair and matches all three planes',
+                    realImp && realImp.camShift < 0.05 && realImp.hairShift < 0.05 &&
+                    realImp.dClick < 0.75 && realImp.axDist < 0.45 &&
+                    realImp.marks && realImp.marks.length === 3 && realImp.marks.every(function (m) {
+                        return m && isFinite(m.px) && isFinite(m.py);
+                    }) && realImp.drawn >= 3,
+                    realImp ? JSON.stringify({ camShift: realImp.camShift, hairShift: realImp.hairShift, dClick: realImp.dClick, axDist: realImp.axDist, marks: realImp.marks, drawn: realImp.drawn }) : 'none');
+            } else {
+                pass('live: real CT series builds a volume', false, 'no real CT slices');
             }
         }
     } catch (e) {
@@ -706,7 +888,7 @@ function mockDom() {
         try { server.close(); } catch (e4) { /* ignore */ }
     }
 
-    console.log('\n' + (fails.length ? 'FAILED ' + fails.length : 'IMPLANT STEPS 1-10 SMOKE + SPOT + API + TESTCLIENT + CDP + LIVE PASS'));
+    console.log('\n' + (fails.length ? 'FAILED ' + fails.length : 'SMOKE + HTML + SPOT + API + TESTCLIENT + CDP + LIVE PAGE + REAL CT IMPLANT PASS'));
     fails.forEach(function (f) { console.log('  - ' + f); });
     process.exit(fails.length ? 1 : 0);
 })().catch(function (e) {

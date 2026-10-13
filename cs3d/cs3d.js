@@ -394,20 +394,50 @@
 
     async function prefetchMeta(imageIds) {
         var dil = window.csDicom;
+        var wadouri = dil && dil.wadouri;
+        var ids = (imageIds || []).slice();
+        var failed = 0;
+        var done = 0;
+        if (wadouri && wadouri.dataSetCacheManager && wadouri.parseImageId && wadouri.loadFileRequest) {
+            async function one() {
+                while (ids.length) {
+                    var id = ids.shift();
+                    try {
+                        var parsed = wadouri.parseImageId(id);
+                        await wadouri.dataSetCacheManager.load(parsed.url, wadouri.loadFileRequest, id);
+                    } catch (e) {
+                        failed++;
+                        console.warn('[cs3d] header', id, e);
+                    }
+                    done++;
+                    if (done === 1 || done % 40 === 0 || done === imageIds.length) {
+                        setStatus('Reading DICOM headers ' + done + ' / ' + imageIds.length + '…');
+                    }
+                }
+            }
+            var jobs = [];
+            var n = Math.min(6, imageIds.length || 1);
+            var j;
+            for (j = 0; j < n; j++) jobs.push(one());
+            await Promise.all(jobs);
+            return failed;
+        }
         var core = window.csCore;
         var i;
         for (i = 0; i < imageIds.length; i++) {
             var id = imageIds[i];
             try {
-                if (dil.wadouri && dil.wadouri.loadImage) {
-                    await withTimeout(dil.wadouri.loadImage(id).promise, 8000, 'prefetch ' + id);
+                if (wadouri && wadouri.loadImage) {
+                    await wadouri.loadImage(id).promise;
                 } else if (core.imageLoader && core.imageLoader.loadAndCacheImage) {
-                    await withTimeout(core.imageLoader.loadAndCacheImage(id), 8000, 'prefetch ' + id);
+                    await core.imageLoader.loadAndCacheImage(id);
                 }
-            } catch (e) {
-                console.warn('[cs3d] prefetch', id, e);
+            } catch (e2) {
+                failed++;
+                console.warn('[cs3d] prefetch', id, e2);
             }
         }
+        return failed;
     }
 
     function metaGet(type, imageId) {
@@ -428,12 +458,54 @@
         return !!(ipp && ipp.length >= 3 && iop && iop.length >= 6);
     }
 
-    function seriesKey(imageId) {
-        var series = metaGet('generalSeriesModule', imageId);
+    var CBCT_SOP = {
+        '1.2.840.10008.5.1.4.1.1.2': 1,
+        '1.2.840.10008.5.1.4.1.1.2.1': 1,
+        '1.2.840.10008.5.1.4.1.1.2.2': 1
+    };
+
+    function oriKey(iop) {
+        var i, parts = [];
+        for (i = 0; i < 6; i++) parts.push(Math.round(Number(iop[i]) * 100) / 100);
+        return parts.join(',');
+    }
+
+    function slabNormal(iop) {
+        return [
+            iop[1] * iop[5] - iop[2] * iop[4],
+            iop[2] * iop[3] - iop[0] * iop[5],
+            iop[0] * iop[4] - iop[1] * iop[3]
+        ];
+    }
+
+    function sliceInfo(imageId) {
         var plane = metaGet('imagePlaneModule', imageId);
-        return (series && (series.seriesInstanceUID || series.SeriesInstanceUID)) ||
-            (plane && plane.frameOfReferenceUID) ||
-            'unknown';
+        if (!plane) return null;
+        var ipp = plane.imagePositionPatient;
+        var iop = plane.imageOrientationPatient;
+        if (!ipp || ipp.length < 3 || !iop || iop.length < 6) return null;
+        var series = metaGet('generalSeriesModule', imageId) || {};
+        var sop = metaGet('sopCommonModule', imageId) || {};
+        return {
+            id: imageId,
+            mod: String(series.modality || '').trim().toUpperCase(),
+            sop: String(sop.sopClassUID || ''),
+            uid: series.seriesInstanceUID || plane.frameOfReferenceUID || 'unknown',
+            rows: plane.rows || 0,
+            cols: plane.columns || 0,
+            ipp: [Number(ipp[0]), Number(ipp[1]), Number(ipp[2])],
+            iop: iop
+        };
+    }
+
+    function sortSlab(rows) {
+        var n = slabNormal(rows[0].iop);
+        rows.sort(function (a, b) {
+            var da = a.ipp[0] * n[0] + a.ipp[1] * n[1] + a.ipp[2] * n[2];
+            var db = b.ipp[0] * n[0] + b.ipp[1] * n[1] + b.ipp[2] * n[2];
+            return da - db;
+        });
+        return rows;
     }
 
     function expandFrames(imageIds) {
@@ -458,19 +530,30 @@
     }
 
     function pickVolumeImageIds(imageIds) {
-        var usable = (imageIds || []).filter(hasReconstructablePlane);
-        if (!usable.length) return [];
         var groups = {};
-        usable.forEach(function (id) {
-            var key = seriesKey(id);
+        (imageIds || []).forEach(function (id) {
+            var info = sliceInfo(id);
+            if (!info) return;
+            var key = info.uid + '|' + oriKey(info.iop) + '|' + info.rows + 'x' + info.cols;
             if (!groups[key]) groups[key] = [];
-            groups[key].push(id);
+            groups[key].push(info);
         });
-        var best = [];
+        var ct = [];
+        var fallback = [];
         Object.keys(groups).forEach(function (k) {
-            if (groups[k].length > best.length) best = groups[k];
+            var g = groups[k];
+            if (g.length < 3) return;
+            var sample = g[0];
+            if (sample.mod === 'CT' || CBCT_SOP[sample.sop]) ct.push(g);
+            else if (g.length >= 40) fallback.push(g);
         });
-        return best;
+        var pool = ct.length ? ct : fallback;
+        if (!pool.length) return [];
+        var best = pool[0];
+        pool.forEach(function (g) {
+            if (g.length > best.length) best = g;
+        });
+        return sortSlab(best).map(function (s) { return s.id; });
     }
 
     function apply3dPreset(viewport) {
@@ -559,7 +642,7 @@
         last.ready = true;
         last.error = '';
         last.include3d = include3d;
-        setStatus((label || 'Loaded') + ': ' + imageIds.length + ' instances · volume + three planes' +
+        setStatus((label || 'CBCT') + ': ' + imageIds.length + ' CBCT slices · three planes' +
             (include3d ? '' : ' (3D pane skipped — GPU busy)') +
             '. Left = tool, right = zoom, wheel = scroll.', 'ok');
         if (window.CS3D_IMPLANT && CS3D_IMPLANT.onVolumeReady) {
@@ -613,13 +696,13 @@
             setStatus('No DICOM files to load.', 'err');
             return false;
         }
-        setStatus('Reading ' + list.length + ' DICOM file' + (list.length === 1 ? '' : 's') + '…');
+        setStatus('Looking for a CBCT series in ' + list.length + ' DICOM file' + (list.length === 1 ? '' : 's') + '…');
         last.source = label || 'files';
         try {
             destroyEngine();
             purgeFiles();
             var imageIds = list.map(fileToImageId);
-            await prefetchMeta(imageIds);
+            var headerFails = await prefetchMeta(imageIds);
             if (typeof window.csDicom.convertMultiframeImageIds === 'function') {
                 try { imageIds = window.csDicom.convertMultiframeImageIds(imageIds); } catch (eMf) { /* keep ids */ }
             }
@@ -631,9 +714,9 @@
                 try {
                     await loadVolume(volumeIds, label);
                     if (skipped > 0) {
-                        setStatus((label || 'Loaded') + ': ' + volumeIds.length +
-                            ' instances · volume + three planes (skipped ' + skipped +
-                            ' file' + (skipped === 1 ? '' : 's') + ' without slice positions).', 'ok');
+                        setStatus((label || 'CBCT') + ': ' + volumeIds.length +
+                            ' CBCT slices · three planes (skipped ' + skipped +
+                            ' non-volume file' + (skipped === 1 ? '' : 's') + ').', 'ok');
                     }
                     return true;
                 } catch (volErr) {
@@ -659,15 +742,9 @@
                     }
                 }
             }
-            if (volumeIds.length) {
-                await loadStack(volumeIds, label);
-                return true;
-            }
-            if (imageIds.length === 1) {
-                await loadStack(imageIds, label);
-                return true;
-            }
-            throw new Error('No reconstructable slices (need Image Position). This zip may mix reports/scouts with a volume — load one series, or use the OHIF CBCT viewer.');
+            throw new Error('No CBCT volume in that selection. ' +
+                (headerFails ? headerFails + ' file' + (headerFails === 1 ? '' : 's') + ' could not be read. ' : '') +
+                'This reader uses the CT slice stack and skips panoramics, photos and reports.');
         } catch (err) {
             last.ready = false;
             last.error = (err && err.message) ? err.message : String(err);
@@ -707,10 +784,11 @@
         $('btnFiles').addEventListener('click', function () { $('filePick').click(); });
         function onPick(input, label) {
             input.addEventListener('change', function () {
-                if (input.files && input.files.length && window.bananaCs3dHandleList) {
-                    window.bananaCs3dHandleList(input.files, label);
-                }
+                var list = input.files ? Array.prototype.slice.call(input.files) : [];
                 input.value = '';
+                if (list.length && window.bananaCs3dHandleList) {
+                    window.bananaCs3dHandleList(list, label);
+                }
             });
         }
         onPick($('zipPick'), 'zip');
@@ -836,6 +914,7 @@
     window.CS3D_PAGE = {
         loadFiles: loadFiles,
         loadTestVolume: loadTestVolume,
+        ctSlice: ctSlice,
         pickVolumeImageIds: pickVolumeImageIds,
         hasReconstructablePlane: hasReconstructablePlane,
         setTool: setTool,
@@ -844,13 +923,16 @@
         volumeId: function () { return last.volumeId; },
         crosshairCenter: crosshairCenter,
         state: state,
-        implant: null
+        implant: null,
+        ready: function () { return readyPromise; }
     };
 
     bindUi();
-    initLibs().then(function (ok) {
-        if (ok) setStatus('Ready. Load a DICOM zip, folder, or files. Share this window in X-ray Helper to save a view.');
+    var readyPromise = initLibs().then(function (ok) {
+        if (ok) setStatus('Ready. Load a CBCT DICOM zip or folder. Panoramics and reports are skipped. Share this window in X-ray Helper to save a view.');
+        return ok;
     }).catch(function (err) {
         setStatus('Cornerstone3D failed to start: ' + (err && err.message ? err.message : err), 'err');
+        return false;
     });
 })();

@@ -7,7 +7,7 @@
 (function () {
     var MORE = {
         'xdr.open': { en: 'Banana Dicom Reader', 'zh-CN': 'Banana DICOM 阅读器', 'zh-Hant': 'Banana DICOM 閱讀器' },
-        'xdr.openTitle': { en: 'Open the Cornerstone3D sidecar (volume + three planes + its own measure tools). Load a DICOM zip or folder there, then share THAT window in X-ray Helper to save a view. Does not replace the OHIF CBCT viewer.', 'zh-CN': '打开 Cornerstone3D 侧窗（容积 + 三平面 + 自带测量）。在那边加载 DICOM zip/文件夹，再用 X 光助手分享该窗口存回。不替代 OHIF CBCT 查看器。', 'zh-Hant': '開啟 Cornerstone3D 側窗（容積 + 三平面 + 自帶測量）。在那邊載入 DICOM zip/資料夾，再用 X 光助手分享該視窗存回。不替代 OHIF CBCT 檢視器。' },
+        'xdr.openTitle': { en: 'Open the CBCT reader (volume + three planes). It loads the CT slice stack from a DICOM zip or folder and skips panoramics, photos and reports. Share THAT window in X-ray Helper to save a view. Does not replace the OHIF CBCT viewer.', 'zh-CN': '打开 CBCT 阅读器（容积 + 三平面）。从 DICOM zip/文件夹读取 CT 切片序列，跳过全景、照片和报告。再用 X 光助手分享该窗口存回。不替代 OHIF CBCT 查看器。', 'zh-Hant': '開啟 CBCT 閱讀器（容積 + 三平面）。從 DICOM zip/資料夾讀取 CT 切片序列，跳過全景、照片和報告。再用 X 光助手分享該視窗存回。不替代 OHIF CBCT 檢視器。' },
         'xdr.needPatient': { en: 'Select a patient before opening Banana Dicom Reader.', 'zh-CN': '请先选择病人再打开 Banana DICOM 阅读器。', 'zh-Hant': '請先選擇病人再開啟 Banana DICOM 閱讀器。' }
     };
     if (typeof I18N_STRINGS !== 'undefined') {

@@ -28,6 +28,9 @@ var BBMRI_SLICES = [
     'bbmri-53323851.dcm'
 ];
 var BBMRI_BASE = 'https://raw.githubusercontent.com/ivmartel/dwv/develop/tests/data/';
+var JUNO_API = 'https://api.github.com/repos/OHIF/viewer-testdata/contents/dcm/Juno';
+var JUNO_BASE = 'https://raw.githubusercontent.com/OHIF/viewer-testdata/master/dcm/Juno/';
+var CT_SOP = '1.2.840.10008.5.1.4.1.1.2';
 
 function pass(name, ok, detail) {
     console.log((ok ? 'PASS' : 'FAIL') + '  ' + name + (detail ? '  -  ' + detail : ''));
@@ -73,6 +76,23 @@ function sbCfg() {
     var parts = [], re = /'([^']*)'/g, m;
     while ((m = re.exec(block[1]))) parts.push(m[1]);
     return { url: parts[0], key: parts.slice(1).join('') };
+}
+
+async function mapLimit(items, limit, fn) {
+    var out = new Array(items.length);
+    var next = 0;
+    async function worker() {
+        while (next < items.length) {
+            var i = next++;
+            out[i] = await fn(items[i], i);
+        }
+    }
+    var n = Math.min(limit, items.length);
+    var jobs = [];
+    var w;
+    for (w = 0; w < n; w++) jobs.push(worker());
+    await Promise.all(jobs);
+    return out;
 }
 
 function downloadUrl(url) {
@@ -202,7 +222,10 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
         /CrosshairsTool/.test(app) && /WindowLevelTool/.test(app));
     pass('sidecar skips zip members without slice positions instead of crashing',
         /function pickVolumeImageIds/.test(app) && /function hasReconstructablePlane/.test(app) &&
-        /imagePositionPatient/.test(app) && /No reconstructable slices/.test(app));
+        /imagePositionPatient/.test(app) && /No CBCT volume/.test(app));
+    pass('sidecar prefers the CT/CBCT stack over panoramics and reports',
+        /1\.2\.840\.10008\.5\.1\.4\.1\.1\.2/.test(app) && /sample\.mod === 'CT'/.test(app) &&
+        /g\.length >= 40/.test(app));
     pass('sidecar unpacks zip without calling OHIF',
         /bananaCs3dUnzip/.test(read('cs3d/cs3d-load.js')) && !/bananaOhif/.test(read('cs3d/cs3d-load.js')) &&
         /banana-load\.js/.test(read('ohif/index.html')));
@@ -354,6 +377,125 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
     pass('testclient: a store zip of one .dcm unpacks to a DICOM instance',
         unzipped && unzipped.length === 1 && unzipped[0].name === 'slice.dcm'
         && loadBox.bananaCs3dLooksDicom(unzipped[0].name, unzipped[0].bytes));
+    var winZip = await loadBox.bananaCs3dUnzip(new Uint8Array(storeZip('study\\IM0001', dcm)), 0);
+    pass('testclient: Windows backslash zip names still yield the DICOM file',
+        winZip && winZip.length === 1 && winZip[0].name === 'IM0001'
+        && loadBox.bananaCs3dLooksDicom(winZip[0].name, winZip[0].bytes, winZip[0].bytes.length));
+    var bare = Buffer.alloc(16, 0);
+    bare[0] = 0x08; bare[2] = 0x16;
+    pass('testclient: extensionless DICOM with a DICM marker is kept',
+        loadBox.bananaCs3dLooksDicom('IM0001', new Uint8Array(dcm), dcm.length) === true);
+    pass('testclient: preamble-less group 0008 file is kept',
+        loadBox.bananaCs3dLooksDicom('IM0002', new Uint8Array(bare), 400) === true);
+    var jpeg = Buffer.alloc(140, 0);
+    jpeg[128] = 68; jpeg[129] = 73; jpeg[130] = 67; jpeg[131] = 77;
+    pass('testclient: a .jpg is not treated as a slice',
+        loadBox.bananaCs3dLooksDicom('photo.jpg', new Uint8Array(jpeg), jpeg.length) === false);
+    function zip64One(name, data) {
+        var nameB = Buffer.from(name);
+        var local = Buffer.alloc(30 + nameB.length + data.length);
+        local.writeUInt32LE(0x04034b50, 0);
+        local.writeUInt16LE(20, 4);
+        local.writeUInt32LE(data.length, 18);
+        local.writeUInt32LE(data.length, 22);
+        local.writeUInt16LE(nameB.length, 26);
+        nameB.copy(local, 30);
+        data.copy(local, 30 + nameB.length);
+        var cd = Buffer.alloc(46 + nameB.length);
+        cd.writeUInt32LE(0x02014b50, 0);
+        cd.writeUInt16LE(20, 4);
+        cd.writeUInt16LE(20, 6);
+        cd.writeUInt32LE(data.length, 20);
+        cd.writeUInt32LE(data.length, 24);
+        cd.writeUInt16LE(nameB.length, 28);
+        nameB.copy(cd, 46);
+        var z64 = Buffer.alloc(56);
+        z64.writeUInt32LE(0x06064b50, 0);
+        z64.writeUInt32LE(44, 4);
+        z64.writeUInt32LE(1, 32);
+        z64.writeUInt32LE(cd.length, 40);
+        z64.writeUInt32LE(local.length, 48);
+        var loc = Buffer.alloc(20);
+        loc.writeUInt32LE(0x07064b50, 0);
+        loc.writeUInt32LE(local.length + cd.length, 8);
+        var eocd = Buffer.alloc(22);
+        eocd.writeUInt32LE(0x06054b50, 0);
+        eocd.writeUInt16LE(0xFFFF, 8);
+        eocd.writeUInt16LE(0xFFFF, 10);
+        eocd.writeUInt32LE(0xFFFFFFFF, 12);
+        eocd.writeUInt32LE(0xFFFFFFFF, 16);
+        return Buffer.concat([local, cd, z64, loc, eocd]);
+    }
+    var z64unzip = await loadBox.bananaCs3dUnzip(new Uint8Array(zip64One('series/0001.dcm', dcm)), 0);
+    pass('testclient: a ZIP64 directory still unpacks the DICOM slice',
+        z64unzip && z64unzip.length === 1 && z64unzip[0].name === '0001.dcm'
+        && loadBox.bananaCs3dLooksDicom(z64unzip[0].name, z64unzip[0].bytes));
+
+    var metaMap = {};
+    var axialOri = [1, 0, 0, 0, 1, 0];
+    var coronalOri = [1, 0, 0, 0, 0, -1];
+    var CT_SOP = '1.2.840.10008.5.1.4.1.1.2';
+    var pickIds = [];
+    function addSlice(id, mod, sop, uid, z, ori, rows, cols) {
+        pickIds.push(id);
+        metaMap[id] = {
+            imagePlaneModule: {
+                imagePositionPatient: [0, 0, z],
+                imageOrientationPatient: ori,
+                rows: rows,
+                columns: cols,
+                frameOfReferenceUID: '1.2.for'
+            },
+            generalSeriesModule: { modality: mod, seriesInstanceUID: uid },
+            sopCommonModule: { sopClassUID: sop }
+        };
+    }
+    for (var zi = 7; zi >= 0; zi--) addSlice('ax' + zi, 'CT', CT_SOP, '1.2.axial', zi, axialOri, 512, 512);
+    for (var si = 0; si < 2; si++) addSlice('sc' + si, 'CT', CT_SOP, '1.2.axial', si * 40, coronalOri, 512, 512);
+    for (var di = 0; di < 12; di++) addSlice('dx' + di, 'DX', '1.2.840.10008.5.1.4.1.1.1.1', '1.2.pano', di, axialOri, 2000, 1000);
+    for (var ci = 0; ci < 5; ci++) addSlice('cor' + ci, 'CT', CT_SOP, '1.2.cor', ci, coronalOri, 512, 512);
+    for (var oi = 0; oi < 50; oi++) addSlice('ot' + oi, 'OT', '1.2.840.10008.5.1.4.1.1.7', '1.2.ot', 49 - oi, axialOri, 512, 512);
+    var stubEl = function () {
+        return { addEventListener: function () {}, click: function () {}, appendChild: function () {}, className: '', textContent: '', innerHTML: '' };
+    };
+    var pickBox = {
+        document: {
+            getElementById: stubEl,
+            querySelectorAll: function () { return []; },
+            addEventListener: function () {},
+            createElement: function () { return stubEl(); },
+            baseURI: 'http://127.0.0.1/cs3d/'
+        },
+        URL: URL,
+        addEventListener: function () {},
+        csCore: { metaData: { get: function (type, id) { return (metaMap[id] || {})[type] || null; } } },
+        csTools: {},
+        csDicom: {},
+        console: console
+    };
+    pickBox.window = pickBox;
+    vm.createContext(pickBox);
+    vm.runInContext(app, pickBox);
+    var picked = pickBox.CS3D_PAGE.pickVolumeImageIds(pickIds);
+    pass('testclient: CBCT picker keeps the axial CT stack, sorted, and drops scout, pano, reformat, and a longer OT series',
+        picked.length === 8 && picked[0] === 'ax0' && picked[7] === 'ax7',
+        picked.join(','));
+    var panoOnly = pickBox.CS3D_PAGE.pickVolumeImageIds(pickIds.filter(function (id) { return id.indexOf('dx') === 0; }));
+    pass('testclient: a panoramic series is not treated as a CBCT volume', panoOnly.length === 0, String(panoOnly.length));
+    var otOnly = pickBox.CS3D_PAGE.pickVolumeImageIds(pickIds.filter(function (id) { return id.indexOf('ot') === 0; }));
+    pass('testclient: a long stack with no CT tag is used only when no CT series exists',
+        otOnly.length === 50 && otOnly[0] === 'ot49' && otOnly[49] === 'ot0',
+        otOnly.length + ' first=' + otOnly[0]);
+
+    console.log('\n=== HTML ===');
+    pass('HTML: the reader page asks for a CBCT zip or folder',
+        idx.indexOf('Load a CBCT DICOM zip or folder') >= 0 &&
+        idx.indexOf('panoramics, photos and reports are skipped') >= 0);
+    pass('HTML: axial, sagittal, coronal, and volume panes are on the page',
+        idx.indexOf('id="vpAxial"') >= 0 && idx.indexOf('id="vpSagittal"') >= 0 &&
+        idx.indexOf('id="vpCoronal"') >= 0 && idx.indexOf('id="vpVolume"') >= 0);
+    pass('HTML: the CBCT picker script is cache-busted',
+        /cs3d\.js\?v=20261013cbct1/.test(idx) && /cs3d-load\.js\?v=20261013cbct1/.test(idx));
 
     console.log('\n=== API (read-only, anon): clinic xrays + public DICOM sample ===');
     var sb = sbCfg();
@@ -382,7 +524,7 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
             samples.push({ name: BBMRI_SLICES[si], buf: got.buf, type: 'application/dicom' });
             extraFiles['/__cs3d-sample/' + BBMRI_SLICES[si]] = { buf: got.buf, type: 'application/dicom' };
         }
-        pass('public BBMRI CT series downloaded (6 real DICOM slices)',
+        pass('public BBMRI MR series downloaded (6 real DICOM slices)',
             samples.length === 6 && samples.every(function (s) { return s.buf[128] === 68 && s.buf[131] === 77; }),
             samples.reduce(function (n, s) { return n + s.buf.length; }, 0) + ' bytes');
         var dummyDcm = Buffer.alloc(140, 0);
@@ -397,7 +539,45 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
             extraFiles['/__cs3d-sample/mixed.zip'] = { buf: mixedZip, type: 'application/zip' };
         }
     } catch (e) {
-        pass('public BBMRI CT series downloaded (6 real DICOM slices)', false, e.message);
+        pass('public BBMRI MR series downloaded (6 real DICOM slices)', false, e.message);
+    }
+
+    var junoSlices = [];
+    try {
+        var junoList = await downloadUrl(JUNO_API);
+        var junoMeta = JSON.parse(junoList.buf.toString('utf8'));
+        if (!Array.isArray(junoMeta)) throw new Error('Juno listing HTTP ' + junoList.status);
+        var junoNames = junoMeta.filter(function (f) { return f && f.name && f.size > 10000; }).map(function (f) { return f.name; });
+        var gotJuno = await mapLimit(junoNames, 6, async function (name) {
+            var one = await downloadUrl(JUNO_BASE + encodeURIComponent(name));
+            if (one.status !== 200 || one.buf.length < 1000 || one.buf[128] !== 68) {
+                throw new Error(name + ' HTTP ' + one.status + ' n=' + one.buf.length);
+            }
+            return { name: name, buf: one.buf };
+        });
+        gotJuno.forEach(function (s) {
+            junoSlices.push(s);
+            extraFiles['/__cs3d-sample/juno/' + s.name] = { buf: s.buf, type: 'application/dicom' };
+        });
+        var ctSopN = junoSlices.filter(function (s) { return s.buf.indexOf(CT_SOP) >= 0; }).length;
+        var jlsN = junoSlices.filter(function (s) { return s.buf.indexOf('1.2.840.10008.1.2.4.80') >= 0; }).length;
+        pass('public real CT series downloaded (CT Image Storage, JPEG-LS, extensionless)',
+            junoSlices.length >= 40 && ctSopN === junoSlices.length && jlsN >= 40,
+            junoSlices.length + ' slices, CT SOP ' + ctSopN + ', JPEG-LS ' + jlsN + ', ' +
+            junoSlices.reduce(function (n, s) { return n + s.buf.length; }, 0) + ' bytes');
+        if (junoSlices.length) {
+            var junoReport = Buffer.alloc(140, 0);
+            junoReport[128] = 68; junoReport[129] = 73; junoReport[130] = 67; junoReport[131] = 77;
+            var junoZip = storeZipMany(junoSlices.map(function (s) {
+                return { name: 'study/' + s.name, data: s.buf };
+            }).concat([{ name: 'study/report.dcm', data: junoReport }]));
+            extraFiles['/__cs3d-sample/juno.zip'] = { buf: junoZip, type: 'application/zip' };
+            pass('real CT series packed with a report into a zip',
+                junoZip.length > 1000000 && junoZip[0] === 0x50 && junoZip[1] === 0x4b,
+                junoZip.length + ' bytes');
+        }
+    } catch (eJuno) {
+        pass('public real CT series downloaded (CT Image Storage, JPEG-LS, extensionless)', false, eJuno.message);
     }
 
     console.log('\n=== HTTP spot ===');
@@ -427,6 +607,25 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
         pass('GET /__cs3d-sample/mixed.zip is a study zip',
             zipGet.status === 200 && zipGet.body[0] === 0x50 && zipGet.body[1] === 0x4b,
             zipGet.body.length + ' bytes');
+    }
+    if (junoSlices.length) {
+        var junoGet = await httpGetText(PAGE_PORT, '/__cs3d-sample/juno/' + encodeURIComponent(junoSlices[0].name));
+        pass('spot: GET a real CT slice is DICOM CT Image Storage',
+            junoGet.status === 200 && junoGet.body[128] === 68 && junoGet.body.indexOf(CT_SOP) >= 0,
+            junoGet.body.length + ' bytes');
+        var junoZipGet = await httpGetText(PAGE_PORT, '/__cs3d-sample/juno.zip');
+        pass('spot: GET the real CT zip',
+            junoZipGet.status === 200 && junoZipGet.body[0] === 0x50 && junoZipGet.body[1] === 0x4b,
+            junoZipGet.body.length + ' bytes');
+    }
+    try {
+        var liveReader = await httpGetText(5500, '/cs3d/index.html?cbct=1');
+        pass('spot: live :5500 serves the CBCT reader page',
+            liveReader.status === 200 && liveReader.text.indexOf('Load a CBCT DICOM zip or folder') >= 0 &&
+            liveReader.text.indexOf('cs3d.js?v=20261013cbct1') >= 0,
+            'HTTP ' + liveReader.status);
+    } catch (eLive) {
+        pass('spot: live :5500 serves the CBCT reader page', false, eLive.message);
     }
 
     console.log('\n=== CDP live page ===');
@@ -512,14 +711,14 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
               CS3D_PAGE.setTool('Length');
               return { ok, state, range, dims, spacing, actors, sizes, tool: CS3D_PAGE.state().tool, status: (document.getElementById('status') || {}).textContent };
             })()`, true, 90000);
-            pass('live: real BBMRI DICOM series imported',
-                live && live.ok === true && live.state && live.state.n === 6,
+            pass('live: a real MR series is not opened as a CBCT volume',
+                live && live.ok === false && live.state &&
+                /No CBCT volume/.test(String(live.state.error || '')) &&
+                !/could not be read/.test(String(live.state.error || '')),
                 live && live.state ? (live.state.mode + ' n=' + live.state.n + ' err=' + live.state.error) : 'none');
-            pass('live: real series built a volume + three planes',
-                live && live.state && live.state.mode === 'volume' && live.actors >= 3 &&
-                live.dims && live.dims[0] > 32 && live.dims[2] >= 3 &&
-                !(live.range && live.range[0] === 20 && live.range[1] === 220),
-                live ? JSON.stringify({ mode: live.state && live.state.mode, dims: live.dims, spacing: live.spacing, actors: live.actors, range: live.range, sizes: live.sizes, err: live.state && live.state.error, status: live.status }) : 'none');
+            pass('live: that MR series did not become the three-plane volume',
+                live && live.ok === false && !(live.dims && live.dims[2] >= 3),
+                live ? JSON.stringify({ mode: live.state && live.state.mode, dims: live.dims, actors: live.actors, err: live.state && live.state.error, status: live.status }) : 'none');
             pass('live: Length tool is active after the real load',
                 live && live.tool === 'Length', live && live.tool);
             var mixed = await cdp.js(`(async () => {
@@ -543,11 +742,10 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
                 status: (document.getElementById('status') || {}).textContent
               };
             })()`, true, 90000);
-            pass('live: mixed study skips the non-volume DICOM instead of crashing',
-                mixed && mixed.ok === true && mixed.mode === 'volume' && mixed.n === 6 &&
-                mixed.skipped >= 1 && mixed.dims && mixed.dims[0] > 32 &&
-                !(mixed.range && mixed.range[0] === 20 && mixed.range[1] === 220) &&
-                String(mixed.err || '') === '',
+            pass('live: mixed MR plus a report is not treated as a CBCT volume',
+                mixed && mixed.ok === false && mixed.skipped >= 6 &&
+                /No CBCT volume/.test(String(mixed.err || '')) &&
+                /could not be read/.test(String(mixed.err || '')),
                 mixed ? JSON.stringify(mixed) : 'none');
             var zipped = await cdp.js(`(async () => {
               const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -564,12 +762,120 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
                 status: (document.getElementById('status') || {}).textContent
               };
             })()`, true, 90000);
-            pass('live: Load zip of CT + report builds the CT volume',
-                zipped && zipped.ok === true && zipped.mode === 'volume' && zipped.n === 6 &&
-                zipped.dims && zipped.dims[0] > 32 && String(zipped.err || '') === '',
+            pass('live: a zip of MR plus a report is not opened as CBCT',
+                zipped && zipped.ok === false &&
+                /No CBCT volume/.test(String(zipped.err || zipped.status || '')),
                 zipped ? JSON.stringify(zipped) : 'none');
+            var ctMixed = await cdp.js(`(async () => {
+              const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+              const files = [];
+              for (let i = 0; i < 8; i++) {
+                files.push(new File([CS3D_PAGE.ctSlice(i, 8)], 'ct-' + i + '.dcm', { type: 'application/dicom' }));
+              }
+              const dummy = await fetch('/__cs3d-sample/report.dcm');
+              files.push(new File([await dummy.arrayBuffer()], 'pano-report.dcm', { type: 'application/dicom' }));
+              const ok = await CS3D_PAGE.loadFiles(files, 'ct-plus-report');
+              await wait(400);
+              const state = CS3D_PAGE.state();
+              const vol = csCore.cache && csCore.cache.getVolume && csCore.cache.getVolume(state.volumeId);
+              return {
+                ok, mode: state.mode, n: state.n, skipped: state.skipped, err: state.error,
+                dims: vol && vol.dimensions,
+                status: (document.getElementById('status') || {}).textContent
+              };
+            })()`, true, 60000);
+            pass('live: CT stack plus a report loads the CBCT slices and skips the report',
+                ctMixed && ctMixed.ok === true && ctMixed.mode === 'volume' && ctMixed.n === 8 &&
+                ctMixed.skipped >= 1 && ctMixed.dims && ctMixed.dims[2] >= 3 &&
+                String(ctMixed.err || '') === '' && /CBCT/.test(String(ctMixed.status || '')),
+                ctMixed ? JSON.stringify(ctMixed) : 'none');
+            var reportOnly = await cdp.js(`(async () => {
+              const r = await fetch('/__cs3d-sample/report.dcm');
+              const f = new File([await r.arrayBuffer()], 'report.dcm', { type: 'application/dicom' });
+              const ok = await CS3D_PAGE.loadFiles([f], 'report-only');
+              const state = CS3D_PAGE.state();
+              return { ok, mode: state.mode, err: state.error, status: (document.getElementById('status') || {}).textContent };
+            })()`, true, 30000);
+            pass('live: a report DICOM is not opened as a CBCT volume',
+                reportOnly && reportOnly.ok === false && /No CBCT volume/.test(String(reportOnly.err || reportOnly.status || '')),
+                reportOnly ? JSON.stringify(reportOnly) : 'none');
         } else {
-            pass('live: real BBMRI DICOM series imported', false, 'no sample files');
+            pass('live: a real MR series is not opened as a CBCT volume', false, 'no sample files');
+        }
+        if (st && st.vendor && junoSlices.length >= 8) {
+            var junoNames = junoSlices.map(function (s) { return s.name; });
+            var realCt = await cdp.js(`(async () => {
+              const names = ${JSON.stringify(junoNames)};
+              const files = [];
+              for (const name of names) {
+                const r = await fetch('/__cs3d-sample/juno/' + encodeURIComponent(name));
+                if (!r.ok) throw new Error('juno HTTP ' + r.status + ' ' + name);
+                files.push(new File([await r.arrayBuffer()], name, { type: 'application/dicom' }));
+              }
+              const t0 = performance.now();
+              const ok = await CS3D_PAGE.loadFiles(files, 'real-ct');
+              const state = CS3D_PAGE.state();
+              let range = null, dims = null, actors = 0, spacing = null;
+              const deadline = Date.now() + 45000;
+              while (Date.now() < deadline) {
+                try {
+                  const vol = csCore.cache && csCore.cache.getVolume && csCore.cache.getVolume(state.volumeId);
+                  if (vol) {
+                    dims = vol.dimensions;
+                    spacing = vol.spacing;
+                    range = vol.voxelManager && vol.voxelManager.getRange && vol.voxelManager.getRange();
+                  }
+                  const engine = csCore.getRenderingEngine && csCore.getRenderingEngine('banana-cs3d');
+                  actors = 0;
+                  if (engine) {
+                    ['CS3D_AXIAL','CS3D_SAGITTAL','CS3D_CORONAL','CS3D_VOLUME'].forEach(function (id) {
+                      const vp = engine.getViewport(id);
+                      if (vp && vp.getActors) actors += (vp.getActors() || []).length;
+                    });
+                  }
+                } catch (e) {}
+                if (range && range[1] > range[0]) break;
+                await new Promise(function (r) { setTimeout(r, 400); });
+              }
+              return {
+                ok, mode: state.mode, n: state.n, skipped: state.skipped, err: state.error,
+                dims, spacing, range, actors, files: files.length,
+                ms: Math.round(performance.now() - t0),
+                status: (document.getElementById('status') || {}).textContent
+              };
+            })()`, true, 180000);
+            var spacingOk = realCt && realCt.spacing && realCt.spacing.length >= 3 &&
+                realCt.spacing.every(function (v) { return isFinite(v) && v > 0; });
+            pass('live: real CT DICOM series builds a CBCT volume',
+                realCt && realCt.ok === true && realCt.mode === 'volume' && realCt.n >= 40 &&
+                realCt.dims && realCt.dims[0] >= 128 && realCt.dims[2] >= 40 &&
+                realCt.actors >= 3 && spacingOk &&
+                realCt.range && realCt.range[1] > realCt.range[0] &&
+                !(realCt.range[0] === 20 && realCt.range[1] === 220) &&
+                String(realCt.err || '') === '' && /CBCT/.test(String(realCt.status || '')),
+                realCt ? JSON.stringify(realCt) : 'none');
+            var realZip = await cdp.js(`(async () => {
+              const r = await fetch('/__cs3d-sample/juno.zip');
+              if (!r.ok) throw new Error('juno zip HTTP ' + r.status);
+              const f = new File([await r.arrayBuffer()], 'juno.zip', { type: 'application/zip' });
+              const t0 = performance.now();
+              const ok = await bananaCs3dHandleList([f], 'zip');
+              const state = CS3D_PAGE.state();
+              const vol = csCore.cache && csCore.cache.getVolume && csCore.cache.getVolume(state.volumeId);
+              return {
+                ok, mode: state.mode, n: state.n, skipped: state.skipped, err: state.error,
+                dims: vol && vol.dimensions,
+                ms: Math.round(performance.now() - t0),
+                status: (document.getElementById('status') || {}).textContent
+              };
+            })()`, true, 180000);
+            pass('live: zip of the real CT series plus a report loads the CT stack',
+                realZip && realZip.ok === true && realZip.mode === 'volume' && realZip.n >= 40 &&
+                realZip.skipped >= 1 && realZip.dims && realZip.dims[2] >= 40 &&
+                String(realZip.err || '') === '' && /CBCT/.test(String(realZip.status || '')),
+                realZip ? JSON.stringify(realZip) : 'none');
+        } else if (st && st.vendor) {
+            pass('live: real CT DICOM series builds a CBCT volume', false, 'no real CT slices');
         }
     } catch (e) {
         pass('CDP live page', false, e && e.message);
@@ -579,7 +885,7 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
         try { server.close(); } catch (e4) { /* ignore */ }
     }
 
-    console.log('\n' + (fails.length ? 'FAILED ' + fails.length : 'SMOKE + SPOT + API + TESTCLIENT + CDP + LIVE PAGE + REAL DICOM PASS'));
+    console.log('\n' + (fails.length ? 'FAILED ' + fails.length : 'SMOKE + HTML + SPOT + API + TESTCLIENT + CDP + LIVE PAGE + REAL CT PASS'));
     fails.forEach(function (f) { console.log('  - ' + f); });
     process.exit(fails.length ? 1 : 0);
 })().catch(function (e) {

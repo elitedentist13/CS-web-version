@@ -514,7 +514,15 @@
         g.setAttribute('data-cut', cut.kind || 'miss');
 
         var posC = panePoint(vpId, imp.position);
-        if (posC) {
+        if (posC && vpId !== VP.VOL) {
+            g.setAttribute('data-px', String(posC[0]));
+            g.setAttribute('data-py', String(posC[1]));
+            g.appendChild(svgNode('path', {
+                d: 'M ' + (posC[0] - 7) + ' ' + posC[1] + ' L ' + (posC[0] + 7) + ' ' + posC[1] +
+                    ' M ' + posC[0] + ' ' + (posC[1] - 7) + ' L ' + posC[0] + ' ' + (posC[1] + 7),
+                fill: 'none', stroke: imp.color, 'stroke-width': '1.5', 'data-center': '1'
+            }));
+        } else if (posC) {
             g.setAttribute('data-px', String(posC[0]));
             g.setAttribute('data-py', String(posC[1]));
         }
@@ -709,6 +717,22 @@
         return [ev.clientX - r.left, ev.clientY - r.top];
     }
 
+    function elementPoint(vpId, nx, ny) {
+        var vp = viewport(vpId);
+        var el = vp && (vp.element || vp.canvas);
+        var w = (el && el.clientWidth) || 1;
+        var h = (el && el.clientHeight) || 1;
+        return [nx * w, ny * h];
+    }
+
+    function clickWorld(vpId, nx, ny) {
+        var xy = elementPoint(vpId, nx, ny);
+        var world = canvasToWorld(vpId, xy);
+        var plane = cameraPlane(vpId);
+        if (world && plane) world = projectToPlane(world, plane);
+        return world ? as3(world) : null;
+    }
+
     function placeAtViewport(vpId, nx, ny) {
         var vp = viewport(vpId);
         if (!vp) {
@@ -720,22 +744,15 @@
             });
             return findImp(model.selectedId);
         }
-        var el = vp.element || vp.canvas;
-        var w = (el && el.clientWidth) || 1;
-        var h = (el && el.clientHeight) || 1;
-        var world = canvasToWorld(vpId, [nx * w, ny * h]);
-        if (!world) world = [16, 16, 4];
-        var locked = as3(world);
+        var locked = clickWorld(vpId, nx, ny) || [16, 16, 4];
         var imp = addImplant({
             position: locked,
             axis: viewNormal(vpId),
             diameterMm: Number($('impDia') && $('impDia').value) || 4,
             lengthMm: Number($('impLen') && $('impLen').value) || 10
         });
-        // Keep the click's DICOM point, then move every plane onto that point
-        // so the same implant is cut on axial, sagittal and coronal.
-        imp.position = locked.slice();
-        try { alignMprToWorld(locked); } catch (eAlign) { /* ignore */ }
+        // The click is a point on the current slice. Leave the crosshair and
+        // the other two planes where the user put them.
         imp.position = locked.slice();
         try { draw(); } catch (eDraw) { /* ignore */ }
         return imp;
@@ -878,9 +895,17 @@
             paintPanel();
             return;
         }
-        var cxy = paneToCanvas(vpId, xy[0], xy[1]);
-        var box = canvasBox(vpId);
-        placeAtViewport(vpId, cxy[0] / (box.w || 1), cxy[1] / (box.h || 1));
+        var el = viewport(vpId) && (viewport(vpId).element || viewport(vpId).canvas);
+        var pane = paneEl(vpId);
+        var ex = xy[0];
+        var ey = xy[1];
+        if (el && pane && el.getBoundingClientRect && pane.getBoundingClientRect) {
+            var er = el.getBoundingClientRect();
+            var pr = pane.getBoundingClientRect();
+            ex = xy[0] - (er.left - pr.left);
+            ey = xy[1] - (er.top - pr.top);
+        }
+        placeAtViewport(vpId, ex / ((el && el.clientWidth) || 1), ey / ((el && el.clientHeight) || 1));
         ev.preventDefault();
     }
 
@@ -976,7 +1001,19 @@
                     }
                     return;
                 }
-                placeAtViewport(VP.AX, 0.5, 0.5);
+                var page = window.CS3D_PAGE;
+                var center = page && page.crosshairCenter && page.crosshairCenter();
+                if (center && center.length >= 3 && center.every(function (n) { return isFinite(n); })) {
+                    addImplant({
+                        position: as3(center),
+                        axis: viewNormal(VP.AX),
+                        diameterMm: Number($('impDia') && $('impDia').value) || 4,
+                        lengthMm: Number($('impLen') && $('impLen').value) || 10
+                    });
+                    try { draw(); } catch (eAdd) { /* ignore */ }
+                } else {
+                    placeAtViewport(VP.AX, 0.5, 0.5);
+                }
             });
         }
         if ($('impDup')) $('impDup').addEventListener('click', function () { duplicateImplant(); });

@@ -3029,14 +3029,62 @@ function photoOrthoSetLabel(setKey) {
   return mediaTr('media.ortho.before');
 }
 
-function photoOrthoXfGet(map, setKey, slotKey) {
-  var bag = map && map.xf && map.xf[setKey];
-  var x = bag && bag[slotKey];
+function photoOrthoXfNorm(x) {
   return {
     rot: x && isFinite(Number(x.rot)) ? ((Number(x.rot) % 360) + 360) % 360 : 0,
     flipH: !!(x && x.flipH),
     flipV: !!(x && x.flipV)
   };
+}
+
+function photoOrthoXfGet(map, setKey, slotKey) {
+  var bag = map && map.xf && map.xf[setKey];
+  return photoOrthoXfNorm(bag && bag[slotKey]);
+}
+
+function photoOrthoXfWrite(bag, slotKey, xf) {
+  if (!bag || !slotKey) return;
+  if (!xf || (!xf.rot && !xf.flipH && !xf.flipV)) {
+    delete bag[slotKey];
+    return;
+  }
+  bag[slotKey] = { rot: xf.rot || 0, flipH: !!xf.flipH, flipV: !!xf.flipV };
+}
+
+/* Comparison shows two visits that can both be stored as "progress".
+   The pencil must edit the visit on the clicked side. Writing the shared
+   live progress bag changes the other grid (usually the left one). */
+function photoOrthoEditBag(map, date, setKey, create) {
+  date = String(date || '').slice(0, 10);
+  if (!map.xf) map.xf = {};
+  if (!Array.isArray(map.progressSets)) map.progressSets = [];
+  if (date) {
+    var found = photoOrthoSetForDate(map, date);
+    if (found && (found.key === 'before' || found.key === 'after')) {
+      setKey = found.key;
+    } else {
+      var prog = photoOrthoProgressByDate(map, date);
+      if (prog && String(map.progressDate || '') === date) {
+        setKey = 'progress';
+      } else if (prog) {
+        if (!prog.slots) prog.slots = {};
+        if (!prog.xf) prog.xf = {};
+        return { setKey: 'progress', slots: prog.slots, xf: prog.xf, direct: true };
+      } else if (create) {
+        prog = { id: photoOrthoNewSetId(), date: date, remarks: '', appointmentId: '', slots: {}, xf: {} };
+        var visit = photoOrthoVisitForDate(date);
+        if (visit) prog.appointmentId = String(visit.id);
+        map.progressSets.push(prog);
+        return { setKey: 'progress', slots: prog.slots, xf: prog.xf, direct: true };
+      } else {
+        return { setKey: 'progress', slots: {}, xf: {}, direct: true };
+      }
+    }
+  }
+  if (!photoOrthoIsSetKey(setKey)) setKey = 'before';
+  if (!map[setKey] || typeof map[setKey] !== 'object') map[setKey] = {};
+  if (!map.xf[setKey] || typeof map.xf[setKey] !== 'object') map.xf[setKey] = {};
+  return { setKey: setKey, slots: map[setKey], xf: map.xf[setKey], direct: false };
 }
 
 function photoOrthoXfSet(map, setKey, slotKey, xf) {
@@ -3432,7 +3480,7 @@ function photoOrthoBind() {
   });
 }
 
-function photoOrthoPlace(setKey, slotKey, id, from) {
+function photoOrthoPlace(setKey, slotKey, id, from, date) {
   if (!photoOrthoIsSetKey(setKey)) return;
   var resolved = id ? (photoOrthoResolveId(id) || '') : '';
   if (id && !resolved) {
@@ -3444,17 +3492,14 @@ function photoOrthoPlace(setKey, slotKey, id, from) {
   if (!map.after) map.after = {};
   if (!map.progress) map.progress = {};
   if (!map.xf) map.xf = {};
-  if (from && from.fromSet && (from.fromSet !== setKey || from.fromSlot !== slotKey)) {
+  var bag = photoOrthoEditBag(map, date, setKey, true);
+  if (from && !bag.direct && from.fromSet && (from.fromSet !== bag.setKey || from.fromSlot !== slotKey)) {
     if (map[from.fromSet]) delete map[from.fromSet][from.fromSlot];
     photoOrthoXfClear(map, from.fromSet, from.fromSlot);
   }
-  if (resolved) {
-    map[setKey][slotKey] = resolved;
-    photoOrthoXfClear(map, setKey, slotKey);
-  } else {
-    delete map[setKey][slotKey];
-    photoOrthoXfClear(map, setKey, slotKey);
-  }
+  if (resolved) bag.slots[slotKey] = resolved;
+  else delete bag.slots[slotKey];
+  photoOrthoXfWrite(bag.xf, slotKey, null);
   photoOrthoSave(map);
   photoOrthoRender();
   var show = g('photoOrthoShow');
@@ -4328,13 +4373,16 @@ function photoOrthoBrowseBtnHtml(setKey, slotKey, date) {
     '</svg></button>';
 }
 
-function photoOrthoMarkAimed(setKey, slotKey) {
+function photoOrthoMarkAimed(setKey, slotKey, date) {
   var root = g('photoOrthoSets');
   if (!root) return;
+  date = String(date || '');
   var tiles = root.querySelectorAll('.ortho-tile');
   var i;
   for (i = 0; i < tiles.length; i++) {
-    tiles[i].classList.toggle('is-aimed', tiles[i].dataset.set === setKey && tiles[i].dataset.slot === slotKey);
+    var same = tiles[i].dataset.set === setKey && tiles[i].dataset.slot === slotKey;
+    if (date) same = same && (tiles[i].getAttribute('data-compare-date') || '') === date;
+    tiles[i].classList.toggle('is-aimed', same);
   }
 }
 
@@ -4507,7 +4555,7 @@ function photoOrthoModeToggleHtml(setKey, mode) {
     '</div>';
 }
 
-function photoOrthoCompositeTileHtml(setKey, photoId, xf) {
+function photoOrthoCompositeTileHtml(setKey, photoId, xf, date) {
   var label = mediaTr('media.ortho.compTile');
   var rec = photoId ? photoOrthoFind(photoId) : null;
   var src = rec && photoOrthoIsImage(rec) ? (photoDisplayUrl(rec) || photoBareUrl(rec)) : '';
@@ -4518,6 +4566,7 @@ function photoOrthoCompositeTileHtml(setKey, photoId, xf) {
     var css = photoOrthoXfCss(xf);
     return '<div class="ortho-tile ortho-comp-tile is-filled" draggable="true"' +
       ' data-set="' + esc(setKey) + '" data-slot="composite"' +
+      (date ? ' data-compare-date="' + esc(date) + '"' : '') +
       ' data-photo="' + esc(photoId) + '" title="' + esc(label) + '">' +
       '<img alt="' + esc(label) + '" src="' + esc(src) + '"' +
       (css ? ' style="transform:' + esc(css) + '"' : '') + '>' +
@@ -4526,16 +4575,18 @@ function photoOrthoCompositeTileHtml(setKey, photoId, xf) {
       '</span>' +
       '<button type="button" class="ortho-edit-btn ortho-tile-edit" data-ortho-edit="1"' +
       ' data-set="' + esc(setKey) + '" data-slot="composite"' +
+      (date ? ' data-compare-date="' + esc(date) + '"' : '') +
       ' aria-label="' + esc(mediaTr('media.ortho.edit')) + '">✎</button>' +
-      photoOrthoBrowseBtnHtml(setKey, 'composite') +
+      photoOrthoBrowseBtnHtml(setKey, 'composite', date) +
       '</div>';
   }
   var missing = photoId && !src ? '<span class="ortho-tile-miss">' + esc(mediaTr('media.ortho.missing')) + '</span>' : '';
   return '<div class="ortho-tile ortho-comp-tile is-empty" role="button" tabindex="0"' +
-    ' data-set="' + esc(setKey) + '" data-slot="composite">' +
+    ' data-set="' + esc(setKey) + '" data-slot="composite"' +
+    (date ? ' data-compare-date="' + esc(date) + '"' : '') + '>' +
     '<span class="ortho-tile-name">' + esc(label) + '</span>' +
     '<span class="ortho-tile-add">' + esc(mediaTr('media.ortho.compHint')) + '</span>' +
-    photoOrthoBrowseBtnHtml(setKey, 'composite') +
+    photoOrthoBrowseBtnHtml(setKey, 'composite', date) +
     missing +
     '</div>';
 }
@@ -4560,6 +4611,7 @@ function photoOrthoTileHtml(setKey, slotKey, labelKey, photoId, xf, date) {
       '</span>' +
       '<button type="button" class="ortho-edit-btn ortho-tile-edit" data-ortho-edit="1"' +
       ' data-set="' + esc(setKey) + '" data-slot="' + esc(slotKey) + '"' +
+      (date ? ' data-compare-date="' + esc(date) + '"' : '') +
       ' aria-label="' + esc(mediaTr('media.ortho.edit')) + '">✎</button>' +
       photoOrthoBrowseBtnHtml(setKey, slotKey, date) +
       '</div>';
@@ -5238,7 +5290,7 @@ function photoOrthoCompareSectionHtml(map, side, view) {
   var xfWrap = { xf: {} };
   xfWrap.xf[view.key] = view.xf || {};
   if (mode === 'composite') {
-    html += photoOrthoCompositeTileHtml(view.key, (view.slots && view.slots.composite) || '', photoOrthoXfGet(xfWrap, view.key, 'composite'));
+    html += photoOrthoCompositeTileHtml(view.key, (view.slots && view.slots.composite) || '', photoOrthoXfGet(xfWrap, view.key, 'composite'), date);
   } else {
     html += '<div class="ortho-set-grid">';
     PHOTO_ORTHO_SLOTS.forEach(function(slot) {
@@ -5476,25 +5528,27 @@ function photoOrthoTileAct(act) {
   var t = photoOrthoMenuTarget;
   photoOrthoTileMenuClose();
   if (!t || !t.set || !t.slot) return;
+  if (act === 'crop') {
+    photoOrthoOpenInLightbox(t.photo, 'crop');
+    return;
+  }
+  if (act === 'replace') {
+    photoOrthoPick(t.set, t.slot, { date: t.date || '' });
+    return;
+  }
+  if (act === 'delete') {
+    photoOrthoPlace(t.set, t.slot, '', null, t.date || '');
+    return;
+  }
   var map = photoOrthoLoad();
-  var xf = photoOrthoXfGet(map, t.set, t.slot);
+  var bag = photoOrthoEditBag(map, t.date, t.set, true);
+  var xf = photoOrthoXfNorm(bag.xf && bag.xf[t.slot]);
   if (act === 'flipV') xf.flipV = !xf.flipV;
   else if (act === 'flipH') xf.flipH = !xf.flipH;
   else if (act === 'rotateL') xf.rot = (xf.rot + 270) % 360;
   else if (act === 'rotateR') xf.rot = (xf.rot + 90) % 360;
-  else if (act === 'crop') {
-    photoOrthoOpenInLightbox(t.photo, 'crop');
-    return;
-  } else if (act === 'replace') {
-    photoOrthoPick(t.set, t.slot);
-    return;
-  } else if (act === 'delete') {
-    photoOrthoPlace(t.set, t.slot, '', null);
-    return;
-  } else {
-    return;
-  }
-  photoOrthoXfSet(map, t.set, t.slot, xf);
+  else return;
+  photoOrthoXfWrite(bag.xf, t.slot, xf);
   photoOrthoSave(map);
   photoOrthoRender();
   var show = g('photoOrthoShow');
@@ -5519,10 +5573,13 @@ function photoOrthoTileMenuOpen(btn) {
       '" data-ortho-act="' + row[0] + '"><span class="ortho-tile-menu-ico" aria-hidden="true">' +
       row[1] + '</span><span>' + esc(mediaTr(row[2])) + '</span></button>';
   }).join('');
+  var compareDate = (btn && btn.getAttribute && btn.getAttribute('data-compare-date')) ||
+    tile.getAttribute('data-compare-date') || '';
   photoOrthoMenuTarget = {
     set: tile.dataset.set,
     slot: tile.dataset.slot,
-    photo: tile.dataset.photo || ''
+    photo: tile.dataset.photo || '',
+    date: compareDate
   };
   menu.onclick = function(e) {
     var item = e.target.closest ? e.target.closest('[data-ortho-act]') : null;
@@ -5618,12 +5675,18 @@ function photoOrthoChartPickerSync() {
 
 function photoOrthoPick(setKey, slotKey, opts) {
   opts = opts || {};
-  photoOrthoPickTarget = { set: setKey, slot: slotKey };
-  photoOrthoMarkAimed(setKey, slotKey);
+  var date = '';
+  if (Object.prototype.hasOwnProperty.call(opts, 'date')) date = String(opts.date || '');
+  else if (photoOrthoPickTarget && photoOrthoPickTarget.set === setKey && photoOrthoPickTarget.slot === slotKey) {
+    date = photoOrthoPickTarget.date || '';
+  }
+  photoOrthoPickTarget = { set: setKey, slot: slotKey, date: date };
+  photoOrthoMarkAimed(setKey, slotKey, date);
   var box = g('photoOrthoPick');
   if (!box) return;
   var map = photoOrthoLoad();
-  var current = map[setKey] && map[setKey][slotKey] ? String(map[setKey][slotKey]) : '';
+  var bag = photoOrthoEditBag(map, date, setKey, false);
+  var current = bag.slots && bag.slots[slotKey] ? String(bag.slots[slotKey]) : '';
   var title = mediaTrRepl('media.ortho.pick', {
     SET: photoOrthoSetLabel(setKey),
     SLOT: photoOrthoSlotLabel(slotKey)
@@ -5658,8 +5721,8 @@ function photoOrthoPick(setKey, slotKey, opts) {
     var btn = e.target.closest ? e.target.closest('.ortho-pick-item, .ortho-pick-remove') : null;
     if (!btn || !photoOrthoPickTarget) return;
     var aimed = photoOrthoPickTarget;
-    photoOrthoPlace(aimed.set, aimed.slot, btn.getAttribute('data-id') || '', null);
-    photoOrthoPick(aimed.set, aimed.slot, { quiet: true });
+    photoOrthoPlace(aimed.set, aimed.slot, btn.getAttribute('data-id') || '', null, aimed.date || '');
+    photoOrthoPick(aimed.set, aimed.slot, { quiet: true, date: aimed.date || '' });
   };
   if (!opts.quiet && box.scrollIntoView) box.scrollIntoView({ block: 'nearest' });
 }

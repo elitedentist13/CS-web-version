@@ -208,6 +208,11 @@ function finish(code) {
         css.indexOf('body:has(#photoOrthoShow:not([hidden]))') >= 0 &&
         css.indexOf('body.photo-ortho-show-open') >= 0 &&
         extractFn(photos, 'photoOrthoSlideshow').indexOf('photoOrthoShowChrome') >= 0);
+    pass('comparison pencil edits the visit on that side',
+        extractFn(photos, 'photoOrthoTileMenuOpen').indexOf('data-compare-date') >= 0 &&
+        extractFn(photos, 'photoOrthoTileAct').indexOf('photoOrthoEditBag') >= 0 &&
+        extractFn(photos, 'photoOrthoPlace').indexOf('photoOrthoEditBag') >= 0 &&
+        tile.indexOf('data-compare-date') >= 0);
     pass('filled tiles have a clickable pencil that opens the edit menu',
         tile.indexOf('data-ortho-edit') >= 0 &&
         tile.indexOf('<button type="button" class="ortho-tile') < 0 &&

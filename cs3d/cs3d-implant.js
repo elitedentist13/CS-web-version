@@ -213,15 +213,32 @@
         return { ox: 0, oy: 0, w: (el && el.clientWidth) || 1, h: (el && el.clientHeight) || 1 };
     }
 
+    // worldToCanvas is CSS pixels from the viewport element, the same origin canvasToWorld uses.
+    function elementBox(vpId) {
+        var vp = viewport(vpId);
+        var el = vp && vp.element;
+        var pane = paneEl(vpId);
+        if (el && pane && el.getBoundingClientRect && pane.getBoundingClientRect) {
+            var er = el.getBoundingClientRect();
+            var pr = pane.getBoundingClientRect();
+            if (er.width > 2 && er.height > 2) {
+                return { ox: er.left - pr.left, oy: er.top - pr.top, w: er.width, h: er.height };
+            }
+        }
+        return canvasBox(vpId);
+    }
+
     function panePoint(vpId, world) {
-        var xy = worldToCanvas(vpId, world);
+        var plane = vpId === VP.VOL ? null : cameraPlane(vpId);
+        var onPlane = (plane && world) ? projectToPlane(world, plane) : world;
+        var xy = worldToCanvas(vpId, onPlane);
         if (!xy) return null;
-        var box = canvasBox(vpId);
+        var box = elementBox(vpId);
         return [xy[0] + box.ox, xy[1] + box.oy];
     }
 
     function paneToCanvas(vpId, paneX, paneY) {
-        var box = canvasBox(vpId);
+        var box = elementBox(vpId);
         return [paneX - box.ox, paneY - box.oy];
     }
 
@@ -302,7 +319,7 @@
         if (!vp || !vp.setCamera || !plane) return false;
         var delta = planeDist(world, plane);
         if (!isFinite(delta)) return false;
-        if (Math.abs(delta) < 0.12) return true;
+        if (Math.abs(delta) < 0.01) return true;
         var n = plane.n;
         var cam = { focalPoint: vAdd(plane.origin, vScale(n, delta)) };
         if (plane.position) cam.position = vAdd(plane.position, vScale(n, delta));
@@ -346,7 +363,18 @@
         return findImp(model.selectedId) || model.implants[0] || null;
     }
 
-    function alignMprToWorld(world) {
+    function setCrosshairCenter(world) {
+        try {
+            var T = window.csTools;
+            var mpr = T && T.ToolGroupManager && T.ToolGroupManager.getToolGroup('banana-cs3d-mpr');
+            var name = T && T.CrosshairsTool && T.CrosshairsTool.toolName;
+            var tool = mpr && name && mpr.getToolInstance && mpr.getToolInstance(name);
+            if (tool && tool.setToolCenter) tool.setToolCenter(as3(world), true);
+        } catch (e) { /* ignore */ }
+    }
+
+    // Scroll each plane along its normal until it contains the point. Do not pan in-plane.
+    function seatPlanesOnPoint(world) {
         if (!world || syncing || suspended) return 0;
         var en = engine();
         if (!en) return 0;
@@ -356,19 +384,24 @@
             var pass;
             for (pass = 0; pass < 3; pass++) {
                 [VP.AX, VP.SAG, VP.COR].forEach(function (id) {
-                    if (centerViewportOnWorld(id, world)) n += 1;
+                    if (jumpSliceToWorld(id, world)) n += 1;
                 });
                 var far = [VP.AX, VP.SAG, VP.COR].some(function (id) {
                     var plane = cameraPlane(id);
-                    return !plane || Math.abs(planeDist(world, plane)) > 0.2;
+                    return !plane || Math.abs(planeDist(world, plane)) > 0.05;
                 });
                 if (!far) break;
             }
             if (en.render) en.render();
         } catch (e) { /* ignore */ }
         syncing = false;
+        setCrosshairCenter(world);
         scheduleDraw();
         return n;
+    }
+
+    function alignMprToWorld(world) {
+        return seatPlanesOnPoint(world);
     }
 
     function alignMprToSelectedImplant() {
@@ -386,10 +419,13 @@
         try {
             [VP.AX, VP.SAG, VP.COR].forEach(function (id) {
                 if (id === exceptVpId) return;
-                if (centerViewportOnWorld(id, imp.position)) n += 1;
+                if (jumpSliceToWorld(id, imp.position)) n += 1;
             });
+            var en = engine();
+            if (en && en.render) en.render();
         } catch (e) { /* ignore */ }
         syncing = false;
+        setCrosshairCenter(imp.position);
         scheduleDraw();
         return n;
     }
@@ -513,7 +549,8 @@
         var cut = (vpId !== VP.VOL && plane) ? cylinderSlice(imp, plane) : { kind: 'volume' };
         g.setAttribute('data-cut', cut.kind || 'miss');
 
-        var posC = panePoint(vpId, imp.position);
+        var markWorld = (plane && vpId !== VP.VOL) ? projectToPlane(imp.position, plane) : imp.position;
+        var posC = panePoint(vpId, markWorld);
         if (posC && vpId !== VP.VOL) {
             g.setAttribute('data-px', String(posC[0]));
             g.setAttribute('data-py', String(posC[1]));
@@ -583,7 +620,10 @@
         }
 
         if (cut.kind === 'circle') {
-            var cc = panePoint(vpId, cut.center);
+            var centerW = (plane && Math.abs(planeDist(imp.position, plane)) < 0.5)
+                ? projectToPlane(imp.position, plane)
+                : cut.center;
+            var cc = panePoint(vpId, centerW);
             if (!cc) return 0;
             var pr = Math.max(3, cut.radiusMm * pxPerMm);
             g.appendChild(svgNode('circle', {
@@ -613,9 +653,9 @@
         var bc = panePoint(vpId, bW);
         var rad = implantRadii(imp);
         var ghost = cut.kind === 'miss';
-        if (ghost) {
-            ac = panePoint(vpId, headOf(imp));
-            bc = panePoint(vpId, tipOf(imp));
+        if (ghost && plane) {
+            ac = panePoint(vpId, projectToPlane(headOf(imp), plane));
+            bc = panePoint(vpId, projectToPlane(tipOf(imp), plane));
         }
         if (!ac || !bc) return 0;
         var rHeadPx = Math.max(2, (cut.kind === 'rect' ? (cut.halfHeadMm || rad.head) : rad.head) * pxPerMm);
@@ -751,8 +791,10 @@
             diameterMm: Number($('impDia') && $('impDia').value) || 4,
             lengthMm: Number($('impLen') && $('impLen').value) || 10
         });
-        // The click is a point on the current slice. Leave the crosshair and
-        // the other two planes where the user put them.
+        // Keep the click pixel (no in-plane pan) and scroll the other planes
+        // onto that same world point so all three slices show one location.
+        imp.position = locked.slice();
+        try { seatPlanesOnPoint(locked); } catch (eSeat) { /* ignore */ }
         imp.position = locked.slice();
         try { draw(); } catch (eDraw) { /* ignore */ }
         return imp;
@@ -780,6 +822,7 @@
         var rel = vSub(imp.position, pivot);
         imp.axis = newAxis;
         imp.position = vAdd(pivot, vRot(rel, axis, rad));
+        try { seatPlanesOnPoint(imp.position); } catch (eSeat) { /* ignore */ }
         draw();
         paintPanel();
         return imp;
@@ -922,6 +965,7 @@
             var delta = vSub(world, drag.startWorld);
             delta = vSub(delta, vScale(n, vDot(delta, n)));
             imp.position = vAdd(drag.startPos, delta);
+            try { seatPlanesOnPoint(imp.position); } catch (eSeat) { /* ignore */ }
         } else {
             var n = viewNormal(drag.vpId);
             var pivot = pivotOf(imp);
@@ -935,12 +979,19 @@
                 imp.axis = vNorm(vRot(drag.startAxis, n, ang));
                 var rel = vSub(drag.startPos, pivot);
                 imp.position = vAdd(pivot, vRot(rel, n, ang));
+                try { seatPlanesOnPoint(imp.position); } catch (eSeat) { /* ignore */ }
             }
         }
         draw();
     }
 
     function onPointerUp() {
+        if (drag) {
+            var imp = findImp(drag.id);
+            if (imp) {
+                try { seatPlanesOnPoint(imp.position); } catch (eSeat) { /* ignore */ }
+            }
+        }
         drag = null;
         paintPanel();
         draw();
@@ -1004,12 +1055,16 @@
                 var page = window.CS3D_PAGE;
                 var center = page && page.crosshairCenter && page.crosshairCenter();
                 if (center && center.length >= 3 && center.every(function (n) { return isFinite(n); })) {
-                    addImplant({
-                        position: as3(center),
+                    var locked = as3(center);
+                    var added = addImplant({
+                        position: locked,
                         axis: viewNormal(VP.AX),
                         diameterMm: Number($('impDia') && $('impDia').value) || 4,
                         lengthMm: Number($('impLen') && $('impLen').value) || 10
                     });
+                    added.position = locked.slice();
+                    try { seatPlanesOnPoint(locked); } catch (eSeat) { /* ignore */ }
+                    added.position = locked.slice();
                     try { draw(); } catch (eAdd) { /* ignore */ }
                 } else {
                     placeAtViewport(VP.AX, 0.5, 0.5);

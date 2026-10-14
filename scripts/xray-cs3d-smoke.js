@@ -495,7 +495,7 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
         idx.indexOf('id="vpAxial"') >= 0 && idx.indexOf('id="vpSagittal"') >= 0 &&
         idx.indexOf('id="vpCoronal"') >= 0 && idx.indexOf('id="vpVolume"') >= 0);
     pass('HTML: the CBCT picker script is cache-busted',
-        /cs3d\.js\?v=20261013cbct1/.test(idx) && /cs3d-load\.js\?v=20261013cbct1/.test(idx));
+        /cs3d\.js\?v=20261014fit1/.test(idx) && /cs3d-load\.js\?v=20261014fit1/.test(idx));
 
     console.log('\n=== API (read-only, anon): clinic xrays + public DICOM sample ===');
     var sb = sbCfg();
@@ -622,7 +622,7 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
         var liveReader = await httpGetText(5500, '/cs3d/index.html?cbct=1');
         pass('spot: live :5500 serves the CBCT reader page',
             liveReader.status === 200 && liveReader.text.indexOf('Load a CBCT DICOM zip or folder') >= 0 &&
-            liveReader.text.indexOf('cs3d.js?v=20261013cbct1') >= 0,
+            liveReader.text.indexOf('cs3d.js?v=20261014fit1') >= 0,
             'HTTP ' + liveReader.status);
     } catch (eLive) {
         pass('spot: live :5500 serves the CBCT reader page', false, eLive.message);
@@ -670,10 +670,21 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
         pass('live: vendor flag is a boolean', st && typeof st.vendor === 'boolean', st && String(st.vendor) + ' ' + JSON.stringify(diag));
         if (st && st.vendor) {
             var synth = await cdp.js('(async function(){ try { return await CS3D_PAGE.loadTestVolume(8); } catch(e){ return String(e && e.message || e); } })()', true, 60000);
-            var afterSynth = await cdp.js('CS3D_PAGE.state()');
-            pass('live: synthetic CT volume loaded into three planes',
-                synth === true && afterSynth && afterSynth.mode === 'volume' && afterSynth.n === 8,
-                afterSynth ? (afterSynth.mode + ' n=' + afterSynth.n + ' err=' + afterSynth.error) : String(synth));
+            var afterSynth = await cdp.js(`(function(){
+              var st = CS3D_PAGE.state();
+              var actors = 0;
+              try {
+                var engine = csCore.getRenderingEngine('banana-cs3d');
+                var vp = engine && engine.getViewport('CS3D_VOLUME');
+                if (vp && vp.getActors) actors = (vp.getActors() || []).length;
+              } catch (e) {}
+              return { st: st, volActors: actors, status: (document.getElementById('status') || {}).textContent };
+            })()`);
+            pass('live: synthetic CT volume loaded with the 3D pane',
+                synth === true && afterSynth && afterSynth.st && afterSynth.st.mode === 'volume' &&
+                afterSynth.st.n === 8 && afterSynth.st.include3d === true && afterSynth.volActors >= 1 &&
+                String(afterSynth.status || '').indexOf('Volume skipped') < 0,
+                afterSynth && afterSynth.st ? (afterSynth.st.mode + ' n=' + afterSynth.st.n + ' volActors=' + afterSynth.volActors + ' err=' + afterSynth.st.error) : String(synth));
         } else {
             pass('live: vendor not built yet — skip volume load', true, 'placeholder');
         }
@@ -839,7 +850,7 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
               }
               return {
                 ok, mode: state.mode, n: state.n, skipped: state.skipped, err: state.error,
-                dims, spacing, range, actors, files: files.length,
+                dims, spacing, range, actors, include3d: state.include3d, files: files.length,
                 ms: Math.round(performance.now() - t0),
                 status: (document.getElementById('status') || {}).textContent
               };
@@ -849,7 +860,7 @@ Cdp.prototype.js = async function (expression, awaitPromise, timeoutMs) {
             pass('live: real CT DICOM series builds a CBCT volume',
                 realCt && realCt.ok === true && realCt.mode === 'volume' && realCt.n >= 40 &&
                 realCt.dims && realCt.dims[0] >= 128 && realCt.dims[2] >= 40 &&
-                realCt.actors >= 3 && spacingOk &&
+                realCt.actors >= 4 && realCt.include3d === true && spacingOk &&
                 realCt.range && realCt.range[1] > realCt.range[0] &&
                 !(realCt.range[0] === 20 && realCt.range[1] === 220) &&
                 String(realCt.err || '') === '' && /CBCT/.test(String(realCt.status || '')),

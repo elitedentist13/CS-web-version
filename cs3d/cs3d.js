@@ -571,9 +571,7 @@
         } catch (e2) { /* ignore */ }
     }
 
-    async function loadVolume(imageIds, label, opts) {
-        opts = opts || {};
-        var include3d = opts.include3d !== false;
+    async function loadVolume(imageIds, label) {
         var core = window.csCore;
         var Enums = core.Enums;
         var nodes = els();
@@ -604,26 +602,23 @@
                 type: Enums.ViewportType.ORTHOGRAPHIC,
                 element: nodes.coronal,
                 defaultOptions: { orientation: Enums.OrientationAxis.CORONAL, background: [0.04, 0.07, 0.12] }
-            }
-        ];
-        if (include3d) {
-            defs.push({
+            },
+            {
                 viewportId: VP.VOL,
                 type: Enums.ViewportType.VOLUME_3D,
                 element: nodes.volume,
                 defaultOptions: { orientation: Enums.OrientationAxis.CORONAL, background: [0.02, 0.03, 0.06] }
-            });
-        }
+            }
+        ];
         engine.setViewports(defs);
         groups.mpr.addViewport(VP.AX, ENGINE_ID);
         groups.mpr.addViewport(VP.SAG, ENGINE_ID);
         groups.mpr.addViewport(VP.COR, ENGINE_ID);
-        if (include3d) groups.vol.addViewport(VP.VOL, ENGINE_ID);
+        groups.vol.addViewport(VP.VOL, ENGINE_ID);
 
         var volume = await core.volumeLoader.createAndCacheVolume(volumeId, { imageIds: imageIds });
         volume.load();
-        var vpIds = [VP.AX, VP.SAG, VP.COR];
-        if (include3d) vpIds = vpIds.concat([VP.VOL]);
+        var vpIds = [VP.AX, VP.SAG, VP.COR, VP.VOL];
         if (core.setVolumesForViewports) {
             await core.setVolumesForViewports(engine, [{ volumeId: volumeId }], vpIds);
         } else {
@@ -631,20 +626,14 @@
                 return engine.getViewport(id).setVolumes([{ volumeId: volumeId }]);
             }));
         }
-        if (include3d) {
-            try { apply3dPreset(engine.getViewport(VP.VOL)); } catch (e3d) { console.warn('[cs3d] 3D preset', e3d); }
-        } else if (nodes.volume) {
-            nodes.volume.innerHTML = '<div class="label" style="position:absolute;left:8px;top:8px">Volume skipped (GPU). Three-plane view is enough for implants.</div>';
-        }
+        try { apply3dPreset(engine.getViewport(VP.VOL)); } catch (e3d) { console.warn('[cs3d] 3D preset', e3d); }
         setTool(last.tool || 'WindowLevel');
         engine.resize();
         engine.render();
         last.ready = true;
         last.error = '';
-        last.include3d = include3d;
-        setStatus((label || 'CBCT') + ': ' + imageIds.length + ' CBCT slices · three planes' +
-            (include3d ? '' : ' (3D pane skipped — GPU busy)') +
-            '. Left = tool, right = zoom, wheel = scroll.', 'ok');
+        last.include3d = true;
+        setStatus((label || 'CBCT') + ': ' + imageIds.length + ' CBCT slices · three planes + volume. Left = tool, right = zoom, wheel = scroll.', 'ok');
         if (window.CS3D_IMPLANT && CS3D_IMPLANT.onVolumeReady) {
             try { CS3D_IMPLANT.onVolumeReady(); } catch (eReady) { /* ignore */ }
         }
@@ -715,27 +704,25 @@
                     await loadVolume(volumeIds, label);
                     if (skipped > 0) {
                         setStatus((label || 'CBCT') + ': ' + volumeIds.length +
-                            ' CBCT slices · three planes (skipped ' + skipped +
+                            ' CBCT slices · three planes + volume (skipped ' + skipped +
                             ' non-volume file' + (skipped === 1 ? '' : 's') + ').', 'ok');
                     }
                     return true;
                 } catch (volErr) {
                     console.warn('[cs3d] volume failed', volErr);
                     await new Promise(function (r) { setTimeout(r, 80); });
-                    var eMpr = null;
+                    try { loseViewportGl(true); } catch (eLose) { /* ignore */ }
                     try {
-                        await loadVolume(volumeIds, label, { include3d: false });
+                        await loadVolume(volumeIds, label);
+                        if (skipped > 0) {
+                            setStatus((label || 'CBCT') + ': ' + volumeIds.length +
+                                ' CBCT slices · three planes + volume (skipped ' + skipped +
+                                ' non-volume file' + (skipped === 1 ? '' : 's') + ').', 'ok');
+                        }
                         return true;
-                    } catch (eMprErr) {
-                        eMpr = eMprErr;
-                        console.warn('[cs3d] MPR-only retry failed', eMpr);
-                    }
-                    try {
-                        await loadStack(volumeIds, label);
-                        return true;
-                    } catch (eStack) {
-                        console.warn('[cs3d] stack retry failed', eStack);
-                        if (isGlProxyError(volErr) || isGlProxyError(eMpr) || isGlProxyError(eStack)) {
+                    } catch (retryErr) {
+                        console.warn('[cs3d] volume retry failed', retryErr);
+                        if (isGlProxyError(volErr) || isGlProxyError(retryErr)) {
                             throw new Error('GPU is busy (WebGL). Close extra Banana Dicom Reader / 3D windows, then Load zip again.');
                         }
                         throw volErr;

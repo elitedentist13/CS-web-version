@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261013cbct1';
+var BUILD = '20261014fit1';
 var PAGE_PORT = 8808;
 var CDP_PORT = 9378;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -236,11 +236,11 @@ function mockDom() {
     pass('s1 source: BUILD ' + BUILD, html.indexOf('cs3d-implant.js?v=' + BUILD) >= 0 && html.indexOf('cs3d.js?v=' + BUILD) >= 0);
     pass('s1 source: panel starts hidden', /#implantPanel\s*\{[^}]*display:\s*none/.test(css));
     pass('s1 source: Implant tool wired in setTool', /name === 'Implant'/.test(page));
-    pass('s1 source: WebGL proxy fallback',
-        /function loseViewportGl/.test(page) && /include3d: false/.test(page) && /function patchCanvasGl/.test(page) &&
+    pass('s1 source: WebGL proxy fallback keeps the volume pane',
+        /function loseViewportGl/.test(page) && /ViewportType\.VOLUME_3D/.test(page) &&
+        page.indexOf('include3d: false') < 0 && page.indexOf('Volume skipped') < 0 &&
+        /function patchCanvasGl/.test(page) &&
         /if \(!result\) return null/.test(read('cs3d/vendor/cs3d.bundle.js')));
-    pass('s1 source: eMpr hoisted for stack fallback',
-        /var eMpr = null/.test(page) && /catch \(eMprErr\)/.test(page) && !/catch \(eMpr\)/.test(page));
 
     console.log('\n=== step 2 source / smoke: model ===');
     pass('s2 source: addImplant / serializeImplants / loadImplants',
@@ -255,10 +255,13 @@ function mockDom() {
     pass('s4 source: tapered cylinder head>tip',
         /TAPER_TIP/.test(js) && /function radiusAt/.test(js) && /function appendTaper/.test(js));
     var placeFn = js.slice(js.indexOf('function placeAtViewport'), js.indexOf('function nudgeImplant'));
-    pass('s4 source: add keeps the crosshair and places on the clicked plane',
+    pass('s4 source: add seats every plane on the click without panning',
         /function clickWorld/.test(js) &&
+        /function seatPlanesOnPoint/.test(js) &&
         /projectToPlane\(world, plane\)/.test(js) &&
         placeFn.indexOf('alignMprToWorld') < 0 &&
+        placeFn.indexOf('centerViewportOnWorld') < 0 &&
+        /seatPlanesOnPoint\(locked\)/.test(placeFn) &&
         /imp\.position = locked\.slice\(\)/.test(placeFn));
     pass('s4 source: Crosshairs snap to implant position',
         /function alignMprToSelectedImplant/.test(js) && /function snapCrosshairsToWorld/.test(page) &&
@@ -609,55 +612,83 @@ function mockDom() {
                 geo.fit.every(function (d) { return d != null && d < 0.6; }),
                 geo ? JSON.stringify(geo.fit) : 'none');
             var embed = await cdp.js(`(function(){
+              var engine = csCore.getRenderingEngine('banana-cs3d');
+              var ids = ['CS3D_AXIAL','CS3D_SAGITTAL','CS3D_CORONAL'];
+              var svgIds = ['implantSvgAxial','implantSvgSagittal','implantSvgCoronal'];
               function cams() {
-                var engine = csCore.getRenderingEngine('banana-cs3d');
-                return ['CS3D_AXIAL','CS3D_SAGITTAL','CS3D_CORONAL'].map(function (id) {
+                return ids.map(function (id) {
                   var cam = engine.getViewport(id).getCamera();
-                  return { id: id, focal: cam.focalPoint.slice(), pos: cam.position.slice() };
+                  return { id: id, focal: cam.focalPoint.slice(), pos: cam.position.slice(), n: cam.viewPlaneNormal.slice() };
                 });
               }
-              function camShift(a, b) {
+              function inPlaneShift(a, b) {
                 var m = 0;
                 a.forEach(function (row, i) {
-                  [0,1,2].forEach(function (k) {
-                    m = Math.max(m, Math.abs(row.focal[k] - b[i].focal[k]), Math.abs(row.pos[k] - b[i].pos[k]));
-                  });
+                  var n = b[i].n;
+                  var len = Math.hypot(n[0], n[1], n[2]) || 1;
+                  n = [n[0]/len, n[1]/len, n[2]/len];
+                  var d = [b[i].focal[0]-row.focal[0], b[i].focal[1]-row.focal[1], b[i].focal[2]-row.focal[2]];
+                  var along = d[0]*n[0] + d[1]*n[1] + d[2]*n[2];
+                  m = Math.max(m, Math.hypot(d[0]-along*n[0], d[1]-along*n[1], d[2]-along*n[2]));
                 });
                 return m;
               }
+              function dist3(a, b) {
+                return Math.hypot(a[0]-b[0], a[1]-b[1], a[2]-b[2]);
+              }
               var before = cams();
-              var hair = CS3D_PAGE.crosshairCenter && CS3D_PAGE.crosshairCenter();
               CS3D_IMPLANT.clearImplants();
               var imp = CS3D_IMPLANT.placeAtViewport('CS3D_AXIAL', 0.35, 0.62);
               var after = cams();
-              var ax = csCore.getRenderingEngine('banana-cs3d').getViewport('CS3D_AXIAL');
+              var ax = engine.getViewport('CS3D_AXIAL');
               var el = ax.element;
               var click = ax.canvasToWorld([0.35 * el.clientWidth, 0.62 * el.clientHeight]);
-              var dClick = Math.hypot(imp.position[0]-click[0], imp.position[1]-click[1], imp.position[2]-click[2]);
-              var marks = ['implantSvgAxial','implantSvgSagittal','implantSvgCoronal'].map(function (id) {
-                var node = document.querySelector('#' + id + ' [data-implant]');
-                return node ? { px: Number(node.getAttribute('data-px')), py: Number(node.getAttribute('data-py')), cut: node.getAttribute('data-cut') } : null;
+              var pos = imp.position;
+              var worldErr = ids.map(function (id) {
+                var vp = engine.getViewport(id);
+                var c = vp.worldToCanvas(pos);
+                var w = vp.canvasToWorld(c);
+                return dist3(w, pos);
               });
-              var hair2 = CS3D_PAGE.crosshairCenter && CS3D_PAGE.crosshairCenter();
-              var hairShift = (hair && hair2) ? Math.hypot(hair[0]-hair2[0], hair[1]-hair2[1], hair[2]-hair2[2]) : 0;
+              var svgErr = ids.map(function (id, i) {
+                var vp = engine.getViewport(id);
+                var node = document.querySelector('#' + svgIds[i] + ' [data-implant]');
+                if (!node) return 999;
+                var pane = vp.element.parentNode;
+                var er = vp.element.getBoundingClientRect();
+                var pr = pane.getBoundingClientRect();
+                var ex = Number(node.getAttribute('data-px')) - (er.left - pr.left);
+                var ey = Number(node.getAttribute('data-py')) - (er.top - pr.top);
+                return dist3(vp.canvasToWorld([ex, ey]), pos);
+              });
+              var hair = CS3D_PAGE.crosshairCenter && CS3D_PAGE.crosshairCenter();
+              var axialShift = dist3(before[0].focal, after[0].focal);
               return {
-                camShift: camShift(before, after),
-                hairShift: hairShift,
-                dClick: dClick,
-                pos: imp.position.slice(),
-                marks: marks,
-                axDist: CS3D_IMPLANT.mprFit(imp.id)[0]
+                inPlane: inPlaneShift(before, after),
+                axialShift: axialShift,
+                dClick: dist3(pos, click),
+                fit: CS3D_IMPLANT.mprFit(imp.id),
+                worldErr: worldErr,
+                svgErr: svgErr,
+                hairToImp: hair ? dist3(hair, pos) : 999,
+                cuts: {
+                  ax: document.querySelector('#implantSvgAxial [data-implant]').getAttribute('data-cut'),
+                  sag: document.querySelector('#implantSvgSagittal [data-implant]').getAttribute('data-cut'),
+                  cor: document.querySelector('#implantSvgCoronal [data-implant]').getAttribute('data-cut')
+                },
+                pos: pos.slice()
               };
             })()`);
-            pass('s4 CDP: off-centre click keeps the crosshair and the three plane cameras',
-                embed && embed.camShift < 0.05 && embed.hairShift < 0.05,
-                embed ? JSON.stringify({ camShift: embed.camShift, hairShift: embed.hairShift }) : 'none');
-            pass('s4 CDP: implant sits on the clicked axial point and projects on every plane',
-                embed && embed.dClick < 0.75 && embed.axDist < 0.45 &&
-                embed.marks && embed.marks.length === 3 && embed.marks.every(function (m) {
-                    return m && isFinite(m.px) && isFinite(m.py);
-                }),
-                embed ? JSON.stringify({ dClick: embed.dClick, axDist: embed.axDist, marks: embed.marks, pos: embed.pos }) : 'none');
+            pass('s4 CDP: off-centre click does not pan, and every plane contains that point',
+                embed && embed.inPlane < 0.08 && embed.axialShift < 0.2 &&
+                embed.fit && embed.fit.length === 3 && embed.fit.every(function (d) { return d < 0.25; }) &&
+                embed.worldErr && embed.worldErr.every(function (d) { return d < 0.4; }) &&
+                embed.cuts && embed.cuts.ax === 'circle' && embed.cuts.sag === 'rect' && embed.cuts.cor === 'rect',
+                embed ? JSON.stringify({ inPlane: embed.inPlane, axialShift: embed.axialShift, fit: embed.fit, worldErr: embed.worldErr, cuts: embed.cuts }) : 'none');
+            pass('s4 CDP: the same world point is the marker on all three planes',
+                embed && embed.dClick < 0.35 && embed.hairToImp < 0.5 &&
+                embed.svgErr && embed.svgErr.every(function (d) { return d < 0.45; }),
+                embed ? JSON.stringify({ dClick: embed.dClick, hairToImp: embed.hairToImp, svgErr: embed.svgErr, pos: embed.pos }) : 'none');
             var taperLive = await cdp.js(`(function(){
               var imp = CS3D_IMPLANT.state().implants[0];
               var rh = CS3D_IMPLANT.radiusAt(imp, 1);
@@ -833,33 +864,57 @@ function mockDom() {
                       return { focal: cam.focalPoint.slice(), pos: cam.position.slice() };
                     });
                   }
-                  const before = cams();
-                  const hair = CS3D_PAGE.crosshairCenter && CS3D_PAGE.crosshairCenter();
+                  function dist3(a, b) { return Math.hypot(a[0]-b[0], a[1]-b[1], a[2]-b[2]); }
+                  const engine = csCore.getRenderingEngine('banana-cs3d');
+                  const ids = ['CS3D_AXIAL','CS3D_SAGITTAL','CS3D_CORONAL'];
+                  const svgIds = ['implantSvgAxial','implantSvgSagittal','implantSvgCoronal'];
+                  function camsFull() {
+                    return ids.map(function (id) {
+                      const cam = engine.getViewport(id).getCamera();
+                      return { focal: cam.focalPoint.slice(), n: cam.viewPlaneNormal.slice() };
+                    });
+                  }
+                  const before = camsFull();
                   CS3D_PAGE.setTool('Implant');
                   CS3D_IMPLANT.clearImplants();
                   const imp = CS3D_IMPLANT.placeAtViewport('CS3D_AXIAL', 0.35, 0.62);
-                  const after = cams();
-                  let camShift = 0;
+                  const after = camsFull();
+                  let inPlane = 0;
                   before.forEach(function (row, i) {
-                    [0,1,2].forEach(function (k) {
-                      camShift = Math.max(camShift, Math.abs(row.focal[k] - after[i].focal[k]), Math.abs(row.pos[k] - after[i].pos[k]));
-                    });
+                    const n = after[i].n;
+                    const len = Math.hypot(n[0], n[1], n[2]) || 1;
+                    const nx = n[0]/len, ny = n[1]/len, nz = n[2]/len;
+                    const d = [after[i].focal[0]-row.focal[0], after[i].focal[1]-row.focal[1], after[i].focal[2]-row.focal[2]];
+                    const along = d[0]*nx + d[1]*ny + d[2]*nz;
+                    inPlane = Math.max(inPlane, Math.hypot(d[0]-along*nx, d[1]-along*ny, d[2]-along*nz));
                   });
-                  const hair2 = CS3D_PAGE.crosshairCenter && CS3D_PAGE.crosshairCenter();
-                  const hairShift = (hair && hair2) ? Math.hypot(hair[0]-hair2[0], hair[1]-hair2[1], hair[2]-hair2[2]) : 0;
-                  const ax = csCore.getRenderingEngine('banana-cs3d').getViewport('CS3D_AXIAL');
+                  const ax = engine.getViewport('CS3D_AXIAL');
                   const el = ax.element;
                   const click = ax.canvasToWorld([0.35 * el.clientWidth, 0.62 * el.clientHeight]);
-                  const dClick = Math.hypot(imp.position[0]-click[0], imp.position[1]-click[1], imp.position[2]-click[2]);
-                  const marks = ['implantSvgAxial','implantSvgSagittal','implantSvgCoronal'].map(function (id) {
-                    const node = document.querySelector('#' + id + ' [data-implant]');
-                    return node ? { px: Number(node.getAttribute('data-px')), py: Number(node.getAttribute('data-py')) } : null;
+                  const pos = imp.position;
+                  const dClick = dist3(pos, click);
+                  const fit = CS3D_IMPLANT.mprFit(imp.id);
+                  const worldErr = ids.map(function (id) {
+                    const vp = engine.getViewport(id);
+                    return dist3(vp.canvasToWorld(vp.worldToCanvas(pos)), pos);
                   });
+                  const svgErr = ids.map(function (id, i) {
+                    const vp = engine.getViewport(id);
+                    const node = document.querySelector('#' + svgIds[i] + ' [data-implant]');
+                    if (!node) return 999;
+                    const pane = vp.element.parentNode;
+                    const er = vp.element.getBoundingClientRect();
+                    const pr = pane.getBoundingClientRect();
+                    const ex = Number(node.getAttribute('data-px')) - (er.left - pr.left);
+                    const ey = Number(node.getAttribute('data-py')) - (er.top - pr.top);
+                    return dist3(vp.canvasToWorld([ex, ey]), pos);
+                  });
+                  const hair = CS3D_PAGE.crosshairCenter && CS3D_PAGE.crosshairCenter();
                   return {
                     ok, mode: state.mode, n: state.n, err: state.error,
-                    dims, spacing, range, camShift, hairShift, dClick,
-                    axDist: CS3D_IMPLANT.mprFit(imp.id)[0],
-                    marks, drawn: document.querySelectorAll('[data-implant]').length
+                    dims, spacing, range, inPlane, dClick, fit, worldErr, svgErr,
+                    hairToImp: hair ? dist3(hair, pos) : 999,
+                    drawn: document.querySelectorAll('[data-implant]').length
                   };
                 })()`, true, 180000);
                 var spacingOk = realImp && realImp.spacing && realImp.spacing.length >= 3 &&
@@ -869,13 +924,13 @@ function mockDom() {
                     realImp.dims && realImp.dims[0] >= 128 && realImp.dims[2] >= 40 &&
                     spacingOk && realImp.range && realImp.range[1] > realImp.range[0],
                     realImp ? JSON.stringify({ n: realImp.n, dims: realImp.dims, spacing: realImp.spacing, range: realImp.range, err: realImp.err }) : 'none');
-                pass('live: implant on the real CT click keeps the crosshair and matches all three planes',
-                    realImp && realImp.camShift < 0.05 && realImp.hairShift < 0.05 &&
-                    realImp.dClick < 0.75 && realImp.axDist < 0.45 &&
-                    realImp.marks && realImp.marks.length === 3 && realImp.marks.every(function (m) {
-                        return m && isFinite(m.px) && isFinite(m.py);
-                    }) && realImp.drawn >= 3,
-                    realImp ? JSON.stringify({ camShift: realImp.camShift, hairShift: realImp.hairShift, dClick: realImp.dClick, axDist: realImp.axDist, marks: realImp.marks, drawn: realImp.drawn }) : 'none');
+                pass('live: implant on the real CT is the same point on all three planes',
+                    realImp && realImp.inPlane < 0.15 && realImp.dClick < 0.75 &&
+                    realImp.fit && realImp.fit.length === 3 && realImp.fit.every(function (d) { return d < 0.35; }) &&
+                    realImp.worldErr && realImp.worldErr.every(function (d) { return d < 0.6; }) &&
+                    realImp.svgErr && realImp.svgErr.every(function (d) { return d < 0.6; }) &&
+                    realImp.hairToImp < 0.6 && realImp.drawn >= 3,
+                    realImp ? JSON.stringify({ inPlane: realImp.inPlane, dClick: realImp.dClick, fit: realImp.fit, worldErr: realImp.worldErr, svgErr: realImp.svgErr, hairToImp: realImp.hairToImp, drawn: realImp.drawn }) : 'none');
             } else {
                 pass('live: real CT series builds a volume', false, 'no real CT slices');
             }

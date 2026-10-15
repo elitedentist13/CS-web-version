@@ -12634,12 +12634,22 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     border-radius: 999px;
     padding: 3px 10px;
 }
-.xray-lb-readonly .xray-lb-tgroup:has(#lbTBtn-free),
-.xray-lb-readonly .xray-lb-tgroup:has(#lbTBtn-crop),
-.xray-lb-readonly #lbSaveBtn,
-.xray-lb-readonly #lbDeleteBtn {
-    opacity: 0.45;
-    pointer-events: none;
+/* Toolbar tools stay fully usable on first open and maximize.
+   Persist is gated in JS on save — never grey or block the chrome. */
+.xray-lb-toolbar button:disabled,
+.xray-lb-toolbar input:disabled,
+.xray-lb-toolbar select:disabled {
+    opacity: 1;
+    cursor: pointer;
+    filter: none;
+}
+#xrayLightbox.xray-lb-maximized .xray-lb-toolbar,
+#xrayLightbox.xray-lb-maximized .xray-lb-toolbar button,
+#xrayLightbox.xray-lb-maximized .xray-lb-toolbar input,
+#xrayLightbox.xray-lb-maximized .xray-lb-toolbar select,
+#xrayLightbox.xray-lb-maximized .xray-lb-toolbar label {
+    pointer-events: auto;
+    z-index: 40;
 }
 #lbPinBtn.active {
     background: #1d4ed8;
@@ -20774,7 +20784,6 @@ tr.rsvp-row-pending td   { background: #fffef5; }
 .xray-lb-measure { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .xray-lb-measure.is-active { pointer-events: all; cursor: crosshair; }
 .xray-lb-meas-known { width: 56px; padding: 3px 4px; border: 1px solid #475569; border-radius: 4px; background: #1e293b; color: #e2e8f0; font-size: 12px; }
-.xray-lb-readonly #lbMeasureGroup .xray-lb-tool-btn:not(:disabled) { opacity: .6; }
 .xray-meas-panel { position: absolute; left: 14px; top: 14px; z-index: 20; width: min(360px, 60%); max-height: 55%; overflow: auto; background: rgba(15, 23, 42, .9); color: #e2e8f0; border: 1px solid #334155; border-radius: 10px; padding: 8px 10px; font-size: 12px; line-height: 1.35; }
 .xray-meas-panel[hidden] { display: none; }
 .xray-meas-status { font-weight: 700; color: #7dd3fc; margin-bottom: 4px; }

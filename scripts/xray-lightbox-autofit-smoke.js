@@ -11,7 +11,7 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261015max2';
+var BUILD = '20261015tool1';
 var PAGE_PORT = 8851;
 var CDP_PORT = 9421;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -157,6 +157,13 @@ function finish(code) {
         extractFn(src, 'lbFitToScrollHost').indexOf('Math.min(fitW, fitH)') >= 0 &&
         extractFn(src, 'lbFitToScrollHost').indexOf('lbResetScrollHost') >= 0 &&
         extractFn(src, 'lbSyncLightboxScrollShell').indexOf('!lbChromeMaximized') >= 0);
+    pass('toolbar unlock helper never leaves tools disabled',
+        src.indexOf('function lbEnableToolbarTools') >= 0 &&
+        extractFn(src, 'openLightbox').indexOf('lbEnableToolbarTools') >= 0 &&
+        extractFn(src, 'lbSyncLightboxChrome').indexOf('lbEnableToolbarTools') >= 0 &&
+        read('app-xray-link.js').indexOf('lbEnableToolbarTools') >= 0 &&
+        read('app-xray-dicom.js').indexOf('crop.disabled = true') < 0 &&
+        /function xrayMeasReadonly\(\)\s*\{\s*[\s\S]*?return false;/.test(read('app-xray-viewer.js')));
     pass('sample panoramic fixture exists',
         fs.existsSync(path.join(root, PANO_REL)));
 
@@ -401,6 +408,15 @@ function finish(code) {
   out.fill = Math.max(pw / Math.max(1, hr.width), ph / Math.max(1, hr.height));
   out.aspectOk = ph > 1 &&
     Math.abs((pw / ph) - (img.naturalWidth / img.naturalHeight)) < 0.12;
+  if (typeof lbEnableToolbarTools === 'function') lbEnableToolbarTools();
+  var toolIds = ['lbTBtn-free', 'lbTBtn-line', 'lbTBtn-crop', 'lbTBtn-pan',
+    'lbMeasBtn-length', 'lbLoupeBtn', 'lbToggleMaxBtn'];
+  out.toolsOpen = toolIds.map(function (id) {
+    var el = document.getElementById(id);
+    return { id: id, ok: !!(el && !el.disabled) };
+  });
+  out.toolsOpenOk = out.toolsOpen.every(function (t) { return t.ok; });
+  out.readonlyClass = !!(modal && modal.classList.contains('xray-lb-readonly'));
 
   stageLightboxShell();
   lbFitToScrollHost();
@@ -448,6 +464,12 @@ function finish(code) {
     scroll: [host.scrollLeft, host.scrollTop],
     noCenterClass: !host.classList.contains('xray-lb-scroll-host-fit')
   };
+  if (typeof lbEnableToolbarTools === 'function') lbEnableToolbarTools();
+  out.max.toolsOk = toolIds.every(function (id) {
+    var el = document.getElementById(id);
+    return !!(el && !el.disabled);
+  });
+  out.max.readonlyClass = !!(modal && modal.classList.contains('xray-lb-readonly'));
 
   return out;
 })()`, true, 45000);
@@ -459,6 +481,9 @@ function finish(code) {
             pass('first open does not maximize',
                 live.maxed === false,
                 'maxed=' + live.maxed);
+            pass('edit toolbar tools enabled on first open',
+                live.toolsOpenOk === true && live.readonlyClass === false,
+                JSON.stringify({ tools: live.toolsOpen, readonly: live.readonlyClass }));
             pass('sample panoramic loads and keeps aspect',
                 Array.isArray(live.nat) && live.nat[0] > 100 && live.aspectOk === true,
                 JSON.stringify({ nat: live.nat, aspectOk: live.aspectOk }));
@@ -493,6 +518,9 @@ function finish(code) {
                     host: mx.host, painted: mx.painted, scale: mx.scale,
                     fitsW: mx.fitsW, fitsH: mx.fitsH, fill: mx.fill, aspectOk: mx.aspectOk
                 }));
+            pass('edit toolbar tools enabled when maximized',
+                mx.toolsOk === true && mx.readonlyClass === false,
+                JSON.stringify({ toolsOk: mx.toolsOk, readonly: mx.readonlyClass }));
         }
 
         if (live5500 && live5500.status === 200 &&

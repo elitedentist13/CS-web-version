@@ -1333,28 +1333,35 @@
         return null;
     }
 
+    function xrayFilmIsOtherClinic(rec) {
+        if (!rec) return false;
+        var pid = String(rec.patient_id || '');
+        var isOpened = !!(xrayPatientId && pid && pid === String(xrayPatientId));
+        var isStampedHome = !!rec._isHome;
+        var isWriteHome = typeof xrayIsHomeRecord === 'function' && xrayIsHomeRecord(rec);
+        return !(isOpened || isStampedHome || isWriteHome);
+    }
+
     function xrayApplyLightboxReadonly(rec) {
         var modal = g('xrayLightbox');
-        var readonly = !!(rec && !xrayIsHomeRecord(rec));
-        if (modal) modal.classList.toggle('xray-lb-readonly', readonly);
+        // Other-clinic films still show a chip, but the toolbar is never
+        // locked (first open or maximized). Persist stays gated in save/delete.
+        var otherClinic = xrayFilmIsOtherClinic(rec);
+        if (modal) modal.classList.remove('xray-lb-readonly');
         ['lbType', 'lbDate', 'lbNotes'].forEach(function (id) {
             var el = g(id);
-            if (el) el.disabled = readonly;
+            if (el) el.disabled = false;
         });
         var saveBtn = g('lbSaveBtn');
         var delBtn = g('lbDeleteBtn');
-        if (saveBtn) saveBtn.disabled = readonly;
-        if (delBtn) delBtn.disabled = readonly;
-        ['lbTBtn-free', 'lbTBtn-line', 'lbTBtn-arrow', 'lbTBtn-rect', 'lbTBtn-ellipse',
-            'lbTBtn-poly', 'lbTBtn-crop', 'lbBtnAnnotText'].forEach(function (id) {
-            var el = g(id);
-            if (el) el.disabled = readonly;
-        });
+        if (saveBtn) saveBtn.disabled = false;
+        if (delBtn) delBtn.disabled = false;
+        if (typeof lbEnableToolbarTools === 'function') lbEnableToolbarTools();
         var chip = g('lbClinicChip');
         if (chip) {
             if (rec) {
                 var label = rec._clinicLabel || xrayClinicLabelFromTag(rec._clinicTag);
-                chip.textContent = readonly
+                chip.textContent = otherClinic
                     ? mediaTrRepl('con.xray.lbViewOnly', { CLINIC: label })
                     : label;
                 chip.hidden = false;

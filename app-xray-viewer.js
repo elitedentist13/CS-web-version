@@ -218,9 +218,8 @@ function xrayMeasStorable(rec) {
 }
 
 function xrayMeasReadonly() {
-    var rec = XRAY_MEAS.rec;
-    if (!rec) return true;
-    try { return typeof xrayIsHomeRecord === 'function' ? !xrayIsHomeRecord(rec) : false; } catch (e) { return false; }
+    // Measure toolbar stays unlocked; persist is gated by xrayMeasStorable.
+    return false;
 }
 
 function xrayMeasNatural() {
@@ -302,18 +301,17 @@ function xrayMeasRenderPanel() {
         var b = xvEl('lbMeasBtn-' + tool);
         if (b) b.classList.toggle('lb-tool-active', XRAY_MEAS.tool === tool);
     });
-    var ro = xrayMeasReadonly();
     ['lbMeasBtn-length', 'lbMeasBtn-angle', 'lbMeasBtn-bone', 'lbMeasBtn-cal', 'lbMeasClear', 'lbMeasKnown'].forEach(function (id) {
         var b = xvEl(id);
-        if (b) b.disabled = ro;
+        if (b) b.disabled = false;
     });
     if (!show) return;
     var status = xvEl('xrayMeasStatus');
     var msg = d.cal
         ? ((d.cal.source === 'dicom' && typeof xdTr === 'function') ? xdTr('xd.cal', { MM: d.cal.mmPerPx.toFixed(4) }) : xvTr('xv.cal', { MM: d.cal.mmPerPx.toFixed(4) }))
         : xvTr('xv.uncal');
-    if (ro) msg += ' · ' + xvTr('xv.readonly');
-    else if (XRAY_MEAS.rec && !xrayMeasStorable(XRAY_MEAS.rec)) msg += ' · ' + xvTr('xv.noStore');
+    if (XRAY_MEAS.rec && !xrayMeasStorable(XRAY_MEAS.rec)) msg += ' · ' + xvTr('xv.noStore');
+    var ro = false;
     if (status) status.textContent = msg;
     var list = xvEl('xrayMeasList');
     if (list) {

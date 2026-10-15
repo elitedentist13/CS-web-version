@@ -1127,6 +1127,8 @@ function lbSyncLightboxChrome(options) {
     if (restoreBtn) {
         restoreBtn.setAttribute('aria-hidden', lbChromeMaximized ? 'false' : 'true');
     }
+    // Maximize / restore must never leave edit tools greyed out.
+    lbEnableToolbarTools();
 
     requestAnimationFrame(function () {
         lbSyncLightboxScrollShell();
@@ -1497,6 +1499,21 @@ function lbScrollHostUp() {
 // ════════════════════════════════════════════════════════════════
 // LIGHTBOX
 // ════════════════════════════════════════════════════════════════
+/** Keep every lightbox toolbar control clickable (first open + maximize). */
+function lbEnableToolbarTools() {
+    var toolbar = document.querySelector('#xrayLightbox .xray-lb-toolbar');
+    if (!toolbar) return;
+    Array.prototype.forEach.call(toolbar.querySelectorAll('button, input, select'), function (el) {
+        if (!el) return;
+        el.disabled = false;
+        el.removeAttribute('aria-disabled');
+        if (el.style && el.style.pointerEvents === 'none') el.style.pointerEvents = '';
+    });
+    var modal = g('xrayLightbox');
+    // View-only chip may still show for other-clinic films, but never lock tools.
+    if (modal) modal.classList.remove('xray-lb-readonly');
+}
+
 function openLightbox(idx) {
     var x = xrayFiltered[idx];
     if (!x) return;
@@ -1582,6 +1599,7 @@ function openLightbox(idx) {
     var lbModal = g('xrayLightbox');
     if (lbModal && typeof applyI18nInRoot === 'function') applyI18nInRoot(lbModal);
     if (typeof lbSyncLightboxChrome === 'function') lbSyncLightboxChrome();
+    lbEnableToolbarTools();
     // Modal is visible now — refit once host dimensions are final.
     lbScheduleFitToViewer();
     if (typeof xrayAiOnLightboxOpen === 'function') xrayAiOnLightboxOpen(lbCurrentId);

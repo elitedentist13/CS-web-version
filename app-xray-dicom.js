@@ -623,7 +623,7 @@ function xdShowChrome(on) {
     var note = xdEl('xrayDicomStatus');
     if (note && !on) { note.hidden = true; note.textContent = ''; }
     var crop = xdEl('lbTBtn-crop');
-    if (crop) crop.disabled = !!on;
+    if (crop) crop.disabled = false;
 }
 
 function xdPaintMeta(parsed) {
@@ -857,15 +857,13 @@ function xrayDicomHook() {
         if (body) xrayDicomBindRoot(body, rows);
     });
     wrap('lbInitCanvas', function () {
-        if (!xrayDicomIsOpen()) return;
         var crop = xdEl('lbTBtn-crop');
-        if (crop) crop.disabled = true;
+        if (crop) crop.disabled = false;
     });
-    wrap('xrayApplyLightboxReadonly', function (rec) {
-        if (xrayDicomIsOpen() || (rec && xdLooksLikeRecord(rec))) {
-            var crop = xdEl('lbTBtn-crop');
-            if (crop) crop.disabled = true;
-        }
+    wrap('xrayApplyLightboxReadonly', function () {
+        var crop = xdEl('lbTBtn-crop');
+        if (crop) crop.disabled = false;
+        if (typeof lbEnableToolbarTools === 'function') lbEnableToolbarTools();
     });
     wrap('xrayCmpPick', function (side, id) {
         var rec = typeof xrayCtxRecord === 'function' ? xrayCtxRecord(id) : null;

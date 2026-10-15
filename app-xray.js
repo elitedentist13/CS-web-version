@@ -1522,6 +1522,7 @@ function openLightbox(idx) {
                 requestAnimationFrame(function() {
                     lbCaptureLayoutBaseFromVideo();
                     lbSyncLightboxScrollShell();
+                    lbScheduleFitToViewer();
                 });
             };
         }
@@ -1567,6 +1568,8 @@ function openLightbox(idx) {
     var lbModal = g('xrayLightbox');
     if (lbModal && typeof applyI18nInRoot === 'function') applyI18nInRoot(lbModal);
     if (typeof lbSyncLightboxChrome === 'function') lbSyncLightboxChrome();
+    // Modal is visible now — refit once host dimensions are final.
+    lbScheduleFitToViewer();
     if (typeof xrayAiOnLightboxOpen === 'function') xrayAiOnLightboxOpen(lbCurrentId);
 }
 
@@ -1627,6 +1630,8 @@ function lbReset() {
     lbResetTune(false);
     lbResetScrollHost();
     applyLbTransform();
+    // Return to the comfortable panel fit, not 1:1 natural pixels.
+    lbFitToScrollHost();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1718,6 +1723,19 @@ function lbSetSharpness(val) {
 // ════════════════════════════════════════════════════════════════
 // LIGHTBOX — CANVAS INIT & HISTORY
 // ════════════════════════════════════════════════════════════════
+/** Contain-fit the film into the current viewing panel (normal or max). */
+function lbScheduleFitToViewer() {
+    requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+            if (!lbLayoutBaseW || !lbLayoutBaseH) return;
+            var modal = g('xrayLightbox');
+            if (!modal || modal.style.display === 'none') return;
+            lbFitToScrollHost();
+            if (typeof xrayAiOnCanvasResize === 'function') xrayAiOnCanvasResize();
+        });
+    });
+}
+
 function lbInitCanvas() {
     var canvas = g('xrayLbCanvas');
     var img    = g('xrayLbImg');
@@ -1727,8 +1745,9 @@ function lbInitCanvas() {
     canvas.height = img.offsetHeight || 600;
     lbDrawHistory = [];
     lbSyncLightboxScrollShell();
-    if (lbChromeMaximized) lbFitToScrollHost();
-    if (typeof xrayAiOnCanvasResize === 'function') xrayAiOnCanvasResize();
+    // Always auto-fit on load: fill the viewing panel comfortably,
+    // without entering maximize mode.
+    lbScheduleFitToViewer();
 }
 
 function lbSaveHistory() {

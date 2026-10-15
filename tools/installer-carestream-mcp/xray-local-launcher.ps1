@@ -2620,20 +2620,23 @@ function Stop-EzdentiProcesses {
 function Get-EzdentiLinkageFilePaths([string]$WorkDir) {
     $list = New-Object System.Collections.Generic.List[string]
     if ([string]::IsNullOrWhiteSpace($WorkDir)) { return @() }
+    # Resolve 8.3 short paths (e.g. DR5487~1.NG) -- Remove-Item -LiteralPath
+    # fails on those forms on this clinic Windows image.
+    try { $WorkDir = [IO.Path]::GetFullPath($WorkDir) } catch {}
     $list.Add((Join-Path $WorkDir "Linkage.xml"))
     $list.Add((Join-Path $WorkDir "linkage.xml"))
-    return $list
+    return @($list.ToArray())
 }
 
 function Clear-EzdentiStaleHandoff([string]$WorkDir) {
     $removed = 0
     foreach ($path in Get-EzdentiLinkageFilePaths $WorkDir) {
-        if (Test-Path -LiteralPath $path) {
-            try {
-                Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+        try {
+            if ([IO.File]::Exists($path)) {
+                [IO.File]::Delete($path)
                 $removed++
-            } catch {}
-        }
+            }
+        } catch {}
     }
     return $removed
 }

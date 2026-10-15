@@ -6958,6 +6958,7 @@
             'zh-Hant': '在相片上點擊一次放置文字。使用工具列選色器。'
         },
         'media.lb.save': { en: '💾 Save', 'zh-CN': '💾 保存', 'zh-Hant': '💾 儲存' },
+        'media.lb.saving': { en: '💾 Saving…', 'zh-CN': '💾 保存中…', 'zh-Hant': '💾 儲存中…' },
         'media.lb.delete': { en: '🗑 Delete', 'zh-CN': '🗑 删除', 'zh-Hant': '🗑 刪除' },
         'media.lb.category': { en: 'Category', 'zh-CN': '分类', 'zh-Hant': '分類' },
         'media.lb.doctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },

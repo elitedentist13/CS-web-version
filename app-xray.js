@@ -260,6 +260,7 @@ var lbTransform = {
 
 var lbCurrentId  = null;    // id of record open in lightbox
 var _lbMetaDirty = false;   // true when metadata fields edited without saving
+var _lbSaving    = false;   // true while saveLbMeta is in flight
 var XRAY_BUCKET  = 'xrays'; // Supabase Storage bucket name
 
 function xrayGetPublicUrlForPath(storagePath) {
@@ -1136,16 +1137,15 @@ function lbSyncLightboxChrome(options) {
             lbResetScrollHost();
             lbSyncLightboxScrollShell();
         } else if (options.refitMax) {
-            // Sequence: info panel already hidden + box maximized in CSS.
-            // Force a layout flush, then contain-fit to the new zone and
-            // pin upper-left. A second pass catches late flex/grid settle.
+            // Layout flush after maximize / meta toggle, then contain-fit.
+            // Respect lbChromeMetaVisible — do not force-hide the info panel.
             requestAnimationFrame(function () {
                 requestAnimationFrame(function () {
                     var mainEl = g('xrayLbMain');
                     var hostEl = g('xrayLbScrollHost');
                     var boxEl = document.querySelector('#xrayLightbox .xray-lightbox-box');
                     if (mainEl) {
-                        mainEl.classList.add('xray-lb-meta-hidden');
+                        mainEl.classList.toggle('xray-lb-meta-hidden', !lbChromeMetaVisible);
                         void mainEl.offsetHeight;
                     }
                     if (boxEl) void boxEl.offsetHeight;
@@ -1609,8 +1609,33 @@ function lbHasUnsavedChanges() {
     return _lbMetaDirty || lbNeedsImagePersist();
 }
 
+function lbSetSaving(on) {
+    _lbSaving = !!on;
+    var bar = g('xrayLbSaveProgress');
+    var btn = g('lbSaveBtn');
+    var modal = g('xrayLightbox');
+    if (modal) modal.classList.toggle('xray-lb-saving', _lbSaving);
+    if (bar) {
+        if (_lbSaving) {
+            bar.hidden = false;
+            bar.setAttribute('aria-busy', 'true');
+            var lbl = bar.querySelector('.xray-lb-save-progress-label');
+            if (lbl) lbl.textContent = mediaTr('media.lb.saving');
+        } else {
+            bar.hidden = true;
+            bar.setAttribute('aria-busy', 'false');
+        }
+    }
+    if (btn) {
+        btn.disabled = _lbSaving;
+        btn.setAttribute('aria-busy', _lbSaving ? 'true' : 'false');
+        btn.textContent = mediaTr(_lbSaving ? 'media.lb.saving' : 'media.lb.save');
+    }
+}
+
 function _forceCloseLightbox() {
     _lbMetaDirty = false;
+    if (typeof lbSetSaving === 'function') lbSetSaving(false);
     if (typeof xrayAiOnLightboxClose === 'function') xrayAiOnLightboxClose();
     var video = g('xrayLbVideo');
     if (video && !video.paused) video.pause();
@@ -1621,7 +1646,10 @@ function _forceCloseLightbox() {
     lbChromeMetaVisibleBeforeMax = true;
     lbChromeScaleBeforeMax = 1;
     var modal = g('xrayLightbox');
-    if (modal) modal.classList.remove('xray-lb-maximized');
+    if (modal) {
+        modal.classList.remove('xray-lb-maximized');
+        modal.classList.remove('xray-lb-saving');
+    }
     if (document.body) document.body.classList.remove('xray-lb-maximized');
     var main = g('xrayLbMain');
     if (main) main.classList.remove('xray-lb-meta-hidden');
@@ -2340,8 +2368,10 @@ function xrayUpdateRecord(id, payload) {
 
 function saveLbMeta() {
     if (!lbCurrentId) return;
+    if (_lbSaving) return;
 
     var rec = xrayAllRecords.find(function(x) { return x.id === lbCurrentId; });
+    lbSetSaving(true);
 
     function finishOk(msg) {
         _lbMetaDirty = false;   // clear before close so no re-prompt
@@ -2351,16 +2381,28 @@ function saveLbMeta() {
         });
     }
 
+    function endSaving() {
+        lbSetSaving(false);
+    }
+
     function saveMetaOnly() {
         var payload = xrayCtxMergeMeta({
             xray_type:  g('lbType').value,
             taken_date: g('lbDate').value  || null,
             notes:      g('lbNotes').value || null
         });
-        xrayUpdateRecord(lbCurrentId, payload)
+        return xrayUpdateRecord(lbCurrentId, payload)
             .then(function(r) {
-                if (r.error) { xrayNotify(mediaErr(r.error.message)); return; }
+                if (r.error) {
+                    xrayNotify(mediaErr(r.error.message));
+                    endSaving();
+                    return;
+                }
                 finishOk(mediaTr('media.alert.xrayDetailsSaved'));
+            })
+            .catch(function(err) {
+                xrayNotify(mediaErr(err && err.message ? err.message : String(err)));
+                endSaving();
             });
     }
 
@@ -2431,12 +2473,17 @@ function saveLbMeta() {
                 });
             })
             .then(function(r) {
-                if (!r) return;
+                if (!r) return; // saveMetaOnly took over after upload/url failure
                 if (r.error) {
                     xrayNotify(mediaTrRepl('media.alert.dbUpdateFailXray', { MSG: r.error.message }));
+                    endSaving();
                     return;
                 }
                 finishOk(mediaTr('media.alert.xraySavedFull'));
+            })
+            .catch(function(err) {
+                xrayNotify(mediaErr(err && err.message ? err.message : String(err)));
+                endSaving();
             });
     });
 }

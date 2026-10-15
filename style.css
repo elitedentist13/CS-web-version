@@ -11775,6 +11775,46 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     text-align: center;
 }
 
+/* Lightbox save-in-progress (edited film / meta) */
+.xray-lb-save-progress {
+    flex-shrink: 0;
+    padding: 10px 16px 8px;
+    background: #f0f9ff;
+    border-bottom: 1px solid #7dd3fc;
+}
+.xray-lb-save-progress[hidden] {
+    display: none !important;
+}
+.xray-lb-save-progress-track {
+    height: 8px;
+    background: #e0f2fe;
+    border-radius: 999px;
+    overflow: hidden;
+}
+.xray-lb-save-progress-fill {
+    height: 100%;
+    width: 38%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #bae6fd, #38bdf8, #0ea5e9);
+    animation: xray-lb-save-indeterminate 1.15s ease-in-out infinite;
+}
+.xray-lb-save-progress-label {
+    margin-top: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #0284c7;
+    text-align: center;
+    letter-spacing: 0.01em;
+}
+@keyframes xray-lb-save-indeterminate {
+    0%   { transform: translateX(-120%); }
+    100% { transform: translateX(320%); }
+}
+#xrayLightbox.xray-lb-saving #lbSaveBtn {
+    opacity: 0.7;
+    cursor: wait;
+}
+
 .xray-workbench {
     display: grid;
     grid-template-columns: minmax(0, 2fr) minmax(320px, 0.9fr);
@@ -12773,12 +12813,12 @@ body.photo-ortho-show-open .active-patient-dock {
 #photoLightbox.xray-lb-maximized .xray-lb-main {
     flex: 1 1 0;
     min-height: 0;
-    /* Info column collapses so the film zone uses the full width. */
-    grid-template-columns: 1fr !important;
 }
-#xrayLightbox.xray-lb-maximized .xray-lb-meta,
-#photoLightbox.xray-lb-maximized .xray-lb-meta {
-    display: none !important;
+/* Maximize still collapses the info column when hidden; leaving it off
+   .xray-lb-meta-hidden lets the triangle/toolbar toggle re-open the panel. */
+#xrayLightbox.xray-lb-maximized .xray-lb-main.xray-lb-meta-hidden,
+#photoLightbox.xray-lb-maximized .xray-lb-main.xray-lb-meta-hidden {
+    grid-template-columns: 1fr !important;
 }
 
 #xrayLightbox.xray-lb-maximized .xray-lb-viewer,

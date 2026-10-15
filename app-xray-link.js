@@ -1354,7 +1354,8 @@
         });
         var saveBtn = g('lbSaveBtn');
         var delBtn = g('lbDeleteBtn');
-        if (saveBtn) saveBtn.disabled = false;
+        // Keep Save locked while an in-flight save is showing the progress bar.
+        if (saveBtn) saveBtn.disabled = (typeof _lbSaving !== 'undefined' && !!_lbSaving);
         if (delBtn) delBtn.disabled = false;
         if (typeof lbEnableToolbarTools === 'function') lbEnableToolbarTools();
         var chip = g('lbClinicChip');

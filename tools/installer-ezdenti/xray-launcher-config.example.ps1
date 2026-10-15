@@ -12,3 +12,12 @@ $script:DigirexDentistPassword = "digirex"
 # EzDent-i loader, if it is not under Program Files\VATECH\EzDent-i\Bin
 # and there is no Start Menu shortcut. File or install folder both work.
 # $script:EzdentiExePath = "D:\VATECH\EzDent-i\Bin\VTE2Loader32.exe"
+
+# Default: write Linkage.xml; launch desktop ReqAdmin .lnk when Bin is
+# writable (chart + Acquisition). Chart no. also goes to the clipboard.
+#
+# Blind desktop-equivalent (no Linkage.xml; staff paste-search):
+# $script:EzdentiSkipLinkageXml = $true
+#
+# Also fire VTEzBridge32.exe — view-only PCs only; can break Acquisition:
+# $script:EzdentiUseLinkageBridge = $true

@@ -48,21 +48,45 @@ Safe to re-run the installer any time (e.g. after a code update).
   chart for OPG/CT.
 - **Chart number matching (2026-08-24):** Banana's `patient_no` can carry
   a clinic letter prefix (Po Lam uses `PL`, e.g. `PL001287`). OLD EzDent-i
-  charts are keyed on the bare digits (`001287`). The bridge now strips
-  any letter prefix before writing `Linkage.xml` `ChartNumber` and before
-  copying the chart no. to the clipboard, same as NNT `/PATID` and Rayscan
-  `ID:`. Bare numbers (`001287`) are unchanged.
-- **Best-effort, not guaranteed:** the bridge also writes a `Linkage.xml`
-  file and fires `VTEzBridge32.exe` first, in case this clinic's specific
-  EzDent-i/EzWebServer setup picks it up and auto-opens/creates the chart
-  with zero typing. Investigation found hints this may actually be a
-  server-side ("EzPicker") mechanism rather than anything a client PC can
-  fully control — see `..\CHANGELOG.md` for the full trace. Treat the
-  clipboard paste as the reliable path until Vatech support confirms
-  otherwise for this deployment.
+  charts are keyed on the bare digits (`001287`). The bridge strips any
+  letter prefix before copying the chart no. to the clipboard, same as
+  NNT `/PATID` and Rayscan `ID:`. Bare numbers (`001287`) are unchanged.
+- **Chart + Acquisition fix (2026-10-16):** Banana writes Open Dental-style
+  `Linkage.xml`, then launches the desktop **ReqAdmin** shortcut when the
+  file is in real Program Files Bin (needed for the Vatech OPG device).
+  It does **not** start `VTEzBridge32.exe`. If Bin is not writable,
+  Linkage under VirtualStore uses the non-ReqAdmin loader (chart OK,
+  Acquisition may be limited). Opt out of linkage with
+  `$script:EzdentiSkipLinkageXml = $true`. Opt into VTEzBridge (view-only)
+  with `$script:EzdentiUseLinkageBridge = $true` in `xray-launcher-config.ps1`.
+
+## Capture a working desktop session (for Banana wiring)
+
+When Acquisition works from the desktop icon but Banana opens the wrong
+chart (or the recent acquisition list), run a background observer while
+you click through EzDent-i manually:
+
+1. Double-click **`Watch EzDent-i Session.bat`** in this folder (or
+   `..\Watch EzDent-i Session.bat`).
+2. Fully quit EzDent-i, then open it from the **desktop icon** (not Banana).
+3. Search → open the patient chart → Acquisition → Panorama → take OPG.
+4. Press Ctrl+C in the watcher window when finished.
+5. Send the new folder under `..\_ezdenti_session_captures\` (especially
+   `session.log` and any `Linkage.xml` / `.ini` copies).
+
+Script: `..\_watch_ezdenti_session.ps1` (process command lines + Bin /
+VirtualStore file copies; never modifies EzDent originals).
 
 ## Troubleshooting
 
+- **Acquisition → Panorama does nothing after opening from Banana, but
+  works from the desktop icon**: re-run **Install EzDent-i Bridge.bat**
+  (or copy the updated `xray-local-launcher.ps1` and restart the bridge).
+  Fully quit EzDent-i first. Do **not** set `EzdentiUseLinkageBridge` on
+  a PC that takes OPGs (that fires `VTEzBridge32.exe`).
+- **Banana shows recent chart (e.g. 022194) instead of 021474**: ensure
+  the new default path is deployed (`mode=ezdenti-linkage-xml` on
+  `/open/ezdenti`). Fully quit EzDent-i, then open again from Banana.
 - **"Could not start EzDent-i from the browser"**: the bridge isn't
   running. Re-run `Start EzDent-i Launcher.bat` (or re-run the installer).
 - **Port 17890 in use by something else**: close it, or re-run

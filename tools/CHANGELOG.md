@@ -3,6 +3,34 @@
 Log of fixes/changes to `xray-local-launcher.ps1` and the installer, kept for
 future reference since this runs unattended on clinic machines.
 
+## 2026-10-16 — Fix: EzDent-i wrong chart (recent) + keep Acquisition
+
+Reported: Banana opens EzDent-i on the **most recent chart** (e.g. `022194`)
+instead of the Banana patient (e.g. `021474`). Earlier, writing
+`Linkage.xml` **and** firing `VTEzBridge32.exe` also left **Acquisition →
+Panorama** dead.
+
+Session capture (desktop ReqAdmin, no linkage) + historical GNLOG prove:
+- Without `Linkage.xml`, EzDent restores / lists the recent chart
+- With `Linkage.xml`, GNLOG logs `Detect Linkage.xml` + `Chart Number : …`
+- `VTEzBridge32.exe` is the Acquisition hazard — skip it by default
+
+Fix (default):
+- Write Open Dental-style `Linkage.xml` (`ChartNumber` = bare digits)
+- When that file lands in **real** Program Files Bin, launch the desktop
+  **ReqAdmin** `.lnk` (same as a double-click) so Acquisition sees the OPG
+  TWAIN device — non-elevated `VTEzDent-i32` only enumerated Epson (VTDebug)
+- If Bin write fails and Linkage exists only under VirtualStore, fall back
+  to the non-ReqAdmin loader so the chart still opens
+- Do **not** start `VTEzBridge32.exe`
+- Clipboard still gets bare chart digits as paste-search backup
+
+Opt-out (blind desktop-equivalent): `$script:EzdentiSkipLinkageXml = $true`  
+Opt-in VTEzBridge (view-only): `$script:EzdentiUseLinkageBridge = $true`
+
+Redeploy: re-run **Install EzDent-i Bridge.bat** (or rebuild packages via
+`build-installer-packages.ps1`), fully quit EzDent-i, restart the bridge.
+
 ## 2026-09-03 — Fix: Ai-Dental name fields swapped; confirm chart no./sex/DOB genuinely can't transfer via CLI
 
 User report: "the Ai-Dental bridge now only transfer patient name, the

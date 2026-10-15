@@ -3635,6 +3635,24 @@ function xrayLocalPathTokens(patient) {
     };
 }
 
+/**
+ * Bare chart digits for EzDent-i search / clipboard.
+ * EzDent charts are numeric (clinic letter prefix stripped, leading zeros kept).
+ * After the 2026-10-16 Acquisition fix Banana only blind-launches EzDent-i —
+ * it does not auto-select a chart — so paste of this value is the reliable path.
+ */
+function xrayEzdentiChartNo(patient) {
+    if (!patient) return '';
+    var no = String(patient.patient_no || '').trim();
+    if (!no) return '';
+    if (typeof clinicNoNumbersOnly === 'function') {
+        var padded = clinicNoNumbersOnly(no);
+        if (padded) return padded;
+    }
+    var m = no.match(/\d+/);
+    return m ? m[0] : no;
+}
+
 /** Search string sent to the local launcher (varies by imaging software). */
 function xrayPatientSearchTextForLauncher(patient, launcherKey) {
     if (!patient) return '';
@@ -3646,6 +3664,9 @@ function xrayPatientSearchTextForLauncher(patient, launcherKey) {
         if (cn) return cn;
         if (no) return no;
         return '';
+    }
+    if (launcherKey === 'ezdenti') {
+        return xrayEzdentiChartNo(patient) || no;
     }
     return xrayPatientSearchClipboardText(patient);
 }
@@ -4086,13 +4107,23 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
     // phone/Chinese name, so its clipboard fallback is the richer
     // multi-line summary — still useful for anything the CLI hand-off
     // can't carry, or if this specific install doesn't consume it at all.
-    var searchText = (launcherKey === 'aidental')
-        ? (xrayPatientBridgeSummaryLine(patient) || '—')
-        : (xrayPatientSearchClipboardText(patient) || '—');
+    var searchText;
+    var clipboardText;
+    if (launcherKey === 'aidental') {
+        searchText = xrayPatientBridgeSummaryLine(patient) || '—';
+        clipboardText = xrayPatientBridgeClipboardText(patient) || searchText;
+    } else if (launcherKey === 'ezdenti') {
+        // Bare chart only — EzDent-i does not auto-open from Banana (desktop-
+        // equivalent launch). Staff paste this into EzDent search. Using
+        // "Name (no.)" previously made wrong-chart paste-matches more likely.
+        searchText = xrayEzdentiChartNo(patient) ||
+            xrayPatientSearchClipboardText(patient) || '—';
+        clipboardText = searchText;
+    } else {
+        searchText = xrayPatientSearchClipboardText(patient) || '—';
+        clipboardText = searchText;
+    }
     var patientSummary = searchText;
-    var clipboardText = (launcherKey === 'aidental')
-        ? (xrayPatientBridgeClipboardText(patient) || searchText)
-        : searchText;
 
     // Confirm immediately (before bridge ping). Chrome Local Network Access can
     // wait up to ~30s on first fetch — that used to make MyRay/NewTom feel dead.

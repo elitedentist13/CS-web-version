@@ -245,22 +245,19 @@ $Systems = @{
             (Join-Path $PublicDesktop "Ezdent-i.lnk"),
             (Join-Path $UserDesktop "Ezdent-i.lnk")
         )
-        # VTE2Loader32.exe (EzDent-i 3.0.0+) is tried first -- confirmed live
-        # (2026-08-19) to actually open the visible EzDent-i window (spawns
-        # VTE232.exe). VTEzBridge32.exe is deliberately NOT in this list --
-        # unlike the loader, it was confirmed (same live test) to exit in
-        # well under 500ms with no window at all, so it must never be the
-        # thing this script treats as "the app to open" -- see
-        # Resolve-EzdentiBridge / Start-EzdentiBridgePatient below for how
-        # it's actually used (fired best-effort, in addition to, not
-        # instead of, one of the exes below).
+        # Non-ReqAdmin loaders first: Banana writes Linkage.xml as a normal
+        # user; an elevated ReqAdmin process would read real Program Files
+        # Bin (empty) while the write landed in VirtualStore. VTEzBridge32
+        # is deliberately NOT in this list -- see Start-EzdentiBridgePatient.
         executables = @(
             "C:\Program Files (x86)\VATECH\EzDent-i\Bin\VTE2Loader32.exe",
             "C:\Program Files\VATECH\EzDent-i\Bin\VTE2Loader32.exe",
-            "C:\Program Files (x86)\VATECH\EzDent-i\Bin\VTE2Loader_ReqAdmin32.exe",
-            "C:\Program Files\VATECH\EzDent-i\Bin\VTE2Loader_ReqAdmin32.exe",
             "C:\Program Files (x86)\VATECH\EzDent-i\Bin\VTEzDent-iLoader32.exe",
             "C:\Program Files\VATECH\EzDent-i\Bin\VTEzDent-iLoader32.exe",
+            "C:\Program Files (x86)\VATECH\EzDent-i\Bin\VTE2Loader_ReqAdmin32.exe",
+            "C:\Program Files\VATECH\EzDent-i\Bin\VTE2Loader_ReqAdmin32.exe",
+            "C:\Program Files (x86)\VATECH\EzDent-i\Bin\VTEzDent-iLoader_ReqAdmin32.exe",
+            "C:\Program Files\VATECH\EzDent-i\Bin\VTEzDent-iLoader_ReqAdmin32.exe",
             # Last resort: the app itself, same as CS's own (blind) launch --
             # guarantees a window opens even if no loader exe is found.
             # Older builds are VTE232.exe; this PC's install is VTEzDent-i32.exe.
@@ -306,9 +303,21 @@ $Systems = @{
 # (404) Not Found." These helpers find the loader without ever treating
 # VTEzBridge32.exe as the app (that exe exits immediately with no window).
 function Get-EzdentiLoaderFileNames {
+    # Non-ReqAdmin first so Find-EzdentiExecutable / Resolve-EzdentiExeInDir
+    # prefer a loader that shares Banana's integrity level (Linkage.xml).
     return @(
         "VTE2Loader32.exe",
+        "VTEzDent-iLoader32.exe",
         "VTE2Loader_ReqAdmin32.exe",
+        "VTEzDent-iLoader_ReqAdmin32.exe",
+        "VTEzDent-i32.exe",
+        "VTE232.exe"
+    )
+}
+
+function Get-EzdentiNonAdminLoaderFileNames {
+    return @(
+        "VTE2Loader32.exe",
         "VTEzDent-iLoader32.exe",
         "VTEzDent-i32.exe",
         "VTE232.exe"
@@ -322,7 +331,7 @@ function Resolve-EzdentiExeInDir([string]$Dir) {
     if ($dir -match '(?i)\.exe$') {
         if ($dir -match '(?i)\\VTEzBridge32\.exe$') { return "" }
         $leaf = Split-Path -Leaf $dir
-        if ($leaf -match '(?i)^(VTE2Loader32|VTE2Loader_ReqAdmin32|VTEzDent-iLoader32|VTEzDent-i32|VTE232)\.exe$' -and (Test-PathSafe $dir)) {
+        if ($leaf -match '(?i)^(VTE2Loader32|VTE2Loader_ReqAdmin32|VTEzDent-iLoader32|VTEzDent-iLoader_ReqAdmin32|VTEzDent-i32|VTE232)\.exe$' -and (Test-PathSafe $dir)) {
             return $dir
         }
         $dir = Split-Path -Parent $dir
@@ -2493,17 +2502,23 @@ function Start-RayBridgePatient($Resolved, $Patient) {
 #     VTDebug.txt, suggesting the real consumer (if any) of this import
 #     path is a server-side "EzPicker" service, not this client PC.
 #
-# Given that, Start-EzdentiBridgePatient below does NOT depend on this
-# working. It always does the two things confirmed to work today (open the
-# real app so staff see a window; copy patient info to clipboard so they
-# can paste it into EzDent-i's own patient search -- same fallback already
-# used for Carestream/Ai-Dental), and ALSO best-effort writes this XML +
-# fires VTEzBridge32.exe first, in case EzPicker or some other
-# build/config really does pick it up -- pure upside if so, silently
-# ignored if not. Confirming that one way or the other needs either
-# Vatech support/docs for a centralized EzWebServer deployment, or access
-# to the server (192.168.50.100) itself -- out of scope for a client PC
-# script.
+# CORRECTED 2026-10-16 (Acquisition → Panorama dead after Banana open):
+# Firing VTEzBridge32.exe before the real app can put EzDent-i into
+# External Link / PMS mode where Acquisition → Panorama does nothing.
+# Blind desktop launch keeps Acquisition but (with no Linkage.xml) EzDent
+# restores the most-recent chart (e.g. 022194) instead of Banana's chart.
+#
+# CORRECTED 2026-10-16 (session capture + GNLOG "Detect Linkage.xml"):
+# Write Open Dental-style Linkage.xml for chart select; NEVER fire
+# VTEzBridge unless opt-in. Prefer the desktop ReqAdmin .lnk when
+# Linkage.xml lands in real Program Files Bin (VTDebug 2026-10-16:
+# non-elevated VTEzDent-i32 registers Acquisition clicks but only
+# enumerates Epson TWAIN — no Vatech OPG). If Bin write fails and the
+# file only exists under VirtualStore, fall back to the non-ReqAdmin
+# loader so EzDent can still see ChartNumber. Opt out of linkage
+# (blind desktop-equivalent) with $script:EzdentiSkipLinkageXml = $true.
+# Opt into VTEzBridge with $script:EzdentiUseLinkageBridge = $true
+# (view-only PCs that never acquire).
 #
 # CORRECTED 2026-08-24 (Po Lam / "PL" clinic): Banana's patient_no carries
 # a clinic letter prefix (Program Settings -> patient_no_prefix, here
@@ -2576,9 +2591,11 @@ function Split-EzdentiPatientName($Patient) {
 function Get-EzdentiProcessNames {
     return @(
         "VTEzDent-iLoader32",
+        "VTEzDent-iLoader_ReqAdmin32",
         "VTE2Loader32",
         "VTE2Loader_ReqAdmin32",
         "VTEzDent-i32",
+        "VTEzDent-i_ReqAdmin32",
         "VTE232",
         "VTE2_ReqAdmin32",
         "VTEzBridge32"
@@ -2697,6 +2714,138 @@ function Resolve-EzdentiBridge($Resolved) {
     return First-Existing $candidates
 }
 
+function Get-EzdentiBinDirs($Resolved) {
+    $dirs = New-Object System.Collections.Generic.List[string]
+    if ($Resolved -and $Resolved.workingDirectory) { $dirs.Add([string]$Resolved.workingDirectory) }
+    if ($Resolved -and $Resolved.target) {
+        $td = Split-Path -Parent $Resolved.target
+        if ($td) { $dirs.Add($td) }
+    }
+    $dirs.Add("C:\Program Files (x86)\VATECH\EzDent-i\Bin")
+    $dirs.Add("C:\Program Files\VATECH\EzDent-i\Bin")
+    $vsRoot = Join-Path $env:LOCALAPPDATA "VirtualStore"
+    $dirs.Add((Join-Path $vsRoot "Program Files (x86)\VATECH\EzDent-i\Bin"))
+    $dirs.Add((Join-Path $vsRoot "Program Files\VATECH\EzDent-i\Bin"))
+    return @($dirs | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+}
+
+function Clear-EzdentiLeftoverLinkageXml($Resolved) {
+    # Removes stale Linkage.xml from Bin + VirtualStore so a blind launch
+    # (EzdentiSkipLinkageXml) does not auto-open yesterday's chart.
+    foreach ($dir in (Get-EzdentiBinDirs $Resolved)) {
+        $path = Join-Path $dir "Linkage.xml"
+        try {
+            if ([IO.File]::Exists($path)) { [IO.File]::Delete($path) }
+        } catch {}
+    }
+}
+
+# Map ReqAdmin / desktop-shortcut targets to the sibling non-elevated
+# loader so Linkage.xml written by Banana is visible to the app process.
+function Resolve-EzdentiNonAdminLoader($Resolved) {
+    $dirs = New-Object System.Collections.Generic.List[string]
+    foreach ($dir in (Get-EzdentiBinDirs $Resolved)) {
+        if ($dir -match '(?i)\\VirtualStore\\') { continue }
+        $dirs.Add($dir)
+    }
+    if ($Resolved -and $Resolved.target -and (Test-PathSafe $Resolved.target)) {
+        $leaf = Split-Path -Leaf $Resolved.target
+        $parent = Split-Path -Parent $Resolved.target
+        if ($leaf -match '(?i)_ReqAdmin32\.exe$') {
+            $sibling = Join-Path $parent ($leaf -replace '(?i)_ReqAdmin32\.exe$', '32.exe')
+            if (Test-PathSafe $sibling) { return $sibling }
+        }
+        if ($leaf -match '(?i)^(VTE2Loader32|VTEzDent-iLoader32|VTEzDent-i32|VTE232)\.exe$') {
+            return $Resolved.target
+        }
+    }
+    foreach ($dir in $dirs) {
+        if (-not (Test-PathSafe $dir)) { continue }
+        foreach ($name in (Get-EzdentiNonAdminLoaderFileNames)) {
+            $candidate = Join-Path $dir $name
+            if (Test-PathSafe $candidate) { return $candidate }
+        }
+    }
+    return ""
+}
+
+# Write Linkage.xml into real Bin and mirror into VirtualStore so whichever
+# view the non-ReqAdmin loader sees still has ChartNumber.
+function Write-EzdentiLinkageXmlFile($Resolved, $Patient) {
+    $xml = New-EzdentiLinkageXml $Patient
+    $writtenReal = ""
+    $writtenVs = ""
+    $dirs = New-Object System.Collections.Generic.List[string]
+    foreach ($dir in (Get-EzdentiBinDirs $Resolved)) { $dirs.Add($dir) }
+    $vsRoot = Join-Path $env:LOCALAPPDATA "VirtualStore"
+    foreach ($real in @(
+        "C:\Program Files (x86)\VATECH\EzDent-i\Bin",
+        "C:\Program Files\VATECH\EzDent-i\Bin"
+    )) {
+        if ($Resolved -and $Resolved.workingDirectory -and (Test-PathSafe $Resolved.workingDirectory)) {
+            $wd = [string]$Resolved.workingDirectory
+            if ($wd -match '(?i)\\VATECH\\EzDent-i\\Bin$' -and $wd -notmatch '(?i)\\VirtualStore\\') {
+                $rel = $wd -replace '(?i)^[A-Z]:\\', ''
+                $dirs.Add((Join-Path $vsRoot $rel))
+            }
+        }
+        $rel2 = $real -replace '(?i)^[A-Z]:\\', ''
+        $dirs.Add((Join-Path $vsRoot $rel2))
+    }
+    foreach ($dir in ($dirs | Select-Object -Unique)) {
+        if ([string]::IsNullOrWhiteSpace($dir)) { continue }
+        try {
+            if (-not (Test-PathSafe $dir)) {
+                if ($dir -match '(?i)\\VirtualStore\\') {
+                    [void][IO.Directory]::CreateDirectory($dir)
+                } else {
+                    continue
+                }
+            }
+            $path = Join-Path $dir "Linkage.xml"
+            [IO.File]::WriteAllText($path, $xml, [Text.Encoding]::UTF8)
+            if ($dir -match '(?i)\\VirtualStore\\') {
+                if (-not $writtenVs) { $writtenVs = $path }
+            } else {
+                if (-not $writtenReal) { $writtenReal = $path }
+            }
+        } catch {}
+    }
+    # Prefer reporting the real-Bin path (ReqAdmin can read it).
+    if ($writtenReal) { return $writtenReal }
+    return $writtenVs
+}
+
+function Resolve-EzdentiReqAdminLoader($Resolved) {
+    $dirs = New-Object System.Collections.Generic.List[string]
+    foreach ($dir in (Get-EzdentiBinDirs $Resolved)) {
+        if ($dir -match '(?i)\\VirtualStore\\') { continue }
+        $dirs.Add($dir)
+    }
+    $names = @(
+        "VTEzDent-iLoader_ReqAdmin32.exe",
+        "VTE2Loader_ReqAdmin32.exe",
+        "VTEzDent-i_ReqAdmin32.exe"
+    )
+    if ($Resolved -and $Resolved.target -and (Test-PathSafe $Resolved.target)) {
+        $leaf = Split-Path -Leaf $Resolved.target
+        if ($leaf -match '(?i)_ReqAdmin') { return $Resolved.target }
+        $parent = Split-Path -Parent $Resolved.target
+        if ($leaf -match '(?i)^(VTEzDent-iLoader|VTE2Loader|VTEzDent-i)32\.exe$') {
+            $req = Join-Path $parent ($leaf -replace '(?i)32\.exe$', '_ReqAdmin32.exe')
+            if (Test-PathSafe $req) { return $req }
+        }
+    }
+    foreach ($dir in $dirs) {
+        if (-not (Test-PathSafe $dir)) { continue }
+        foreach ($name in $names) {
+            $candidate = Join-Path $dir $name
+            if (Test-PathSafe $candidate) { return $candidate }
+        }
+    }
+    return ""
+}
+
 function Start-EzdentiBridgePatient($Resolved, $Patient) {
     if (-not $Resolved -or -not $Resolved.target -or -not (Test-PathSafe $Resolved.target)) {
         return $null
@@ -2711,60 +2860,120 @@ function Start-EzdentiBridgePatient($Resolved, $Patient) {
     if ($workDir -and (Test-PathSafe $workDir)) {
         $cleared = Clear-EzdentiStaleHandoff $workDir
     }
+    Clear-EzdentiLeftoverLinkageXml $Resolved
+
+    # Default: write Linkage.xml (chart select). Opt out = blind desktop path.
+    $skipLinkageXml = $false
+    try { $skipLinkageXml = [bool]$script:EzdentiSkipLinkageXml } catch { $skipLinkageXml = $false }
+    # Opt-in only: fire VTEzBridge32 (can break Acquisition → Panorama).
+    $useVtBridge = $false
+    try { $useVtBridge = [bool]$script:EzdentiUseLinkageBridge } catch { $useVtBridge = $false }
+
+    $launchTarget = $Resolved.target
+    $launchWorkDir = $workDir
+    $launchShortcut = ""
+    $nonAdmin = ""
+    $reqAdmin = ""
+    $usedNonAdminFallback = $false
 
     $xmlPath = ""
-    if (-not [string]::IsNullOrWhiteSpace($chartNo) -and $workDir -and (Test-PathSafe $workDir)) {
-        try {
-            $candidatePath = Join-Path $workDir "Linkage.xml"
-            [IO.File]::WriteAllText($candidatePath, (New-EzdentiLinkageXml $Patient), [Text.Encoding]::UTF8)
-            $xmlPath = $candidatePath
-        } catch {}
+    $bridgeExe = ""
+    if ($skipLinkageXml) {
+        $launchShortcut = $Resolved.shortcut
+    } elseif (-not [string]::IsNullOrWhiteSpace($chartNo)) {
+        $xmlPath = Write-EzdentiLinkageXmlFile ([ordered]@{
+            workingDirectory = $workDir
+            target = $Resolved.target
+        }) $Patient
     }
 
     $captureIni = Write-EzdentiCapturePatientInfo $Patient
 
-    $bridgeExe = Resolve-EzdentiBridge $Resolved
-    if ($bridgeExe) {
-        try {
-            Start-Process -FilePath $bridgeExe -WorkingDirectory (Split-Path -Parent $bridgeExe)
-            # Observed live to exit in well under 500ms -- give it a beat to
-            # do whatever it does (e.g. touch the DB) before the app below
-            # potentially reads the same state.
-            Start-Sleep -Milliseconds 400
-        } catch {}
+    # Launch policy:
+    # - Blind / skip-linkage: desktop .lnk (ReqAdmin) like a double-click.
+    # - Linkage in real Bin: same ReqAdmin/.lnk so Acquisition sees the OPG.
+    # - Linkage only in VirtualStore: non-ReqAdmin so the process can read it.
+    $linkageInRealBin = $xmlPath -and ($xmlPath -notmatch '(?i)\\VirtualStore\\')
+    if ($skipLinkageXml) {
+        $launchShortcut = $Resolved.shortcut
+    } elseif ($linkageInRealBin -or [string]::IsNullOrWhiteSpace($xmlPath)) {
+        if ($Resolved.shortcut -and (Test-PathSafe $Resolved.shortcut)) {
+            $launchShortcut = $Resolved.shortcut
+        } else {
+            $reqAdmin = Resolve-EzdentiReqAdminLoader $Resolved
+            if ($reqAdmin) {
+                $launchTarget = $reqAdmin
+                $launchWorkDir = Split-Path -Parent $reqAdmin
+            }
+        }
+    } else {
+        $nonAdmin = Resolve-EzdentiNonAdminLoader $Resolved
+        if ($nonAdmin) {
+            $launchTarget = $nonAdmin
+            $launchWorkDir = Split-Path -Parent $nonAdmin
+            $usedNonAdminFallback = $true
+        }
     }
 
-    # Always open the real app -- confirmed live to work (VTE2Loader32.exe
-    # spawns the visible VTE232.exe window), and the caller
-    # (Copy-PatientContextToClipboard in Handle-Request) already copies the
-    # patient's name/no. to the clipboard as the reliable fallback for
-    # manual search inside EzDent-i, same pattern as Carestream/Ai-Dental.
+    if ($useVtBridge) {
+        $bridgeExe = Resolve-EzdentiBridge ([ordered]@{
+            workingDirectory = $launchWorkDir
+            target = $launchTarget
+        })
+        if ($bridgeExe) {
+            try {
+                Start-Process -FilePath $bridgeExe -WorkingDirectory (Split-Path -Parent $bridgeExe)
+                Start-Sleep -Milliseconds 400
+            } catch {}
+        }
+    }
+
     try {
-        $appArgs = @{ FilePath = $Resolved.target }
-        if ($workDir -and (Test-PathSafe $workDir)) { $appArgs.WorkingDirectory = $workDir }
-        Start-Process @appArgs
+        if ($launchShortcut -and (Test-PathSafe $launchShortcut)) {
+            Start-Process -FilePath $launchShortcut
+        } else {
+            Start-ResolvedProgram ([ordered]@{
+                target = $launchTarget
+                workingDirectory = $launchWorkDir
+                arguments = $(if ($usedNonAdminFallback -or $reqAdmin) { "" } else { $Resolved.arguments })
+            })
+        }
     } catch {
         return $null
     }
 
-    # Overwrite the generic Handle-Request clipboard copy: that still has
-    # Banana's prefixed patient_no (e.g. "PL001287"). EzDent-i's own search
-    # and Linkage.xml ChartNumber must use the bare digits so OLD charts
-    # match. Staff paste this into EzDent-i search.
-    $clipPatient = [ordered]@{}
-    foreach ($k in $Patient.Keys) { $clipPatient[$k] = $Patient[$k] }
-    $clipPatient.patient_no = $chartNo
-    Copy-PatientContextToClipboard $clipPatient
+    # Clipboard = bare chart digits ONLY (e.g. "021474") as paste-search backup.
+    if (-not [string]::IsNullOrWhiteSpace($chartNo)) {
+        try { Set-Clipboard -Value ([string]$chartNo) } catch {
+            $clipPatient = [ordered]@{ patient_no = $chartNo }
+            Copy-PatientContextToClipboard $clipPatient
+        }
+    }
+
+    $mode = "ezdenti-desktop-equivalent"
+    if ($useVtBridge) {
+        $mode = "ezdenti-open-plus-optin-linkage"
+    } elseif (-not $skipLinkageXml -and $xmlPath -and $usedNonAdminFallback) {
+        $mode = "ezdenti-linkage-xml-virtualstore"
+    } elseif (-not $skipLinkageXml -and $xmlPath) {
+        $mode = "ezdenti-linkage-xml"
+    } elseif (-not $skipLinkageXml) {
+        $mode = "ezdenti-linkage-xml-attempt"
+    }
 
     return [ordered]@{
-        target = $Resolved.target
-        workingDirectory = $workDir
+        target = $(if ($launchShortcut) { $Resolved.target } else { $launchTarget })
+        workingDirectory = $launchWorkDir
+        shortcut = $launchShortcut
         bridge_exe = $bridgeExe
         linkage_xml = $xmlPath
         capture_ini = $captureIni
         stale_cleared = $cleared
         chart_number = $chartNo
-        mode = "ezdenti-fresh-linkage"
+        clipboard = $chartNo
+        non_admin_loader = $nonAdmin
+        req_admin_loader = $reqAdmin
+        mode = $mode
     }
 }
 
@@ -3880,27 +4089,42 @@ function Invoke-SelfTest {
     Assert-Equal "Clipboard paste uses bare chart" $true ($ezClipText -like "*Patient No: 001287*")
     Assert-Equal "Clipboard paste drops PL prefix" $false ($ezClipText -like "*Patient No: PL001287*")
 
-    Write-Host "== Start-EzdentiBridgePatient / Resolve-EzdentiBridge (no real launch) ==" -ForegroundColor Cyan
-    # Start-EzdentiBridgePatient now opens $Resolved.target itself (confirmed
-    # live that VTE2Loader32.exe is the thing that actually shows a window --
-    # VTEzBridge32.exe does not), so unlike the old version it REQUIRES a
-    # real, existing target and always bails out before touching the
-    # filesystem or Resolve-EzdentiBridge (which has real hardcoded
-    # fallback paths, e.g. this very PC has a real VTEzBridge32.exe) if the
-    # target is missing. Deliberately only exercised with a non-existent
-    # target here so this can never pop up a real EzDent-i/bridge process
-    # on a PC where it happens to actually be installed -- genuine
-    # end-to-end coverage of the success path is opt-in only, alongside
-    # NNT's own live-launch check below (-IncludeLiveLaunch).
+    Write-Host "== Start-EzdentiBridgePatient / Resolve-EzdentiNonAdminLoader (no real launch) ==" -ForegroundColor Cyan
+    # Negative-path only so -SelfTest never pops EzDent-i; live coverage is
+    # opt-in via -IncludeLiveLaunch.
     $noTarget = Start-EzdentiBridgePatient ([ordered]@{ workingDirectory = $env:TEMP; target = (Join-Path $env:TEMP "does-not-exist.exe") }) $ezPatient
-    Assert-Equal "Missing target returns null" $true ($null -eq $noTarget)
+    Assert-equal "Missing target returns null" $true ($null -eq $noTarget)
     $noResolved = Start-EzdentiBridgePatient $null $ezPatient
-    Assert-Equal "Null resolved returns null" $true ($null -eq $noResolved)
-    # Resolve-EzdentiBridge only resolves a path string -- never launches
-    # anything -- so it's safe to call directly even if a real
-    # VTEzBridge32.exe happens to exist on this PC.
+    Assert-equal "Null resolved returns null" $true ($null -eq $noResolved)
     $bridgeGuess = Resolve-EzdentiBridge ([ordered]@{ workingDirectory = (Join-Path $env:TEMP ("xray-ez-" + [Guid]::NewGuid().ToString("N"))); target = "" })
-    Assert-Equal "Returns a string (found or not)" $true ($bridgeGuess -is [string])
+    Assert-equal "Returns a string (found or not)" $true ($bridgeGuess -is [string])
+    $leftoverDir = Join-Path $env:TEMP ("ez-linkage-clear-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $leftoverDir | Out-Null
+    try {
+        $leftoverXml = Join-Path $leftoverDir "Linkage.xml"
+        Set-Content -LiteralPath $leftoverXml -Value "<LinkageParameter/>" -Encoding UTF8
+        Clear-EzdentiLeftoverLinkageXml ([ordered]@{ workingDirectory = $leftoverDir; target = (Join-Path $leftoverDir "VTE2Loader32.exe") })
+        Assert-equal "Clears leftover Linkage.xml" $false (Test-Path -LiteralPath $leftoverXml)
+    } finally {
+        Remove-Item -LiteralPath $leftoverDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    $mapDir = Join-Path $env:TEMP ("ez-nonadmin-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $mapDir | Out-Null
+    try {
+        $reqAdmin = Join-Path $mapDir "VTEzDent-iLoader_ReqAdmin32.exe"
+        $nonAdmin = Join-Path $mapDir "VTEzDent-iLoader32.exe"
+        Set-Content -LiteralPath $reqAdmin -Value "x" -Encoding ASCII
+        Set-Content -LiteralPath $nonAdmin -Value "x" -Encoding ASCII
+        $mapped = Resolve-EzdentiNonAdminLoader ([ordered]@{ workingDirectory = $mapDir; target = $reqAdmin })
+        Assert-equal "ReqAdmin maps to non-admin sibling" $nonAdmin $mapped
+        $xmlWrite = Write-EzdentiLinkageXmlFile ([ordered]@{ workingDirectory = $mapDir; target = $nonAdmin }) $ezPatient
+        Assert-equal "Write-EzdentiLinkageXmlFile returns a path" $true (-not [string]::IsNullOrWhiteSpace($xmlWrite))
+        Assert-equal "Linkage.xml exists after write" $true (Test-Path -LiteralPath (Join-Path $mapDir "Linkage.xml"))
+        $xmlBody = Get-Content -LiteralPath (Join-Path $mapDir "Linkage.xml") -Raw
+        Assert-equal "Written Linkage.xml has ChartNumber" $true ($xmlBody -like '*ChartNumber="001287"*')
+    } finally {
+        Remove-Item -LiteralPath $mapDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
     Write-Host "== Resolve-System (works whether or not NNT is actually installed on this PC) ==" -ForegroundColor Cyan
     $nnt = Resolve-System "nntnewtom" ""
@@ -4152,9 +4376,9 @@ Pass=digirex
             Assert-Equal "/open/nntnewtom returns 404 when NNT not installed on this PC" 404 $nntOpenResp.status
         }
         # Same opt-in trade-off as NNT above: if EzDent-i is actually installed
-        # here, this really does close any already-open window, wipe leftover
-        # Linkage.xml, write a fresh handoff, and open the app
-        # (VTE2Loader32.exe -> visible VTE232.exe window).
+        # here, this closes any already-open window, writes fresh Linkage.xml,
+        # and opens via the desktop ReqAdmin .lnk when Bin is writable.
+        # VTEzBridge32.exe is NOT fired unless EzdentiUseLinkageBridge is set.
         $ezOpenResp = Handle-Request ("/open/ezdenti?" + $ezQs.Split('?')[1])
         if ($ezResolveCheck.exists) {
             Assert-Equal "/open/ezdenti returns 200 and opens the real app" 200 $ezOpenResp.status

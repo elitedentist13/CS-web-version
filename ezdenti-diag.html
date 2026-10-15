@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EzDent-i Launcher Diagnostic</title>
+<style>
+  body { font-family: Consolas, monospace; padding: 20px; background: #111; color: #ddd; max-width: 960px; }
+  h2 { color: #fbbf24; }
+  .ok { color: #0f0; } .fail { color: #f44; } .warn { color: #fa0; } .info { color: #8cf; }
+  button { padding: 10px 16px; margin: 6px 6px 6px 0; cursor: pointer; font-size: 14px; }
+  pre { background: #1a1a1a; border: 1px solid #333; padding: 12px; white-space: pre-wrap; line-height: 1.45; }
+  a { color: #8cf; }
+  .box { border: 1px solid #333; padding: 12px; margin: 12px 0; background: #181818; }
+</style>
+</head>
+<body>
+<h2>EzDent-i (Vatech) Bridge — Spot / Smoke Diagnostic</h2>
+<p class="info">
+  Checks Banana wiring + local <code>:17890</code> launcher after the 2026-10-16
+  fix (Linkage.xml + desktop ReqAdmin when Bin writable; no VTEzBridge).
+  Real button: <a href="index.html">index.html</a> → Consultation → X-ray → EzDent-i.
+</p>
+
+<div class="box">
+  <button onclick="runAll()">Run All Checks</button>
+  <button onclick="testOpenEzdenti()">Test /open/ezdenti (live launch)</button>
+  <button onclick="testCsxrayHref()">Probe csxray:// href shape</button>
+  <button onclick="location.href='index.html'">Open Banana App</button>
+</div>
+
+<pre id="out">Click "Run All Checks".</pre>
+
+<script>
+var OUT = document.getElementById('out');
+function log(cls, msg) {
+  OUT.innerHTML += '<span class="' + cls + '">' + msg + '</span>\n';
+}
+function clearOut() { OUT.innerHTML = ''; }
+
+async function fetchText(url) {
+  var r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(url + ' -> HTTP ' + r.status);
+  return r.text();
+}
+
+async function fetchJson(url) {
+  var r = await fetch(url, { cache: 'no-store', mode: 'cors' });
+  var text = await r.text();
+  var body = null;
+  try { body = JSON.parse(text); } catch (e) { body = { raw: text }; }
+  return { ok: r.ok, status: r.status, body: body };
+}
+
+async function runAll() {
+  clearOut();
+  window.__ezdentiDiag = { ranAt: new Date().toISOString(), checks: [] };
+  function note(ok, name, detail) {
+    window.__ezdentiDiag.checks.push({ ok: !!ok, name: name, detail: detail || '' });
+    log(ok ? 'ok' : 'fail', (ok ? 'PASS' : 'FAIL') + '  ' + name + (detail ? '  —  ' + detail : ''));
+  }
+  function warn(name, detail) {
+    window.__ezdentiDiag.checks.push({ ok: true, warn: true, name: name, detail: detail || '' });
+    log('warn', 'WARN  ' + name + (detail ? '  —  ' + detail : ''));
+  }
+
+  log('info', '=== 1) app-xray.js EzDent-i wiring ===');
+  try {
+    var js = await fetchText('app-xray.js?v=diag-' + Date.now());
+    note(true, 'fetched app-xray.js', js.length + ' bytes');
+    [
+      ['XRAY_SYSTEMS.vatech launcherKey ezdenti', /vatech:\s*\{[\s\S]*?launcherKey:\s*'ezdenti'/],
+      ['csxray://open/ builder', /csxray:\/\/open\//],
+      ['openXraySystem present', /function openXraySystem\s*\(/],
+      ['launchViaCsxrayProtocol present', /function launchViaCsxrayProtocol\s*\(/]
+    ].forEach(function (c) {
+      note(c[1].test(js), c[0]);
+    });
+  } catch (e) {
+    note(false, 'fetch app-xray.js', e.message);
+  }
+
+  log('info', '\n=== 2) index.html Consultation X-ray button ===');
+  try {
+    var html = await fetchText('index.html?v=diag-' + Date.now());
+    note(html.indexOf('xray-sys-vatech') >= 0, 'EzDent-i button present');
+    note(html.indexOf("openXraySystem('vatech')") >= 0, 'EzDent-i onclick wired');
+  } catch (e) {
+    note(false, 'fetch index.html', e.message);
+  }
+
+  log('info', '\n=== 3) Launcher :17890 /status ===');
+  try {
+    var st = await fetchJson('http://127.0.0.1:17890/status');
+    window.__ezdentiDiag.status = st;
+    if (!st.ok) {
+      warn('/status HTTP ' + st.status, 'start Start EzDent-i Launcher.bat');
+    } else {
+      note(true, 'launcher online');
+      var enabled = st.body.enabled_systems;
+      if (!Array.isArray(enabled)) enabled = enabled == null || enabled === '' ? [] : [enabled];
+      note(true, 'status payload ok',
+        'ezdenti_exists=' + !!st.body.ezdenti_exists +
+        ' enabled=' + enabled.join(','));
+      if (!st.body.ezdenti_exists) {
+        warn('EzDent-i exe not found on this PC', 'open/ezdenti will 404 — Acquisition fix still applies after install');
+      }
+      if (st.body.systems && st.body.systems.ezdenti) {
+        log('info', '      target = ' + st.body.systems.ezdenti.target);
+        log('info', '      type = ' + st.body.systems.ezdenti.type);
+        log('info', '      shortcut = ' + st.body.systems.ezdenti.shortcut);
+      }
+    }
+  } catch (e) {
+    warn('launcher not reachable', e.message);
+  }
+
+  log('info', '\n=== 4) Acquisition-fix source markers (bridge script) ===');
+  try {
+    var ps = await fetchText('tools/xray-local-launcher.ps1?v=diag-' + Date.now());
+    note(ps.indexOf('ezdenti-linkage-xml') >= 0, 'mode ezdenti-linkage-xml');
+    note(ps.indexOf('Write-EzdentiLinkageXmlFile') >= 0, 'writes Linkage.xml');
+    note(ps.indexOf('Resolve-EzdentiNonAdminLoader') >= 0, 'resolves non-ReqAdmin loader');
+    note(ps.indexOf('EzdentiUseLinkageBridge') >= 0, 'VTEzBridge opt-in flag');
+    note(ps.indexOf('EzdentiSkipLinkageXml') >= 0, 'skip-linkage opt-out');
+  } catch (e) {
+    warn('could not fetch tools/xray-local-launcher.ps1 from this host', e.message);
+  }
+
+  var failed = (window.__ezdentiDiag.checks || []).filter(function (c) { return !c.ok; }).length;
+  log(failed ? 'fail' : 'ok', '\nDone. Hard fails: ' + failed);
+  window.__ezdentiDiag.failed = failed;
+}
+
+async function testOpenEzdenti() {
+  log('info', '\n=== Live /open/ezdenti ===');
+  var q = 'patient_no=' + encodeURIComponent('PL001287') +
+    '&patient_name=' + encodeURIComponent('DIAG TEST') +
+    '&sex=M';
+  try {
+    var r = await fetchJson('http://127.0.0.1:17890/open/ezdenti?' + q);
+    window.__ezdentiDiag = window.__ezdentiDiag || {};
+    window.__ezdentiDiag.open = r;
+    if (r.status === 200 && r.body && r.body.ok) {
+      log('ok', 'PASS  /open/ezdenti HTTP 200');
+      log('info', '      mode = ' + (r.body.bridge && r.body.bridge.mode));
+      log('info', '      chart = ' + (r.body.bridge && r.body.bridge.chart_number));
+      log('info', '      linkage_xml = ' + JSON.stringify(r.body.bridge && r.body.bridge.linkage_xml));
+      log('info', '      bridge_exe = ' + JSON.stringify(r.body.bridge && r.body.bridge.bridge_exe));
+      log('info', '      shortcut = ' + JSON.stringify(r.body.bridge && r.body.bridge.shortcut));
+      var mode = r.body.bridge && r.body.bridge.mode;
+      if (mode && /ezdenti-linkage-xml/.test(String(mode))) {
+        log('ok', 'PASS  linkage-xml mode (chart select, no VTEzBridge)');
+      } else {
+        log('fail', 'FAIL  expected mode ezdenti-linkage-xml*, got ' + mode);
+      }
+      if (r.body.bridge && r.body.bridge.linkage_xml && !r.body.bridge.bridge_exe) {
+        log('ok', 'PASS  Linkage.xml written, VTEzBridge not fired');
+      } else if (r.body.bridge && r.body.bridge.bridge_exe) {
+        log('warn', 'WARN  bridge_exe set — check EzdentiUseLinkageBridge');
+      } else {
+        log('warn', 'WARN  Linkage.xml path empty — write may have failed (permissions)');
+      }
+      if (r.body.bridge && r.body.bridge.mode === 'ezdenti-linkage-xml-virtualstore') {
+        log('warn', 'WARN  Linkage only in VirtualStore — using non-ReqAdmin (OPG may be unavailable)');
+      } else if (r.body.bridge && (r.body.bridge.shortcut || (r.body.bridge.target && /_ReqAdmin/i.test(String(r.body.bridge.target))))) {
+        log('ok', 'PASS  desktop/ReqAdmin launch path (Acquisition-capable)');
+      }
+    } else if (r.status === 404) {
+      log('warn', 'WARN  EzDent-i not installed on this PC (expected on a machine without Vatech).');
+      log('info', '      body = ' + JSON.stringify(r.body));
+    } else {
+      log('fail', 'FAIL  /open/ezdenti HTTP ' + r.status + ' ' + JSON.stringify(r.body));
+    }
+  } catch (e) {
+    log('fail', 'FAIL  ' + e.message);
+  }
+}
+
+async function testCsxrayHref() {
+  log('info', '\n=== csxray:// href shape (page Runtime) ===');
+  try {
+    var js = await fetchText('app-xray.js?v=diag-' + Date.now());
+    var marker = 'function launchViaCsxrayProtocol(';
+    var start = js.indexOf(marker);
+    if (start < 0) { log('fail', 'FAIL  launchViaCsxrayProtocol missing'); return; }
+    var i = js.indexOf('{', start);
+    var depth = 0, end = -1;
+    for (var j = i; j < js.length; j++) {
+      if (js[j] === '{') depth++;
+      else if (js[j] === '}') { depth--; if (depth === 0) { end = j + 1; break; } }
+    }
+    var fn = js.slice(start, end);
+    var href = '';
+    var orig = document.createElement.bind(document);
+    document.createElement = function (tag) {
+      var el = orig(tag);
+      if (String(tag).toLowerCase() === 'a') el.click = function () { href = el.href; };
+      return el;
+    };
+    // eslint-disable-next-line no-eval
+    eval(fn + '; launchViaCsxrayProtocol("ezdenti", { patient_no: "PL001287", full_name: "DIAG TEST" }, {});');
+    document.createElement = orig;
+    window.__ezdentiDiag = window.__ezdentiDiag || {};
+    window.__ezdentiDiag.csxrayHref = href;
+    if (/^csxray:\/\/open\/ezdenti\?/.test(href) && href.indexOf('patient_no=PL001287') >= 0) {
+      log('ok', 'PASS  ' + href);
+    } else {
+      log('fail', 'FAIL  unexpected href: ' + href);
+    }
+  } catch (e) {
+    log('fail', 'FAIL  ' + e.message);
+  }
+}
+</script>
+</body>
+</html>

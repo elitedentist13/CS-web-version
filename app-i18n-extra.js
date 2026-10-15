@@ -6198,6 +6198,21 @@
             'zh-CN': '无法从浏览器启动 Rayscan。\n\n1. 运行：{BAT}（保持启动器窗口打开）\n2. 再次点击 Rayscan\n\n或双击桌面快捷方式「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
             'zh-Hant': '無法從瀏覽器啟動 Rayscan。\n\n1. 執行：{BAT}（保持啟動器視窗開啟）\n2. 再次按 Rayscan\n\n或按兩下桌面捷徑「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
         },
+        'media.local.ezdentiOpen': {
+            en: 'Open EzDent-i (Vatech) on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Chart no. (copied to clipboard for paste-search): {PATIENT}\n\nEzDent-i does NOT auto-switch patients from Banana (same as the desktop icon). If another chart is already open (e.g. a previous patient), paste {PATIENT} into EzDent-i search (Ctrl+V).\n\n{FOLDER}',
+            'zh-CN': '在本机打开 EzDent-i（Vatech）？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 病历号（已复制到剪贴板，供粘贴搜索）：{PATIENT}\n\nBanana 不会自动切换 EzDent-i 患者（与桌面图标相同）。若已打开其他病历，请在 EzDent-i 搜索框粘贴 {PATIENT}（Ctrl+V）。\n\n{FOLDER}',
+            'zh-Hant': '在本機開啟 EzDent-i（Vatech）？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病歷號（已複製到剪貼簿，供貼上搜尋）：{PATIENT}\n\nBanana 不會自動切換 EzDent-i 病人（與桌面圖示相同）。若已開啟其他病歷，請在 EzDent-i 搜尋框貼上 {PATIENT}（Ctrl+V）。\n\n{FOLDER}'
+        },
+        'media.local.ezdentiLaunched': {
+            en: 'EzDent-i is starting / focusing.\n\nChart no. on clipboard: {PATIENT}\nIf the wrong patient is showing, paste into EzDent-i search (Ctrl+V).',
+            'zh-CN': '正在启动 / 激活 EzDent-i。\n\n剪贴板病历号：{PATIENT}\n若显示的是其他患者，请在 EzDent-i 搜索框粘贴（Ctrl+V）。',
+            'zh-Hant': '正在啟動 / 啟用 EzDent-i。\n\n剪貼簿病歷號：{PATIENT}\n若顯示的是其他病人，請在 EzDent-i 搜尋框貼上（Ctrl+V）。'
+        },
+        'media.local.ezdentiLauncherNeeded': {
+            en: 'Could not start EzDent-i from the browser.\n\n1. Run: {BAT} (leave the launcher window open)\n2. Click EzDent-i again\n\nOr double-click desktop "{SHORTCUT}".\nChart no. on clipboard: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 EzDent-i。\n\n1. 运行：{BAT}（保持启动器窗口打开）\n2. 再次点击 EzDent-i\n\n或双击桌面「{SHORTCUT}」。\n剪贴板病历号：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 EzDent-i。\n\n1. 執行：{BAT}（保持啟動器視窗開啟）\n2. 再次按 EzDent-i\n\n或按兩下桌面「{SHORTCUT}」。\n剪貼簿病歷號：{PATIENT}\n程式：{EXE}'
+        },
         'media.local.carestreamOpen': {
             en: 'Open Carestream CS Imaging on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nThis PC does not use a browser link — search in the app by name or patient no.',
             'zh-CN': '在本机打开 Carestream CS Imaging？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 可选本地文件夹：{FOLDER}\n\n本机不使用浏览器链接 — 请在软件中按姓名或患者编号搜索。',

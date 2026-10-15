@@ -1,4 +1,10 @@
 # tools/_watch_ezdenti_linkage.ps1
+# Narrow watcher: Linkage.xml + a few loader process names only.
+# For a FULL desktop click-through (search patient → Acquisition →
+# Panorama → take OPG), prefer:
+#   _watch_ezdenti_session.ps1
+#   or double-click "Watch EzDent-i Session.bat"
+#
 # One-off reverse-engineering aid: capture CS's real "linkage.xml" the
 # instant it is written to EzDent-i's own program folder, before it can be
 # overwritten by a later launch. Mirrors _watch_vdds_import.ps1's approach

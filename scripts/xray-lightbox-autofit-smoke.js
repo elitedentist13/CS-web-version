@@ -1,6 +1,7 @@
 /**
- * Consultation > X-ray lightbox: first open auto-fits the film to the
- * normal viewing panel (contain-fit), without entering maximize.
+ * Consultation > X-ray lightbox:
+ *  - first open auto-fits to the normal viewing panel (not maximize)
+ *  - maximize pins the film upper-left and contain-scales into the zone
  * Smoke + HTTP spot + API + CDP Runtime.evaluate + live page + sample panoramic.
  * Run: node scripts/xray-lightbox-autofit-smoke.js
  */
@@ -10,7 +11,7 @@ var path = require('path');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261015fit1';
+var BUILD = '20261015max2';
 var PAGE_PORT = 8851;
 var CDP_PORT = 9421;
 var CHROME = process.env.CHROME_PATH || (fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -152,6 +153,10 @@ function finish(code) {
         extractFn(src, 'openLightbox').indexOf('lbChromeMaximized = true') < 0);
     pass('Reset returns to panel fit',
         extractFn(src, 'lbReset').indexOf('lbFitToScrollHost') >= 0);
+    pass('maximize contain-fits and pins upper-left',
+        extractFn(src, 'lbFitToScrollHost').indexOf('Math.min(fitW, fitH)') >= 0 &&
+        extractFn(src, 'lbFitToScrollHost').indexOf('lbResetScrollHost') >= 0 &&
+        extractFn(src, 'lbSyncLightboxScrollShell').indexOf('!lbChromeMaximized') >= 0);
     pass('sample panoramic fixture exists',
         fs.existsSync(path.join(root, PANO_REL)));
 
@@ -297,17 +302,31 @@ function finish(code) {
   function stageLightboxShell() {
     var modal = document.getElementById('xrayLightbox');
     if (!modal) return null;
-    modal.style.cssText = 'display:block;position:fixed;inset:0;z-index:99999;padding:32px;background:rgba(0,0,0,.4);';
+    var maxed = !!lbChromeMaximized || modal.classList.contains('xray-lb-maximized');
+    modal.style.cssText = maxed
+      ? 'display:block;position:fixed;inset:0;z-index:99999;padding:0;background:#000;'
+      : 'display:block;position:fixed;inset:0;z-index:99999;padding:32px;background:rgba(0,0,0,.4);';
     var box = modal.querySelector('.xray-lightbox-box');
     if (box) {
-      box.style.cssText = 'display:flex;flex-direction:column;width:1100px;height:720px;max-width:none;max-height:none;margin:0 auto;overflow:hidden;background:#fff;';
+      box.style.cssText = maxed
+        ? 'display:flex;flex-direction:column;width:100%;height:100%;max-width:none;max-height:none;margin:0;overflow:hidden;background:#fff;border-radius:0;'
+        : 'display:flex;flex-direction:column;width:1100px;height:720px;max-width:none;max-height:none;margin:0 auto;overflow:hidden;background:#fff;';
     }
     var main = document.getElementById('xrayLbMain');
     if (main) main.style.cssText = 'display:flex;flex:1 1 auto;min-height:0;min-width:0;';
     var viewer = document.getElementById('xrayLbViewerDiv') || document.querySelector('#xrayLightbox .xray-lb-viewer');
-    if (viewer) viewer.style.cssText = 'display:flex;flex:1 1 auto;min-height:0;min-width:0;padding:12px;background:#0d0d1a;';
+    if (viewer) {
+      viewer.style.cssText = maxed
+        ? 'display:flex;flex:1 1 auto;min-height:0;min-width:0;padding:0;background:#0d0d1a;'
+        : 'display:flex;flex:1 1 auto;min-height:0;min-width:0;padding:12px;background:#0d0d1a;';
+    }
     var host = document.getElementById('xrayLbScrollHost');
-    if (host) host.style.cssText = 'flex:1 1 auto;min-height:240px;width:100%;overflow:auto;border:1px solid #1f2a44;';
+    if (host) {
+      host.style.cssText = maxed
+        ? 'flex:1 1 auto;min-height:240px;width:100%;overflow:auto;border:none;border-radius:0;'
+        : 'flex:1 1 auto;min-height:240px;width:100%;overflow:auto;border:1px solid #1f2a44;';
+      if (maxed) host.classList.remove('xray-lb-scroll-host-fit');
+    }
     return modal;
   }
   window.openModal = function (id) {
@@ -394,6 +413,42 @@ function finish(code) {
   out.resetNear = Math.abs(out.resetScale - scaleBeforeReset) < 0.15;
   out.scaleBeforeReset = scaleBeforeReset;
 
+  // ── Maximize: upper-left pin + contain-fit, no crop ─────────────
+  lbToggleMaximize();
+  await wait(120);
+  stageLightboxShell();
+  if (main) main.classList.add('xray-lb-meta-hidden');
+  lbFitToScrollHost();
+  await wait(80);
+  lbFitToScrollHost();
+  await wait(80);
+
+  host = document.getElementById('xrayLbScrollHost');
+  inner = document.getElementById('xrayLbScrollInner');
+  img = document.getElementById('xrayLbImg');
+  hr = host.getBoundingClientRect();
+  var ir = inner.getBoundingClientRect();
+  pw = inner.offsetWidth;
+  ph = inner.offsetHeight;
+  var meta = document.getElementById('xrayLbMeta');
+  var metaCs = meta ? getComputedStyle(meta) : null;
+  out.max = {
+    maxed: !!(modal && modal.classList.contains('xray-lb-maximized')),
+    metaHidden: !!(main && main.classList.contains('xray-lb-meta-hidden')),
+    metaDisplay: metaCs ? metaCs.display : '',
+    host: [Math.round(hr.width), Math.round(hr.height)],
+    painted: [pw, ph],
+    scale: Number(lbTransform.scale),
+    fitsW: pw <= hr.width + 6,
+    fitsH: ph <= hr.height + 6,
+    fill: Math.max(pw / Math.max(1, hr.width), ph / Math.max(1, hr.height)),
+    aspectOk: ph > 1 && Math.abs((pw / ph) - (img.naturalWidth / img.naturalHeight)) < 0.12,
+    anchorLeft: Math.abs(ir.left - hr.left) <= 8,
+    anchorTop: Math.abs(ir.top - hr.top) <= 8,
+    scroll: [host.scrollLeft, host.scrollTop],
+    noCenterClass: !host.classList.contains('xray-lb-scroll-host-fit')
+  };
+
   return out;
 })()`, true, 45000);
 
@@ -419,6 +474,25 @@ function finish(code) {
             pass('Reset restores the same panel fit (still not max)',
                 live.resetMaxed === false && live.resetNear === true,
                 JSON.stringify({ resetScale: live.resetScale, resetNear: live.resetNear }));
+            var mx = live.max || {};
+            pass('maximize hides the right image-info panel and grows the lightbox',
+                mx.maxed === true && mx.metaHidden === true && mx.metaDisplay === 'none',
+                JSON.stringify({ maxed: mx.maxed, metaHidden: mx.metaHidden, metaDisplay: mx.metaDisplay }));
+            pass('maximize pins film to upper-left of viewing zone',
+                mx.anchorLeft === true && mx.anchorTop === true &&
+                mx.scroll && mx.scroll[0] === 0 && mx.scroll[1] === 0 &&
+                mx.noCenterClass === true,
+                JSON.stringify({
+                    anchorLeft: mx.anchorLeft, anchorTop: mx.anchorTop,
+                    scroll: mx.scroll, noCenterClass: mx.noCenterClass
+                }));
+            pass('maximize contain-scales without cropping',
+                mx.fitsW === true && mx.fitsH === true && mx.aspectOk === true &&
+                mx.fill >= 0.7 && mx.scale > 0.05,
+                JSON.stringify({
+                    host: mx.host, painted: mx.painted, scale: mx.scale,
+                    fitsW: mx.fitsW, fitsH: mx.fitsH, fill: mx.fill, aspectOk: mx.aspectOk
+                }));
         }
 
         if (live5500 && live5500.status === 200 &&

@@ -12763,6 +12763,12 @@ body.photo-ortho-show-open .active-patient-dock {
 #photoLightbox.xray-lb-maximized .xray-lb-main {
     flex: 1 1 0;
     min-height: 0;
+    /* Info column collapses so the film zone uses the full width. */
+    grid-template-columns: 1fr !important;
+}
+#xrayLightbox.xray-lb-maximized .xray-lb-meta,
+#photoLightbox.xray-lb-maximized .xray-lb-meta {
+    display: none !important;
 }
 
 #xrayLightbox.xray-lb-maximized .xray-lb-viewer,
@@ -12771,6 +12777,32 @@ body.photo-ortho-show-open .active-patient-dock {
 #photoLightbox.xray-lb-maximized .xray-lb-scroll-host {
     min-height: 0;
     max-height: none;
+}
+
+/* Maximized film uses the whole zone under the toolbar: no viewer
+   inset, no host border. The film is pinned to the upper-left and
+   contain-scaled so it fills as much of the zone as possible. */
+#xrayLightbox.xray-lb-maximized .xray-lb-viewer,
+#photoLightbox.xray-lb-maximized .xray-lb-viewer {
+    padding: 0;
+}
+#xrayLightbox.xray-lb-maximized .xray-lb-scroll-host,
+#photoLightbox.xray-lb-maximized .xray-lb-scroll-host {
+    border: none;
+    border-radius: 0;
+    scrollbar-gutter: auto;
+}
+#xrayLightbox.xray-lb-maximized #xrayLbScrollHost.xray-lb-scroll-host-fit,
+#photoLightbox.xray-lb-maximized #xrayLbScrollHost.xray-lb-scroll-host-fit,
+#xrayLightbox.xray-lb-maximized #photoLbScrollHost.xray-lb-scroll-host-fit,
+#photoLightbox.xray-lb-maximized #photoLbScrollHost.xray-lb-scroll-host-fit {
+    display: block;
+    align-items: flex-start;
+    justify-content: flex-start;
+}
+#xrayLightbox.xray-lb-maximized #xrayLbScrollHost.xray-lb-scroll-host-fit > .xray-lb-scroll-inner,
+#photoLightbox.xray-lb-maximized #xrayLbScrollHost.xray-lb-scroll-host-fit > .xray-lb-scroll-inner {
+    margin: 0;
 }
 
 #xrayLightbox.xray-lb-maximized .xray-lb-restore-max-btn,

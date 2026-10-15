@@ -1028,10 +1028,9 @@ function lbFitToScrollHost() {
     var host = g('xrayLbScrollHost');
     if (!host) return;
 
-    var wideMax = lbChromeMaximized && lbOpenFilmIsWide();
-    // Maximized OPG/pano hugs the viewing zone (small inset). Other
-    // films keep the usual margin so they do not sit on the chrome.
-    var pad = wideMax ? 4 : 20;
+    var maxed = !!lbChromeMaximized;
+    // Maximized: hug the viewing zone. Normal panel: keep a margin.
+    var pad = maxed ? 4 : 20;
     var vpW = Math.max(1, host.clientWidth - pad * 2);
     var vpH = Math.max(1, host.clientHeight - pad * 2);
 
@@ -1043,18 +1042,15 @@ function lbFitToScrollHost() {
     if (!d.bw || !d.bh) return;
     var fitW = vpW / d.bw;
     var fitH = vpH / d.bh;
-    // A maximized panoramic is much wider than the panel is tall. Filling
-    // the width alone leaves the arch past the top and bottom. Contain-fit
-    // keeps the whole film inside the display area at the largest scale
-    // that still fits. Other films still fill the width when maximized;
-    // the normal (restored) panel always contains.
-    var contain = !lbChromeMaximized || lbOpenFilmIsWide();
-    var fit = contain ? Math.min(fitW, fitH) : fitW;
+    // Always contain-fit so the whole film stays visible (no crop) while
+    // scaling as large as the viewing zone allows. Maximize pins the
+    // result to the upper-left; the normal panel keeps it centered.
+    var fit = Math.min(fitW, fitH);
     if (!isFinite(fit) || fit <= 0) return;
 
     lbTransform.scale = Math.max(0.12, Math.min(14, fit));
     lbSyncLightboxScrollShell();
-    if (wideMax) lbResetScrollHost();
+    if (maxed) lbResetScrollHost();
     else lbCenterScrollHost();
 }
 
@@ -1138,8 +1134,25 @@ function lbSyncLightboxChrome(options) {
             lbResetScrollHost();
             lbSyncLightboxScrollShell();
         } else if (options.refitMax) {
+            // Sequence: info panel already hidden + box maximized in CSS.
+            // Force a layout flush, then contain-fit to the new zone and
+            // pin upper-left. A second pass catches late flex/grid settle.
             requestAnimationFrame(function () {
-                lbFitToScrollHost();
+                requestAnimationFrame(function () {
+                    var mainEl = g('xrayLbMain');
+                    var hostEl = g('xrayLbScrollHost');
+                    var boxEl = document.querySelector('#xrayLightbox .xray-lightbox-box');
+                    if (mainEl) {
+                        mainEl.classList.add('xray-lb-meta-hidden');
+                        void mainEl.offsetHeight;
+                    }
+                    if (boxEl) void boxEl.offsetHeight;
+                    if (hostEl) void hostEl.clientWidth;
+                    lbFitToScrollHost();
+                    requestAnimationFrame(function () {
+                        lbFitToScrollHost();
+                    });
+                });
             });
         }
     });
@@ -1149,9 +1162,11 @@ function lbToggleMaximize() {
     if (!lbChromeMaximized) {
         lbChromeScaleBeforeMax = lbTransform.scale;
         lbChromeMetaVisibleBeforeMax = lbChromeMetaVisible;
-        lbChromeMaximized = true;
-        // Auto-hide the info column so the image can use the full width.
+        // 1) Hide the right-hand image-info panel
+        // 2) Grow the lightbox / viewing zone (xray-lb-maximized CSS)
+        // 3) Pin upper-left + contain-scale (lbFitToScrollHost via refitMax)
         lbChromeMetaVisible = false;
+        lbChromeMaximized = true;
         lbSyncLightboxChrome({ refitMax: true });
     } else {
         lbChromeMaximized = false;
@@ -1234,11 +1249,9 @@ function lbSyncLightboxScrollShell() {
     inner.style.minHeight = d.bh + 'px';
 
     wrap.style.position = 'absolute';
-    var wideMax = lbChromeMaximized && lbOpenFilmIsWide();
     // Center the unscaled box inside the painted bbox so rotate stays
-    // inside the scroll inner. The host places that inner: top-left
-    // for a maximized OPG (no flex-center), otherwise centered when
-    // the film fits. Scroll / drag still moves the film afterward.
+    // inside the scroll inner. When maximized, the host does not
+    // flex-center that inner — it stays at the upper-left of the zone.
     wrap.style.left = '50%';
     wrap.style.top = '50%';
     wrap.style.transform =
@@ -1250,7 +1263,8 @@ function lbSyncLightboxScrollShell() {
     var host = g('xrayLbScrollHost');
     if (host) {
         var contained = d.bw <= host.clientWidth + 1 && d.bh <= host.clientHeight + 1;
-        host.classList.toggle('xray-lb-scroll-host-fit', contained && !wideMax);
+        // Never center-fit while maximized — film stays upper-left.
+        host.classList.toggle('xray-lb-scroll-host-fit', contained && !lbChromeMaximized);
     }
     lbUpdateScrollHostCursor();
 }

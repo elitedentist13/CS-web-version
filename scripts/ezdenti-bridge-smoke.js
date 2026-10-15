@@ -182,9 +182,10 @@ async function waitJson(url, timeoutMs) {
     }
 
     if (status && status.status === 200) {
+        // Stop-EzdentiProcesses + Linkage write + launch often exceeds 8s.
         var open = await httpGetJson(
             BRIDGE + '/open/ezdenti?patient_no=PL001287&patient_name=' + encodeURIComponent('SMOKE TEST') + '&sex=M',
-            8000
+            45000
         ).catch(function (e) { return { status: 0, body: { error: e.message } }; });
         if (open.status === 404) {
             warn('/open/ezdenti', 'EzDent-i not installed on this PC (404) — mode assertions skipped');

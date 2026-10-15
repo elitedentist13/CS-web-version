@@ -26,6 +26,11 @@ param(
     # Print the EzDent-i loader/app exe and exit. Used by launch-csxray-protocol.ps1
     # when the already-running bridge answers /open/ezdenti with 404.
     [switch]$FindEzdenti,
+    # One-shot: write Linkage.xml + open EzDent-i for the patient in -OpenQuery,
+    # then exit. Used when another digirex-only (or stale) listener owns :17890
+    # and /open/ezdenti 404s — the protocol handler must not blind-launch.
+    [switch]$OpenEzdenti,
+    [string]$OpenQuery = "",
     [int]$Port = 0,
     # Restricts this instance to only the listed $Systems key(s), e.g.
     # -EnabledSystems ezdenti. Unlisted systems are treated exactly like an
@@ -3066,9 +3071,24 @@ function Remove-DigirexNonAscii([string]$Value) {
 }
 
 function Split-DigirexPatientName($Patient) {
-    # Chinese name is never sent. Apixia garbles it and then cannot export.
+    # Chinese name is never sent — neither chinese_name nor CJK inside
+    # patient_name. Apixia garbles non-ASCII in Switch.ini and then cannot
+    # export the image (unrecognised codes). Last= stays blank always.
     $first = Remove-DigirexNonAscii ([string]$Patient.patient_name)
     return [ordered]@{ First = $first; Last = "" }
+}
+
+function Sanitize-DigirexPatientContext($Patient) {
+    # Drop every CJK / non-ASCII field Digirex must never see, even if Banana
+    # (or an older csxray URL) still attached chinese_name / address.
+    if (-not $Patient) { return $Patient }
+    $clean = [ordered]@{}
+    foreach ($k in $Patient.Keys) { $clean[$k] = $Patient[$k] }
+    $clean.chinese_name = ""
+    $clean.patient_name = Remove-DigirexNonAscii ([string]$clean.patient_name)
+    $clean.address = ""
+    $clean.medical_alerts = ""
+    return $clean
 }
 
 function Get-DigirexRegistryExePaths {
@@ -3332,6 +3352,7 @@ function Escape-IniValue($Value) {
 }
 
 function New-DigirexSwitchIni($Patient, $Install) {
+    $Patient = Sanitize-DigirexPatientContext $Patient
     $chartNo = Resolve-DigirexMatchId $Patient $Install
     $names = Split-DigirexPatientName $Patient
     $gender = Convert-GenderWord $Patient.sex
@@ -3341,6 +3362,7 @@ function New-DigirexSwitchIni($Patient, $Install) {
     [void]$sb.Append("[Patient]" + [Environment]::NewLine)
     [void]$sb.Append("ID=" + (Escape-IniValue $chartNo) + [Environment]::NewLine)
     if ($gender) { [void]$sb.Append("Gender=" + $gender + [Environment]::NewLine) }
+    # First= English ASCII only; Last= always blank (never chinese_name).
     [void]$sb.Append("First=" + (Escape-IniValue $names.First) + [Environment]::NewLine)
     [void]$sb.Append("Last=" + (Escape-IniValue $names.Last) + [Environment]::NewLine)
     if ($dob.Year) { [void]$sb.Append("Year=" + $dob.Year + [Environment]::NewLine) }
@@ -3385,6 +3407,7 @@ function Write-DigirexSwitchIni($Path, $Content) {
 }
 
 function Start-DigirexBridgePatient($Resolved, $Patient) {
+    $Patient = Sanitize-DigirexPatientContext $Patient
     $install = Resolve-DigirexInstall $Resolved
     if (-not $install.exists) { return $null }
     $chartNo = Resolve-DigirexMatchId $Patient $install
@@ -3414,6 +3437,7 @@ function Start-DigirexBridgePatient($Resolved, $Patient) {
     $clipNames = Split-DigirexPatientName $Patient
     $clipPatient.patient_name = $clipNames.First
     $clipPatient.chinese_name = ""
+    $clipPatient.address = ""
     Copy-PatientContextToClipboard $clipPatient
 
     return [ordered]@{
@@ -3717,6 +3741,10 @@ function Handle-Request($RawPath) {
             return @{ status = 404; body = [ordered]@{ ok = $false; error = "X-ray program shortcut/executable not found."; key = $key } }
         }
         $patientContext = Build-PatientContext $query
+        # Digirex must never receive Chinese / CJK (Switch.ini ANSI + export).
+        if ($key -eq "digirex") {
+            $patientContext = Sanitize-DigirexPatientContext $patientContext
+        }
         # A new Carestream chart must be created by TW.exe from the -P -N -F
         # launch. Writing nnt-patient-info here would create an empty SCAN
         # folder before the patient file exists.
@@ -4203,6 +4231,17 @@ function Invoke-SelfTest {
     Assert-Equal "First English"                $true ($dxIni -like "*First=HSIUNG KWAN MING*")
     Assert-Equal "Last is blank"                $true ($dxIni -match '(?m)^Last=\r?$')
     Assert-Equal "Chinese name not in Switch.ini" $false ($dxIni -like "*熊關明*")
+    $dxSan = Sanitize-DigirexPatientContext ([ordered]@{
+        patient_name = ("CHAN " + [char]0x9673 + [char]0x5927 + [char]0x6587)
+        chinese_name = ([string]([char]0x9673 + [char]0x5927 + [char]0x6587))
+        address = ([string]([char]0x83EF + [char]0x5712))
+        medical_alerts = ([string]([char]0x654F + [char]0x611F))
+        patient_no = "PL001287"
+    })
+    Assert-equal "Sanitize clears chinese_name" "" $dxSan.chinese_name
+    Assert-equal "Sanitize strips CJK from name" "CHAN" $dxSan.patient_name
+    Assert-equal "Sanitize clears address" "" $dxSan.address
+    Assert-equal "Sanitize clears medical_alerts" "" $dxSan.medical_alerts
     Assert-Equal "Year 1969"                    $true ($dxIni -like "*Year=1969*")
     Assert-Equal "Month 5"                      $true ($dxIni -like "*Month=5*")
     Assert-Equal "Day 23"                       $true ($dxIni -like "*Day=23*")
@@ -4450,6 +4489,36 @@ if ($FindEzdenti) {
         exit 0
     }
     exit 2
+}
+
+if ($OpenEzdenti) {
+    # One-shot does not bind :17890. Allow resolving ezdenti even when this
+    # copy was started with -EnabledSystems digirex (wrong installer on an
+    # EzDent PC) — Digirex-only listeners 404 /open/ezdenti and the protocol
+    # handler calls us with the patient query still attached.
+    $savedEnabledForOpen = $EnabledSystems
+    $EnabledSystems = @()
+    try {
+        $resolvedOpen = Resolve-System "ezdenti" ""
+        if (-not $resolvedOpen -or -not $resolvedOpen.exists) {
+            Write-Output "ERROR: EzDent-i shortcut/executable not found."
+            exit 2
+        }
+        $q = [string]$OpenQuery
+        if (-not $q -and $env:CSXRAY_OPEN_QUERY) { $q = [string]$env:CSXRAY_OPEN_QUERY }
+        $rawOpen = "/open/ezdenti"
+        if ($q) { $rawOpen += "?" + $q }
+        $patientOpen = Build-PatientContext (Parse-Query $rawOpen)
+        $bridgeOpen = Start-EzdentiBridgePatient $resolvedOpen $patientOpen
+        if (-not $bridgeOpen) {
+            Write-Output "ERROR: Start-EzdentiBridgePatient failed."
+            exit 1
+        }
+        Write-Output ("OK mode=" + $bridgeOpen.mode + " chart=" + $bridgeOpen.chart_number + " linkage=" + $bridgeOpen.linkage_xml)
+        exit 0
+    } finally {
+        $EnabledSystems = $savedEnabledForOpen
+    }
 }
 
 # ════════════════════════════════════════════════════════════════

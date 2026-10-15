@@ -3,6 +3,41 @@
 Log of fixes/changes to `xray-local-launcher.ps1` and the installer, kept for
 future reference since this runs unattended on clinic machines.
 
+## 2026-10-16 — Startup persistence: EzDent bridge owns boot; Digirex-only disabled
+
+Clinic PC next boot must load the fixed launcher from
+`C:\BananaBridge-EzDenti` (EzDent + Digirex sidecar), not Digirex-only.
+
+- All-Users Startup: `Joyful Smile EzDent-i Bridge.lnk` → latest
+  `xray-local-launcher.ps1 -EnabledSystems ezdenti`
+- Digirex-only Startup renamed to `.lnk.disabled` (stays off after reboot)
+- Installer now calls `Disable-RivalDigirexStartup` on EzDent/MyRay installs
+- Launcher file kept UTF-8 **with BOM** (PS 5.1 parse of Chinese in SelfTest)
+
+## 2026-10-16 — Digirex: never send Chinese names (export breakage)
+
+Chinese / CJK in Digirex `Switch.ini` (ANSI) shows as unrecognised codes and
+can block image export. Hardened end-to-end:
+
+- Banana `app-xray.js`: Digirex launches omit `chinese_name`, strip non-ASCII
+  from English name, skip address; clipboard is English + bare chart only
+- Bridge: `Sanitize-DigirexPatientContext` before Switch.ini / clipboard;
+  `Last=` stays blank; never writes `chinese_name`
+
+## 2026-10-16 — Fix: Digirex-only bridge blocked EzDent patient handoff
+
+Reported: opening EzDent-i from Banana does not record/select the Banana
+patient. On this PC, **Joyful Smile Digirex Bridge** (Startup,
+`-EnabledSystems digirex`) owned `:17890`, so `/open/ezdenti` returned
+**404**. The `csxray://` handler then **blind-launched** the loader with
+no `Linkage.xml` — EzDent restored the most-recent chart instead.
+
+Fix:
+- Protocol fallback calls `-OpenEzdenti -OpenQuery …` (writes Linkage.xml
+  + launches with patient) instead of a bare exe start
+- Clinic: EzDent bridge must own the port; Digirex is sidecar only —
+  remove Digirex-only from Startup and re-run Install EzDent-i Bridge
+
 ## 2026-10-16 — Fix: EzDent-i wrong chart (recent) + keep Acquisition
 
 Reported: Banana opens EzDent-i on the **most recent chart** (e.g. `022194`)

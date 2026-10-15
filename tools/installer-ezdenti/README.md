@@ -17,8 +17,11 @@ PC (they'd fight over the same port, 17890).
 **Digirex (Apixia) on the same Po Lam PC:** after this launcher is
 updated, `/open/digirex` is served as a sidecar from **this same
 process** when `digirex.exe` is on disk. Login is username `apixia` /
-password `digirex`. Do not install `installer-digirex` alongside this
-package.
+password `digirex`. Do **not** install `installer-digirex` alongside this
+package (two Startup bridges fight over port 17890; Digirex-only wins
+and Banana’s EzDent-i button 404s, then opens EzDent with **no patient**).
+If Digirex was installed alone earlier, remove **Joyful Smile Digirex
+Bridge** from Startup and re-run **Install EzDent-i Bridge.bat**.
 
 ## Install
 

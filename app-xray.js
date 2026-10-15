@@ -3252,7 +3252,9 @@ function pingXrayLauncher(cb) {
 function launchViaCsxrayProtocol(launcherKey, patient, opts) {
     opts = opts || {};
     var qParts = [];
-    appendXrayBridgePatientParams(qParts, patient, opts.folderPath || '');
+    appendXrayBridgePatientParams(qParts, patient, opts.folderPath || '', {
+        launcherKey: launcherKey || opts.launcherKey || ''
+    });
     if (opts.appPath) {
         qParts.push('app_path=' + encodeURIComponent(opts.appPath));
     }
@@ -3282,7 +3284,11 @@ function tryLaunchDesktopAppViaLocalBridge(launcherKey, patient, opts, cb) {
     }
     var patQ = '';
     var qParts = [];
-    if (patient) appendXrayBridgePatientParams(qParts, patient, opts.folderPath || '');
+    if (patient) {
+        appendXrayBridgePatientParams(qParts, patient, opts.folderPath || '', {
+            launcherKey: launcherKey || ''
+        });
+    }
     if (opts.appPath) {
         qParts.push('app_path=' + encodeURIComponent(opts.appPath));
     }
@@ -3668,6 +3674,9 @@ function xrayPatientSearchTextForLauncher(patient, launcherKey) {
     if (launcherKey === 'ezdenti') {
         return xrayEzdentiChartNo(patient) || no;
     }
+    if (launcherKey === 'digirex') {
+        return xrayDigirexClipboardText(patient);
+    }
     return xrayPatientSearchClipboardText(patient);
 }
 
@@ -3744,13 +3753,40 @@ function xrayPatientBridgeSummaryLine(patient) {
     return parts.join(' · ') || '—';
 }
 
-function xrayBridgePatientPayload(patient, folderPath) {
+/** Strip non-ASCII (Chinese etc.) — Digirex Switch.ini is ANSI and garbles CJK. */
+function xrayAsciiOnly(text) {
+    return String(text == null ? '' : text)
+        .replace(/[^\x20-\x7E]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * Digirex paste / confirm text: English name + bare chart only.
+ * Never Chinese — Apixia shows mojibake and then cannot export the image.
+ */
+function xrayDigirexClipboardText(patient) {
     patient = patient || {};
-    return {
+    var en = xrayAsciiOnly(patient.full_name || patient.patient_name || '');
+    var no = (typeof xrayEzdentiChartNo === 'function')
+        ? xrayEzdentiChartNo(patient)
+        : String(patient.patient_no || '').trim();
+    if (en && no) return en + ' (' + no + ')';
+    return en || no || '';
+}
+
+function xrayBridgePatientPayload(patient, folderPath, opts) {
+    patient = patient || {};
+    opts = opts || {};
+    var launcherKey = String(opts.launcherKey || '').toLowerCase();
+    var omitChinese = !!opts.omitChinese ||
+        launcherKey === 'digirex' ||
+        launcherKey === 'ezdenti';
+    var payload = {
         patient_id: patient.id || '',
         patient_no: patient.patient_no || '',
         patient_name: patient.full_name || '',
-        chinese_name: patient.chinese_name || '',
+        chinese_name: omitChinese ? '' : (patient.chinese_name || ''),
         dob: patient.dob || '',
         sex: patient.sex || '',
         phone: patient.phone_number || patient.phone || '',
@@ -3764,10 +3800,19 @@ function xrayBridgePatientPayload(patient, folderPath) {
             (typeof currentDoctorName === 'string' && String(currentDoctorName).trim()) ||
             ''
     };
+    // Digirex: English-only name; drop address (often Chinese) so Switch.ini
+    // / clipboard never carry CJK that Digirex cannot export.
+    if (launcherKey === 'digirex') {
+        payload.patient_name = xrayAsciiOnly(payload.patient_name);
+        payload.chinese_name = '';
+        payload.address = '';
+        payload.medical_alerts = '';
+    }
+    return payload;
 }
 
-function appendXrayBridgePatientParams(qParts, patient, folderPath) {
-    var payload = xrayBridgePatientPayload(patient, folderPath);
+function appendXrayBridgePatientParams(qParts, patient, folderPath, opts) {
+    var payload = xrayBridgePatientPayload(patient, folderPath, opts);
     Object.keys(payload).forEach(function(key) {
         var val = String(payload[key] == null ? '' : payload[key]).trim();
         if (val) qParts.push(key + '=' + encodeURIComponent(val));
@@ -4119,6 +4164,10 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
         searchText = xrayEzdentiChartNo(patient) ||
             xrayPatientSearchClipboardText(patient) || '—';
         clipboardText = searchText;
+    } else if (launcherKey === 'digirex') {
+        // English + bare chart only — never Chinese (export breaks in Digirex).
+        searchText = xrayDigirexClipboardText(patient) || '—';
+        clipboardText = searchText;
     } else {
         searchText = xrayPatientSearchClipboardText(patient) || '—';
         clipboardText = searchText;
@@ -4315,7 +4364,8 @@ function launchDigirexViaBridge(patient) {
     var cfg = getEffectiveXrayLocalPathCfg('digirex');
     var folderPath = buildLocalPatientFolderPathWithCfg('digirex', patient, cfg);
     var appPath = (cfg && cfg.appPath) || (sys && sys.defaultAppPath) || '';
-    copyTextToClipboard(xrayPatientSearchClipboardText(patient) || '');
+    // Never put Chinese on the clipboard for Digirex (ANSI / export breakage).
+    copyTextToClipboard(xrayDigirexClipboardText(patient) || '');
 
     launchViaCsxrayProtocol('digirex', patient, {
         appPath: appPath,

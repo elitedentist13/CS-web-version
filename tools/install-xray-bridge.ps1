@@ -182,6 +182,37 @@ function Remove-ShortcutIfExists($ShortcutPath) {
     return $true
 }
 
+function Disable-RivalDigirexStartup {
+    # Digirex-only Startup steals :17890 at next boot, so EzDent/MyRay
+    # /open/ezdenti 404s and Banana opens EzDent with no patient. Digirex
+    # must ride as a sidecar on this bridge — never a second Startup entry.
+    $digirexOnly = ($EnabledSystems.Count -eq 1 -and $EnabledSystems[0] -eq "digirex")
+    if ($digirexOnly) { return 0 }
+    $disabled = 0
+    $wsh = New-Object -ComObject WScript.Shell
+    $folders = @()
+    try { $folders += $wsh.SpecialFolders("AllUsersStartup") } catch {}
+    try { $folders += $wsh.SpecialFolders("Startup") } catch {}
+    foreach ($folder in ($folders | Where-Object { $_ } | Select-Object -Unique)) {
+        if (-not (Test-Path -LiteralPath $folder)) { continue }
+        $active = Join-Path $folder "Joyful Smile Digirex Bridge.lnk"
+        $disabledPath = Join-Path $folder "Joyful Smile Digirex Bridge.lnk.disabled"
+        if (Test-Path -LiteralPath $active) {
+            try {
+                if (Test-Path -LiteralPath $disabledPath) {
+                    Remove-Item -LiteralPath $disabledPath -Force -ErrorAction SilentlyContinue
+                }
+                Move-Item -LiteralPath $active -Destination $disabledPath -Force
+                $disabled++
+                Write-Ok "Disabled rival Digirex-only Startup (sidecar on this bridge): $disabledPath"
+            } catch {
+                Write-Warn2 "Could not disable Digirex-only Startup at $active : $($_.Exception.Message). Remove it manually or Digirex may steal port $Port at next boot."
+            }
+        }
+    }
+    return $disabled
+}
+
 function Test-BridgeAlive($TargetPort) {
     try {
         $resp = Invoke-RestMethod -Uri "http://127.0.0.1:$TargetPort/status" -TimeoutSec 3 -ErrorAction Stop
@@ -527,6 +558,9 @@ if ($allUsersShortcutPath -and (Test-CanWriteToFolder $allUsersFolder)) {
         Write-Warn2 "Could not write the All Users Startup folder (needs Administrator). Auto-start will only fire for '$env:USERNAME'. Re-run this installer and approve the UAC prompt to cover every account on this PC."
     }
 }
+
+# Keep Digirex-only Startup from winning :17890 after reboot (EzDent/MyRay installs).
+[void](Disable-RivalDigirexStartup)
 
 if ($NoAutoStart) {
     Write-Host ""

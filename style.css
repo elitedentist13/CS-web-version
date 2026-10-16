@@ -21001,9 +21001,16 @@ button.xm-slot, .xm-slot[role="button"] { appearance: none; -webkit-appearance: 
 .ortho-cat-picks { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .ortho-cat-pick.is-on { background: #0284c7; color: #fff; border-color: #0284c7; }
 .ortho-compare-btn.is-on { background: #0284c7; color: #fff; border-color: #0284c7; }
+.ortho-progress-date { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #334155; }
+.ortho-progress-date input[type="date"] { min-width: 150px; }
+.ortho-progress-open { white-space: nowrap; }
+.ortho-set-date { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #334155; margin-right: auto; }
+.ortho-set-date-input { min-width: 150px; }
 .ortho-visit-nav.is-compare .ortho-visit-step,
 .ortho-visit-nav.is-compare #photoOrthoVisitSelect,
-.ortho-visit-nav.is-compare .ortho-cat-picks { display: none; }
+.ortho-visit-nav.is-compare .ortho-cat-picks,
+.ortho-visit-nav.is-compare .ortho-progress-date,
+.ortho-visit-nav.is-compare .ortho-progress-open { display: none; }
 .ortho-compare-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .ortho-compare-visit { min-width: 140px; max-width: 240px; }
 .ortho-compare-cat { font-size: 12px; font-weight: 800; color: #0369a1; }

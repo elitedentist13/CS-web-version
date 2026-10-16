@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261016noxad1';
+  var BUILD = '20261017ortho4';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -4894,6 +4894,13 @@
             <button type="button" class="xray-btn ortho-cat-pick" data-ortho-cat="progress" onclick="photoOrthoSetVisitCategory('progress')" data-i18n="media.ortho.catProgress"></button>
             <button type="button" class="xray-btn ortho-cat-pick" data-ortho-cat="final" onclick="photoOrthoSetVisitCategory('final')" data-i18n="media.ortho.catFinal"></button>
           </div>
+          <label class="ortho-progress-date">
+            <span data-i18n="media.ortho.recDate"></span>
+            <input type="date" id="photoOrthoProgressDate" class="xray-filter-sel"
+                   onchange="photoOrthoProgressDatePicked(this.value)">
+          </label>
+          <button type="button" class="xray-btn ortho-progress-open" id="photoOrthoProgressOpenBtn"
+                  onclick="photoOrthoOpenProgressFromInput()" data-i18n="media.ortho.progressAdd"></button>
         </div>
         <div id="photoOrthoSets"></div>
         <div id="photoOrthoPick" class="ortho-pick" hidden></div>
@@ -8077,7 +8084,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20261006fx64',
-    'app-i18n-extra.js?v=20261010fold1',
+    'app-i18n-extra.js?v=20261017ortho4',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20261010hit1',
@@ -8091,7 +8098,7 @@
     'app-report.js',
     'app-ai-helper.js',
     'app-memo-ai.js',
-    'app-photos.js?v=20261010fold1',
+    'app-photos.js?v=20261017ortho4',
     'app-patient.js?v=20261003cbe',
     'app-patient-advanced-search.js',
     'app-patient-views.js?v=20261003cbe',

@@ -6,7 +6,7 @@ echo If Windows asks for Administrator, click Yes so auto-start
 echo works for every Windows account on this PC, not just this one.
 echo.
 echo This installs ONLY Rayscan support -- it will never open NNT/NEWTOM,
-echo EzDent-i, Carestream, or Ai-Dental, even if this script somehow ends up
+echo EzDent-i, or Carestream, even if this script somehow ends up
 echo on a PC that also has one of those installed.
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-xray-bridge.ps1" -EnabledSystems "rayscan" -InstallPath "C:\BananaBridge-Rayscan" -ShortcutName "Joyful Smile Rayscan Bridge.lnk" -PackageFolder "installer-rayscan"

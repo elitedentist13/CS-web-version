@@ -43,7 +43,9 @@ function Test-ScriptParses($Path) {
 
 # key = subfolder name; sharedFiles are copied in from $toolsDir on every
 # build (kept in sync automatically); ownFiles already live in the
-# subfolder (the .bat wrappers + its own README.md) and are left alone.
+# subfolder (the .bat wrappers + its own README.md + reference\*.xml) and
+# are left alone — each system's patient-handoff XML reference is owned by
+# that package and must stay independent (see xray-system-references.md).
 $Packages = @(
     [ordered]@{
         name = "EzDenti"
@@ -73,12 +75,6 @@ $Packages = @(
         name = "Digirex"
         folder = "installer-digirex"
         zipName = "Banana-Digirex-Bridge-Installer.zip"
-        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "launch-csxray-protocol.ps1")
-    },
-    [ordered]@{
-        name = "Ai-Dental"
-        folder = "installer-aidental"
-        zipName = "Banana-AiDental-Bridge-Installer.zip"
         sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "launch-csxray-protocol.ps1")
     }
 )
@@ -110,7 +106,7 @@ foreach ($pkg in $Packages) {
     }
     Write-Ok "Synced $($pkg.sharedFiles.Count) shared file(s) from tools\ into $($pkg.folder)\"
 
-    $missingOwn = @("README.md") | Where-Object { -not (Test-Path -LiteralPath (Join-Path $pkgDir $_)) }
+    $missingOwn = @("README.md", "reference\patient-handoff.reference.xml") | Where-Object { -not (Test-Path -LiteralPath (Join-Path $pkgDir $_)) }
     if ($missingOwn) {
         Write-Err2 "Package-specific file(s) missing from $($pkg.folder): $($missingOwn -join ', ')"
         $failed = $true

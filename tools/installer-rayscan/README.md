@@ -5,11 +5,11 @@ Self-contained installer for **just** Rayscan. Copy this whole folder
 either the **client-side** consultation-room PC (used to open a patient
 and browse existing OPG/CT/Lateral Cephalometric x-rays already taken) or
 the **server-side** PC next to the actual OPG/CT scanner — and it will
-never try to open NNT-NEWTOM, EzDent-i, Carestream, or Ai-Dental, even by
-accident. That isolation is enforced by the bridge itself
-(`-EnabledSystems rayscan`), not just by which files happen to be in this
-folder, so it's safe even if this folder ever ends up copied onto a PC
-that also has one of those other programs installed.
+never try to open NNT-NEWTOM, EzDent-i, or Carestream, even by accident.
+That isolation is enforced by the bridge itself (`-EnabledSystems rayscan`),
+not just by which files happen to be in this folder, so it's safe even if
+this folder ever ends up copied onto a PC that also has one of those other
+programs installed.
 
 If a PC needs **more than one** imaging system's bridge, use the combined
 `tools\install-xray-bridge.ps1` (see `..\README.md`) instead of this
@@ -40,6 +40,14 @@ folder — don't install both this and `..\installer-nntnewtom\` /
 
 To remove: double-click **`Uninstall Rayscan Bridge.bat`**.
 Safe to re-run the installer any time (e.g. after a code update).
+
+## Patient handoff reference (this system only)
+
+Owned contract sample: [`reference/patient-handoff.reference.xml`](reference/patient-handoff.reference.xml)
+(RAYBridge CLI; optional vendor XML mode documented but not used when
+`SelectedFileFormat=Command`). Independent of EzDent-i `Linkage.xml` and all
+other systems — develop Rayscan handoff here only. Index:
+[`../xray-system-references.md`](../xray-system-references.md).
 
 ## How the patient handoff works
 

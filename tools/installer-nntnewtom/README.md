@@ -5,7 +5,7 @@ share one bridge on port **17890** (`-EnabledSystems nntnewtom,myray`).
 They do not fight each other. Copy this whole folder to any PC used to
 open NNT or MyRay — scanner PC or consultation room.
 
-It will not answer for EzDent-i, Carestream, Rayscan, or Ai-Dental.
+It will not answer for EzDent-i, Carestream, or Rayscan.
 Do **not** also install those packages as exclusive rivals on the same
 PC (they'd fight over port 17890). MyRay support lives in this same
 CEFLA bridge — see also `..\installer-myray\` (same install path `C:\NNT`).
@@ -43,6 +43,12 @@ To remove: double-click **`Uninstall NNT-NEWTOM Bridge.bat`**.
 Safe to re-run the installer any time (e.g. after a code update — an
 already-running bridge is automatically restarted to pick up the new
 code).
+
+## Patient handoff reference (this system only)
+
+Owned contract sample: [`reference/patient-handoff.reference.xml`](reference/patient-handoff.reference.xml)
+(NNTBridge CLI — no `Linkage.xml`). Independent of EzDent-i / Rayscan /
+Digirex. Index: [`../xray-system-references.md`](../xray-system-references.md).
 
 ## Confirmed working
 

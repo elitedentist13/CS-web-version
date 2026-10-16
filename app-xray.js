@@ -3286,7 +3286,6 @@ function pingXrayLauncher(cb) {
                 port: res.port,
                 host: res.host,
                 carestream_exists: !!body.carestream_exists,
-                aidental_exists: !!body.aidental_exists,
                 nntnewtom_exists: !!body.nntnewtom_exists,
                 trophy_exists: !!body.trophy_exists,
                 myray_exists: !!body.myray_exists,
@@ -3375,7 +3374,7 @@ var XRAY_SYSTEMS = {
         defaultSubPattern: 'Xrays\\{patient_no}',
         defaultAppPath: 'C:\\Program Files\\Sirona Dental\\SIDEXIS\\Sidexis.exe'
     },
-    // EzDent-i (Vatech): same local-bridge pattern as Carestream / Ai-Dental /
+    // EzDent-i (Vatech): same local-bridge pattern as Carestream /
     // NNT-NEWTOM below, NOT the "ezdenti://" protocol stub this used to be.
     // EzDent-i has no command-line patient API; the documented PMS bridge
     // (Open Dental, Carestack, MOGO, etc.) writes a "linkage.xml" file into
@@ -3420,35 +3419,6 @@ var XRAY_SYSTEMS = {
         openMsgKey: 'media.local.carestreamOpen',
         launchedMsgKey: 'media.local.carestreamLaunched',
         launcherNeededMsgKey: 'media.local.carestreamLauncherNeeded'
-    },
-    // Ai-Dental-Client (Woodpecker i-Sensor small-film hub). Same
-    // local-bridge pattern as Digirex/Rayscan above: launches Ai-Dental.exe
-    // with a one-argument command line (Open Dental's own documented
-    // "Ai-Dental Bridge" contract), clinic prefix stripped so OLD charts
-    // still match by name. Confirmed live (2026-09-03, real logged-in
-    // test) this genuinely pre-fills the patient's NAME -- but chart no.,
-    // sex, and DOB are confirmed NOT deliverable through this launch
-    // mechanism at all in this build (PatNum is parsed but discarded; the
-    // on-screen Chart No./Gender/Birthday fields stay at their new-patient
-    // defaults every time), so those are only ever sent via the clipboard
-    // fallback for staff to paste in by hand. See Start-AiDentalBridgePatient
-    // / tools\installer-aidental\README.md for the full live-test evidence.
-    aidental: {
-        nameKey: 'media.sys.aidental',
-        infoKey: 'media.sys.aidental.info',
-        url: '',
-        launcherKey: 'aidental',
-        desktopShortcutName: 'Ai-Dental-Client',
-        desktopShortcutPath: 'C:\\Users\\Public\\Desktop\\Ai-Dental-Client.lnk',
-        defaultDataPath: 'C:\\Image',
-        defaultSubPattern: 'Xrays\\{patient_no}',
-        defaultAppPath: 'C:\\Ai-Dental\\Ai-Dental-Client\\Ai-Dental.exe',
-        launchProtocol: false,
-        launcherBat: 'tools\\installer-aidental\\Start Ai-Dental Launcher.bat',
-        folderHintKey: 'media.local.aidentalUseFolder',
-        openMsgKey: 'media.local.aidentalOpen',
-        launchedMsgKey: 'media.local.aidentalLaunched',
-        launcherNeededMsgKey: 'media.local.aidentalLauncherNeeded'
     },
     nntnewtom: {
         nameKey: 'media.sys.nntnewtom',
@@ -3712,12 +3682,6 @@ function xrayPatientSearchTextForLauncher(patient, launcherKey) {
     var no = String(patient.patient_no || '').trim();
     var cn = String(patient.chinese_name || '').trim();
     var en = String(patient.full_name || '').trim();
-    if (launcherKey === 'aidental') {
-        if (en) return en;
-        if (cn) return cn;
-        if (no) return no;
-        return '';
-    }
     if (launcherKey === 'ezdenti') {
         return xrayEzdentiChartNo(patient) || no;
     }
@@ -3765,39 +3729,6 @@ function xrayEnsurePatientForBridge(patient, cb) {
     xrayHydratePatientRecord(patient.id, function(full) {
         finish(full ? Object.assign({}, patient, full) : patient);
     });
-}
-
-/** Multi-line summary copied for Ai-Dental new-patient entry. */
-function xrayPatientBridgeClipboardText(patient) {
-    patient = patient || {};
-    var lines = [];
-    var no = String(patient.patient_no || '').trim();
-    var cn = String(patient.chinese_name || '').trim();
-    var en = String(patient.full_name || '').trim();
-    var dob = String(patient.dob || '').trim();
-    var sex = String(patient.sex || '').trim();
-    var hkid = String(patient.hkid || '').trim();
-    var phone = String(patient.phone_number || patient.phone || patient.mobile_phone || '').trim();
-    if (no) lines.push('Patient No: ' + no);
-    if (cn) lines.push('Chinese Name: ' + cn);
-    if (en) lines.push('Name: ' + en);
-    if (dob) lines.push('DOB: ' + dob);
-    if (sex) lines.push('Sex: ' + sex);
-    if (hkid) lines.push('ID: ' + hkid);
-    if (phone) lines.push('Phone: ' + phone);
-    return lines.join('\n');
-}
-
-function xrayPatientBridgeSummaryLine(patient) {
-    patient = patient || {};
-    var parts = [];
-    if (patient.patient_no) parts.push('#' + patient.patient_no);
-    if (patient.chinese_name) parts.push(patient.chinese_name);
-    if (patient.full_name) parts.push(patient.full_name);
-    if (patient.dob) parts.push(patient.dob);
-    if (patient.sex) parts.push(patient.sex);
-    if (patient.hkid) parts.push(patient.hkid);
-    return parts.join(' · ') || '—';
 }
 
 /** Strip non-ASCII (Chinese etc.) — Digirex Switch.ini is ANSI and garbles CJK. */
@@ -4195,16 +4126,9 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
             : mediaTr('media.local.desktopUsePatientSearch'));
     var launcherKey = sys.launcherKey || key;
     var batPath = sys.launcherBat || 'tools\\Start X-Ray Launcher.bat';
-    // Ai-Dental's own contract (PatNum.LName.FName) has no room for HKID/
-    // phone/Chinese name, so its clipboard fallback is the richer
-    // multi-line summary — still useful for anything the CLI hand-off
-    // can't carry, or if this specific install doesn't consume it at all.
     var searchText;
     var clipboardText;
-    if (launcherKey === 'aidental') {
-        searchText = xrayPatientBridgeSummaryLine(patient) || '—';
-        clipboardText = xrayPatientBridgeClipboardText(patient) || searchText;
-    } else if (launcherKey === 'ezdenti') {
+    if (launcherKey === 'ezdenti') {
         // Bare chart only — EzDent-i does not auto-open from Banana (desktop-
         // equivalent launch). Staff paste this into EzDent search. Using
         // "Name (no.)" previously made wrong-chart paste-matches more likely.
@@ -4325,10 +4249,6 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
 
 function openCarestreamImaging() {
     openDesktopXrayApp('carestream');
-}
-
-function openAiDentalClient() {
-    openDesktopXrayApp('aidental');
 }
 
 function openNntNewtom() {

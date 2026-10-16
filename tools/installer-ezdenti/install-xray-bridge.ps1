@@ -9,7 +9,7 @@
 # code is identical either way; only what the imaging software itself does
 # with the opened patient differs, and that is entirely its own business
 # logic. Covers every system in xray-local-launcher.ps1's $Systems table
-# (currently NNT-NEWTOM and EzDent-i/Vatech; Carestream and Ai-Dental use
+# (currently NNT-NEWTOM and EzDent-i/Vatech; Carestream uses
 # a plain shortcut launch with no bridge exe).
 #
 # What this does:
@@ -170,7 +170,7 @@ function New-BridgeStartupShortcut($ShortcutPath, $LauncherPath, $TargetPort, $W
     $shortcut.Description = if ($EnabledSystems -and $EnabledSystems.Count -gt 0) {
         "Joyful Smile X-Ray local bridge ($($EnabledSystems -join ' / '))"
     } else {
-        "Joyful Smile X-Ray local bridge (Carestream / Ai-Dental / NNT-NEWTOM / EzDent-i)"
+        "Joyful Smile X-Ray local bridge (Carestream / NNT-NEWTOM / EzDent-i / Rayscan / Digirex)"
     }
     $shortcut.Save()
 }
@@ -628,7 +628,7 @@ if ($NoAutoUpdate) {
 Write-Host ""
 Write-Host "Install complete." -ForegroundColor Green
 Write-Host "  Install path:      $destLauncher"
-Write-Host "  Enabled system(s): $(if ($EnabledSystems -and $EnabledSystems.Count -gt 0) { $EnabledSystems -join ', ' } else { '(all -- carestream, aidental, nntnewtom, ezdenti)' })"
+Write-Host "  Enabled system(s): $(if ($EnabledSystems -and $EnabledSystems.Count -gt 0) { $EnabledSystems -join ', ' } else { '(all -- carestream, nntnewtom, ezdenti, rayscan, digirex, myray)' })"
 if ($RequiredCompanionScripts.Count -eq 0) {
     # Nothing required for this system selection (e.g. installer-ezdenti\, which
     # doesn't ship the NNT-only companions at all) -- not a warning-worthy state.

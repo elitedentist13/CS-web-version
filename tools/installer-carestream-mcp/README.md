@@ -36,6 +36,12 @@ This installer auto-detects your PC type and configures the correct SCAN paths:
 2. Removes auto-start shortcuts and stops the bridge
 3. Files in `C:\BananaBridge-Carestream-MCP` remain (safe to delete manually)
 
+## Patient handoff reference (this system only)
+
+Owned contract sample: [`reference/patient-handoff.reference.xml`](reference/patient-handoff.reference.xml)
+(Trophy `TW.exe` CLI / Carestream Patient.exe). Independent of EzDent /
+Rayscan / NNT / Digirex. Index: [`../xray-system-references.md`](../xray-system-references.md).
+
 ## Features
 
 ### Auto-detection (NEW)

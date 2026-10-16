@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Banana / Joyful Smile — X-ray system patient-handoff REFERENCE
+  ==============================================================
+  This file is the OWNED contract reference for THIS imaging system only.
+  It is NOT shared with other installer-* packages and must NOT be overwritten
+  by build-installer-packages.ps1 (which only syncs engine .ps1 files).
+
+  Develop this system's handoff independently:
+    - Change fields / formats here when the vendor contract changes
+    - Keep other systems' reference/*.xml untouched
+    - Runtime code lives in xray-local-launcher.ps1 (EnabledSystems isolates)
+  Sample chart is fictional (smoke/self-test style). Do not use on real patients.
+-->
+<BananaXrayHandoffReference
+    systemKey="digirex"
+    displayName="Apixia Digirex"
+    bananaOpenPath="/open/digirex"
+    csxrayProtocol="csxray://open/digirex"
+    handoffMode="switch-ini"
+    runtimeWriter="New-DigirexSwitchIni / Start-DigirexBridgePatient"
+    confirmed="2026-08-31"
+    independent="true">
+
+  <Notes>
+    <Note>Native file is Switch.ini (ANSI), not XML. This XML is the Banana-owned contract reference only.</Note>
+    <Note>Chinese/CJK must never be written (Last= blank; First= English ASCII only).</Note>
+    <Note>Dentist login is apixia/digirex — never Banana doctor tags.</Note>
+    <Note>Independent of EzDent Linkage.xml — Digirex must not touch Linkage.xml.</Note>
+  </Notes>
+
+  <NativePayload fileName="Switch.ini" encoding="ANSI (OS code page)" locationHint="next to digirex.exe">
+    <IniText><![CDATA[[Patient]
+ID=001287
+Gender=Male
+First=SMOKE QUIET
+Last=
+Year=1984
+Month=5
+Day=15
+
+[Dentist]
+ID=apixia
+Password=digirex
+]]></IniText>
+  </NativePayload>
+
+  <FieldMap>
+    <Field banana="patient_no" native="[Patient] ID" transform="Resolve-DigirexMatchId (strip prefix; prefer DATA folder match)" />
+    <Field banana="patient_name" native="[Patient] First" transform="English ASCII only; Last always blank" />
+    <Field banana="chinese_name" native="(forbidden)" transform="stripped" />
+    <Field banana="dob" native="Year/Month/Day" />
+    <Field banana="sex" native="Gender" transform="Convert-GenderWord" />
+  </FieldMap>
+
+  <DryRun>
+    <Url>http://127.0.0.1:17890/open/digirex?dry_run=1&amp;patient_no=PL001287&amp;patient_name=SMOKE%20QUIET&amp;sex=M</Url>
+  </DryRun>
+</BananaXrayHandoffReference>
+

@@ -9,7 +9,7 @@
 # code is identical either way; only what the imaging software itself does
 # with the opened patient differs, and that is entirely its own business
 # logic. Covers every system in xray-local-launcher.ps1's $Systems table
-# (currently NNT-NEWTOM and EzDent-i/Vatech; Carestream and Ai-Dental use
+# (currently NNT-NEWTOM and EzDent-i/Vatech; Carestream uses
 # a plain shortcut launch with no bridge exe).
 #
 # What this does:
@@ -170,7 +170,7 @@ function New-BridgeStartupShortcut($ShortcutPath, $LauncherPath, $TargetPort, $W
     $shortcut.Description = if ($EnabledSystems -and $EnabledSystems.Count -gt 0) {
         "Joyful Smile X-Ray local bridge ($($EnabledSystems -join ' / '))"
     } else {
-        "Joyful Smile X-Ray local bridge (Carestream / Ai-Dental / NNT-NEWTOM / EzDent-i)"
+        "Joyful Smile X-Ray local bridge (Carestream / NNT-NEWTOM / EzDent-i / Rayscan / Digirex)"
     }
     $shortcut.Save()
 }
@@ -180,6 +180,37 @@ function Remove-ShortcutIfExists($ShortcutPath) {
     if (-not (Test-Path -LiteralPath $ShortcutPath)) { return $false }
     Remove-Item -LiteralPath $ShortcutPath -Force
     return $true
+}
+
+function Disable-RivalDigirexStartup {
+    # Digirex-only Startup steals :17890 at next boot, so EzDent/MyRay
+    # /open/ezdenti 404s and Banana opens EzDent with no patient. Digirex
+    # must ride as a sidecar on this bridge — never a second Startup entry.
+    $digirexOnly = ($EnabledSystems.Count -eq 1 -and $EnabledSystems[0] -eq "digirex")
+    if ($digirexOnly) { return 0 }
+    $disabled = 0
+    $wsh = New-Object -ComObject WScript.Shell
+    $folders = @()
+    try { $folders += $wsh.SpecialFolders("AllUsersStartup") } catch {}
+    try { $folders += $wsh.SpecialFolders("Startup") } catch {}
+    foreach ($folder in ($folders | Where-Object { $_ } | Select-Object -Unique)) {
+        if (-not (Test-Path -LiteralPath $folder)) { continue }
+        $active = Join-Path $folder "Joyful Smile Digirex Bridge.lnk"
+        $disabledPath = Join-Path $folder "Joyful Smile Digirex Bridge.lnk.disabled"
+        if (Test-Path -LiteralPath $active) {
+            try {
+                if (Test-Path -LiteralPath $disabledPath) {
+                    Remove-Item -LiteralPath $disabledPath -Force -ErrorAction SilentlyContinue
+                }
+                Move-Item -LiteralPath $active -Destination $disabledPath -Force
+                $disabled++
+                Write-Ok "Disabled rival Digirex-only Startup (sidecar on this bridge): $disabledPath"
+            } catch {
+                Write-Warn2 "Could not disable Digirex-only Startup at $active : $($_.Exception.Message). Remove it manually or Digirex may steal port $Port at next boot."
+            }
+        }
+    }
+    return $disabled
 }
 
 function Test-BridgeAlive($TargetPort) {
@@ -528,6 +559,9 @@ if ($allUsersShortcutPath -and (Test-CanWriteToFolder $allUsersFolder)) {
     }
 }
 
+# Keep Digirex-only Startup from winning :17890 after reboot (EzDent/MyRay installs).
+[void](Disable-RivalDigirexStartup)
+
 if ($NoAutoStart) {
     Write-Host ""
     Write-Host "Install complete. -NoAutoStart was passed, so the bridge was NOT started now -- it will start at next login." -ForegroundColor Cyan
@@ -594,7 +628,7 @@ if ($NoAutoUpdate) {
 Write-Host ""
 Write-Host "Install complete." -ForegroundColor Green
 Write-Host "  Install path:      $destLauncher"
-Write-Host "  Enabled system(s): $(if ($EnabledSystems -and $EnabledSystems.Count -gt 0) { $EnabledSystems -join ', ' } else { '(all -- carestream, aidental, nntnewtom, ezdenti)' })"
+Write-Host "  Enabled system(s): $(if ($EnabledSystems -and $EnabledSystems.Count -gt 0) { $EnabledSystems -join ', ' } else { '(all -- carestream, nntnewtom, ezdenti, rayscan, digirex, myray)' })"
 if ($RequiredCompanionScripts.Count -eq 0) {
     # Nothing required for this system selection (e.g. installer-ezdenti\, which
     # doesn't ship the NNT-only companions at all) -- not a warning-worthy state.

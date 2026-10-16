@@ -8,7 +8,7 @@ echo.
 echo This installs EzDent-i on port 17890.
 echo If Apixia Digirex is also installed on this PC, the SAME bridge
 echo will open Digirex too -- do NOT run Install Digirex Bridge.bat here.
-echo It will never open NNT/NEWTOM, Carestream, or Ai-Dental.
+echo It will never open NNT/NEWTOM, Carestream, or Rayscan.
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-xray-bridge.ps1" -EnabledSystems "ezdenti" -InstallPath "C:\BananaBridge-EzDenti" -ShortcutName "Joyful Smile EzDent-i Bridge.lnk" -PackageFolder "installer-ezdenti"
 echo.

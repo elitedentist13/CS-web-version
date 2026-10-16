@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Banana / Joyful Smile — X-ray system patient-handoff REFERENCE
+  ==============================================================
+  This file is the OWNED contract reference for THIS imaging system only.
+  It is NOT shared with other installer-* packages and must NOT be overwritten
+  by build-installer-packages.ps1 (which only syncs engine .ps1 files).
+
+  Develop this system's handoff independently:
+    - Change fields / formats here when the vendor contract changes
+    - Keep other systems' reference/*.xml untouched
+    - Runtime code lives in xray-local-launcher.ps1 (EnabledSystems isolates)
+  Sample chart is fictional (smoke/self-test style). Do not use on real patients.
+-->
+<BananaXrayHandoffReference
+    systemKey="rayscan"
+    displayName="Rayscan (RAYBridge / SMARTDent V3)"
+    bananaOpenPath="/open/rayscan"
+    csxrayProtocol="csxray://open/rayscan"
+    handoffMode="cli-command"
+    runtimeWriter="Start-RayBridgePatient"
+    confirmed="2026-08-20"
+    independent="true">
+
+  <Notes>
+    <Note>This clinic's LocalConfig.xml uses SelectedFileFormat=Command (CLI), not XML file mode.</Note>
+    <Note>Open Dental SMARTDent New also documents an optional PatientInfo.xml path (C:\Ray\PatientInfo.xml); Banana does not write that file when Command mode is active.</Note>
+    <Note>Quiet tests MUST use dry_run=1 so RAYBridge/SMARTDent never pop.</Note>
+    <Note>This reference is independent of EzDent-i Linkage.xml and all other systems.</Note>
+  </Notes>
+
+  <NativePayload fileName="(command-line)" encoding="n/a" locationHint="RAYBridge.exe ArgumentList">
+    <CommandLine exe="C:\Ray\RAYBridge\RAYBridge.exe">
+      <Arg>ID:001287</Arg>
+      <Arg>LastName:SMOKE</Arg>
+      <Arg>FirstName:QUIET</Arg>
+      <Arg>BirthDay:1984-05-15</Arg>
+      <Arg>Sex:M</Arg>
+    </CommandLine>
+  </NativePayload>
+
+  <!-- Optional alternate vendor mode (NOT used when SelectedFileFormat=Command). Kept as documentation only. -->
+  <AlternateVendorXml mode="file" pathHint="C:\Ray\PatientInfo.xml" status="not-used-when-Command-mode">
+    <PatientInfo>
+      <PatientID>001287</PatientID>
+      <LastName>SMOKE</LastName>
+      <FirstName>QUIET</FirstName>
+      <BirthDay>1984-05-15</BirthDay>
+      <Sex>M</Sex>
+    </PatientInfo>
+  </AlternateVendorXml>
+
+  <FieldMap>
+    <Field banana="patient_no" native="ID:" transform="Convert-RayPatientId (strip clinic prefix)" />
+    <Field banana="patient_name" native="LastName:/FirstName:/MiddleName:" transform="Split-RayPatientName (surname-first HK)" />
+    <Field banana="dob" native="BirthDay:" transform="Convert-RayBirthDate (yyyy-MM-dd)" />
+    <Field banana="sex" native="Sex:" transform="M|F" />
+  </FieldMap>
+
+  <DryRun>
+    <Url>http://127.0.0.1:17890/open/rayscan?dry_run=1&amp;patient_no=PL001287&amp;patient_name=SMOKE%20QUIET&amp;sex=M</Url>
+  </DryRun>
+</BananaXrayHandoffReference>
+

@@ -3,7 +3,7 @@
 This folder holds the **local X-ray bridge**: a small background helper
 that lets the Banana web app (running in a normal browser) open desktop
 imaging software — **NNT-NEWTOM**, **EzDent-i (Vatech)**, **Rayscan
-(RAYBridge / SMARTDent V3)**, **Carestream CS Imaging**, **Ai-Dental**,
+(RAYBridge / SMARTDent V3)**, **Carestream CS Imaging**,
 **MyRay**, or **Apixia Digirex**
 — with the current patient's chart no., name, DOB and gender already sent
 across, instead of a doctor/assistant re-typing everything by hand.
@@ -26,7 +26,6 @@ PC:
 | [`installer-myray/`](installer-myray/README.md) (`Banana-MyRay-Bridge-Installer.zip`) | Kwun Tong CEFLA PCs (**MyRay + NNT**). Digirex on the same PC is a sidecar after this update. |
 | [`installer-rayscan/`](installer-rayscan/README.md) (`Banana-Rayscan-Bridge-Installer.zip`) | Any PC that only needs **Rayscan (RAYBridge / SMARTDent V3)**. |
 | [`installer-digirex/`](installer-digirex/README.md) (`Banana-Digirex-Bridge-Installer.zip`) | Any PC that only needs **Apixia Digirex** (periapical / bitewing). Do **not** install this on a PC that already has EzDent-i (PL) or MyRay (KT). |
-| [`installer-aidental/`](installer-aidental/README.md) (`Banana-AiDental-Bridge-Installer.zip`) | Any PC that only needs **Ai-Dental-Client** (Woodpecker i-Sensor, periapical / bitewing). Like Digirex, it becomes a sidecar automatically on any other dedicated install once Ai-Dental-Client is on disk — see that README's "Sidecar on other installs". |
 
 Each has its own install path (`C:\BananaBridge-EzDenti` /
 `C:\BananaBridge-Digirex` / `C:\BananaBridge-Rayscan` / `C:\NNT`), its own
@@ -47,7 +46,7 @@ is what keeps the subfolders in sync with it and rebuilds their zips
 — run that after editing `xray-local-launcher.ps1` or `install-xray-bridge.ps1`
 here, rather than hand-editing the copies inside `installer-ezdenti/`,
 `installer-nntnewtom/`, `installer-rayscan/`, `installer-myray/`,
-`installer-digirex/`, or `installer-aidental/`.
+or `installer-digirex/`.
 
 ## The combined (multi-system) bridge in this folder
 
@@ -76,8 +75,10 @@ already exists in *its* database.
 | `Start X-Ray Launcher.bat` | Double-click wrapper to run the bridge in the foreground (for manual testing — the installer sets up automatic background start, so you normally won't need this). |
 | `Test X-Ray Launcher.bat` | Double-click wrapper for `-SelfTest` (200+ automated checks, nothing is launched or written outside a temp folder). |
 | `Uninstall X-Ray Bridge.bat` | Double-click wrapper to remove the auto-start shortcut and stop the bridge. |
-| `installer-ezdenti/`, `installer-nntnewtom/`, `installer-rayscan/`, `installer-myray/`, `installer-digirex/`, `installer-aidental/` | The dedicated single-system packages described above — each deployable on its own. |
-| `build-installer-packages.ps1` | Syncs `xray-local-launcher.ps1` / `install-xray-bridge.ps1` into the subfolders above and rebuilds their zips. Run after editing either canonical file. |
+| `installer-ezdenti/`, `installer-nntnewtom/`, `installer-rayscan/`, `installer-myray/`, `installer-digirex/` | The dedicated single-system packages described above — each deployable on its own. |
+| `installer-*/reference/patient-handoff.reference.xml` | **Per-system** patient-handoff contract (independent XML reference). Edit only the package you are changing — see [`xray-system-references.md`](xray-system-references.md). |
+| `check-xray-system-references.ps1` | Verifies every package has its own non-identical handoff XML reference. |
+| `build-installer-packages.ps1` | Syncs `xray-local-launcher.ps1` / `install-xray-bridge.ps1` into the subfolders above and rebuilds their zips. Run after editing either canonical file. Does **not** overwrite `reference/`. |
 | `CHANGELOG.md` | Full development history and investigation notes — useful background if you're extending this, not needed to just deploy it. |
 
 Files starting with `_` other than the two NNT companions above (e.g.
@@ -149,22 +150,6 @@ To remove it from a PC, double-click **`Uninstall X-Ray Bridge.bat`**.
   names (see `installer-rayscan/README.md` for the full contract and
   network setup between the client PC and the imaging server next to the
   OPG/CT unit).
-- **Ai-Dental (Woodpecker i-Sensor)**: researched from Open Dental's
-  published "Ai-Dental Bridge" spec, then confirmed live (2026-09-03,
-  logged-in test) against a real Ai-Dental-Client install on this dev PC.
-  `Ai-Dental.exe "<PatNum>.<given>.<surname>"` genuinely opens the app and
-  pre-fills the patient's **name** — but chart no., sex, and DOB are
-  confirmed **not deliverable** through this launch mechanism at all in
-  this build (the on-screen Chart No. field stays blank and
-  Gender/Birthday stay at hardcoded new-patient defaults every time, no
-  matter the argument). Note the field order is the *opposite* of what
-  Open Dental's docs call `[LName].[FName]` — confirmed via live testing
-  with distinct dummy values in each slot. Full writeup, including the
-  binary-level evidence for the chart-no./sex/DOB limit:
-  `installer-aidental/README.md` "What's confirmed vs. best-effort". The
-  clipboard fallback (chart no., Chinese name, English name, DOB, sex,
-  HKID, phone) is copied on every launch so staff can fill in what the
-  CLI can't carry.
 - **Carestream**: no known command-line/file bridge exists. The button
   opens the desktop shortcut and copies the patient's name + chart no. to
   the clipboard for manual search inside the app.

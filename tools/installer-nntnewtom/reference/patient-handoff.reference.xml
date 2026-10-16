@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Banana / Joyful Smile — X-ray system patient-handoff REFERENCE
+  ==============================================================
+  This file is the OWNED contract reference for THIS imaging system only.
+  It is NOT shared with other installer-* packages and must NOT be overwritten
+  by build-installer-packages.ps1 (which only syncs engine .ps1 files).
+
+  Develop this system's handoff independently:
+    - Change fields / formats here when the vendor contract changes
+    - Keep other systems' reference/*.xml untouched
+    - Runtime code lives in xray-local-launcher.ps1 (EnabledSystems isolates)
+  Sample chart is fictional (smoke/self-test style). Do not use on real patients.
+-->
+<BananaXrayHandoffReference
+    systemKey="nntnewtom"
+    displayName="NNT-NEWTOM"
+    bananaOpenPath="/open/nntnewtom"
+    csxrayProtocol="csxray://open/nntnewtom"
+    handoffMode="cli-nntbridge"
+    runtimeWriter="Start-NntBridgePatient"
+    confirmed="2026-08-19"
+    independent="true">
+
+  <Notes>
+    <Note>No Linkage.xml. Patient handoff is NNTBridge.exe command-line (/PATID /NAME /DATEB /SEX ...).</Note>
+    <Note>/DIR is only passed when the chart SCAN folder already has studies.</Note>
+    <Note>Identity guard + new-OPG watcher are NNT companions in this package only.</Note>
+    <Note>Independent of EzDent-i XML and Rayscan CLI — do not reuse their field names.</Note>
+  </Notes>
+
+  <NativePayload fileName="(command-line)" encoding="n/a" locationHint="NNTBridge.exe ArgumentList">
+    <CommandLine exe="NNTBridge.exe">
+      <Arg>/PATID</Arg><Arg>001287</Arg>
+      <Arg>/NAME</Arg><Arg>SMOKE QUIET</Arg>
+      <Arg>/SURNAME</Arg><Arg>(chinese_name if present)</Arg>
+      <Arg>/DATEB</Arg><Arg>15/05/1984</Arg>
+      <Arg>/SEX</Arg><Arg>M</Arg>
+      <Arg>/SSNM</Arg><Arg>A1234567</Arg>
+      <Arg>/APPPATH</Arg><Arg>C:\NNT\NNT.exe</Arg>
+      <Arg>/WORKDIR</Arg><Arg>C:\NNT</Arg>
+      <Arg>/OPENPATIENT</Arg>
+    </CommandLine>
+  </NativePayload>
+
+  <FieldMap>
+    <Field banana="patient_no" native="/PATID" transform="Convert-NntPatientId (strip clinic prefix)" />
+    <Field banana="patient_name" native="/NAME" />
+    <Field banana="chinese_name" native="/SURNAME" />
+    <Field banana="dob" native="/DATEB" transform="Convert-NntBirthDate (dd/MM/yyyy)" />
+    <Field banana="sex" native="/SEX" transform="M|F" />
+    <Field banana="hkid" native="/SSNM" />
+  </FieldMap>
+
+  <DryRun>
+    <Url>http://127.0.0.1:17890/open/nntnewtom?dry_run=1&amp;patient_no=001287&amp;patient_name=SMOKE%20QUIET&amp;sex=M</Url>
+  </DryRun>
+</BananaXrayHandoffReference>
+

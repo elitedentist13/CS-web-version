@@ -48,6 +48,12 @@ If this PC **already** runs the EzDent-i or MyRay bridge on port 17890, **stop**
 
 To remove: double-click **`Uninstall Digirex Bridge.bat`**.
 
+## Patient handoff reference (this system only)
+
+Owned contract sample: [`reference/patient-handoff.reference.xml`](reference/patient-handoff.reference.xml)
+(`Switch.ini` payload documented in XML). Digirex must never write EzDent
+`Linkage.xml`. Index: [`../xray-system-references.md`](../xray-system-references.md).
+
 ## Do not mix installers on one PC
 
 The Digirex button opens `csxray://`, which talks to the one bridge on

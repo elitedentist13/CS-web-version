@@ -4,7 +4,7 @@ Self-contained installer for **just** EzDent-i. Copy this whole folder
 (not individual files) to any PC used to open EzDent-i — e.g. the
 workstation next to the Vatech OPG unit, or a consultation-room PC that
 browses existing OPG/CT there — and it will never try to open NNT-NEWTOM,
-Carestream, or Ai-Dental, even by accident. That isolation is enforced by
+Carestream, or Rayscan, even by accident. That isolation is enforced by
 the bridge itself (`-EnabledSystems ezdenti`), not just by which files
 happen to be in this folder, so it's safe even if this folder ever ends up
 copied onto a PC that also has one of those other programs installed.
@@ -42,6 +42,13 @@ Bridge** from Startup and re-run **Install EzDent-i Bridge.bat**.
 
 To remove: double-click **`Uninstall EzDent-i Bridge.bat`**.
 Safe to re-run the installer any time (e.g. after a code update).
+
+## Patient handoff reference (this system only)
+
+Owned contract sample: [`reference/patient-handoff.reference.xml`](reference/patient-handoff.reference.xml)
+(`Linkage.xml`). Independent of Rayscan / NNT / Digirex / MyRay / Carestream —
+edit this file when the EzDent-i vendor contract changes; do not copy other
+systems' references here. Index: [`../xray-system-references.md`](../xray-system-references.md).
 
 ## What's confirmed vs. best-effort
 

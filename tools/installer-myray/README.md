@@ -70,6 +70,13 @@ Manual check anytime: double-click **`Check MyRay Updates.bat`**.
 If an older **myray-only** install at `C:\BananaBridge-MyRay` is still set to
 auto-start, remove that startup shortcut so it cannot grab port 17890 first.
 
+## Patient handoff reference (this system only)
+
+Owned contract sample: [`reference/patient-handoff.reference.xml`](reference/patient-handoff.reference.xml)
+(MyRay/NNTBridge CLI family). Evolve MyRay here even if CLI shape resembles
+NNT — do not share EzDent / Rayscan / Digirex XML. Index:
+[`../xray-system-references.md`](../xray-system-references.md).
+
 ## How the patient handoff works
 
 MyRay is CEFLA (same family as NNT/NewTom). Open priority on this clinic

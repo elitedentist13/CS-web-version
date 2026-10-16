@@ -5,7 +5,7 @@
 # protocol so the browser only has to open a link. Windows starts this
 # process, which talks to the bridge on loopback itself and asks it to
 # open the named program (ezdenti, digirex, nntnewtom, myray, rayscan,
-# carestream, trophy, aidental).
+# carestream, trophy).
 #
 # If the bridge is not already listening, this starts the launcher that
 # lives in the same folder, using csxray-bridge.txt written by the
@@ -26,7 +26,7 @@ $ErrorActionPreference = "Stop"
 
 $AllowedKeys = @(
     "ezdenti", "digirex", "nntnewtom", "myray",
-    "rayscan", "carestream", "trophy", "aidental"
+    "rayscan", "carestream", "trophy"
 )
 
 function Convert-CsxrayUrl([string]$Raw) {
@@ -195,7 +195,7 @@ function Invoke-SelfTest {
     Assert-Equal "digirex uri" "http://127.0.0.1:17890/open/digirex?patient_no=PL001287" (Get-OpenUri $dig.key $dig.query 17890)
     $nnt = Convert-CsxrayUrl '"csxray://open/nntnewtom?patient_no=1"'
     Assert-Equal "quoted nnt key" "nntnewtom" $nnt.key
-    foreach ($key in @("myray", "rayscan", "carestream", "trophy", "aidental")) {
+    foreach ($key in @("myray", "rayscan", "carestream", "trophy")) {
         $parsed = Convert-CsxrayUrl ("csxray://open/" + $key + "?patient_no=1")
         Assert-Equal ($key + " allowed") $key $parsed.key
         Assert-Equal ($key + " in allow list") $true ($AllowedKeys -contains $parsed.key)

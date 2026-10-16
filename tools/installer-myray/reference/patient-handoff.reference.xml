@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Banana / Joyful Smile — X-ray system patient-handoff REFERENCE
+  ==============================================================
+  This file is the OWNED contract reference for THIS imaging system only.
+  It is NOT shared with other installer-* packages and must NOT be overwritten
+  by build-installer-packages.ps1 (which only syncs engine .ps1 files).
+
+  Develop this system's handoff independently:
+    - Change fields / formats here when the vendor contract changes
+    - Keep other systems' reference/*.xml untouched
+    - Runtime code lives in xray-local-launcher.ps1 (EnabledSystems isolates)
+  Sample chart is fictional (smoke/self-test style). Do not use on real patients.
+-->
+<BananaXrayHandoffReference
+    systemKey="myray"
+    displayName="MyRay (CEFLA)"
+    bananaOpenPath="/open/myray"
+    csxrayProtocol="csxray://open/myray"
+    handoffMode="cli-nntbridge-family"
+    runtimeWriter="Start-MyRayBridgePatient"
+    confirmed="2026-08"
+    independent="true">
+
+  <Notes>
+    <Note>Same CLI family as NNT (/PATID … /OPENPATIENT) via NNTBridge/MyRayBridge — NOT EzDent Linkage.xml.</Note>
+    <Note>Kwun Tong package may enable MyRay + NNT together; Digirex is a sidecar on the same process.</Note>
+    <Note>Keep this reference independent of installer-nntnewtom even though CLI shapes are similar — evolve MyRay here.</Note>
+  </Notes>
+
+  <NativePayload fileName="(command-line)" encoding="n/a" locationHint="MyRayBridge.exe or NNTBridge.exe ArgumentList">
+    <CommandLine exe="NNTBridge.exe">
+      <Arg>/PATID</Arg><Arg>001287</Arg>
+      <Arg>/NAME</Arg><Arg>SMOKE QUIET</Arg>
+      <Arg>/DATEB</Arg><Arg>15/05/1984</Arg>
+      <Arg>/SEX</Arg><Arg>M</Arg>
+      <Arg>/OPENPATIENT</Arg>
+    </CommandLine>
+  </NativePayload>
+
+  <FieldMap>
+    <Field banana="patient_no" native="/PATID" transform="Convert-NntPatientId" />
+    <Field banana="patient_name" native="/NAME" />
+    <Field banana="dob" native="/DATEB" transform="dd/MM/yyyy" />
+    <Field banana="sex" native="/SEX" transform="M|F" />
+  </FieldMap>
+
+  <DryRun>
+    <Url>http://127.0.0.1:17890/open/myray?dry_run=1&amp;patient_no=KT001287&amp;patient_name=SMOKE%20QUIET&amp;sex=M</Url>
+  </DryRun>
+</BananaXrayHandoffReference>
+

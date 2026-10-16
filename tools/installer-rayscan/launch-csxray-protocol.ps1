@@ -5,7 +5,7 @@
 # protocol so the browser only has to open a link. Windows starts this
 # process, which talks to the bridge on loopback itself and asks it to
 # open the named program (ezdenti, digirex, nntnewtom, myray, rayscan,
-# carestream, trophy, aidental).
+# carestream, trophy).
 #
 # If the bridge is not already listening, this starts the launcher that
 # lives in the same folder, using csxray-bridge.txt written by the
@@ -26,7 +26,7 @@ $ErrorActionPreference = "Stop"
 
 $AllowedKeys = @(
     "ezdenti", "digirex", "nntnewtom", "myray",
-    "rayscan", "carestream", "trophy", "aidental"
+    "rayscan", "carestream", "trophy"
 )
 
 function Convert-CsxrayUrl([string]$Raw) {
@@ -89,22 +89,39 @@ function Read-HttpErrorBody($ErrorRecord) {
     }
 }
 
-function Start-EzdentiFallback {
-    # The listener on :17890 may be an older process whose /open/ezdenti
-    # returns 404 (fixed install path only). This handler is started fresh
-    # on every click, so it can still open the loader the bridge missed.
+function Start-EzdentiFallback([string]$Query) {
+    # Digirex-only (or other) listener on :17890 often returns 404 for
+    # /open/ezdenti. Never blind-launch the loader — that opens EzDent
+    # without Linkage.xml / patient chart. One-shot -OpenEzdenti writes
+    # Linkage.xml and launches with the same patient query Banana sent.
     $launcher = Join-Path $PSScriptRoot "xray-local-launcher.ps1"
     if (-not (Test-Path -LiteralPath $launcher)) { return "" }
-    $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher -FindEzdenti
+    $argList = @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", $launcher,
+        "-OpenEzdenti"
+    )
+    if ($Query) {
+        $argList += @("-OpenQuery", $Query)
+    }
+    $out = & powershell.exe @argList 2>&1
+    $joined = (@($out) | ForEach-Object { [string]$_ }) -join "`n"
+    if ($LASTEXITCODE -eq 0 -and $joined -match '(?m)^OK\b') {
+        return $joined.Trim()
+    }
+    # Older launcher without -OpenEzdenti: still prefer FindEzdenti so the
+    # button opens something, but chart handoff will be missing.
+    $findOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher -FindEzdenti 2>&1
     $exe = ""
-    foreach ($line in @($out)) {
+    foreach ($line in @($findOut)) {
         $text = ([string]$line).Trim()
         if ($text -match '(?i)\.exe$') { $exe = $text }
     }
     if (-not $exe -or -not (Test-Path -LiteralPath $exe)) { return "" }
     $work = Split-Path -Parent $exe
     Start-Process -FilePath $exe -WorkingDirectory $work | Out-Null
-    return $exe
+    return ("blind " + $exe)
 }
 
 function Show-ProtocolError([string]$Message) {
@@ -178,7 +195,7 @@ function Invoke-SelfTest {
     Assert-Equal "digirex uri" "http://127.0.0.1:17890/open/digirex?patient_no=PL001287" (Get-OpenUri $dig.key $dig.query 17890)
     $nnt = Convert-CsxrayUrl '"csxray://open/nntnewtom?patient_no=1"'
     Assert-Equal "quoted nnt key" "nntnewtom" $nnt.key
-    foreach ($key in @("myray", "rayscan", "carestream", "trophy", "aidental")) {
+    foreach ($key in @("myray", "rayscan", "carestream", "trophy")) {
         $parsed = Convert-CsxrayUrl ("csxray://open/" + $key + "?patient_no=1")
         Assert-Equal ($key + " allowed") $key $parsed.key
         Assert-Equal ($key + " in allow list") $true ($AllowedKeys -contains $parsed.key)
@@ -242,10 +259,15 @@ try {
         }
     }
     if ($parsed.key -eq "ezdenti") {
-        $opened = Start-EzdentiFallback
-        if ($opened) {
+        $opened = Start-EzdentiFallback $parsed.query
+        if ($opened -and $opened -notmatch '(?i)^blind\b') {
             Write-ProtocolLog ("OK ezdenti fallback " + $opened)
             exit 0
+        }
+        if ($opened -match '(?i)^blind\b') {
+            Write-ProtocolLog ("WARN ezdenti blind fallback " + $opened)
+            Show-ProtocolError "EzDent-i opened, but this PC's Digirex-only bridge blocked patient handoff. Re-run Install EzDent-i Bridge.bat, then remove 'Joyful Smile Digirex Bridge' from Startup so Digirex rides as a sidecar on the EzDent bridge."
+            exit 1
         }
         $detail = $detail + " EzDent-i was not found under Program Files, VATECH, the Start Menu, or the uninstall registry. Set EzdentiExePath in xray-launcher-config.ps1 if it is installed somewhere else."
     }

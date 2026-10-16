@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Banana / Joyful Smile — X-ray system patient-handoff REFERENCE
+  ==============================================================
+  This file is the OWNED contract reference for THIS imaging system only.
+  It is NOT shared with other installer-* packages and must NOT be overwritten
+  by build-installer-packages.ps1 (which only syncs engine .ps1 files).
+
+  Develop this system's handoff independently:
+    - Change fields / formats here when the vendor contract changes
+    - Keep other systems' reference/*.xml untouched
+    - Runtime code lives in xray-local-launcher.ps1 (EnabledSystems isolates)
+  Sample chart is fictional (smoke/self-test style). Do not use on real patients.
+-->
+<BananaXrayHandoffReference
+    systemKey="ezdenti"
+    displayName="EzDent-i (Vatech)"
+    bananaOpenPath="/open/ezdenti"
+    csxrayProtocol="csxray://open/ezdenti"
+    handoffMode="linkage-xml"
+    runtimeWriter="New-EzdentiLinkageXml"
+    confirmed="2026-10-16"
+    independent="true">
+
+  <Notes>
+    <Note>Vendor/Open Dental contract: write Linkage.xml next to EzDent-i Bin, then launch loader.</Note>
+    <Note>ChartNumber = bare digits (PL001287 -&gt; 001287). Chinese name is never written.</Note>
+    <Note>VTEzBridge32.exe is opt-in only (EzdentiUseLinkageBridge); default is Linkage.xml + desktop loader.</Note>
+    <Note>This reference is independent of Rayscan / NNT / Digirex / MyRay / Carestream contracts.</Note>
+  </Notes>
+
+  <NativePayload fileName="Linkage.xml" encoding="utf-8" locationHint="EzDent-i Bin (and VirtualStore mirror)">
+    <LinkageParameter>
+      <Patient LastName="SMOKE" FirstName="QUIET" ChartNumber="001287">
+        <Birthday>15/05/1984</Birthday>
+        <Address>Example Road</Address>
+        <Phone>21234567</Phone>
+        <Mobile>91234567</Mobile>
+        <SocialID>A1234567</SocialID>
+        <Gender>Male</Gender>
+      </Patient>
+    </LinkageParameter>
+  </NativePayload>
+
+  <FieldMap>
+    <Field banana="patient_no" native="Patient/@ChartNumber" transform="Convert-EzdentiPatientId (strip clinic prefix)" />
+    <Field banana="patient_name" native="Patient/@LastName + @FirstName" transform="Split-EzdentiPatientName" />
+    <Field banana="dob" native="Birthday" transform="Convert-EzdentiBirthDate (dd/MM/yyyy; match VTE2_Setting DateFormat)" />
+    <Field banana="sex" native="Gender" transform="Convert-GenderWord (Male/Female)" />
+    <Field banana="hkid" native="SocialID" />
+    <Field banana="phone" native="Phone" />
+    <Field banana="mobile_phone" native="Mobile" />
+    <Field banana="address" native="Address" />
+    <Field banana="chinese_name" native="(omitted)" transform="never written" />
+  </FieldMap>
+
+  <DryRun>
+    <Url>http://127.0.0.1:17890/open/ezdenti?dry_run=1&amp;patient_no=PL001287&amp;patient_name=SMOKE%20QUIET&amp;sex=M</Url>
+  </DryRun>
+</BananaXrayHandoffReference>
+

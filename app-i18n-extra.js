@@ -6063,17 +6063,6 @@
             'zh-CN': 'CS Imaging Software（本机 Carestream 患者浏览器）',
             'zh-Hant': 'CS Imaging Software（本機 Carestream 患者瀏覽器）'
         },
-        'media.sys.aidental': { en: 'Ai-Dental (small film)', 'zh-CN': 'Ai-Dental（小片）', 'zh-Hant': 'Ai-Dental（小片）' },
-        'media.sys.aidental.info': {
-            en: 'Opens Ai-Dental-Client (Woodpecker i-Sensor) with this patient\'s name pre-filled. Chart no., sex and DOB are not supported by Ai-Dental\'s own launch link, so those (plus the name) are also copied to the clipboard to paste in manually.',
-            'zh-CN': '打开 Ai-Dental-Client（Woodpecker i-Sensor）并预先带入姓名。Ai-Dental 本身的启动方式不支持传送编号、性别及出生日期，因此这些资料（连同姓名）也会复制到剪贴板，可手动贴上。',
-            'zh-Hant': '開啟 Ai-Dental-Client（Woodpecker i-Sensor）並預先帶入姓名。Ai-Dental 本身的啟動方式不支援傳送編號、性別及出生日期，因此這些資料（連同姓名）也會複製到剪貼簿，可手動貼上。'
-        },
-        'media.sys.aidental.desktopHint': {
-            en: 'Ai-Dental-Client small-film software on this PC',
-            'zh-CN': '本机 Ai-Dental-Client 小片软件',
-            'zh-Hant': '本機 Ai-Dental-Client 小片軟件'
-        },
         'media.sys.nntnewtom': { en: 'NNT / NEWTOM', 'zh-CN': 'NNT / NEWTOM', 'zh-Hant': 'NNT / NEWTOM' },
         'media.sys.nntnewtom.info': {
             en: 'Opens NNT / NEWTOM CBCT imaging software on this PC',
@@ -6084,26 +6073,6 @@
             en: 'NNT / NEWTOM CBCT software on this PC',
             'zh-CN': '本机 NNT / NEWTOM CBCT 软件',
             'zh-Hant': '本機 NNT / NEWTOM CBCT 軟件'
-        },
-        'media.local.aidentalOpen': {
-            en: 'Open Ai-Dental-Client on this computer?\n\n• Patient: {PATIENT}\n• Only the NAME will be pre-filled — Ai-Dental\'s own launch link cannot carry chart no., sex or DOB\n• Program: {EXE}\n\nFull details (incl. chart no., sex, DOB) are copied to the clipboard — paste into Ai-Dental\'s "Chart No."/"Gender"/"Birthday" fields by hand.\n\nRequires "Start X-Ray Launcher.bat" running.',
-            'zh-CN': '在本机打开 Ai-Dental-Client？\n\n• 患者：{PATIENT}\n• 只会自动带入姓名 — Ai-Dental 本身的启动方式无法传送编号、性别或出生日期\n• 程序：{EXE}\n\n完整资料（含编号、性别、出生日期）已复制到剪贴板 — 请手动贴到 Ai-Dental 的「Chart No.」/「Gender」/「Birthday」栏位。\n\n需运行「Start X-Ray Launcher.bat」。',
-            'zh-Hant': '在本機開啟 Ai-Dental-Client？\n\n• 病人：{PATIENT}\n• 只會自動帶入姓名 — Ai-Dental 本身的啟動方式無法傳送編號、性別或出生日期\n• 程式：{EXE}\n\n完整資料（含編號、性別、出生日期）已複製到剪貼簿 — 請手動貼到 Ai-Dental 的「Chart No.」/「Gender」/「Birthday」欄位。\n\n需執行「Start X-Ray Launcher.bat」。'
-        },
-        'media.local.aidentalLaunched': {
-            en: 'Ai-Dental-Client is starting with this patient\'s name pre-filled.\n\nChart no., sex and DOB were NOT sent (Ai-Dental\'s own launch link doesn\'t support them) — copied to clipboard instead: {PATIENT}\nPaste into Ai-Dental\'s "Chart No."/"Gender"/"Birthday" fields, or search by name in "{SHORTCUT}" if the wrong chart shows.',
-            'zh-CN': '正在启动 Ai-Dental-Client，并带入本患者的姓名。\n\n编号、性别及出生日期未能传送（Ai-Dental 本身的启动方式不支持）— 已改为复制到剪贴板：{PATIENT}\n请贴到 Ai-Dental 的「Chart No.」/「Gender」/「Birthday」栏位；若打开的病历不正确，请在「{SHORTCUT}」中改用姓名搜索。',
-            'zh-Hant': '正在啟動 Ai-Dental-Client，並帶入本病人的姓名。\n\n編號、性別及出生日期未能傳送（Ai-Dental 本身的啟動方式不支援）— 已改為複製到剪貼簿：{PATIENT}\n請貼到 Ai-Dental 的「Chart No.」/「Gender」/「Birthday」欄位；若開啟的病歷不正確，請在「{SHORTCUT}」中改用姓名搜尋。'
-        },
-        'media.local.aidentalLauncherNeeded': {
-            en: 'Could not start Ai-Dental-Client from the browser.\n\n1. Run: current work\\{BAT}\n2. Leave the launcher window open\n3. Click Ai-Dental again\n\nOr double-click "{SHORTCUT}" on the desktop and search manually.\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
-            'zh-CN': '无法从浏览器启动 Ai-Dental-Client。\n\n1. 运行：current work\\{BAT}\n2. 保持启动器窗口打开\n3. 再次点击 Ai-Dental\n\n或双击桌面「{SHORTCUT}」并手动搜索。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
-            'zh-Hant': '無法從瀏覽器啟動 Ai-Dental-Client。\n\n1. 執行：current work\\{BAT}\n2. 保持啟動器視窗開啟\n3. 再次按 Ai-Dental\n\n或按兩下桌面「{SHORTCUT}」並手動搜尋。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
-        },
-        'media.local.aidentalUseFolder': {
-            en: '(If the chart doesn\'t auto-open, search by patient name or no. in Ai-Dental-Client)',
-            'zh-CN': '（若未能自动开启病历，请在 Ai-Dental-Client 中按患者姓名或编号搜索）',
-            'zh-Hant': '（若未能自動開啟病歷，請在 Ai-Dental-Client 中按病人姓名或編號搜尋）'
         },
         'media.local.nntnewtomOpen': {
             en: 'Open NNT / NEWTOM on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nNNT/NEWTOM normally opens its own patient database — search by the copied patient name or patient no.',

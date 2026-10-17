@@ -167,6 +167,12 @@ function dryUrl(openKey) {
         pass(s.key + ' bananaOpenPath', text.indexOf('bananaOpenPath="/open/' + s.openKey + '"') >= 0 ||
             text.indexOf('/open/' + s.openKey) >= 0);
         pass(s.key + ' native hint present', text.indexOf(s.nativeHint) >= 0, s.nativeHint);
+        if (s.key === 'trophy') {
+            pass('carestream client Patient.exe documented', text.indexOf('Patient.exe') >= 0 && text.indexOf('Start-CarestreamImagingPatient') >= 0);
+            pass('carestream launcher prefers Patient Browser',
+                /function Start-CarestreamImagingPatient/.test(read('tools/xray-local-launcher.ps1')) &&
+                /carestream_patient_browser/.test(read('tools/xray-local-launcher.ps1')));
+        }
         pass(s.key + ' dry_run URL documented', /dry_run=1/.test(text));
         var h = sha256(text);
         if (hashes[h]) {
@@ -262,6 +268,30 @@ function dryUrl(openKey) {
                     'status=' + open.status + ' body=' + JSON.stringify(open.body).slice(0, 180));
             }
         }
+        var csOpen = await httpGetJson(dryUrl('carestream'), 15000).catch(function (e) {
+            return { status: 0, body: { error: e.message } };
+        });
+        if (csOpen.status === 200 && csOpen.body && csOpen.body.ok) {
+            var csBridge = csOpen.body.bridge || {};
+            var csArgs = String(csBridge.argList || '');
+            pass('/open/carestream dry_run quiet Patient.exe',
+                csOpen.body.dry_run === true && csOpen.body.launched === false &&
+                csBridge.mode === 'carestream_patient_browser' &&
+                /Patient\.exe$/i.test(String(csBridge.target || csOpen.body.target || '')) &&
+                csArgs.indexOf('-D001287') >= 0 && csArgs.indexOf('-NSMOKE QUIET') >= 0 &&
+                csArgs.indexOf('TW.exe') < 0,
+                JSON.stringify({
+                    mode: csBridge.mode,
+                    target: csBridge.target,
+                    launched: csOpen.body.launched,
+                    arg: csArgs.slice(0, 160)
+                }));
+        } else if (csOpen.status === 404) {
+            pass('/open/carestream dry_run reaches bridge', true, '404 not-installed/disabled');
+        } else {
+            pass('/open/carestream dry_run quiet Patient.exe', false,
+                'status=' + csOpen.status + ' body=' + JSON.stringify(csOpen.body).slice(0, 220));
+        }
     }
 
     console.log('\n=== CDP Runtime.evaluate + live page (headless; dry_run only) ===');
@@ -319,7 +349,8 @@ function dryUrl(openKey) {
                 var evalResult = await cdp.js(`(async () => {
                   const deadline = Date.now() + 15000;
                   while (Date.now() < deadline) {
-                    if (document.querySelector('.xray-sys-rayscan') || document.getElementById('xraySoftwareGrid')) break;
+                    if ((document.querySelector('.xray-sys-rayscan') || document.getElementById('xraySoftwareGrid')) &&
+                        typeof XRAY_SYSTEMS !== 'undefined' && XRAY_SYSTEMS.carestream) break;
                     await new Promise(r => setTimeout(r, 200));
                   }
                   const btns = {
@@ -338,6 +369,18 @@ function dryUrl(openKey) {
                   const ez = await fetchXml('/tools/installer-ezdenti/reference/patient-handoff.reference.xml');
                   const ray = await fetchXml('/tools/installer-rayscan/reference/patient-handoff.reference.xml');
                   const nnt = await fetchXml('/tools/installer-nntnewtom/reference/patient-handoff.reference.xml');
+                  const cs = await fetchXml('/tools/installer-carestream-mcp/reference/patient-handoff.reference.xml');
+                  cs.patientExe = false;
+                  try {
+                    const r = await fetch('/tools/installer-carestream-mcp/reference/patient-handoff.reference.xml', { cache: 'no-store' });
+                    const t = await r.text();
+                    cs.patientExe = t.indexOf('Patient.exe') >= 0 && t.indexOf('Start-CarestreamImagingPatient') >= 0;
+                  } catch (e) {}
+                  let csDry = null;
+                  try {
+                    const r = await fetch(${JSON.stringify(dryUrl('carestream'))}, { cache: 'no-store', mode: 'cors' });
+                    csDry = { http: r.status, body: await r.json() };
+                  } catch (e) { csDry = { error: String(e && e.message || e) }; }
                   let dry = null;
                   try {
                     const r = await fetch(${JSON.stringify(dryUrl('rayscan'))}, { cache: 'no-store', mode: 'cors' });
@@ -348,7 +391,8 @@ function dryUrl(openKey) {
                     const r = await fetch('http://127.0.0.1:17890/status', { cache: 'no-store', mode: 'cors' });
                     status = { http: r.status, body: await r.json() };
                   } catch (e) { status = { error: String(e && e.message || e) }; }
-                  return { host: location.host, btns, ez, ray, nnt, dry, status };
+                  const sys = (typeof XRAY_SYSTEMS !== 'undefined' && XRAY_SYSTEMS.carestream) || null;
+                  return { host: location.host, btns, ez, ray, nnt, cs, dry, csDry, status, carestreamShortcut: sys && sys.desktopShortcutPath, carestreamLauncher: sys && sys.launcherKey };
                 })()`, true, 30000);
 
                 pass('CDP host smoke static', evalResult && String(evalResult.host).indexOf('127.0.0.1:' + PAGE_PORT) === 0, evalResult && evalResult.host);
@@ -363,6 +407,23 @@ function dryUrl(openKey) {
                     !!(evalResult && evalResult.nnt && evalResult.nnt.http === 200 && evalResult.nnt.key === 'nntnewtom'));
                 pass('Runtime.evaluate refs are distinct keys',
                     !!(evalResult && evalResult.ez && evalResult.ray && evalResult.ez.key !== evalResult.ray.key));
+                pass('Runtime.evaluate carestream ref is Patient.exe client',
+                    !!(evalResult && evalResult.cs && evalResult.cs.http === 200 && evalResult.cs.key === 'trophy' && evalResult.cs.patientExe));
+                pass('Runtime.evaluate carestream shortcut is CS Imaging Software',
+                    !!(evalResult && evalResult.carestreamLauncher === 'carestream' &&
+                        String(evalResult.carestreamShortcut || '').indexOf('CS Imaging Software.lnk') >= 0),
+                    evalResult && evalResult.carestreamShortcut);
+                if (evalResult && evalResult.csDry && !evalResult.csDry.error && evalResult.csDry.http === 200) {
+                    var csBody = evalResult.csDry.body || {};
+                    var csMode = csBody.bridge && csBody.bridge.mode;
+                    pass('Runtime.evaluate /open/carestream dry_run Patient.exe',
+                        csBody.launched === false && csBody.dry_run === true && csMode === 'carestream_patient_browser',
+                        csMode);
+                } else if (evalResult && evalResult.csDry && evalResult.csDry.http === 404) {
+                    pass('Runtime.evaluate /open/carestream dry_run Patient.exe', true, '404');
+                } else {
+                    warn('Runtime.evaluate carestream dry_run', evalResult && evalResult.csDry && (evalResult.csDry.error || evalResult.csDry.http));
+                }
 
                 if (evalResult && evalResult.dry && !evalResult.dry.error) {
                     if (evalResult.dry.http === 404) {
@@ -385,20 +446,29 @@ function dryUrl(openKey) {
                     var livePage = await cdp.js(`(async () => {
                       const deadline = Date.now() + 12000;
                       while (Date.now() < deadline) {
-                        if (document.querySelector('.xray-sys-rayscan')) break;
+                        if (document.querySelector('.xray-sys-rayscan') &&
+                            typeof XRAY_SYSTEMS !== 'undefined' && XRAY_SYSTEMS.carestream) break;
                         await new Promise(r => setTimeout(r, 200));
                       }
+                      const sys = (typeof XRAY_SYSTEMS !== 'undefined' && XRAY_SYSTEMS.carestream) || null;
                       return {
                         host: location.host,
                         rayscan: !!document.querySelector('.xray-sys-rayscan'),
                         ezdenti: !!document.querySelector('.xray-sys-vatech'),
-                        digirex: !!document.querySelector('.xray-sys-digirex')
+                        digirex: !!document.querySelector('.xray-sys-digirex'),
+                        carestream: !!document.querySelector('.xray-sys-carestream'),
+                        carestreamShortcut: sys && sys.desktopShortcutPath,
+                        carestreamLauncher: sys && sys.launcherKey
                       };
                     })()`, true, 20000);
                     pass('live :5500 page', livePage && String(livePage.host).indexOf('5500') >= 0, livePage && livePage.host);
                     pass('live :5500 xray system buttons',
-                        !!(livePage && livePage.rayscan && livePage.ezdenti),
+                        !!(livePage && livePage.rayscan && livePage.ezdenti && livePage.carestream),
                         livePage ? JSON.stringify(livePage) : 'none');
+                    pass('live :5500 carestream opens CS Imaging shortcut',
+                        !!(livePage && livePage.carestreamLauncher === 'carestream' &&
+                            String(livePage.carestreamShortcut || '').indexOf('CS Imaging Software.lnk') >= 0),
+                        livePage && livePage.carestreamShortcut);
                 } catch (e) {
                     pass('live :5500 CDP', false, e.message);
                 }

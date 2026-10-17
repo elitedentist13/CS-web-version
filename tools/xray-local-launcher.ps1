@@ -2407,6 +2407,92 @@ function Start-TrophyTwPatient($Resolved, $Patient) {
     }
 }
 
+# Consultation client: the public desktop icon "CS Imaging Software" is
+# Patient.exe (Patient Browser). That is the viewer. 2D / 3D capture buttons
+# live inside CS Imaging on the x-ray server (TW.exe / Trophy), so this PC
+# must not start TW.exe just because the file happens to be installed.
+# Chart id is the bare digit run (same prefix strip as NNT / Rayscan) so an
+# old CS chart opens. -N/-F carry the bilingual label so a new chart is
+# created with Banana's name. -P is added only when that chart folder
+# already exists on the SCAN share.
+function Convert-CarestreamBirthDate($Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
+    $formats = @("yyyy-MM-dd", "yyyy/M/d", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "d-M-yyyy", "yyyyMMdd")
+    foreach ($fmt in $formats) {
+        try {
+            $dt = [DateTime]::ParseExact($Value, $fmt, [Globalization.CultureInfo]::InvariantCulture)
+            return $dt.ToString("yyyyMMdd")
+        } catch {}
+    }
+    try {
+        $dt = [DateTime]::Parse($Value, [Globalization.CultureInfo]::InvariantCulture)
+        return $dt.ToString("yyyyMMdd")
+    } catch {
+        return ""
+    }
+}
+
+function Resolve-CarestreamPatientBrowser($Resolved) {
+    $target = if ($Resolved) { [string]$Resolved.target } else { "" }
+    if ($target -and ($target -match '(?i)(^|[\\/])Patient\.exe$') -and (Test-PathSafe $target)) {
+        return $target
+    }
+    $shortcut = First-Existing $Systems.carestream.shortcuts
+    $info = Resolve-Shortcut $shortcut
+    if ($info -and $info.target -and ($info.target -match '(?i)(^|[\\/])Patient\.exe$') -and (Test-PathSafe $info.target)) {
+        return [string]$info.target
+    }
+    return First-Existing $Systems.carestream.executables
+}
+
+function Build-CarestreamPatientCommandLine($Patient, $ScanPath) {
+    $patNo = [string]$Patient.patient_no
+    $id = Convert-NntPatientId $patNo
+    if ([string]::IsNullOrWhiteSpace($id)) { $id = $patNo.Trim() }
+    $ui = Build-TrophyTwUiLabel $Patient
+    if ([string]::IsNullOrWhiteSpace($ui)) { $ui = $id }
+    if ([string]::IsNullOrWhiteSpace($id) -and [string]::IsNullOrWhiteSpace($ui)) { return "" }
+    $parts = New-Object System.Collections.Generic.List[string]
+    if ($ScanPath -and (Test-PathSafe $ScanPath)) {
+        $parts.Add("-P" + $ScanPath)
+    }
+    if ($id) { $parts.Add("-D" + $id) }
+    if ($ui) {
+        $parts.Add("-N" + $ui)
+        $parts.Add("-F" + $ui)
+    }
+    $dob = Convert-CarestreamBirthDate $Patient.dob
+    if ($dob) { $parts.Add("-B" + $dob) }
+    return ($parts -join " ")
+}
+
+function Start-CarestreamImagingPatient($Resolved, $Patient) {
+    $exe = Resolve-CarestreamPatientBrowser $Resolved
+    if (-not $exe) { return $null }
+    $patNo = [string]$Patient.patient_no
+    $existing = Find-NntScanFolder $patNo
+    $uiLabel = Build-TrophyTwUiLabel $Patient
+    $argLine = Build-CarestreamPatientCommandLine $Patient $existing
+    if ([string]::IsNullOrWhiteSpace($argLine)) { return $null }
+    $workDir = Split-Path -Parent $exe
+    $startArgs = @{ FilePath = $exe; ArgumentList = $argLine; WindowStyle = "Normal" }
+    if ($workDir -and (Test-PathSafe $workDir)) {
+        $startArgs.WorkingDirectory = $workDir
+    }
+    Start-Process @startArgs
+    return [ordered]@{
+        bridge = $exe
+        target = $exe
+        shortcut = "C:\Users\Public\Desktop\CS Imaging Software.lnk"
+        workingDirectory = $workDir
+        patient_id = Convert-NntPatientId $patNo
+        scan_path = $existing
+        ui_label = $uiLabel
+        mode = "carestream_patient_browser"
+        argList = $argLine
+    }
+}
+
 function Start-RayBridgePatient($Resolved, $Patient, [switch]$DryRun) {
     $bridge = Resolve-RayBridge $Resolved
     $patId = if ($Patient.patient_no) { Convert-RayPatientId $Patient.patient_no } else { $Patient.patient_id }
@@ -3617,18 +3703,38 @@ function Handle-Request($RawPath) {
             }
         } elseif ($key -eq "rayscan") {
             $bridgeLaunch = Start-RayBridgePatient $resolved $patientContext -DryRun:$dryRun
-        } elseif ($key -eq "trophy" -or $key -eq "carestream") {
-            # Clinic Solution's Carestream button is TW.exe, not Patient.exe.
-            # Patient.exe stays the fallback when this PC has no TW.exe.
+        } elseif ($key -eq "trophy") {
+            # Server / MCP capture station. TW.exe opens the chart folder;
+            # 2D and 3D acquire buttons are inside that program.
             if ($dryRun) {
                 $bridgeLaunch = [ordered]@{
-                    target = $resolved.target
-                    mode = "carestream-dry-run"
+                    target = (Resolve-TrophyTwExe $resolved)
+                    mode = "trophy-dry-run"
+                    argList = (Build-TrophyTwCommandLine (Get-TrophyScanFolderPath $patientContext.patient_no) (Build-TrophyTwUiLabel $patientContext))
                     dry_run = $true
                     launched = $false
                 }
             } else {
                 $bridgeLaunch = Start-TrophyTwPatient $resolved $patientContext
+            }
+        } elseif ($key -eq "carestream") {
+            # Consultation client: public desktop "CS Imaging Software" -> Patient.exe.
+            if ($dryRun) {
+                $existingScan = Find-NntScanFolder $patientContext.patient_no
+                $bridgeLaunch = [ordered]@{
+                    target = (Resolve-CarestreamPatientBrowser $resolved)
+                    patient_id = (Convert-NntPatientId $patientContext.patient_no)
+                    scan_path = $existingScan
+                    mode = "carestream_patient_browser"
+                    argList = (Build-CarestreamPatientCommandLine $patientContext $existingScan)
+                    dry_run = $true
+                    launched = $false
+                }
+            } else {
+                $bridgeLaunch = Start-CarestreamImagingPatient $resolved $patientContext
+                if (-not $bridgeLaunch) {
+                    $bridgeLaunch = Start-TrophyTwPatient $resolved $patientContext
+                }
             }
         } elseif ($key -eq "myray") {
             if ($dryRun) {
@@ -3735,6 +3841,23 @@ function Invoke-SelfTest {
         "-P\\RECEPTION_MCP\IMAGE\SCAN\003509 -NSIU KAI WING  TEST -FSIU KAI WING  TEST" `
         (Build-TrophyTwCommandLine "\\RECEPTION_MCP\IMAGE\SCAN\003509" "SIU KAI WING  TEST")
     Assert-Equal "label is not quoted" $false ((Build-TrophyTwCommandLine "C:\SCAN\1" "A B") -match '"')
+
+    Write-Host "== Carestream client Patient.exe (desktop shortcut, not TW.exe) ==" -ForegroundColor Cyan
+    $csPatient = [ordered]@{
+        patient_no = "PL003509"
+        patient_name = "SIU KAI WING"
+        chinese_name = "TEST"
+        dob = "1969-05-23"
+    }
+    Assert-Equal "client chart strips clinic prefix" "003509" (Convert-NntPatientId "PL003509")
+    Assert-Equal "client command without a scan folder" `
+        "-D003509 -NSIU KAI WING  TEST -FSIU KAI WING  TEST -B19690523" `
+        (Build-CarestreamPatientCommandLine $csPatient "")
+    $csDir = Join-Path $env:TEMP "cs-patient-browser-selftest"
+    New-Item -ItemType Directory -Path $csDir -Force | Out-Null
+    Assert-Equal "existing scan folder is prefixed with -P" $true `
+        ((Build-CarestreamPatientCommandLine $csPatient $csDir).StartsWith("-P" + $csDir))
+    Remove-Item -LiteralPath $csDir -Force -Recurse -ErrorAction SilentlyContinue
 
     Write-Host "== Carestream date sides (11 July 2026 stays with the chart folder) ==" -ForegroundColor Cyan
     Assert-Equal "11 July 2026 is the before side" "before" (Get-CarestreamFilmSide "2026-07-11T15:14:00")

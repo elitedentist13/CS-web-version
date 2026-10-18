@@ -292,7 +292,8 @@ function dryUrl(openKey) {
                 'status=' + csOpen.status + ' body=' + JSON.stringify(csOpen.body).slice(0, 220));
         }
         var sampleQs = 'dry_run=1&patient_no=PL001287&patient_name=' + encodeURIComponent('SMOKE QUIET') +
-            '&chinese_name=' + encodeURIComponent('TEST') + '&dob=1969-05-23&sex=M';
+            '&chinese_name=' + encodeURIComponent('TEST') + '&dob=1969-05-23&sex=M&hkid=' +
+            encodeURIComponent('A123456(7)');
         var sampleCs = await httpGetJson(BRIDGE + '/open/carestream?' + sampleQs, 15000).catch(function (e) {
             return { status: 0, body: { error: e.message } };
         });
@@ -311,6 +312,20 @@ function dryUrl(openKey) {
         pass('sample patient carestream search is patient name',
             sampleCs.status === 200 && sampleCsSearch === 'SMOKE QUIET',
             sampleCsSearch || '(empty search_text)');
+        // Use a chart that should not have a SCAN folder so new_patient_card is true.
+        var newCardQs = 'dry_run=1&patient_no=PL009999&patient_name=' + encodeURIComponent('SIU KAI WING') +
+            '&dob=1969-05-23&sex=M&hkid=' + encodeURIComponent('A123456(7)');
+        var newCardCs = await httpGetJson(BRIDGE + '/open/carestream?' + newCardQs, 15000).catch(function (e) {
+            return { status: 0, body: { error: e.message } };
+        });
+        var newCardBridge = (newCardCs.body && newCardCs.body.bridge) || {};
+        var newCardPayload = newCardBridge.new_patient_payload || {};
+        pass('sample new patient carestream card payload',
+            newCardCs.status === 200 && newCardBridge.new_patient_card === true &&
+            newCardPayload.first === 'KAI WING' && newCardPayload.last === 'SIU' &&
+            newCardPayload.day === '23' && newCardPayload.month === '05' && newCardPayload.year === '1969' &&
+            newCardPayload.chart === '009999' && newCardPayload.hkid === 'A123456(7)' && newCardPayload.sex === 'M',
+            JSON.stringify(newCardPayload));
         pass('sample patient trophy quotes -P folder',
             sampleTw.status === 200 && sampleTw.body && sampleTw.body.launched === false &&
             sampleTw.body.dry_run === true &&
@@ -398,16 +413,26 @@ function dryUrl(openKey) {
                   const nnt = await fetchXml('/tools/installer-nntnewtom/reference/patient-handoff.reference.xml');
                   const cs = await fetchXml('/tools/installer-carestream-mcp/reference/patient-handoff.reference.xml');
                   cs.patientExe = false;
+                  cs.newPatientCard = false;
                   try {
                     const r = await fetch('/tools/installer-carestream-mcp/reference/patient-handoff.reference.xml', { cache: 'no-store' });
                     const t = await r.text();
                     cs.patientExe = t.indexOf('Patient.exe') >= 0 && t.indexOf('Start-CarestreamImagingPatient') >= 0;
+                    cs.newPatientCard = t.indexOf('carestream-fill-patient-card.ps1') >= 0 &&
+                      t.indexOf('Patient Card') >= 0;
                   } catch (e) {}
                   let csDry = null;
                   try {
                     const r = await fetch(${JSON.stringify(dryUrl('carestream'))}, { cache: 'no-store', mode: 'cors' });
                     csDry = { http: r.status, body: await r.json() };
                   } catch (e) { csDry = { error: String(e && e.message || e) }; }
+                  let csNew = null;
+                  try {
+                    const newQs = 'http://127.0.0.1:17890/open/carestream?dry_run=1&patient_no=PL009999&patient_name=' +
+                      encodeURIComponent('SIU KAI WING') + '&dob=1969-05-23&sex=M&hkid=' + encodeURIComponent('A123456(7)');
+                    const r = await fetch(newQs, { cache: 'no-store', mode: 'cors' });
+                    csNew = { http: r.status, body: await r.json() };
+                  } catch (e) { csNew = { error: String(e && e.message || e) }; }
                   let dry = null;
                   try {
                     const r = await fetch(${JSON.stringify(dryUrl('rayscan'))}, { cache: 'no-store', mode: 'cors' });
@@ -419,7 +444,17 @@ function dryUrl(openKey) {
                     status = { http: r.status, body: await r.json() };
                   } catch (e) { status = { error: String(e && e.message || e) }; }
                   const sys = (typeof XRAY_SYSTEMS !== 'undefined' && XRAY_SYSTEMS.carestream) || null;
-                  return { host: location.host, btns, ez, ray, nnt, cs, dry, csDry, status, carestreamShortcut: sys && sys.desktopShortcutPath, carestreamLauncher: sys && sys.launcherKey };
+                  let searchFn = null;
+                  try {
+                    if (typeof xrayPatientSearchTextForLauncher === 'function') {
+                      searchFn = xrayPatientSearchTextForLauncher({
+                        patient_no: 'PL001287',
+                        full_name: 'SMOKE QUIET',
+                        chinese_name: 'TEST'
+                      }, 'carestream');
+                    }
+                  } catch (e) { searchFn = 'err:' + (e && e.message || e); }
+                  return { host: location.host, btns, ez, ray, nnt, cs, dry, csDry, csNew, searchFn, status, carestreamShortcut: sys && sys.desktopShortcutPath, carestreamLauncher: sys && sys.launcherKey };
                 })()`, true, 30000);
 
                 pass('CDP host smoke static', evalResult && String(evalResult.host).indexOf('127.0.0.1:' + PAGE_PORT) === 0, evalResult && evalResult.host);
@@ -436,10 +471,15 @@ function dryUrl(openKey) {
                     !!(evalResult && evalResult.ez && evalResult.ray && evalResult.ez.key !== evalResult.ray.key));
                 pass('Runtime.evaluate carestream ref is Patient.exe client',
                     !!(evalResult && evalResult.cs && evalResult.cs.http === 200 && evalResult.cs.key === 'trophy' && evalResult.cs.patientExe));
+                pass('Runtime.evaluate carestream ref documents Patient Card fill',
+                    !!(evalResult && evalResult.cs && evalResult.cs.newPatientCard));
                 pass('Runtime.evaluate carestream shortcut is CS Imaging Software',
                     !!(evalResult && evalResult.carestreamLauncher === 'carestream' &&
                         String(evalResult.carestreamShortcut || '').indexOf('CS Imaging Software.lnk') >= 0),
                     evalResult && evalResult.carestreamShortcut);
+                pass('Runtime.evaluate carestream search uses patient name',
+                    !!(evalResult && evalResult.searchFn === 'SMOKE QUIET'),
+                    evalResult && evalResult.searchFn);
                 if (evalResult && evalResult.csDry && !evalResult.csDry.error && evalResult.csDry.http === 200) {
                     var csBody = evalResult.csDry.body || {};
                     var csMode = csBody.bridge && csBody.bridge.mode;
@@ -450,6 +490,20 @@ function dryUrl(openKey) {
                     pass('Runtime.evaluate /open/carestream dry_run Patient.exe', true, '404');
                 } else {
                     warn('Runtime.evaluate carestream dry_run', evalResult && evalResult.csDry && (evalResult.csDry.error || evalResult.csDry.http));
+                }
+                if (evalResult && evalResult.csNew && !evalResult.csNew.error && evalResult.csNew.http === 200) {
+                    var csNewBody = evalResult.csNew.body || {};
+                    var csNewBridge = csNewBody.bridge || {};
+                    var csNewCard = csNewBridge.new_patient_payload || {};
+                    pass('Runtime.evaluate carestream new-patient card payload',
+                        csNewBody.dry_run === true && csNewBridge.new_patient_card === true &&
+                        csNewCard.first === 'KAI WING' && csNewCard.last === 'SIU' &&
+                        csNewCard.chart === '009999' && csNewCard.hkid === 'A123456(7)',
+                        JSON.stringify(csNewCard));
+                } else if (evalResult && evalResult.csNew && evalResult.csNew.http === 404) {
+                    pass('Runtime.evaluate carestream new-patient card payload', true, '404');
+                } else {
+                    warn('Runtime.evaluate carestream new-patient', evalResult && evalResult.csNew && (evalResult.csNew.error || evalResult.csNew.http));
                 }
 
                 if (evalResult && evalResult.dry && !evalResult.dry.error) {

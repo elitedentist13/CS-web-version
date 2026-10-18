@@ -181,7 +181,8 @@ function Copy-HelperScripts($InstallPath) {
     $helpers = @(
         "Start Carestream MCP Launcher.bat",
         "Test Carestream MCP Launcher.bat",
-        "carestream-paste-search.ps1"
+        "carestream-paste-search.ps1",
+        "carestream-fill-patient-card.ps1"
     )
     foreach ($name in $helpers) {
         $src = Join-Path $scriptDir $name

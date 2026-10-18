@@ -2482,13 +2482,19 @@ function Build-CarestreamSearchText($Patient) {
 # write the patient name into the live-filter Win32 Edit control via
 # tools/carestream-paste-search.ps1 (EM_REPLACESEL + EN_CHANGE).
 # Non-blocking so /open/carestream returns immediately — same as Rayscan.
+function Resolve-CarestreamHelperScript([string]$FileName) {
+    $scriptPath = Join-Path $PSScriptRoot $FileName
+    if (-not (Test-Path -LiteralPath $scriptPath)) {
+        $scriptPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) $FileName
+    }
+    if (Test-Path -LiteralPath $scriptPath) { return $scriptPath }
+    return $null
+}
+
 function Start-PasteIntoPatientBrowserSearch([string]$SearchText) {
     if ([string]::IsNullOrWhiteSpace($SearchText)) { return }
-    $scriptPath = Join-Path $PSScriptRoot "carestream-paste-search.ps1"
-    if (-not (Test-Path -LiteralPath $scriptPath)) {
-        $scriptPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "carestream-paste-search.ps1"
-    }
-    if (-not (Test-Path -LiteralPath $scriptPath)) { return }
+    $scriptPath = Resolve-CarestreamHelperScript "carestream-paste-search.ps1"
+    if (-not $scriptPath) { return }
     # Pass name via temp file — Start-Process does not quote ArgumentList, so
     # multi-word / Chinese names break -SearchText on the command line.
     $tmp = Join-Path $env:TEMP ("banana-cs-search-" + [Guid]::NewGuid().ToString("N") + ".txt")
@@ -2502,6 +2508,65 @@ function Start-PasteIntoPatientBrowserSearch([string]$SearchText) {
             "-NoProfile", "-ExecutionPolicy", "Bypass",
             "-File", $scriptPath,
             "-SearchFile", $tmp
+        ) | Out-Null
+    } catch {
+        try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch {}
+    }
+}
+
+# New patient (no SCAN folder yet): open Patient Card and prefill English
+# name, DOB, chart digits, HKID/SSN, gender. Staff clicks Create patient.
+function Build-CarestreamNewPatientCardPayload($Patient) {
+    $parts = Split-RayPatientName ([string]$Patient.patient_name)
+    $last = [string]$parts.last
+    $first = (@($parts.first, $parts.middle) | Where-Object { $_ }) -join " "
+    if ([string]::IsNullOrWhiteSpace($first) -and -not [string]::IsNullOrWhiteSpace($last)) {
+        # Single-token English name → put it in First name (required field).
+        $first = $last
+        $last = $last
+    }
+    $dobRaw = Convert-CarestreamBirthDate $Patient.dob
+    $day = ""; $month = ""; $year = ""
+    if ($dobRaw -and $dobRaw.Length -eq 8) {
+        $year = $dobRaw.Substring(0, 4)
+        $month = $dobRaw.Substring(4, 2)
+        $day = $dobRaw.Substring(6, 2)
+    }
+    $chart = Convert-NntPatientId ([string]$Patient.patient_no)
+    $hkid = [string]$Patient.hkid
+    $sex = Convert-NntSex $Patient.sex
+    return [ordered]@{
+        first = $first
+        last = $last
+        day = $day
+        month = $month
+        year = $year
+        chart = $chart
+        hkid = $hkid
+        sex = $sex
+    }
+}
+
+function Start-CarestreamFillPatientCard($Patient) {
+    $scriptPath = Resolve-CarestreamHelperScript "carestream-fill-patient-card.ps1"
+    if (-not $scriptPath) { return }
+    $payload = Build-CarestreamNewPatientCardPayload $Patient
+    if ([string]::IsNullOrWhiteSpace([string]$payload.first) -and
+        [string]::IsNullOrWhiteSpace([string]$payload.last) -and
+        [string]::IsNullOrWhiteSpace([string]$payload.chart)) {
+        return
+    }
+    $tmp = Join-Path $env:TEMP ("banana-cs-card-" + [Guid]::NewGuid().ToString("N") + ".json")
+    try {
+        ($payload | ConvertTo-Json -Compress) | Set-Content -LiteralPath $tmp -Encoding UTF8
+    } catch {
+        return
+    }
+    try {
+        Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", $scriptPath,
+            "-DataFile", $tmp
         ) | Out-Null
     } catch {
         try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch {}
@@ -2531,6 +2596,12 @@ function Start-CarestreamImagingPatient($Resolved, $Patient) {
         try { Set-Clipboard -Value $searchText } catch {}
         Start-PasteIntoPatientBrowserSearch $searchText
     }
+    # No SCAN folder yet → treat as new patient: open Patient Card and
+    # prefill English name / DOB / chart / HKID for staff to Create.
+    $isNewPatient = [string]::IsNullOrWhiteSpace([string]$existing)
+    if ($isNewPatient) {
+        Start-CarestreamFillPatientCard $Patient
+    }
     return [ordered]@{
         bridge = $exe
         target = $exe
@@ -2540,6 +2611,7 @@ function Start-CarestreamImagingPatient($Resolved, $Patient) {
         scan_path = $existing
         ui_label = $uiLabel
         search_text = $searchText
+        new_patient_card = $isNewPatient
         mode = "carestream_patient_browser"
         argList = $argLine
     }
@@ -3779,6 +3851,8 @@ function Handle-Request($RawPath) {
                     patient_id = (Convert-NntPatientId $patientContext.patient_no)
                     scan_path = $existingScan
                     search_text = (Build-CarestreamSearchText $patientContext)
+                    new_patient_card = [string]::IsNullOrWhiteSpace([string]$existingScan)
+                    new_patient_payload = (Build-CarestreamNewPatientCardPayload $patientContext)
                     mode = "carestream_patient_browser"
                     argList = (Build-CarestreamPatientCommandLine $patientContext $existingScan)
                     dry_run = $true
@@ -3911,6 +3985,22 @@ function Invoke-SelfTest {
     Assert-equal "search_text query wins" "SIU" (Build-CarestreamSearchText ([ordered]@{ patient_no = "PL003509"; search_text = "SIU" }))
     Assert-equal "chinese name when no English" "TEST" (Build-CarestreamSearchText ([ordered]@{ patient_no = "PL003509"; chinese_name = "TEST" }))
     Assert-equal "paste helper is a function" $true ($null -ne (Get-Command Start-PasteIntoPatientBrowserSearch -ErrorAction SilentlyContinue))
+    $csCard = Build-CarestreamNewPatientCardPayload ([ordered]@{
+        patient_no = "PL003509"
+        patient_name = "SIU KAI WING"
+        dob = "1969-05-23"
+        sex = "M"
+        hkid = "A123456(7)"
+    })
+    Assert-equal "new card last name" "SIU" $csCard.last
+    Assert-equal "new card first name" "KAI WING" $csCard.first
+    Assert-equal "new card day" "23" $csCard.day
+    Assert-equal "new card month" "05" $csCard.month
+    Assert-equal "new card year" "1969" $csCard.year
+    Assert-equal "new card chart" "003509" $csCard.chart
+    Assert-equal "new card hkid" "A123456(7)" $csCard.hkid
+    Assert-equal "new card sex" "M" $csCard.sex
+    Assert-equal "fill card helper is a function" $true ($null -ne (Get-Command Start-CarestreamFillPatientCard -ErrorAction SilentlyContinue))
     Write-Host "== Carestream date sides (11 July 2026 stays with the chart folder) ==" -ForegroundColor Cyan
     Assert-Equal "11 July 2026 is the before side" "before" (Get-CarestreamFilmSide "2026-07-11T15:14:00")
     Assert-Equal "12 July 2026 is the after side" "after" (Get-CarestreamFilmSide "2026-07-12T00:00:00")

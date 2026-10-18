@@ -314,6 +314,14 @@ function extractIifeHelpers(src) {
     pass('SQL has reward_redeem RPC', /create or replace function public\.reward_redeem/i.test(sqlSrc));
     pass('SQL has reward_transfer RPC', /create or replace function public\.reward_transfer/i.test(sqlSrc));
     pass('SQL has reward_void_for_payment RPC', /create or replace function public\.reward_void_for_payment/i.test(sqlSrc));
+    pass('SQL has reward_void_for_bill RPC', /create or replace function public\.reward_void_for_bill/i.test(sqlSrc));
+    pass('SQL void bill reverses earn and redeem',
+        /kind in \('earn', 'redeem'\)/.test(sqlSrc) &&
+        /kind = 'redeem' then 0/.test(sqlSrc) &&
+        /void_earn/.test(sqlSrc) && /void_redeem/.test(sqlSrc));
+    pass('appt bill void reverses rewards',
+        /voidForBill/.test(apptSrc) && /executeBillDelete/.test(apptSrc) &&
+        /reverse earn \+ redeem/.test(apptSrc));
     pass('SQL default rate 10', /earn_rate_percent[\s\S]{0,40}default 10/i.test(sqlSrc));
 
     pass('index loads app-rewards.js', /['"]app-rewards\.js['"]/.test(idxSrc));

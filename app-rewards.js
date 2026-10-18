@@ -322,6 +322,28 @@ var REWARDS = (function () {
         });
     }
 
+    /**
+     * Reverse ALL reward activity on a voided bill:
+     *   - earn  → remove derived points from payments on that bill
+     *   - redeem → restore points that were used as discount on that bill
+     */
+    function voidForBill(billId, note) {
+        if (!billId) return Promise.resolve({ ok: true, skipped: true });
+        return SB.rpc('reward_void_for_bill', {
+            p_bill_id: billId,
+            p_created_by: actorName(),
+            p_note: note || 'Void bill: reverse earn + redeem'
+        }).then(function (r) {
+            if (r.error) return { ok: false, error: r.error.message };
+            return rpcResult(r.data);
+        }).then(function (res) {
+            if (res && res.ok && !res.skipped && res.patient_id != null && res.balance != null) {
+                refreshBannerBalances(res.patient_id, res.balance);
+            }
+            return res;
+        });
+    }
+
     // ── SMS ──────────────────────────────────────────────────
     function kindLabel(kind, lang) {
         var map = {
@@ -1331,6 +1353,7 @@ var REWARDS = (function () {
         redeem: redeem,
         transfer: transfer,
         voidForPayment: voidForPayment,
+        voidForBill: voidForBill,
         applyRedeemForBill: applyRedeemForBill,
         applyEarnForPayment: applyEarnForPayment,
         notifyBalanceChange: notifyBalanceChange,

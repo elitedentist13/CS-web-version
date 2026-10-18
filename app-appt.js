@@ -22923,13 +22923,40 @@ function executeBillDelete() {
     };
 
     var _voidTargetId = bdDeleteTarget.id;
+    var _voidPatientId = bdDeleteTarget.patient_id || null;
     SB.from('bills').update(voidPayload).eq('id', bdDeleteTarget.id)
     .then(function(r) {
         if (r.error) {
             var err = g('bdDeleteError');
             if (err) { err.textContent = trRepl('appt.msg.error', { MSG: r.error.message }); err.style.display = 'block'; }
-            return;
+            return null;
         }
+        // Reverse reward earn (derived) AND redeem (used) linked to this bill.
+        var rewardP = Promise.resolve({ ok: true, skipped: true });
+        if (typeof REWARDS !== 'undefined' && typeof REWARDS.voidForBill === 'function') {
+            rewardP = REWARDS.voidForBill(_voidTargetId, 'Void bill: reverse earn + redeem').then(function (vr) {
+                if (vr && vr.ok && !vr.skipped && typeof REWARDS.notifyFromRpcResult === 'function') {
+                    return REWARDS.notifyFromRpcResult(vr, {
+                        patientId: vr.patient_id || _voidPatientId,
+                        clinicCode: (typeof billPaymentClinicContext === 'function'
+                            ? (billPaymentClinicContext().clinic_code || '') : ''),
+                        ref: 'Void bill ' + String(_voidTargetId).slice(0, 8).toUpperCase(),
+                        kind: vr.kind || 'void_earn'
+                    });
+                }
+                if (vr && vr.patient_id && vr.balance != null &&
+                        typeof REWARDS.refreshBannerBalances === 'function') {
+                    REWARDS.refreshBannerBalances(vr.patient_id, vr.balance);
+                }
+                return vr;
+            }).catch(function (e) {
+                console.warn('Reward void-for-bill failed:', e && e.message ? e.message : e);
+            });
+        }
+        return rewardP;
+    })
+    .then(function(rewardRes) {
+        if (rewardRes === null) return; // bill update failed
         closeModal('billDeleteModal');
         bdDeleteTarget = null;
         loadBillHistory();
@@ -22942,6 +22969,10 @@ function executeBillDelete() {
             if (bdModalEl && bdModalEl.style.display === 'block') {
                 if (typeof showBillDetail === 'function') showBillDetail(bdCurrentBill);
             }
+        }
+        if (_voidPatientId && typeof REWARDS !== 'undefined' &&
+                typeof REWARDS.refreshBannerBalances === 'function') {
+            REWARDS.refreshBannerBalances(_voidPatientId);
         }
         try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
     });

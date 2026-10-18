@@ -289,6 +289,8 @@ function extractIifeHelpers(src) {
     var i18nSrc = read('app-i18n.js');
     var sqlSrc = read('reward_points.sql');
     var appSrc = read('app.js');
+    var patientSrc = read('app-patient.js');
+    var appJsSrc = appSrc;
 
     console.log('=== syntax: node --check ===');
     var syntaxFiles = [
@@ -299,6 +301,8 @@ function extractIifeHelpers(src) {
         'app-consultation.js',
         'app-i18n.js',
         'app-i18n-extra.js',
+        'app-patient.js',
+        'app.js',
         'scripts/reward-points-smoke.js'
     ];
     for (var si = 0; si < syntaxFiles.length; si++) {
@@ -315,6 +319,7 @@ function extractIifeHelpers(src) {
     pass('SQL has reward_transfer RPC', /create or replace function public\.reward_transfer/i.test(sqlSrc));
     pass('SQL has reward_void_for_payment RPC', /create or replace function public\.reward_void_for_payment/i.test(sqlSrc));
     pass('SQL has reward_void_for_bill RPC', /create or replace function public\.reward_void_for_bill/i.test(sqlSrc));
+    pass('SQL has reward_adjust RPC', /create or replace function public\.reward_adjust/i.test(sqlSrc));
     pass('SQL void bill reverses earn and redeem',
         /kind in \('earn', 'redeem'\)/.test(sqlSrc) &&
         /kind = 'redeem' then 0/.test(sqlSrc) &&
@@ -332,6 +337,29 @@ function extractIifeHelpers(src) {
     pass('index loads app-rewards.js', /['"]app-rewards\.js['"]/.test(idxSrc));
     pass('index has apRewardPanel', idxSrc.indexOf('id="apRewardPanel"') >= 0);
     pass('index has rewardPatientModal', idxSrc.indexOf('id="rewardPatientModal"') >= 0);
+    pass('index has admin adjust controls',
+        idxSrc.indexOf('id="rwAdminAdjust"') >= 0 &&
+        idxSrc.indexOf('id="rwAdjPlus"') >= 0 &&
+        idxSrc.indexOf('id="rwAdjReset"') >= 0);
+    pass('index has reward ledger finder modal',
+        idxSrc.indexOf('id="rewardLedgerFinderModal"') >= 0);
+    pass('index has dashboard rewards card',
+        idxSrc.indexOf('id="card-rewards"') >= 0);
+    pass('REWARDS.adjust + openLedgerFinder exported',
+        /adjust:\s*adjust/.test(rewardsSrc) &&
+        /openLedgerFinder:\s*openLedgerFinder/.test(rewardsSrc) &&
+        /function adjust\s*\(/.test(rewardsSrc));
+    pass('config log has clinic/chart/handler columns',
+        /rewards\.col\.clinic/.test(rewardsSrc) &&
+        /rewards\.col\.chartNo/.test(rewardsSrc) &&
+        /rewards\.col\.handler/.test(rewardsSrc) &&
+        /enrichLedgerMeta/.test(rewardsSrc));
+    pass('patient dir ⋯ has reward ledger',
+        /btn-reward-ledger/.test(patientSrc) &&
+        /REWARDS\.openPatientPanel/.test(patientSrc));
+    pass('dashboard card-rewards opens finder',
+        /card-rewards/.test(appJsSrc) &&
+        /openLedgerFinder/.test(appJsSrc));
     pass('index cfg nav rewards', /data-tab="rewards"/.test(idxSrc));
     pass('index cfgPane-rewards', idxSrc.indexOf('id="cfgPane-rewards"') >= 0);
     pass('cfg TABS has rewards', /key:\s*'rewards'/.test(cfgSrc));
@@ -443,6 +471,9 @@ function extractIifeHelpers(src) {
         pass('GET /index.html', idx.status === 200, 'status=' + idx.status);
         pass('HTML has apRewardUse', idx.body.indexOf('id="apRewardUse"') >= 0);
         pass('HTML has rwTransferSubmit', idx.body.indexOf('id="rwTransferSubmit"') >= 0);
+        pass('HTML has rwAdminAdjust', idx.body.indexOf('id="rwAdminAdjust"') >= 0);
+        pass('HTML has card-rewards', idx.body.indexOf('id="card-rewards"') >= 0);
+        pass('HTML has rewardLedgerFinderModal', idx.body.indexOf('id="rewardLedgerFinderModal"') >= 0);
         pass('HTML lists app-rewards.js', idx.body.indexOf('app-rewards.js') >= 0);
 
         var js = await httpGetText(PAGE_PORT, '/app-rewards.js');
@@ -526,6 +557,25 @@ function extractIifeHelpers(src) {
                 /patient/i.test(rpc.raw || '') || rpc.status < 500,
                 'status=' + rpc.status + ' ' + rpc.raw.slice(0, 120));
         }
+
+        var adjRpc = await restRpc(sb.url, sb.key, 'reward_adjust', {
+            p_patient_id: '00000000-0000-0000-0000-000000000001',
+            p_points_delta: 0,
+            p_clinic_code: 'PL',
+            p_note: 'smoke'
+        });
+        if (/does not exist|Could not find the function|PGRST202/i.test(adjRpc.raw || '') ||
+                adjRpc.status === 404) {
+            warn('RPC reward_adjust not deployed yet — run reward_points_patch_adjust.sql', adjRpc.raw);
+        } else if (adjRpc.status >= 200 && adjRpc.status < 300) {
+            pass('RPC reward_adjust zero-delta skips',
+                adjRpc.json && adjRpc.json.ok === true && adjRpc.json.skipped === true,
+                JSON.stringify(adjRpc.json).slice(0, 160));
+        } else {
+            pass('RPC reward_adjust callable',
+                adjRpc.status < 500,
+                'status=' + adjRpc.status + ' ' + String(adjRpc.raw || '').slice(0, 120));
+        }
         pass('API probe completed', true, tablesReady ? 'tables live' : 'SQL may still need apply');
     } catch (e) {
         pass('API probe', false, e && e.message);
@@ -590,8 +640,13 @@ function extractIifeHelpers(src) {
     panel: !!document.getElementById('apRewardPanel'),
     useCb: !!document.getElementById('apRewardUse'),
     modal: !!document.getElementById('rewardPatientModal'),
+    adminAdj: !!document.getElementById('rwAdminAdjust'),
+    finder: !!document.getElementById('rewardLedgerFinderModal'),
+    dashCard: !!document.getElementById('card-rewards'),
     cfgPane: !!document.getElementById('cfgPane-rewards'),
     cfgNav: !!document.querySelector('[data-tab="rewards"]'),
+    hasAdjust: typeof REWARDS.adjust === 'function',
+    hasFinder: typeof REWARDS.openLedgerFinder === 'function',
     reportHook: typeof window.isRewardPayMethod === 'function'
       ? window.isRewardPayMethod('Reward points') : null
   };
@@ -622,6 +677,11 @@ function extractIifeHelpers(src) {
         pass('live apRewardPanel in DOM', liveProbe && liveProbe.panel === true);
         pass('live apRewardUse in DOM', liveProbe && liveProbe.useCb === true);
         pass('live rewardPatientModal in DOM', liveProbe && liveProbe.modal === true);
+        pass('live rwAdminAdjust in DOM', liveProbe && liveProbe.adminAdj === true);
+        pass('live rewardLedgerFinderModal in DOM', liveProbe && liveProbe.finder === true);
+        pass('live card-rewards in DOM', liveProbe && liveProbe.dashCard === true);
+        pass('live REWARDS.adjust', liveProbe && liveProbe.hasAdjust === true);
+        pass('live REWARDS.openLedgerFinder', liveProbe && liveProbe.hasFinder === true);
         pass('live cfgPane-rewards in DOM', liveProbe && liveProbe.cfgPane === true);
         pass('live cfg nav rewards', liveProbe && liveProbe.cfgNav === true);
         pass('live window.isRewardPayMethod', liveProbe && liveProbe.reportHook === true);

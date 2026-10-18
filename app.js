@@ -5473,6 +5473,17 @@ document.addEventListener('DOMContentLoaded', function() {
         fetchPatients();
     });
 
+    var rewardsCard = g('card-rewards');
+    if (rewardsCard) {
+        rewardsCard.addEventListener('click', function () {
+            if (typeof REWARDS !== 'undefined' && typeof REWARDS.openLedgerFinder === 'function') {
+                REWARDS.openLedgerFinder();
+            } else {
+                alert(appTr('alert.rewardsLoading') || 'Reward module not loaded.');
+            }
+        });
+    }
+
     g('card-appointment').addEventListener('click', function() {
         if (typeof guardModuleByPermission === 'function' &&
             !guardModuleByPermission('appointment')) return;

@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261019reward9';
+  var BUILD = '20261019reward10';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -333,6 +333,9 @@
     </div>
     <div class="dash-card" id="card-patient">
       <div>👥</div><h3 data-i18n="dashboard.card.patient"></h3>
+    </div>
+    <div class="dash-card" id="card-rewards">
+      <div>🎁</div><h3 data-i18n="dashboard.card.rewards"></h3>
     </div>
     <div class="dash-card" id="card-expenses">
       <div>💰</div><h3 data-i18n="dashboard.card.expenses"></h3>
@@ -7498,7 +7501,7 @@
             onclick="REWARDS && REWARDS.closePatientPanel()">×</button>
     <h3 style="margin:0 0 4px;" data-i18n="rewards.panel.title">Reward points</h3>
     <div id="rwPatientMeta" style="font-size:13px;color:#64748b;margin-bottom:10px;"></div>
-    <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px;">
+    <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-end;">
       <div>
         <div style="font-size:11px;color:#94a3b8;" data-i18n="rewards.panel.balance">Balance</div>
         <div id="rwPatientBalance" style="font-size:28px;font-weight:800;color:#166534;">0.00</div>
@@ -7506,6 +7509,22 @@
       <div>
         <div style="font-size:11px;color:#94a3b8;" data-i18n="rewards.panel.started">Started</div>
         <div id="rwPatientStarted" style="font-size:16px;font-weight:600;">—</div>
+      </div>
+      <div id="rwAdminAdjust" style="display:none;flex:1;min-width:240px;">
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;" data-i18n="rewards.adj.title">Admin adjust</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <button type="button" id="rwAdjPlus" class="btn" style="padding:6px 12px;font-weight:700;">+</button>
+          <button type="button" id="rwAdjMinus" class="btn" style="padding:6px 12px;font-weight:700;">−</button>
+          <button type="button" id="rwAdjReset" class="btn" style="padding:6px 10px;"
+                  data-i18n="rewards.adj.reset">Reset</button>
+          <input type="number" id="rwAdjAmount" min="0.01" step="0.01"
+                 style="width:100px;padding:7px 8px;border:1px solid #cbd5e1;border-radius:8px;"
+                 data-i18n-placeholder="rewards.adj.amountPh" placeholder="Amount">
+          <input type="text" id="rwAdjNote"
+                 style="flex:1;min-width:140px;padding:7px 8px;border:1px solid #cbd5e1;border-radius:8px;"
+                 data-i18n-placeholder="rewards.adj.notePh" placeholder="Required note">
+        </div>
+        <div id="rwAdjError" style="display:none;color:#dc2626;font-size:12px;margin-top:6px;"></div>
       </div>
     </div>
     <div style="overflow:auto;max-height:280px;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:16px;">
@@ -7548,6 +7567,25 @@
       <button type="button" id="rwTransferSubmit"
               style="padding:10px 16px;background:#0f766e;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;"
               data-i18n="rewards.xfer.submit">Transfer points</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reward points — dashboard / quick find patient ledger -->
+<div id="rewardLedgerFinderModal" class="modal reward-points-modal">
+  <div class="modal-box" style="max-width:480px;">
+    <button class="mclose" data-i18n-aria-label="common.closeAria"
+            onclick="REWARDS && REWARDS.closeLedgerFinder()">×</button>
+    <h3 style="margin:0 0 8px;" data-i18n="rewards.finder.title">Reward points ledger</h3>
+    <p style="margin:0 0 12px;font-size:13px;color:#64748b;" data-i18n="rewards.finder.blurb">
+      Search a patient to open their reward points history.
+    </p>
+    <div style="position:relative;">
+      <label for="rwFinderQ" style="font-size:12px;color:#64748b;" data-i18n="rewards.finder.search">Patient</label>
+      <input type="text" id="rwFinderQ" autocomplete="off"
+             style="width:100%;padding:9px 10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;"
+             data-i18n-placeholder="rewards.xfer.toPh" placeholder="Search name / patient no.">
+      <div id="rwFinderDrop" hidden></div>
     </div>
   </div>
 </div>

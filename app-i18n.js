@@ -95,6 +95,11 @@ var I18N_STRINGS = {
         'zh-CN': '患者',
         'zh-Hant': '病人'
     },
+    'dashboard.card.rewards': {
+        en: 'Reward Points',
+        'zh-CN': '奖励积分',
+        'zh-Hant': '獎勵積分'
+    },
     'dashboard.card.expenses': {
         en: 'Expenses',
         'zh-CN': '费用',

@@ -1455,6 +1455,8 @@ function renderPatients(list) {
                                 esc(patTr('patient.dup.btn')) + '</button>' +
                             '<button type="button" role="menuitem" class="pd-more-item btn-appt-reminder" data-id="' + esc(p.id) + '">' +
                                 esc(patTr('patient.apptReminder.btn')) + '</button>' +
+                            '<button type="button" role="menuitem" class="pd-more-item btn-reward-ledger" data-id="' + esc(p.id) + '">' +
+                                esc(patTr('patient.dir.rewardLedger')) + '</button>' +
                         '</div>' +
                     '</div>' +
                 '</div>' +
@@ -1535,6 +1537,20 @@ function renderPatients(list) {
             e.stopPropagation();
             closePatientDirMoreMenus();
             openApptReminderForPatient(b.dataset.id);
+        });
+    });
+    tb.querySelectorAll('.btn-reward-ledger').forEach(function(b) {
+        b.addEventListener('click', function(e){
+            e.stopPropagation();
+            closePatientDirMoreMenus();
+            var pid = b.dataset.id;
+            if (typeof REWARDS !== 'undefined' && typeof REWARDS.openPatientPanel === 'function') {
+                REWARDS.openPatientPanel(pid);
+            } else {
+                alert(typeof patTr === 'function'
+                    ? patTr('patient.dir.rewardLedgerMissing')
+                    : 'Reward module not loaded.');
+            }
         });
     });
     tb.querySelectorAll('.patient-dir-banana-link').forEach(function(b) {

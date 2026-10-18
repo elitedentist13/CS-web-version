@@ -368,6 +368,29 @@ var REWARDS = (function () {
         });
     }
 
+    /** Admin-only balance delta (positive add, negative subtract). Note required. */
+    function adjust(opts) {
+        opts = opts || {};
+        if (!isAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
+        var ctx = clinicCtx();
+        return SB.rpc('reward_adjust', {
+            p_patient_id: opts.patientId,
+            p_points_delta: round2(opts.pointsDelta),
+            p_clinic_id: opts.clinicId != null ? opts.clinicId : ctx.clinic_id,
+            p_clinic_code: opts.clinicCode != null ? opts.clinicCode : ctx.clinic_code,
+            p_created_by: opts.createdBy || actorName(),
+            p_note: opts.note || null
+        }).then(function (r) {
+            if (r.error) return { ok: false, error: r.error.message };
+            return rpcResult(r.data);
+        }).then(function (res) {
+            if (res && res.ok && !res.skipped && res.patient_id != null && res.balance != null) {
+                refreshBannerBalances(res.patient_id, res.balance);
+            }
+            return res;
+        });
+    }
+
     // ── SMS ──────────────────────────────────────────────────
     function kindLabel(kind, lang) {
         var map = {
@@ -801,6 +824,7 @@ var REWARDS = (function () {
             }
             if (balEl) {
                 balEl.textContent = fmtPts(acc ? acc.balance : 0);
+                balEl.setAttribute('data-balance', String(acc ? round2(acc.balance) : 0));
             }
             var started = document.getElementById('rwPatientStarted');
             if (started) {
@@ -808,6 +832,7 @@ var REWARDS = (function () {
                     ? fmtLedgerDateHK(acc.started_at)
                     : '—';
             }
+            syncAdminAdjustUi(acc ? round2(acc.balance) : 0);
             if (tbody) tbody.innerHTML = renderLedgerRows(rows);
             var xferErr = document.getElementById('rwTransferError');
             if (xferErr) { xferErr.style.display = 'none'; xferErr.textContent = ''; }
@@ -834,6 +859,206 @@ var REWARDS = (function () {
             var m = document.getElementById('rewardPatientModal');
             if (m) m.style.display = 'none';
         }
+    }
+
+    function syncAdminAdjustUi(/* balance */) {
+        var wrap = document.getElementById('rwAdminAdjust');
+        if (!wrap) return;
+        wrap.style.display = isAdmin() ? 'block' : 'none';
+        var err = document.getElementById('rwAdjError');
+        if (err) { err.style.display = 'none'; err.textContent = ''; }
+        var amt = document.getElementById('rwAdjAmount');
+        if (amt && !amt.value) amt.value = '';
+        var note = document.getElementById('rwAdjNote');
+        if (note) note.value = '';
+    }
+
+    function runAdminAdjust(mode) {
+        var errEl = document.getElementById('rwAdjError');
+        function showErr(msg) {
+            if (errEl) { errEl.textContent = msg; errEl.style.display = ''; }
+        }
+        if (!isAdmin()) { showErr(tr('rewards.adj.adminOnly', 'Only Admin can adjust balances.')); return; }
+        if (!_panelPatientId) return;
+
+        var note = String((document.getElementById('rwAdjNote') || {}).value || '').trim();
+        if (!note) { showErr(tr('rewards.adj.needNote', 'Enter a note for this adjustment.')); return; }
+
+        var balEl = document.getElementById('rwPatientBalance');
+        var cur = balEl ? round2(parseFloat(balEl.getAttribute('data-balance') || balEl.textContent)) : 0;
+        var amtRaw = round2(parseFloat((document.getElementById('rwAdjAmount') || {}).value));
+        var delta = 0;
+
+        if (mode === 'reset') {
+            if (cur === 0) { showErr(tr('rewards.adj.alreadyZero', 'Balance is already 0.')); return; }
+            if (!window.confirm(tr('rewards.adj.resetConfirm', 'Reset this patient\'s reward balance to 0?'))) return;
+            delta = round2(-cur);
+            if (!/reset/i.test(note)) note = 'Reset to 0 — ' + note;
+        } else if (mode === 'plus' || mode === 'minus') {
+            if (!(amtRaw > 0)) { showErr(tr('rewards.adj.needAmt', 'Enter an amount greater than 0.')); return; }
+            delta = mode === 'plus' ? amtRaw : round2(-amtRaw);
+        } else {
+            return;
+        }
+
+        adjust({
+            patientId: _panelPatientId,
+            pointsDelta: delta,
+            note: note
+        }).then(function (res) {
+            if (!res || !res.ok) {
+                showErr((res && res.error) || tr('rewards.adj.fail', 'Adjust failed.'));
+                return;
+            }
+            if (res.skipped) {
+                showErr(tr('rewards.adj.needAmt', 'Enter an amount greater than 0.'));
+                return;
+            }
+            return notifyFromRpcResult(res, {
+                patientId: _panelPatientId,
+                clinicCode: clinicCtx().clinic_code || '',
+                ref: note.slice(0, 40),
+                kind: 'adjust'
+            }).then(function () {
+                openPatientPanel(_panelPatientId);
+            });
+        }).catch(function (e) {
+            showErr((e && e.message) || tr('rewards.adj.fail', 'Adjust failed.'));
+        });
+    }
+
+    function wireAdminAdjustOnce() {
+        if (window.__REWARDS_ADJ_WIRED__) return;
+        window.__REWARDS_ADJ_WIRED__ = true;
+        document.addEventListener('click', function (ev) {
+            var t = ev.target;
+            if (!t || !t.id) return;
+            if (t.id === 'rwAdjPlus') { ev.preventDefault(); runAdminAdjust('plus'); }
+            else if (t.id === 'rwAdjMinus') { ev.preventDefault(); runAdminAdjust('minus'); }
+            else if (t.id === 'rwAdjReset') { ev.preventDefault(); runAdminAdjust('reset'); }
+        });
+    }
+
+    function openLedgerFinder() {
+        var modal = document.getElementById('rewardLedgerFinderModal');
+        if (!modal) {
+            alert(tr('rewards.err.modalMissing', 'Reward panel not found. Reload the page.'));
+            return;
+        }
+        var q = document.getElementById('rwFinderQ');
+        var drop = document.getElementById('rwFinderDrop');
+        if (q) q.value = '';
+        if (drop) { drop.innerHTML = ''; drop.hidden = true; }
+        if (typeof openModal === 'function') openModal('rewardLedgerFinderModal');
+        else modal.style.display = 'flex';
+        setTimeout(function () { if (q) q.focus(); }, 50);
+    }
+
+    function closeLedgerFinder() {
+        if (typeof closeModal === 'function') closeModal('rewardLedgerFinderModal');
+        else {
+            var m = document.getElementById('rewardLedgerFinderModal');
+            if (m) m.style.display = 'none';
+        }
+    }
+
+    function wireLedgerFinderOnce() {
+        if (window.__REWARDS_FINDER_WIRED__) return;
+        window.__REWARDS_FINDER_WIRED__ = true;
+        var timer = null;
+        document.addEventListener('input', function (ev) {
+            var t = ev.target;
+            if (!t || t.id !== 'rwFinderQ') return;
+            var drop = document.getElementById('rwFinderDrop');
+            clearTimeout(timer);
+            timer = setTimeout(function () {
+                searchTransferPatients(t.value).then(function (rows) {
+                    if (!drop) return;
+                    if (!rows.length) {
+                        drop.innerHTML = '';
+                        drop.hidden = true;
+                        return;
+                    }
+                    drop.hidden = false;
+                    drop.innerHTML = rows.map(function (p) {
+                        var label = (p.patient_no || '') + '  ' + (p.full_name || p.chinese_name || '');
+                        return '<button type="button" class="rw-finder-opt" data-id="' + esc(p.id) + '">' +
+                            esc(label) + '</button>';
+                    }).join('');
+                });
+            }, 280);
+        });
+        document.addEventListener('click', function (ev) {
+            var btn = ev.target && ev.target.closest && ev.target.closest('.rw-finder-opt');
+            if (!btn) return;
+            ev.preventDefault();
+            var id = btn.getAttribute('data-id');
+            closeLedgerFinder();
+            if (id) openPatientPanel(id);
+        });
+    }
+
+    function clinicDisplayName(code, id, clinicList) {
+        var list = clinicList || (typeof APP_CLINICS !== 'undefined' ? APP_CLINICS : []) || [];
+        var c = null;
+        if (id) {
+            for (var i = 0; i < list.length; i++) {
+                if (String(list[i].id) === String(id)) { c = list[i]; break; }
+            }
+        }
+        if (!c && code) {
+            var up = String(code).toUpperCase();
+            for (var j = 0; j < list.length; j++) {
+                if (String(list[j].clinic_code || '').toUpperCase() === up) { c = list[j]; break; }
+            }
+        }
+        if (c) {
+            var nm = c.english_name || c.chinese_name || '';
+            var cc = c.clinic_code || code || '';
+            return cc ? (cc + (nm ? ' · ' + nm : '')) : (nm || '—');
+        }
+        return code || '—';
+    }
+
+    function enrichLedgerMeta(rows, clinicList) {
+        rows = rows || [];
+        if (!rows.length) return Promise.resolve(rows);
+        var ids = [];
+        var seen = {};
+        rows.forEach(function (r) {
+            var id = r && r.patient_id;
+            if (id && !seen[id]) { seen[id] = true; ids.push(id); }
+        });
+        if (!ids.length) return Promise.resolve(rows);
+        return SB.from('patients')
+            .select('id,patient_no,full_name,chinese_name')
+            .in('id', ids)
+            .then(function (r) {
+                var map = {};
+                (r.data || []).forEach(function (p) { map[p.id] = p; });
+                return rows.map(function (row) {
+                    var p = map[row.patient_id] || null;
+                    var name = p
+                        ? (p.full_name || p.chinese_name || '')
+                        : '';
+                    return Object.assign({}, row, {
+                        _patient_no: p ? (p.patient_no || '') : '',
+                        _patient_name: name,
+                        _clinic_label: clinicDisplayName(row.clinic_code, row.clinic_id, clinicList),
+                        _handler: row.created_by || '—'
+                    });
+                });
+            })
+            .catch(function () {
+                return rows.map(function (row) {
+                    return Object.assign({}, row, {
+                        _patient_no: '',
+                        _patient_name: String(row.patient_id || '').slice(0, 8),
+                        _clinic_label: clinicDisplayName(row.clinic_code, row.clinic_id, clinicList),
+                        _handler: row.created_by || '—'
+                    });
+                });
+            });
     }
 
     function searchTransferPatients(q) {
@@ -1158,7 +1383,15 @@ var REWARDS = (function () {
             var clinics = (parts[1].data || parts[1]) || [];
             if (parts[1].error) clinics = (typeof APP_CLINICS !== 'undefined' ? APP_CLINICS : []) || [];
             var map = parts[2] || {};
-            var ledger = parts[3] || [];
+            var ledgerRaw = parts[3] || [];
+            return enrichLedgerMeta(ledgerRaw, clinics).then(function (ledger) {
+                return { program: program, clinics: clinics, map: map, ledger: ledger };
+            });
+        }).then(function (ctx) {
+            var program = ctx.program;
+            var clinics = ctx.clinics;
+            var map = ctx.map;
+            var ledger = ctx.ledger;
 
             var rate = Number(program.earn_rate_percent);
             if (!isFinite(rate)) rate = 10;
@@ -1237,27 +1470,33 @@ var REWARDS = (function () {
             html += '<div class="rw-cfg-card">';
             html += '<div class="rw-cfg-card-title">' + esc(tr('rewards.cfg.logTitle', 'Summary log')) + '</div>';
             html += '<div style="overflow:auto;max-height:420px;border:1px solid #e2e8f0;border-radius:8px;">';
-            html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+            html += '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
             html += '<thead><tr style="background:#f8fafc;text-align:left;">' +
                 '<th style="padding:8px 10px;">' + esc(tr('rewards.col.when', 'When')) + '</th>' +
+                '<th style="padding:8px 10px;">' + esc(tr('rewards.col.clinic', 'Clinic')) + '</th>' +
+                '<th style="padding:8px 10px;">' + esc(tr('rewards.col.chartNo', 'Chart no.')) + '</th>' +
                 '<th style="padding:8px 10px;">' + esc(tr('rewards.col.patient', 'Patient')) + '</th>' +
                 '<th style="padding:8px 10px;">' + esc(tr('rewards.col.kind', 'Type')) + '</th>' +
                 '<th style="padding:8px 10px;text-align:right;">' + esc(tr('rewards.col.points', 'Points')) + '</th>' +
                 '<th style="padding:8px 10px;text-align:right;">' + esc(tr('rewards.col.balance', 'Balance')) + '</th>' +
+                '<th style="padding:8px 10px;">' + esc(tr('rewards.col.handler', 'Handled by')) + '</th>' +
                 '</tr></thead><tbody>';
             if (!ledger.length) {
-                html += '<tr><td colspan="5" style="padding:14px;color:#94a3b8;text-align:center;">' +
+                html += '<tr><td colspan="8" style="padding:14px;color:#94a3b8;text-align:center;">' +
                     esc(tr('rewards.ledger.empty', 'No reward transactions yet.')) + '</td></tr>';
             } else {
                 ledger.forEach(function (row) {
                     var dt = fmtLedgerTimeHK(row.created_at);
                     html += '<tr style="border-top:1px solid #f1f5f9;">' +
                         '<td style="padding:7px 10px;color:#64748b;white-space:nowrap;">' + esc(dt) + '</td>' +
-                        '<td style="padding:7px 10px;font-size:12px;">' + esc(String(row.patient_id || '').slice(0, 8)) + '</td>' +
+                        '<td style="padding:7px 10px;font-size:12px;">' + esc(row._clinic_label || '—') + '</td>' +
+                        '<td style="padding:7px 10px;font-size:12px;">' + esc(row._patient_no || '—') + '</td>' +
+                        '<td style="padding:7px 10px;font-size:12px;">' + esc(row._patient_name || '—') + '</td>' +
                         '<td style="padding:7px 10px;">' + kindBadge(row.kind) + '</td>' +
                         '<td style="padding:7px 10px;text-align:right;font-weight:700;" class="' +
                         (round2(row.points) >= 0 ? 'rw-pos' : 'rw-neg') + '">' + esc(fmtSigned(row.points)) + '</td>' +
                         '<td style="padding:7px 10px;text-align:right;">' + esc(fmtPts(row.balance_after)) + '</td>' +
+                        '<td style="padding:7px 10px;font-size:12px;color:#64748b;">' + esc(row._handler || '—') + '</td>' +
                         '</tr>';
                 });
             }
@@ -1323,15 +1562,18 @@ var REWARDS = (function () {
             '.rw-kind{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:#f1f5f9;color:#334155;}' +
             '.rw-kind--earn,.rw-kind--transfer_in,.rw-kind--void_redeem{background:#dcfce7;color:#166534;}' +
             '.rw-kind--redeem,.rw-kind--transfer_out,.rw-kind--void_earn{background:#fee2e2;color:#991b1b;}' +
+            '.rw-kind--adjust{background:#e0e7ff;color:#3730a3;}' +
             '.rw-cfg-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 18px;margin-bottom:14px;}' +
             '.rw-cfg-card-title{font-weight:700;margin-bottom:10px;font-size:14px;}' +
             '.rw-clinic-list{display:flex;flex-direction:column;gap:8px;}' +
             '.rw-clinic-row{display:flex;gap:10px;align-items:center;font-size:13px;cursor:pointer;}' +
             '#apRewardPanel{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;margin-bottom:14px;}' +
             '#apRewardPanel .rw-row{display:flex;justify-content:space-between;align-items:center;gap:8px;}' +
-            '#rwTransferDrop{position:absolute;left:0;right:0;top:100%;z-index:5;background:#fff;border:1px solid #e2e8f0;border-radius:8px;max-height:180px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.08);}' +
-            '.rw-xfer-opt{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:transparent;cursor:pointer;font-size:13px;}' +
-            '.rw-xfer-opt:hover{background:#f8fafc;}' +
+            '#rwTransferDrop,#rwFinderDrop{position:absolute;left:0;right:0;top:100%;z-index:5;background:#fff;border:1px solid #e2e8f0;border-radius:8px;max-height:180px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.08);}' +
+            '.rw-xfer-opt,.rw-finder-opt{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:transparent;cursor:pointer;font-size:13px;}' +
+            '.rw-xfer-opt:hover,.rw-finder-opt:hover{background:#f8fafc;}' +
+            '#rwAdminAdjust .btn{background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;cursor:pointer;}' +
+            '#rewardLedgerFinderModal.reward-points-modal{z-index:3200;background:rgba(15,23,42,.28);}' +
             /* Above #billPanel (z-index 2000). Centered in the middle display; */
             /* when the payment panel is open, center in the free area so they do not overlap. */
             '#rewardPatientModal.reward-points-modal{z-index:3200;background:rgba(15,23,42,.28);}' +
@@ -1351,6 +1593,8 @@ var REWARDS = (function () {
         injectStylesOnce();
         wireAddPaymentRewardPanelOnce();
         wireTransferSearchOnce();
+        wireAdminAdjustOnce();
+        wireLedgerFinderOnce();
         attachInfoLinks();
     }
 
@@ -1378,6 +1622,7 @@ var REWARDS = (function () {
         transfer: transfer,
         voidForPayment: voidForPayment,
         voidForBill: voidForBill,
+        adjust: adjust,
         applyRedeemForBill: applyRedeemForBill,
         applyEarnForPayment: applyEarnForPayment,
         notifyBalanceChange: notifyBalanceChange,
@@ -1387,6 +1632,8 @@ var REWARDS = (function () {
         readUsePointsFromPanel: readUsePointsFromPanel,
         openPatientPanel: openPatientPanel,
         closePatientPanel: closePatientPanel,
+        openLedgerFinder: openLedgerFinder,
+        closeLedgerFinder: closeLedgerFinder,
         refreshBannerBalances: refreshBannerBalances,
         renderConfigPane: renderConfigPane,
         clinicCtx: clinicCtx

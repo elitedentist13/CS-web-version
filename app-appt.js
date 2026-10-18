@@ -1559,6 +1559,9 @@ function apptBannerOpenBill() {
 function refreshApptPatientOutstandingBalance(ap) {
     var balEl = g('apptBannerBalance');
     var btn   = g('apptBannerBalanceBtn');
+    if (ap && ap.id && typeof REWARDS !== 'undefined' && typeof REWARDS.refreshBannerBalances === 'function') {
+        REWARDS.refreshBannerBalances(ap.id);
+    }
     if (!balEl || !btn) return;
     if (!ap || !ap.id) { btn.style.display = 'none'; return; }
     function showBtn(owing) {
@@ -23504,18 +23507,27 @@ function recordZeroBalanceSettlementPayment(bill, cb) {
 }
 
 function insertBillPaymentRecord(payRecord, cb) {
-    SB.from('bill_payments').insert([payRecord]).then(function(ir) {
+    SB.from('bill_payments').insert([payRecord]).select('id').then(function(ir) {
         if (!ir.error) {
             if (cb) cb(ir);
             return;
         }
         var stripped = stripBillPaymentClinicColsByError(payRecord, ir.error.message || '');
         if (!stripped.changed) {
-            if (cb) cb(ir);
+            // Retry without select (older PostgREST / RLS)
+            SB.from('bill_payments').insert([payRecord]).then(function(irPlain) {
+                if (cb) cb(irPlain);
+            });
             return;
         }
-        SB.from('bill_payments').insert([stripped.payload]).then(function(ir2) {
-            if (cb) cb(ir2);
+        SB.from('bill_payments').insert([stripped.payload]).select('id').then(function(ir2) {
+            if (!ir2.error) {
+                if (cb) cb(ir2);
+                return;
+            }
+            SB.from('bill_payments').insert([stripped.payload]).then(function(ir3) {
+                if (cb) cb(ir3);
+            });
         });
     }).catch(function(err) {
         if (cb) cb({ error: err });
@@ -23734,6 +23746,9 @@ function openAddPaymentModal() {
         }
         syncAddPaymentTransferUi();
         openModal('addPaymentModal');
+        if (typeof REWARDS !== 'undefined' && typeof REWARDS.refreshAddPaymentRewardPanel === 'function') {
+            REWARDS.refreshAddPaymentRewardPanel();
+        }
     });
 }
 
@@ -23916,18 +23931,19 @@ function executeAddPaymentSave(ctx) {
         payRecord.method = BALANCE_TRANSFER_METHOD;
     }
     var errEl = g('apError');
+    var rewardPts = billRound2(ctx.rewardPoints || 0);
+    var cashAmount = billRound2(ctx.cashAmount != null ? ctx.cashAmount : payRecord.amount);
+    var patientId = ctx.patientId || (bdCurrentBill && bdCurrentBill.patient_id) || null;
+    var beforeRewardBal = null;
+    var clinicCode = payRecord.clinic_code || payRecord.clinic_tag || '';
 
-    insertBillPaymentRecord(payRecord, function(r) {
-        if (r.error) {
-            reportAddPaymentSaveError(ctx, r.error.message);
-            return;
-        }
-        // Update only this bill row.
+    function finishBillUpdate(headerMethod) {
+        var billType = headerMethod || payMethod;
         return SB.from('bills').update({
             amount_paid: newPaid,
             balance:     newBalance,
             status:      newStatus,
-            bill_type:   payMethod
+            bill_type:   billType
         }).eq('id', billId)
         .then(function(u) {
             if (u.error) {
@@ -23935,34 +23951,31 @@ function executeAddPaymentSave(ctx) {
                 return;
             }
             restoreAddPaymentModalAfterTransferConfirm();
-            // Refresh in-memory bill object (may be cleared after full pay reset)
             if (bdCurrentBill && String(bdCurrentBill.id) === String(billId)) {
                 bdCurrentBill.amount_paid = newPaid;
                 bdCurrentBill.balance     = newBalance;
                 bdCurrentBill.status      = newStatus;
-                bdCurrentBill.bill_type   = payMethod;
+                bdCurrentBill.bill_type   = billType;
             }
-            // Keep history cache in sync for this bill only
             if (typeof billHistoryCache !== 'undefined' && billHistoryCache && billHistoryCache.length) {
                 billHistoryCache.forEach(function (b) {
                     if (!b || String(b.id) !== String(billId)) return;
                     b.amount_paid = newPaid;
                     b.balance = newBalance;
                     b.status = newStatus;
-                    b.bill_type = payMethod;
+                    b.bill_type = billType;
                 });
             }
 
             closeModal('addPaymentModal');
 
-            // Refresh the detail view live (only if still open on this bill)
             if (bdCurrentBill && String(bdCurrentBill.id) === String(billId)) {
                 if (g('bdPaid')) g('bdPaid').textContent = fmtHK(newPaid);
                 if (g('bdBalance')) {
                     g('bdBalance').textContent = fmtHK(newBalance);
                     g('bdBalance').style.color = newBalance > 0 ? 'var(--danger)' : '#16a34a';
                 }
-                refreshBillDetailPaymentMethod(payMethod);
+                refreshBillDetailPaymentMethod(billType);
 
                 var badge = g('bdStatusBadge');
                 if (badge) { badge.textContent = dispStatusLabel(newStatus); badge.className = 'status-badge ' + statusClass(newStatus); }
@@ -23985,7 +23998,6 @@ function executeAddPaymentSave(ctx) {
                     showBillDetail(bdCurrentBill);
                 }
             } else {
-                // Partial: keep item rows on the editor, locked, focused on this bill.
                 renderStep1UI({ focusBillId: billId });
             }
             loadBillHistory(function() {
@@ -23998,21 +24010,132 @@ function executeAddPaymentSave(ctx) {
                 }
                 renderStep1UI({ focusBillId: billId });
             });
+            if (patientId && typeof REWARDS !== 'undefined' && typeof REWARDS.refreshBannerBalances === 'function') {
+                REWARDS.refreshBannerBalances(patientId);
+            }
         });
-    });
+    }
+
+    function afterPaymentsInserted(cashPaymentId, headerMethod) {
+        // Earn only on income (cash) amount — next visit availability.
+        var earnP = Promise.resolve({ ok: true, skipped: true });
+        if (patientId && cashAmount > 0.005 && !ctx.isBalanceTransfer &&
+                typeof REWARDS !== 'undefined' && typeof REWARDS.applyEarnForPayment === 'function' &&
+                !(typeof REWARDS.isRewardPayMethod === 'function' && REWARDS.isRewardPayMethod(payMethod))) {
+            earnP = REWARDS.applyEarnForPayment({
+                patientId: patientId,
+                eligibleAmount: cashAmount,
+                billId: billId,
+                billPaymentId: cashPaymentId || null,
+                clinicId: payRecord.clinic_id || null,
+                clinicCode: clinicCode,
+                note: null
+            });
+        }
+        return earnP.then(function (earnRes) {
+            if (patientId && typeof REWARDS !== 'undefined' && typeof REWARDS.getBalance === 'function' &&
+                    typeof REWARDS.notifyNetChange === 'function' && beforeRewardBal != null) {
+                return REWARDS.getBalance(patientId).then(function (afterBal) {
+                    return REWARDS.notifyNetChange(patientId, beforeRewardBal, afterBal, {
+                        clinicCode: clinicCode,
+                        ref: 'Bill ' + String(billId).slice(0, 8).toUpperCase()
+                    });
+                }).catch(function () {}).then(function () {
+                    return finishBillUpdate(headerMethod);
+                });
+            }
+            return finishBillUpdate(headerMethod);
+        }).catch(function () {
+            return finishBillUpdate(headerMethod);
+        });
+    }
+
+    var lastRewardPaymentId = null;
+
+    function insertCashThenFinish() {
+        if (cashAmount <= 0.005) {
+            // Reward-only settlement — no income payment row beyond redeem.
+            var hdr = rewardPts > 0.005
+                ? ((typeof REWARDS !== 'undefined' && REWARDS.METHOD) ? REWARDS.METHOD : 'Reward points')
+                : payMethod;
+            return afterPaymentsInserted(null, hdr);
+        }
+        payRecord.amount = cashAmount;
+        insertBillPaymentRecord(payRecord, function(r) {
+            if (r.error) {
+                if (lastRewardPaymentId && typeof REWARDS !== 'undefined' &&
+                        typeof REWARDS.voidForPayment === 'function') {
+                    REWARDS.voidForPayment(lastRewardPaymentId, 'Rollback: cash payment failed');
+                    SB.from('bill_payments').update({
+                        voided_at: new Date().toISOString(),
+                        voided_by: (typeof currentName !== 'undefined' ? currentName : null)
+                    }).eq('id', lastRewardPaymentId).then(function () {});
+                }
+                reportAddPaymentSaveError(ctx, r.error.message);
+                return;
+            }
+            var cashId = null;
+            if (r && r.data) {
+                cashId = Array.isArray(r.data) ? (r.data[0] && r.data[0].id) : r.data.id;
+            }
+            afterPaymentsInserted(cashId, payMethod);
+        });
+    }
+
+    function startSave() {
+        var prep = Promise.resolve(null);
+        if (patientId && typeof REWARDS !== 'undefined' && typeof REWARDS.getBalance === 'function') {
+            prep = REWARDS.getBalance(patientId).then(function (b) {
+                beforeRewardBal = b;
+                return b;
+            }).catch(function () { beforeRewardBal = 0; });
+        }
+        prep.then(function () {
+            if (rewardPts > 0.005 && patientId &&
+                    typeof REWARDS !== 'undefined' && typeof REWARDS.applyRedeemForBill === 'function') {
+                return REWARDS.applyRedeemForBill({
+                    patientId: patientId,
+                    points: rewardPts,
+                    billId: billId,
+                    paidDate: payRecord.paid_date,
+                    clinicId: payRecord.clinic_id,
+                    clinicCode: clinicCode
+                }).then(function (rr) {
+                    if (!rr || rr.ok === false) {
+                        reportAddPaymentSaveError(ctx, (rr && rr.error) || 'Reward redeem failed');
+                        return;
+                    }
+                    lastRewardPaymentId = rr.rewardPaymentId || null;
+                    insertCashThenFinish();
+                });
+            }
+            insertCashThenFinish();
+        });
+    }
+
+    startSave();
 }
 
 function confirmAddPayment() {
     if (!bdCurrentBill) return;
     var amount = billRound2(parseFloat(g('apAmount').value) || 0);
     var errEl  = g('apError');
+    var rewardPts = 0;
+    if (typeof REWARDS !== 'undefined' && typeof REWARDS.readUsePointsFromPanel === 'function') {
+        rewardPts = billRound2(REWARDS.readUsePointsFromPanel());
+    }
+    if (rewardPts < 0) rewardPts = 0;
 
     if (amount < 0) {
         if (errEl) { errEl.textContent = tr('bill.addPayment.errInvalidAmount'); errEl.style.display = ''; }
         return;
     }
+    if (amount <= 0.005 && rewardPts <= 0.005) {
+        if (errEl) { errEl.textContent = tr('bill.addPayment.errInvalidAmount'); errEl.style.display = ''; }
+        return;
+    }
     var bal = billRound2(bdCurrentBill.balance);
-    if (amount > bal + 0.005) {
+    if (billRound2(amount + rewardPts) > bal + 0.005) {
         if (errEl) {
             errEl.textContent = trRepl('bill.addPayment.errExceedsBalance', { BAL: fmt2(bal) });
             errEl.style.display = '';
@@ -24021,14 +24144,19 @@ function confirmAddPayment() {
     }
     if (errEl) errEl.style.display = 'none';
 
-    var newPaid    = billRound2((parseFloat(bdCurrentBill.amount_paid) || 0) + amount);
+    var payTotal   = billRound2(amount + rewardPts);
+    var newPaid    = billRound2((parseFloat(bdCurrentBill.amount_paid) || 0) + payTotal);
     var newBalance = billRound2(Math.max(0, (parseFloat(bdCurrentBill.total) || 0) - newPaid));
     var newStatus  = newBalance <= 0.005 ? 'Paid' : 'Partial';
 
     var payMethod = g('apMethod') ? String(g('apMethod').value || '').trim() : '';
-    if (!payMethod) {
+    // Cash/card method required only when collecting income; reward-only close is allowed.
+    if (!payMethod && amount > 0.005) {
         if (errEl) { errEl.textContent = tr('bill.alert.selectPaymentMethod'); errEl.style.display = ''; }
         return;
+    }
+    if (!payMethod && rewardPts > 0.005) {
+        payMethod = (typeof REWARDS !== 'undefined' && REWARDS.METHOD) ? REWARDS.METHOD : 'Reward points';
     }
 
     var notesRaw = g('apNotes') ? String(g('apNotes').value || '').trim() : '';
@@ -24069,7 +24197,10 @@ function confirmAddPayment() {
         newBalance: newBalance,
         newStatus: newStatus,
         payMethod: payMethod,
-        isBalanceTransfer: isXferPay
+        isBalanceTransfer: isXferPay,
+        rewardPoints: rewardPts,
+        cashAmount: amount,
+        patientId: bdCurrentBill.patient_id || null
     };
 
     // Balance transfer: one trail-check confirm (notes + acknowledgement).
@@ -24126,7 +24257,20 @@ function voidPaymentRecord(p) {
             alert(trRepl('appt.msg.error', { MSG: r.error.message }));
             return null;
         }
-        return applyVoidAndRecalc();
+        // Reverse linked reward earn/redeem (best-effort; never blocks void)
+        var afterReward = Promise.resolve();
+        if (typeof REWARDS !== 'undefined' && typeof REWARDS.voidForPayment === 'function') {
+            afterReward = REWARDS.voidForPayment(p.id, 'Void payment').then(function (vr) {
+                if (vr && vr.ok && !vr.skipped && typeof REWARDS.notifyFromRpcResult === 'function') {
+                    return REWARDS.notifyFromRpcResult(vr, {
+                        clinicCode: (typeof billPaymentClinicContext === 'function'
+                            ? (billPaymentClinicContext().clinic_code || '') : ''),
+                        ref: 'Void ' + String(p.id).slice(0, 8).toUpperCase()
+                    });
+                }
+            }).catch(function () {});
+        }
+        return afterReward.then(function () { return applyVoidAndRecalc(); });
     })
     .then(function(r) {
         if (!r || r.error) return;

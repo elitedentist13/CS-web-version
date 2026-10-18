@@ -165,15 +165,21 @@ var REPORT = (function () {
     return !s || s === 'pending' || s === 'n/a' || s === 'na' || s === 'unknown';
   }
 
-  /** Inter-clinic balance close — zeros bill due but must not count as income. */
+  /** Inter-clinic balance close / reward discount — zeros bill due but must not count as income. */
   function reportPayMethodIsNonIncome(key) {
     if (typeof window.isBalanceTransferPayMethod === 'function') {
-      return window.isBalanceTransferPayMethod(key);
+      if (window.isBalanceTransferPayMethod(key)) return true;
+    }
+    if (typeof window.isRewardPayMethod === 'function') {
+      if (window.isRewardPayMethod(key)) return true;
     }
     var s = String(key == null ? '' : key).trim().toLowerCase()
       .replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
-    return s === 'balance transfer' || s.indexOf('balance transfer') >= 0 ||
-      (s.indexOf('transferred') >= 0 && s.indexOf('settled') >= 0);
+    if (s === 'balance transfer' || s.indexOf('balance transfer') >= 0 ||
+      (s.indexOf('transferred') >= 0 && s.indexOf('settled') >= 0)) return true;
+    if (s === 'reward points' || s === 'reward point' ||
+      (s.indexOf('reward') >= 0 && s.indexOf('point') >= 0)) return true;
+    return false;
   }
 
   function reportPayMethodSkipIncome(key) {

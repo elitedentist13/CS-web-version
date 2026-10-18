@@ -429,6 +429,8 @@ function dispPayMethod(raw, noCfgLookup) {
         'cheque': 'bill.pay.cheque',
         'bank transfer': 'bill.pay.bankTransfer',
         'balance transfer': 'bill.pay.balanceTransfer',
+        'reward points': 'bill.pay.rewardPoints',
+        'reward point': 'bill.pay.rewardPoints',
         'insurance': 'bill.pay.insurance',
         'waived': 'bill.pay.waived',
         'other': 'bill.pay.other',

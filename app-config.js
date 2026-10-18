@@ -18,6 +18,7 @@ var CFG = (function () {
         { key: 'users',     label: '👤 Users'            },
         { key: 'templates', label: '📄 Templates'        },
         { key: 'print',     label: '🖨️ Print'            },
+        { key: 'rewards',   label: '🎁 Reward Points'    },
         { key: 'data',      label: '💾 Data / Backup'    }
     ];
 
@@ -264,6 +265,7 @@ var CFG = (function () {
             users:     loadUsers,
             templates: loadTemplates,
             print:     loadPrint,
+            rewards:   loadRewards,
             data:      loadData
         };
         if (loaders[key]) loaders[key]();
@@ -3669,6 +3671,17 @@ var CFG = (function () {
             });
             return clean;
         });
+    }
+
+    function loadRewards() {
+        var pane = g('cfgPane-rewards');
+        if (!pane) return;
+        if (typeof REWARDS !== 'undefined' && typeof REWARDS.renderConfigPane === 'function') {
+            REWARDS.renderConfigPane(pane);
+            return;
+        }
+        pane.innerHTML = '<p style="color:#dc2626;">' +
+            esc(ctr('rewards.err.moduleMissing') || 'Reward module not loaded.') + '</p>';
     }
 
     function loadData() {

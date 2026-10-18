@@ -1147,6 +1147,9 @@ function selectConPatient(p) {
 
     if (samePatient) {
         refreshConPatientOutstandingBalance();
+        if (typeof REWARDS !== 'undefined' && typeof REWARDS.refreshBannerBalances === 'function') {
+            REWARDS.refreshBannerBalances(p.id);
+        }
         updateConFormsPatientLabel();
         return;
     }
@@ -1161,6 +1164,9 @@ function selectConPatient(p) {
         loadMedicalHistory();
         loadDentalHistory();
         refreshConPatientOutstandingBalance();
+        if (typeof REWARDS !== 'undefined' && typeof REWARDS.refreshBannerBalances === 'function') {
+            REWARDS.refreshBannerBalances(loadId);
+        }
         // forms tab reacts to selected patient too
         updateConFormsPatientLabel();
 

@@ -1908,6 +1908,7 @@ function Build-PatientContext($Query) {
         folder_path = $Query["folder_path"]
         dentist_id = $Query["dentist_id"]
         doctor_code = $Query["doctor_code"]
+        search_text = $Query["search_text"]
     }
 }
 
@@ -2371,9 +2372,28 @@ function Resolve-TrophyTwExe($Resolved) {
 }
 
 function Build-TrophyTwCommandLine($ScanPath, $UiLabel) {
-    # CS glues the value to the switch and does not quote the name, even
-    # when it contains spaces: -NSIU KAI WING  {chinese}
-    return ("-P" + $ScanPath + " -N" + $UiLabel + " -F" + $UiLabel)
+    # This PC's TW.exe format string is -P"%s" (quotes required). An unquoted
+    # -P\\share\SCAN\chart is ignored, so the viewer opens with no images.
+    # -N/-F stay glued and unquoted, matching the 2026-09-27 CS.exe trace.
+    $line = '-P"' + $ScanPath + '"'
+    if (-not [string]::IsNullOrWhiteSpace($UiLabel)) {
+        $line += " -N" + $UiLabel + " -F" + $UiLabel
+    }
+    return $line
+}
+
+function Start-NativeCommandLine($Exe, $ArgumentLine, $WorkDir) {
+    # Start-Process -ArgumentList splits on spaces and strips the quotes
+    # TW.exe needs around -P"path". ProcessStartInfo keeps one raw command line.
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $Exe
+    $psi.Arguments = [string]$ArgumentLine
+    $psi.UseShellExecute = $true
+    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Normal
+    if ($WorkDir -and (Test-PathSafe $WorkDir)) {
+        $psi.WorkingDirectory = $WorkDir
+    }
+    [void][System.Diagnostics.Process]::Start($psi)
 }
 
 function Start-TrophyTwPatient($Resolved, $Patient) {
@@ -2389,12 +2409,7 @@ function Start-TrophyTwPatient($Resolved, $Patient) {
 
     $workDir = Split-Path -Parent $tw
     $argLine = Build-TrophyTwCommandLine $scanPath $uiLabel
-
-    $startArgs = @{ FilePath = $tw; ArgumentList = $argLine; WindowStyle = "Normal" }
-    if ($workDir -and (Test-PathSafe $workDir)) {
-        $startArgs.WorkingDirectory = $workDir
-    }
-    Start-Process @startArgs
+    Start-NativeCommandLine $tw $argLine $workDir
     return [ordered]@{
         bridge = $tw
         target = $tw
@@ -2408,13 +2423,10 @@ function Start-TrophyTwPatient($Resolved, $Patient) {
 }
 
 # Consultation client: the public desktop icon "CS Imaging Software" is
-# Patient.exe (Patient Browser). That is the viewer. 2D / 3D capture buttons
-# live inside CS Imaging on the x-ray server (TW.exe / Trophy), so this PC
-# must not start TW.exe just because the file happens to be installed.
-# Chart id is the bare digit run (same prefix strip as NNT / Rayscan) so an
-# old CS chart opens. -N/-F carry the bilingual label so a new chart is
-# created with Banana's name. -P is added only when that chart folder
-# already exists on the SCAN share.
+# Patient.exe. Its wx parser only accepts /pas.* options. Passing Trophy's
+# -P switch raises "Unknown option 'P'". Launch Patient.exe with the same
+# empty command line as a double-click of that shortcut. Chart images are
+# opened by Trophy / TW.exe via -P"folder", not by Patient.exe.
 function Convert-CarestreamBirthDate($Value) {
     if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
     $formats = @("yyyy-MM-dd", "yyyy/M/d", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "d-M-yyyy", "yyyyMMdd")
@@ -2446,24 +2458,44 @@ function Resolve-CarestreamPatientBrowser($Resolved) {
 }
 
 function Build-CarestreamPatientCommandLine($Patient, $ScanPath) {
-    $patNo = [string]$Patient.patient_no
-    $id = Convert-NntPatientId $patNo
-    if ([string]::IsNullOrWhiteSpace($id)) { $id = $patNo.Trim() }
-    $ui = Build-TrophyTwUiLabel $Patient
-    if ([string]::IsNullOrWhiteSpace($ui)) { $ui = $id }
-    if ([string]::IsNullOrWhiteSpace($id) -and [string]::IsNullOrWhiteSpace($ui)) { return "" }
-    $parts = New-Object System.Collections.Generic.List[string]
-    if ($ScanPath -and (Test-PathSafe $ScanPath)) {
-        $parts.Add("-P" + $ScanPath)
+    # Patient.exe rejects -P/-D/-N/-F ("Unknown option 'P'"). Keep this
+    # empty so the desktop shortcut's command line is unchanged.
+    return ""
+}
+
+function Build-CarestreamSearchText($Patient) {
+    # Patient Browser opens on its live-filter search page. Prefer the
+    # current patient's name (English, then Chinese). Banana may also send
+    # search_text from the web UI. Chart digits are last-resort only.
+    $hint = if ($Patient -and $Patient.search_text) { [string]$Patient.search_text } else { "" }
+    if (-not [string]::IsNullOrWhiteSpace($hint)) { return $hint.Trim() }
+    $name = [string]$Patient.patient_name
+    if (-not [string]::IsNullOrWhiteSpace($name)) { return $name.Trim() }
+    $zh = [string]$Patient.chinese_name
+    if (-not [string]::IsNullOrWhiteSpace($zh)) { return $zh.Trim() }
+    $id = Convert-NntPatientId ([string]$Patient.patient_no)
+    if (-not [string]::IsNullOrWhiteSpace($id)) { return $id.Trim() }
+    return ""
+}
+
+# Patient.exe has no patient CLI (/pas.* is host/port only). After launch,
+# write the patient name into the live-filter Win32 Edit control via
+# tools/carestream-paste-search.ps1 (EM_REPLACESEL + EN_CHANGE).
+# Non-blocking so /open/carestream returns immediately — same as Rayscan.
+function Start-PasteIntoPatientBrowserSearch([string]$SearchText) {
+    if ([string]::IsNullOrWhiteSpace($SearchText)) { return }
+    $scriptPath = Join-Path $PSScriptRoot "carestream-paste-search.ps1"
+    if (-not (Test-Path -LiteralPath $scriptPath)) {
+        $scriptPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "carestream-paste-search.ps1"
     }
-    if ($id) { $parts.Add("-D" + $id) }
-    if ($ui) {
-        $parts.Add("-N" + $ui)
-        $parts.Add("-F" + $ui)
-    }
-    $dob = Convert-CarestreamBirthDate $Patient.dob
-    if ($dob) { $parts.Add("-B" + $dob) }
-    return ($parts -join " ")
+    if (-not (Test-Path -LiteralPath $scriptPath)) { return }
+    try {
+        Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", $scriptPath,
+            "-SearchText", $SearchText
+        ) | Out-Null
+    } catch {}
 }
 
 function Start-CarestreamImagingPatient($Resolved, $Patient) {
@@ -2472,14 +2504,23 @@ function Start-CarestreamImagingPatient($Resolved, $Patient) {
     $patNo = [string]$Patient.patient_no
     $existing = Find-NntScanFolder $patNo
     $uiLabel = Build-TrophyTwUiLabel $Patient
+    $searchText = Build-CarestreamSearchText $Patient
     $argLine = Build-CarestreamPatientCommandLine $Patient $existing
-    if ([string]::IsNullOrWhiteSpace($argLine)) { return $null }
     $workDir = Split-Path -Parent $exe
-    $startArgs = @{ FilePath = $exe; ArgumentList = $argLine; WindowStyle = "Normal" }
-    if ($workDir -and (Test-PathSafe $workDir)) {
-        $startArgs.WorkingDirectory = $workDir
+    if ([string]::IsNullOrWhiteSpace($argLine)) {
+        $startArgs = @{ FilePath = $exe; WindowStyle = "Normal" }
+        if ($workDir -and (Test-PathSafe $workDir)) {
+            $startArgs.WorkingDirectory = $workDir
+        }
+        Start-Process @startArgs
+    } else {
+        Start-NativeCommandLine $exe $argLine $workDir
     }
-    Start-Process @startArgs
+    # Clipboard = patient name for staff Ctrl+V; also paste into the live filter.
+    if (-not [string]::IsNullOrWhiteSpace($searchText)) {
+        try { Set-Clipboard -Value $searchText } catch {}
+        Start-PasteIntoPatientBrowserSearch $searchText
+    }
     return [ordered]@{
         bridge = $exe
         target = $exe
@@ -2488,6 +2529,7 @@ function Start-CarestreamImagingPatient($Resolved, $Patient) {
         patient_id = Convert-NntPatientId $patNo
         scan_path = $existing
         ui_label = $uiLabel
+        search_text = $searchText
         mode = "carestream_patient_browser"
         argList = $argLine
     }
@@ -3719,12 +3761,14 @@ function Handle-Request($RawPath) {
             }
         } elseif ($key -eq "carestream") {
             # Consultation client: public desktop "CS Imaging Software" -> Patient.exe.
+            # Patient name goes into the live-filter search box (no patient CLI).
             if ($dryRun) {
                 $existingScan = Find-NntScanFolder $patientContext.patient_no
                 $bridgeLaunch = [ordered]@{
                     target = (Resolve-CarestreamPatientBrowser $resolved)
                     patient_id = (Convert-NntPatientId $patientContext.patient_no)
                     scan_path = $existingScan
+                    search_text = (Build-CarestreamSearchText $patientContext)
                     mode = "carestream_patient_browser"
                     argList = (Build-CarestreamPatientCommandLine $patientContext $existingScan)
                     dry_run = $true
@@ -3836,13 +3880,14 @@ function Invoke-SelfTest {
     Assert-Equal "Null stays empty"    ""            (Convert-NntBirthDate $null)
     Assert-Equal "Slash legacy format" "09/06/1958"  (Convert-NntBirthDate "1958/6/9")
 
-    Write-Host "== Build-TrophyTwCommandLine (CS 2026-09-27: -P -N -F glued, unquoted) ==" -ForegroundColor Cyan
+    Write-Host "== Build-TrophyTwCommandLine (TW.exe requires -P\"path\") ==" -ForegroundColor Cyan
     Assert-Equal "existing chart command" `
-        "-P\\RECEPTION_MCP\IMAGE\SCAN\003509 -NSIU KAI WING  TEST -FSIU KAI WING  TEST" `
+        "-P""\\RECEPTION_MCP\IMAGE\SCAN\003509"" -NSIU KAI WING  TEST -FSIU KAI WING  TEST" `
         (Build-TrophyTwCommandLine "\\RECEPTION_MCP\IMAGE\SCAN\003509" "SIU KAI WING  TEST")
-    Assert-Equal "label is not quoted" $false ((Build-TrophyTwCommandLine "C:\SCAN\1" "A B") -match '"')
+    Assert-Equal "path is quoted" $true ((Build-TrophyTwCommandLine "C:\SCAN\1" "A B").StartsWith('-P"C:\SCAN\1"'))
+    Assert-Equal "name is not quoted" $false ((Build-TrophyTwCommandLine "C:\SCAN\1" "A B") -match '-N"')
 
-    Write-Host "== Carestream client Patient.exe (desktop shortcut, not TW.exe) ==" -ForegroundColor Cyan
+    Write-Host "== Carestream client Patient.exe (no -P; paste name into live-filter search) ==" -ForegroundColor Cyan
     $csPatient = [ordered]@{
         patient_no = "PL003509"
         patient_name = "SIU KAI WING"
@@ -3850,15 +3895,12 @@ function Invoke-SelfTest {
         dob = "1969-05-23"
     }
     Assert-Equal "client chart strips clinic prefix" "003509" (Convert-NntPatientId "PL003509")
-    Assert-Equal "client command without a scan folder" `
-        "-D003509 -NSIU KAI WING  TEST -FSIU KAI WING  TEST -B19690523" `
-        (Build-CarestreamPatientCommandLine $csPatient "")
-    $csDir = Join-Path $env:TEMP "cs-patient-browser-selftest"
-    New-Item -ItemType Directory -Path $csDir -Force | Out-Null
-    Assert-Equal "existing scan folder is prefixed with -P" $true `
-        ((Build-CarestreamPatientCommandLine $csPatient $csDir).StartsWith("-P" + $csDir))
-    Remove-Item -LiteralPath $csDir -Force -Recurse -ErrorAction SilentlyContinue
-
+    Assert-Equal "client command is empty" "" (Build-CarestreamPatientCommandLine $csPatient "")
+    Assert-Equal "client command has no -P" $false ((Build-CarestreamPatientCommandLine $csPatient "C:\SCAN\1") -match '-P')
+    Assert-equal "search text is patient name" "SIU KAI WING" (Build-CarestreamSearchText $csPatient)
+    Assert-equal "search_text query wins" "SIU" (Build-CarestreamSearchText ([ordered]@{ patient_no = "PL003509"; search_text = "SIU" }))
+    Assert-equal "chinese name when no English" "TEST" (Build-CarestreamSearchText ([ordered]@{ patient_no = "PL003509"; chinese_name = "TEST" }))
+    Assert-equal "paste helper is a function" $true ($null -ne (Get-Command Start-PasteIntoPatientBrowserSearch -ErrorAction SilentlyContinue))
     Write-Host "== Carestream date sides (11 July 2026 stays with the chart folder) ==" -ForegroundColor Cyan
     Assert-Equal "11 July 2026 is the before side" "before" (Get-CarestreamFilmSide "2026-07-11T15:14:00")
     Assert-Equal "12 July 2026 is the after side" "after" (Get-CarestreamFilmSide "2026-07-12T00:00:00")

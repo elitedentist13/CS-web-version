@@ -3685,6 +3685,10 @@ function xrayPatientSearchTextForLauncher(patient, launcherKey) {
     if (launcherKey === 'ezdenti') {
         return xrayEzdentiChartNo(patient) || no;
     }
+    if (launcherKey === 'carestream') {
+        // Patient.exe live-filter search: current patient name.
+        return en || cn || no;
+    }
     if (launcherKey === 'digirex') {
         return xrayDigirexClipboardText(patient);
     }
@@ -4133,6 +4137,11 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
         // equivalent launch). Staff paste this into EzDent search. Using
         // "Name (no.)" previously made wrong-chart paste-matches more likely.
         searchText = xrayEzdentiChartNo(patient) ||
+            xrayPatientSearchClipboardText(patient) || '—';
+        clipboardText = searchText;
+    } else if (launcherKey === 'carestream') {
+        // Patient Browser live-filter: patient name. Bridge also pastes it.
+        searchText = xrayPatientSearchTextForLauncher(patient, 'carestream') ||
             xrayPatientSearchClipboardText(patient) || '—';
         clipboardText = searchText;
     } else if (launcherKey === 'digirex') {

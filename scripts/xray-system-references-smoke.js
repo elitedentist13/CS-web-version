@@ -278,8 +278,7 @@ function dryUrl(openKey) {
                 csOpen.body.dry_run === true && csOpen.body.launched === false &&
                 csBridge.mode === 'carestream_patient_browser' &&
                 /Patient\.exe$/i.test(String(csBridge.target || csOpen.body.target || '')) &&
-                csArgs.indexOf('-D001287') >= 0 && csArgs.indexOf('-NSMOKE QUIET') >= 0 &&
-                csArgs.indexOf('TW.exe') < 0,
+                csArgs.indexOf('-P') < 0 && csArgs.indexOf('-D') < 0,
                 JSON.stringify({
                     mode: csBridge.mode,
                     target: csBridge.target,
@@ -292,6 +291,34 @@ function dryUrl(openKey) {
             pass('/open/carestream dry_run quiet Patient.exe', false,
                 'status=' + csOpen.status + ' body=' + JSON.stringify(csOpen.body).slice(0, 220));
         }
+        var sampleQs = 'dry_run=1&patient_no=PL001287&patient_name=' + encodeURIComponent('SMOKE QUIET') +
+            '&chinese_name=' + encodeURIComponent('TEST') + '&dob=1969-05-23&sex=M';
+        var sampleCs = await httpGetJson(BRIDGE + '/open/carestream?' + sampleQs, 15000).catch(function (e) {
+            return { status: 0, body: { error: e.message } };
+        });
+        var sampleTw = await httpGetJson(BRIDGE + '/open/trophy?' + sampleQs, 15000).catch(function (e) {
+            return { status: 0, body: { error: e.message } };
+        });
+        var sampleCsArgs = String((sampleCs.body && sampleCs.body.bridge && sampleCs.body.bridge.argList) || '');
+        var sampleTwArgs = String((sampleTw.body && sampleTw.body.bridge && sampleTw.body.bridge.argList) || '');
+        pass('sample patient carestream does not send -P',
+            sampleCs.status === 200 && sampleCs.body && sampleCs.body.launched === false &&
+            sampleCs.body.dry_run === true &&
+            /Patient\.exe$/i.test(String(sampleCs.body.target || '')) &&
+            sampleCsArgs.indexOf('-P') < 0,
+            sampleCsArgs || '(empty command)');
+        var sampleCsSearch = String((sampleCs.body && sampleCs.body.bridge && sampleCs.body.bridge.search_text) || '');
+        pass('sample patient carestream search is patient name',
+            sampleCs.status === 200 && sampleCsSearch === 'SMOKE QUIET',
+            sampleCsSearch || '(empty search_text)');
+        pass('sample patient trophy quotes -P folder',
+            sampleTw.status === 200 && sampleTw.body && sampleTw.body.launched === false &&
+            sampleTw.body.dry_run === true &&
+            /TW\.exe$/i.test(String(sampleTw.body.target || '')) &&
+            sampleTwArgs.indexOf('-P"') === 0 &&
+            sampleTwArgs.indexOf('SCAN\\001287"') >= 0 &&
+            sampleTwArgs.indexOf('-NSMOKE QUIET') >= 0,
+            sampleTwArgs);
     }
 
     console.log('\n=== CDP Runtime.evaluate + live page (headless; dry_run only) ===');
@@ -451,6 +478,28 @@ function dryUrl(openKey) {
                         await new Promise(r => setTimeout(r, 200));
                       }
                       const sys = (typeof XRAY_SYSTEMS !== 'undefined' && XRAY_SYSTEMS.carestream) || null;
+                      const trophy = (typeof XRAY_SYSTEMS !== 'undefined' && XRAY_SYSTEMS.Trophy) || null;
+                      const sample = {
+                        id: 'sample-quiet',
+                        patient_no: 'PL001287',
+                        full_name: 'SMOKE QUIET',
+                        chinese_name: 'TEST',
+                        dob: '1969-05-23',
+                        sex: 'M'
+                      };
+                      const q = ['dry_run=1'];
+                      if (typeof appendXrayBridgePatientParams === 'function') {
+                        appendXrayBridgePatientParams(q, sample, '', { launcherKey: 'carestream' });
+                      }
+                      const qs = q.join('&');
+                      async function openKey(key) {
+                        const r = await fetch('http://127.0.0.1:17890/open/' + key + '?' + qs, { cache: 'no-store', mode: 'cors' });
+                        const body = await r.json();
+                        return { http: r.status, launched: body.launched, dry_run: body.dry_run, target: body.target, argList: body.bridge && body.bridge.argList, mode: body.bridge && body.bridge.mode };
+                      }
+                      let sampleCs = null, sampleTw = null;
+                      try { sampleCs = await openKey('carestream'); } catch (e) { sampleCs = { error: String(e && e.message || e) }; }
+                      try { sampleTw = await openKey('trophy'); } catch (e) { sampleTw = { error: String(e && e.message || e) }; }
                       return {
                         host: location.host,
                         rayscan: !!document.querySelector('.xray-sys-rayscan'),
@@ -458,7 +507,11 @@ function dryUrl(openKey) {
                         digirex: !!document.querySelector('.xray-sys-digirex'),
                         carestream: !!document.querySelector('.xray-sys-carestream'),
                         carestreamShortcut: sys && sys.desktopShortcutPath,
-                        carestreamLauncher: sys && sys.launcherKey
+                        carestreamLauncher: sys && sys.launcherKey,
+                        trophyLauncher: trophy && trophy.launcherKey,
+                        sampleQs: qs,
+                        sampleCs: sampleCs,
+                        sampleTw: sampleTw
                       };
                     })()`, true, 20000);
                     pass('live :5500 page', livePage && String(livePage.host).indexOf('5500') >= 0, livePage && livePage.host);
@@ -469,6 +522,21 @@ function dryUrl(openKey) {
                         !!(livePage && livePage.carestreamLauncher === 'carestream' &&
                             String(livePage.carestreamShortcut || '').indexOf('CS Imaging Software.lnk') >= 0),
                         livePage && livePage.carestreamShortcut);
+                    var liveCsArg = String(livePage && livePage.sampleCs && livePage.sampleCs.argList || '');
+                    var liveTwArg = String(livePage && livePage.sampleTw && livePage.sampleTw.argList || '');
+                    pass('live sample patient carestream has no -P',
+                        !!(livePage && livePage.sampleCs && livePage.sampleCs.http === 200 &&
+                            livePage.sampleCs.launched === false && livePage.sampleCs.dry_run === true &&
+                            /Patient\.exe$/i.test(String(livePage.sampleCs.target || '')) &&
+                            liveCsArg.indexOf('-P') < 0),
+                        liveCsArg || (livePage && livePage.sampleCs && JSON.stringify(livePage.sampleCs)));
+                    pass('live sample patient trophy quotes -P',
+                        !!(livePage && livePage.sampleTw && livePage.sampleTw.http === 200 &&
+                            livePage.sampleTw.launched === false && livePage.sampleTw.dry_run === true &&
+                            /TW\.exe$/i.test(String(livePage.sampleTw.target || '')) &&
+                            liveTwArg.indexOf('-P"') === 0 && liveTwArg.indexOf('001287') >= 0 &&
+                            liveTwArg.indexOf('SMOKE QUIET') >= 0),
+                        liveTwArg);
                 } catch (e) {
                     pass('live :5500 CDP', false, e.message);
                 }

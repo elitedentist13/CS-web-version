@@ -2489,13 +2489,23 @@ function Start-PasteIntoPatientBrowserSearch([string]$SearchText) {
         $scriptPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "carestream-paste-search.ps1"
     }
     if (-not (Test-Path -LiteralPath $scriptPath)) { return }
+    # Pass name via temp file — Start-Process does not quote ArgumentList, so
+    # multi-word / Chinese names break -SearchText on the command line.
+    $tmp = Join-Path $env:TEMP ("banana-cs-search-" + [Guid]::NewGuid().ToString("N") + ".txt")
+    try {
+        [IO.File]::WriteAllText($tmp, $SearchText, (New-Object System.Text.UTF8Encoding $false))
+    } catch {
+        return
+    }
     try {
         Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
             "-NoProfile", "-ExecutionPolicy", "Bypass",
             "-File", $scriptPath,
-            "-SearchText", $SearchText
+            "-SearchFile", $tmp
         ) | Out-Null
-    } catch {}
+    } catch {
+        try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch {}
+    }
 }
 
 function Start-CarestreamImagingPatient($Resolved, $Patient) {

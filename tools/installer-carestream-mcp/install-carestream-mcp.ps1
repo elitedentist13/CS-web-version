@@ -180,7 +180,8 @@ Client PC (consultation-client): Carestream Patient Browser; Trophy if TW.exe is
 function Copy-HelperScripts($InstallPath) {
     $helpers = @(
         "Start Carestream MCP Launcher.bat",
-        "Test Carestream MCP Launcher.bat"
+        "Test Carestream MCP Launcher.bat",
+        "carestream-paste-search.ps1"
     )
     foreach ($name in $helpers) {
         $src = Join-Path $scriptDir $name

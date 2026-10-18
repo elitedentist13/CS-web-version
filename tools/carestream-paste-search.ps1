@@ -1,8 +1,19 @@
 # Writes patient name into Carestream Patient.exe live-filter Edit control.
 # Invoked hidden by xray-local-launcher.ps1 after /open/carestream launch.
+# Prefer -SearchFile (UTF-8) so spaces / Chinese names survive Start-Process.
 param(
-    [Parameter(Mandatory = $true)][string]$SearchText
+    [string]$SearchText = "",
+    [string]$SearchFile = ""
 )
+
+if (-not [string]::IsNullOrWhiteSpace($SearchFile) -and (Test-Path -LiteralPath $SearchFile)) {
+    try {
+        $SearchText = [IO.File]::ReadAllText($SearchFile, (New-Object System.Text.UTF8Encoding $false)).Trim()
+    } catch {
+        $SearchText = ""
+    }
+    try { Remove-Item -LiteralPath $SearchFile -Force -ErrorAction SilentlyContinue } catch {}
+}
 
 if ([string]::IsNullOrWhiteSpace($SearchText)) { exit 0 }
 
@@ -99,7 +110,7 @@ public class CsPatWin {
 }
 "@
 
-$deadline = (Get-Date).AddSeconds(20)
+$deadline = (Get-Date).AddSeconds(25)
 $hwnd = [IntPtr]::Zero
 while ((Get-Date) -lt $deadline) {
     $p = Get-Process -Name "Patient" -ErrorAction SilentlyContinue |
@@ -111,7 +122,7 @@ while ((Get-Date) -lt $deadline) {
 if ($hwnd -eq [IntPtr]::Zero) { exit 0 }
 
 $edit = [IntPtr]::Zero
-$editDeadline = (Get-Date).AddSeconds(8)
+$editDeadline = (Get-Date).AddSeconds(12)
 while ((Get-Date) -lt $editDeadline) {
     $edit = [CsPatWin]::FindLiveFilterEdit($hwnd)
     if ($edit -ne [IntPtr]::Zero) { break }
@@ -123,7 +134,7 @@ try {
         [CsPatWin]::SetEditLiveFilter($hwnd, $edit, $SearchText) | Out-Null
     } else {
         [CsPatWin]::FocusMain($hwnd)
-        Start-Sleep -Milliseconds 400
+        Start-Sleep -Milliseconds 500
         Set-Clipboard -Value $SearchText
         Add-Type -AssemblyName System.Windows.Forms
         [System.Windows.Forms.SendKeys]::SendWait("^a")

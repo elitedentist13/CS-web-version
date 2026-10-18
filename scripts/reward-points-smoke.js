@@ -334,7 +334,7 @@ function extractIifeHelpers(src) {
         /reverse earn \+ redeem/.test(apptSrc));
     pass('SQL default rate 10', /earn_rate_percent[\s\S]{0,40}default 10/i.test(sqlSrc));
 
-    pass('index loads app-rewards.js', /['"]app-rewards\.js['"]/.test(idxSrc));
+    pass('index loads app-rewards.js', /['"]app-rewards\.js(\?[^'"]*)?['"]/.test(idxSrc));
     pass('index has apRewardPanel', idxSrc.indexOf('id="apRewardPanel"') >= 0);
     pass('index has rewardPatientModal', idxSrc.indexOf('id="rewardPatientModal"') >= 0);
     pass('index has admin adjust controls',
@@ -360,6 +360,11 @@ function extractIifeHelpers(src) {
     pass('dashboard card-rewards opens finder',
         /card-rewards/.test(appJsSrc) &&
         /openLedgerFinder/.test(appJsSrc));
+    pass('dashboard perm guards include card-rewards',
+        /cardId:\s*'card-rewards'/.test(read('app-auth.js')));
+    pass('index card-rewards before configuration',
+        idxSrc.indexOf('id="card-rewards"') < idxSrc.indexOf('id="card-configuration"') &&
+        idxSrc.indexOf('id="card-rewards"') > idxSrc.indexOf('id="card-patient"'));
     pass('index cfg nav rewards', /data-tab="rewards"/.test(idxSrc));
     pass('index cfgPane-rewards', idxSrc.indexOf('id="cfgPane-rewards"') >= 0);
     pass('cfg TABS has rewards', /key:\s*'rewards'/.test(cfgSrc));

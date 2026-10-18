@@ -112,6 +112,7 @@ function permToastDenied() {
 var DASHBOARD_PERM_CARDS = [
     { cardId: 'card-appointment', perm: 'appointment' },
     { cardId: 'card-patient', perm: 'patient' },
+    { cardId: 'card-rewards', perm: 'patient' },
     { cardId: 'card-consultation', perm: 'consultation' },
     { cardId: 'card-drugbook', perm: 'drug_inventory' },
     { cardId: 'card-report', perm: 'report' },

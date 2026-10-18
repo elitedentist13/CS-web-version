@@ -5475,7 +5475,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var rewardsCard = g('card-rewards');
     if (rewardsCard) {
+        rewardsCard.style.display = '';
+        rewardsCard.setAttribute('aria-hidden', 'false');
         rewardsCard.addEventListener('click', function () {
+            if (typeof guardModuleByPermission === 'function' &&
+                !guardModuleByPermission('patient')) return;
             if (typeof REWARDS !== 'undefined' && typeof REWARDS.openLedgerFinder === 'function') {
                 REWARDS.openLedgerFinder();
             } else {

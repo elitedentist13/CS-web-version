@@ -319,6 +319,11 @@ function extractIifeHelpers(src) {
         /kind in \('earn', 'redeem'\)/.test(sqlSrc) &&
         /kind = 'redeem' then 0/.test(sqlSrc) &&
         /void_earn/.test(sqlSrc) && /void_redeem/.test(sqlSrc));
+    pass('SQL void bill uses clock_timestamp for ledger order',
+        /clock_timestamp\(\)/.test(sqlSrc));
+    pass('ledger sorts void_earn above void_redeem on ties',
+        /sortLedgerNewestFirst/.test(rewardsSrc) &&
+        /void_earn/.test(rewardsSrc) && /void_redeem/.test(rewardsSrc));
     pass('appt bill void reverses rewards',
         /voidForBill/.test(apptSrc) && /executeBillDelete/.test(apptSrc) &&
         /reverse earn \+ redeem/.test(apptSrc));

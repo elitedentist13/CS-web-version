@@ -246,6 +246,30 @@ var REWARDS = (function () {
         });
     }
 
+    /**
+     * Newest-first ledger order. Same-timestamp void batches insert redeem then earn;
+     * show void_earn above void_redeem so the top balance_after matches the header.
+     */
+    function sortLedgerNewestFirst(rows) {
+        function kindTie(k) {
+            if (k === 'void_earn') return 0;
+            if (k === 'void_redeem') return 1;
+            return 2;
+        }
+        return (rows || []).slice().sort(function (a, b) {
+            var ta = a && a.created_at ? Date.parse(a.created_at) : 0;
+            var tb = b && b.created_at ? Date.parse(b.created_at) : 0;
+            if (tb !== ta) return tb - ta;
+            var ka = kindTie(a && a.kind);
+            var kb = kindTie(b && b.kind);
+            if (ka !== kb) return ka - kb;
+            var ia = String((a && a.id) || '');
+            var ib = String((b && b.id) || '');
+            if (ia === ib) return 0;
+            return ia < ib ? 1 : -1;
+        });
+    }
+
     function loadLedger(patientId, limit) {
         var lim = limit || 200;
         var q = SB.from('reward_ledger')
@@ -255,7 +279,7 @@ var REWARDS = (function () {
         if (patientId) q = q.eq('patient_id', patientId);
         return q.then(function (r) {
             if (r.error) throw r.error;
-            return r.data || [];
+            return sortLedgerNewestFirst(r.data || []);
         });
     }
 

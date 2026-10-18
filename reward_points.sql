@@ -752,16 +752,18 @@ begin
         where id = v_acc.id
         returning * into v_acc;
 
+        -- clock_timestamp so void_redeem / void_earn are not tied; ledger lists newest first
         insert into public.reward_ledger (
             account_id, patient_id, kind, points, balance_after,
             earn_rate_percent, eligible_amount,
             bill_id, bill_payment_id, clinic_id, clinic_code,
-            note, created_by, reverses_ledger_id
+            note, created_by, created_at, reverses_ledger_id
         ) values (
             v_acc.id, v_src.patient_id, v_rev_kind, v_delta, v_new_bal,
             v_src.earn_rate_percent, v_src.eligible_amount,
             p_bill_id, v_src.bill_payment_id, v_src.clinic_id, v_src.clinic_code,
-            coalesce(p_note, 'Void bill: reverse earn + redeem'), p_created_by, v_src.id
+            coalesce(p_note, 'Void bill: reverse earn + redeem'), p_created_by,
+            clock_timestamp(), v_src.id
         )
         returning * into v_ledger;
 

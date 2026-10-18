@@ -364,6 +364,31 @@ function patViewLoadDashboard() {
         };
         patViewRenderDashboard(host, patientDashData);
         patDashLoadTimeline(pid);
+        patDashRefreshRewards(pid);
+    });
+}
+
+/** Fill the patient-dashboard reward points mini card (async; non-blocking). */
+function patDashRefreshRewards(patientId) {
+    var card = g('patDashRewardsCard');
+    var amtEl = g('patDashRewardsAmt');
+    if (!card || !amtEl) return;
+    var pid = patientId || card.dataset.patientId || selPatientId || '';
+    if (!pid) return;
+    card.dataset.patientId = String(pid);
+    if (typeof REWARDS === 'undefined' || typeof REWARDS.getBalance !== 'function') {
+        amtEl.textContent = '—';
+        return;
+    }
+    REWARDS.getBalance(pid).then(function (bal) {
+        if (String(card.dataset.patientId) !== String(pid)) return;
+        var n = Number(bal);
+        if (!isFinite(n)) n = 0;
+        amtEl.textContent = (typeof REWARDS.fmtPts === 'function')
+            ? REWARDS.fmtPts(n)
+            : n.toFixed(2);
+    }).catch(function () {
+        if (String(card.dataset.patientId) === String(pid)) amtEl.textContent = '—';
     });
 }
 
@@ -392,6 +417,13 @@ function patViewRenderDashboard(host, data) {
         '<span class="pat-dash-balance-label">' + esc(patViewTr('patient.view.balanceDue')) + '</span>' +
         '<span id="patDashBalanceAmt" class="pat-dash-balance-amt">' + esc(balanceHtml) + '</span>' +
         '<span class="pat-dash-balance-hint">' + esc(patViewTr('patient.view.balanceHint')) + '</span>' +
+        '</button>' +
+        '<button type="button" id="patDashRewardsCard" class="pat-dash-rewards-card"' +
+        ' data-act="rewards" data-id="' + esc(p.id) + '" data-patient-id="' + esc(p.id) + '"' +
+        ' title="' + esc(patViewTr('patient.view.rewardsTitle')) + '">' +
+        '<span class="pat-dash-rewards-label">🎁 ' + esc(patViewTr('patient.view.rewardsLabel')) + '</span>' +
+        '<span id="patDashRewardsAmt" class="pat-dash-rewards-amt">—</span>' +
+        '<span class="pat-dash-rewards-hint">' + esc(patViewTr('patient.view.rewardsHint')) + '</span>' +
         '</button>' +
         '<div class="pat-dash-banana-wrap">' + patViewBananaPanelHtml(p) + '</div>' +
         (String(p.medical_alerts || '').trim()
@@ -745,6 +777,17 @@ function patViewWireHostActions(host) {
         }
         if (act === 'bills') {
             patViewOpenBills(patientViewFullRecord);
+            return;
+        }
+        if (act === 'rewards') {
+            var rpid = id || (patientViewFullRecord && patientViewFullRecord.id) || selPatientId;
+            if (rpid && typeof REWARDS !== 'undefined' && typeof REWARDS.openPatientPanel === 'function') {
+                REWARDS.openPatientPanel(rpid);
+            } else {
+                alert(patViewTr('patient.dir.rewardLedgerMissing') ||
+                    'Reward module not loaded.');
+            }
+            return;
         }
         if (act === 'chart') {
             patDashOpenChartRecord(id, btn.getAttribute('data-chart-date') || '');

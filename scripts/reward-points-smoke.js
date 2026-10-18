@@ -290,6 +290,7 @@ function extractIifeHelpers(src) {
     var sqlSrc = read('reward_points.sql');
     var appSrc = read('app.js');
     var patientSrc = read('app-patient.js');
+    var patientViewsSrc = read('app-patient-views.js');
     var appJsSrc = appSrc;
 
     console.log('=== syntax: node --check ===');
@@ -302,6 +303,7 @@ function extractIifeHelpers(src) {
         'app-i18n.js',
         'app-i18n-extra.js',
         'app-patient.js',
+        'app-patient-views.js',
         'app.js',
         'scripts/reward-points-smoke.js'
     ];
@@ -357,6 +359,13 @@ function extractIifeHelpers(src) {
     pass('patient dir ⋯ has reward ledger',
         /btn-reward-ledger/.test(patientSrc) &&
         /REWARDS\.openPatientPanel/.test(patientSrc));
+    pass('patient dashboard has rewards mini card',
+        /patDashRewardsCard/.test(patientViewsSrc) &&
+        /data-act="rewards"/.test(patientViewsSrc) &&
+        /patDashRefreshRewards/.test(patientViewsSrc) &&
+        /REWARDS\.openPatientPanel/.test(patientViewsSrc));
+    pass('i18n patient.view.rewardsHint',
+        /'patient\.view\.rewardsHint'/.test(i18nExtra));
     pass('dashboard card-rewards opens finder',
         /card-rewards/.test(appJsSrc) &&
         /openLedgerFinder/.test(appJsSrc));

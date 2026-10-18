@@ -3085,9 +3085,14 @@
         'rewards.pay.useLabel': { en: 'Use reward points as discount', 'zh-CN': '使用积分抵扣', 'zh-Hant': '使用積分抵扣' },
         'rewards.pay.amountLabel': { en: 'Points to use', 'zh-CN': '使用积分数', 'zh-Hant': '使用積分數' },
         'rewards.pay.hintUse': {
-            en: 'Optional — points used here are not counted as income. New points from this payment are available next time.',
-            'zh-CN': '可选 — 积分抵扣不计入收入。本次付款赚取的积分下次才可使用。',
-            'zh-Hant': '可選 — 積分抵扣不計入收入。今次付款賺取的積分下次才可使用。'
+            en: 'Optional — points used here are not counted as income. Points earned on this payment can be redeemed on a later payment only (not on the same payment).',
+            'zh-CN': '可选 — 积分抵扣不计入收入。本次付款赚取的积分可在之后的付款使用，不可在同一笔付款内抵扣。',
+            'zh-Hant': '可選 — 積分抵扣不計入收入。今次付款賺取的積分可於之後的付款使用，不可在同一筆付款內抵扣。'
+        },
+        'rewards.cfg.blurbEarn': {
+            en: 'Every eligible payment earns points from the first payment onward. Redeem only on a later payment.',
+            'zh-CN': '从第一笔符合条件的付款起即可赚取积分；抵扣仅可用于之后的付款。',
+            'zh-Hant': '從第一筆符合條件的付款起即可賺取積分；抵扣僅可用於之後的付款。'
         },
         'rewards.pay.hintEmpty': { en: 'No reward points available yet.', 'zh-CN': '暂无可用积分。', 'zh-Hant': '暫無可用積分。' },
         'rewards.pay.redeemNote': { en: 'Reward points discount', 'zh-CN': '积分抵扣', 'zh-Hant': '積分抵扣' },
@@ -3103,9 +3108,9 @@
         'rewards.xfer.fail': { en: 'Transfer failed.', 'zh-CN': '转移失败。', 'zh-Hant': '轉移失敗。' },
         'rewards.cfg.title': { en: 'Reward Points', 'zh-CN': '奖励积分', 'zh-Hant': '獎勵積分' },
         'rewards.cfg.blurb': {
-            en: 'Patients earn points from payments (default 10%). Points used as discount are not counted as clinic income.',
-            'zh-CN': '病人付款可赚取积分（默认 10%）。积分抵扣不计入诊所收入。',
-            'zh-Hant': '病人付款可賺取積分（預設 10%）。積分抵扣不計入診所收入。'
+            en: 'Patients earn points from every eligible payment from the first one onward (default 10%). Points from a payment can only be redeemed on a later payment. Discount redemptions are not counted as clinic income.',
+            'zh-CN': '从第一笔符合条件的付款起即可赚取积分（默认 10%）。一笔付款赚取的积分只能在之后的付款抵扣。积分抵扣不计入诊所收入。',
+            'zh-Hant': '從第一筆符合條件的付款起即可賺取積分（預設 10%）。一筆付款賺取的積分只能在之後的付款抵扣。積分抵扣不計入診所收入。'
         },
         'rewards.cfg.rateTitle': { en: 'Earn rate', 'zh-CN': '赚取比率', 'zh-Hant': '賺取比率' },
         'rewards.cfg.adminOnly': { en: 'Only Admin can change this setting.', 'zh-CN': '仅管理员可更改此设置。', 'zh-Hant': '僅管理員可更改此設定。' },

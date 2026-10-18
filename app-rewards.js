@@ -54,6 +54,54 @@ var REWARDS = (function () {
         return (v > 0 ? '+' : '') + v.toFixed(2);
     }
 
+    /** Ledger timestamps in Asia/Hong_Kong (clinic local), not browser UTC dump. */
+    function fmtLedgerTimeHK(iso) {
+        if (!iso) return '—';
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) {
+            return String(iso).replace('T', ' ').slice(0, 19);
+        }
+        try {
+            return d.toLocaleString('en-HK', {
+                timeZone: 'Asia/Hong_Kong',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+        } catch (e) {
+            return String(iso).replace('T', ' ').slice(0, 19);
+        }
+    }
+
+    function fmtLedgerDateHK(iso) {
+        if (!iso) return '—';
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+        try {
+            return d.toLocaleDateString('en-HK', {
+                timeZone: 'Asia/Hong_Kong',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            });
+        } catch (e) {
+            return String(iso).slice(0, 10);
+        }
+    }
+
+    var SMS_BRAND = 'Joyful Smile Dental Clinic';
+    /** Always bilingual (ZH-Hant + EN) — one SMS for every patient. */
+    var SMS_FALLBACK_BILINGUAL =
+        '[' + SMS_BRAND + '] 積分更新 / Reward points update\n' +
+        '變動/Change: {CHANGE} ({KIND})\n' +
+        '結餘/Balance: {BALANCE}\n' +
+        '診所/Clinic: {CLINIC}\n' +
+        '參考/Ref: {REF}';
+
     function isRewardPayMethod(method) {
         var s = String(method == null ? '' : method).trim().toLowerCase().replace(/[_-]+/g, ' ');
         if (!s) return false;
@@ -268,6 +316,10 @@ var REWARDS = (function () {
         return row[L] || row.en;
     }
 
+    function kindLabelBilingual(kind) {
+        return kindLabel(kind, 'zh-Hant') + '/' + kindLabel(kind, 'en');
+    }
+
     function resolveSmsLang() {
         var lang = (typeof appUiLang !== 'undefined' && appUiLang) ? String(appUiLang) :
             (typeof readStoredAppLang === 'function' ? readStoredAppLang() : 'en');
@@ -277,20 +329,32 @@ var REWARDS = (function () {
         return 'en';
     }
 
+    function looksBilingualTemplate(tpl) {
+        var s = String(tpl || '');
+        return s.indexOf('變動/Change') >= 0 || s.indexOf('積分更新 / Reward') >= 0 ||
+            s.indexOf('结余/Balance') >= 0 || s.indexOf('結餘/Balance') >= 0;
+    }
+
     function buildSmsBody(program, info) {
-        var lang = resolveSmsLang();
+        // Prefer bilingual templates; fall back to built-in bilingual body.
+        var candidates = [
+            program && program.sms_template_en,
+            program && program.sms_template_zh_hant,
+            program && program.sms_template_zh_cn
+        ];
         var tpl = '';
-        if (lang === 'zh-Hant') tpl = program.sms_template_zh_hant;
-        else if (lang === 'zh-CN') tpl = program.sms_template_zh_cn;
-        else tpl = program.sms_template_en;
-        tpl = String(tpl || '').trim();
-        if (!tpl) {
-            tpl = '[Banana] Reward points update\nChange: {CHANGE} ({KIND})\nBalance: {BALANCE}\nClinic: {CLINIC}\nRef: {REF}';
+        for (var i = 0; i < candidates.length; i++) {
+            var c = String(candidates[i] || '').trim();
+            if (c && looksBilingualTemplate(c)) { tpl = c; break; }
         }
+        if (!tpl) tpl = SMS_FALLBACK_BILINGUAL;
+        tpl = tpl
+            .replace(/\[Banana\]/g, '[' + SMS_BRAND + ']')
+            .replace(/【Banana】/g, '[' + SMS_BRAND + ']');
         return tpl
             .replace(/\{CHANGE\}/g, fmtSigned(info.points))
             .replace(/\{BALANCE\}/g, fmtPts(info.balance))
-            .replace(/\{KIND\}/g, kindLabel(info.kind, lang))
+            .replace(/\{KIND\}/g, kindLabelBilingual(info.kind))
             .replace(/\{CLINIC\}/g, info.clinic || '')
             .replace(/\{REF\}/g, info.ref || '—');
     }
@@ -607,7 +671,7 @@ var REWARDS = (function () {
                 esc(tr('rewards.ledger.empty', 'No reward transactions yet.')) + '</td></tr>';
         }
         return rows.map(function (row) {
-            var dt = String(row.created_at || '').replace('T', ' ').slice(0, 19);
+            var dt = fmtLedgerTimeHK(row.created_at);
             var pts = round2(row.points);
             var ptsCls = pts >= 0 ? 'rw-pos' : 'rw-neg';
             var ref = '';
@@ -660,7 +724,7 @@ var REWARDS = (function () {
             var started = document.getElementById('rwPatientStarted');
             if (started) {
                 started.textContent = acc && acc.started_at
-                    ? String(acc.started_at).slice(0, 10)
+                    ? fmtLedgerDateHK(acc.started_at)
                     : '—';
             }
             if (tbody) tbody.innerHTML = renderLedgerRows(rows);
@@ -1034,7 +1098,7 @@ var REWARDS = (function () {
                     esc(tr('rewards.ledger.empty', 'No reward transactions yet.')) + '</td></tr>';
             } else {
                 ledger.forEach(function (row) {
-                    var dt = String(row.created_at || '').replace('T', ' ').slice(0, 19);
+                    var dt = fmtLedgerTimeHK(row.created_at);
                     html += '<tr style="border-top:1px solid #f1f5f9;">' +
                         '<td style="padding:7px 10px;color:#64748b;white-space:nowrap;">' + esc(dt) + '</td>' +
                         '<td style="padding:7px 10px;font-size:12px;">' + esc(String(row.patient_id || '').slice(0, 8)) + '</td>' +
@@ -1112,7 +1176,17 @@ var REWARDS = (function () {
             '#apRewardPanel .rw-row{display:flex;justify-content:space-between;align-items:center;gap:8px;}' +
             '#rwTransferDrop{position:absolute;left:0;right:0;top:100%;z-index:5;background:#fff;border:1px solid #e2e8f0;border-radius:8px;max-height:180px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.08);}' +
             '.rw-xfer-opt{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:transparent;cursor:pointer;font-size:13px;}' +
-            '.rw-xfer-opt:hover{background:#f8fafc;}';
+            '.rw-xfer-opt:hover{background:#f8fafc;}' +
+            /* Above #billPanel (z-index 2000); box pinned to left of the main display */
+            '#rewardPatientModal.reward-points-modal{z-index:3200;background:rgba(15,23,42,.28);}' +
+            '#rewardPatientModal .reward-points-modal-box{' +
+            'position:fixed;left:16px;top:50%;transform:translateY(-50%);' +
+            'margin:0;width:min(640px,calc(100vw - 720px));min-width:min(420px,calc(100vw - 32px));' +
+            'max-width:640px;max-height:92vh;overflow:auto;' +
+            'box-shadow:0 18px 50px rgba(15,23,42,.22);}' +
+            '@media (max-width:1100px){' +
+            '#rewardPatientModal .reward-points-modal-box{' +
+            'width:min(560px,calc(100vw - 48px));left:12px;}}';
         document.head.appendChild(s);
     }
 

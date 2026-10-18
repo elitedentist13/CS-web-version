@@ -21590,8 +21590,56 @@ function saveBill(doPrint) {
             insertBillPaymentRecord(payRecord, function(pr) {
                 if (pr.error) {
                     console.warn('Initial bill payment row not saved:', pr.error.message || pr.error);
+                    continueAfterPending();
+                    return;
                 }
-                continueAfterPending();
+                // First payment on bill create also earns points (available to redeem from the next payment only).
+                var cashId = null;
+                if (pr && pr.data) {
+                    cashId = Array.isArray(pr.data) ? (pr.data[0] && pr.data[0].id) : pr.data.id;
+                }
+                var earnPatientId = billPatId || payload.patient_id || null;
+                var skipEarn = !earnPatientId || !(paid > 0.005) ||
+                    (typeof isBalanceTransferPayMethod === 'function' && isBalanceTransferPayMethod(payload.bill_type)) ||
+                    (typeof REWARDS !== 'undefined' && typeof REWARDS.isRewardPayMethod === 'function' &&
+                        REWARDS.isRewardPayMethod(payload.bill_type));
+                if (skipEarn || typeof REWARDS === 'undefined' ||
+                        typeof REWARDS.applyEarnForPayment !== 'function') {
+                    continueAfterPending();
+                    return;
+                }
+                var beforeBalP = (typeof REWARDS.getBalance === 'function')
+                    ? REWARDS.getBalance(earnPatientId).catch(function () { return 0; })
+                    : Promise.resolve(null);
+                beforeBalP.then(function (beforeBal) {
+                    return REWARDS.applyEarnForPayment({
+                        patientId: earnPatientId,
+                        eligibleAmount: paid,
+                        billId: savedBillId,
+                        billPaymentId: cashId || null,
+                        clinicId: payRecord.clinic_id || null,
+                        clinicCode: payRecord.clinic_code || payRecord.clinic_tag || '',
+                        note: null
+                    }).then(function (earnRes) {
+                        if (beforeBal == null || !earnRes || earnRes.skipped ||
+                                typeof REWARDS.notifyNetChange !== 'function') {
+                            return;
+                        }
+                        return REWARDS.getBalance(earnPatientId).then(function (afterBal) {
+                            return REWARDS.notifyNetChange(earnPatientId, beforeBal, afterBal, {
+                                clinicCode: payRecord.clinic_code || payRecord.clinic_tag || '',
+                                ref: 'Bill ' + String(savedBillId).slice(0, 8).toUpperCase()
+                            });
+                        }).catch(function () {});
+                    }).catch(function (e) {
+                        console.warn('Initial bill reward earn failed:', e && e.message ? e.message : e);
+                    });
+                }).then(function () {
+                    if (earnPatientId && typeof REWARDS.refreshBannerBalances === 'function') {
+                        REWARDS.refreshBannerBalances(earnPatientId);
+                    }
+                    continueAfterPending();
+                });
             });
         };
 

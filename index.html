@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261017ortho4';
+  var BUILD = '20261019reward3';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -7458,7 +7458,7 @@
       </div>
       <div id="apRewardHint" style="font-size:11px;color:#64748b;line-height:1.4;"
            data-i18n="rewards.pay.hintUse">
-        Optional — points used here are not counted as income. New points from this payment are available next time.
+        Optional — points used here are not counted as income. Points earned on this payment can be redeemed on a later payment only.
       </div>
     </div>
 
@@ -7491,9 +7491,9 @@
 <!-- ════════════════════════════════════════════════════════════
      MODAL — BALANCE TRANSFER CONFIRM (trail check)
 ════════════════════════════════════════════════════════════ -->
-<!-- Reward points — patient ledger + transfer -->
-<div id="rewardPatientModal" class="modal">
-  <div class="modal-box" style="max-width:720px;">
+<!-- Reward points — patient ledger + transfer (pinned left so billPanel on the right does not cover it) -->
+<div id="rewardPatientModal" class="modal reward-points-modal">
+  <div class="modal-box reward-points-modal-box">
     <button class="mclose" data-i18n-aria-label="common.closeAria"
             onclick="REWARDS && REWARDS.closePatientPanel()">×</button>
     <h3 style="margin:0 0 4px;" data-i18n="rewards.panel.title">Reward points</h3>

@@ -340,8 +340,22 @@ function extractIifeHelpers(src) {
         /applyRedeemForBill/.test(apptSrc));
     pass('appt executeAddPaymentSave earn',
         /applyEarnForPayment/.test(apptSrc));
+    pass('appt initial bill save also earns',
+        /Initial bill reward earn failed|First payment on bill create also earns/.test(apptSrc) &&
+        /applyEarnForPayment/.test(apptSrc));
     pass('appt void reverses rewards',
         /voidForPayment/.test(apptSrc));
+    pass('SMS brand Joyful Smile (not Banana fallback)',
+        /Joyful Smile Dental Clinic/.test(rewardsSrc) &&
+        !/tpl = '\[Banana\]/.test(rewardsSrc));
+    pass('SMS bilingual ZH+EN fallback',
+        /積分更新 \/ Reward points update/.test(rewardsSrc) &&
+        /變動\/Change/.test(rewardsSrc) &&
+        /kindLabelBilingual/.test(rewardsSrc));
+    pass('ledger time uses Asia/Hong_Kong',
+        /Asia\/Hong_Kong/.test(rewardsSrc) && /fmtLedgerTimeHK/.test(rewardsSrc));
+    pass('rewards modal pinned left CSS',
+        /reward-points-modal-box/.test(idxSrc) && /left:16px/.test(rewardsSrc));
 
     pass('report excludes reward points',
         /isRewardPayMethod/.test(reportSrc) &&

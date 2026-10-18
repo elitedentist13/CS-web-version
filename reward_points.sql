@@ -27,25 +27,27 @@ insert into public.reward_program (id, earn_rate_percent, sms_notify_enabled)
 values (1, 10, true)
 on conflict (id) do nothing;
 
+-- Bilingual ZH-Hant + EN (same body in all columns)
 update public.reward_program
-set sms_template_en = coalesce(nullif(trim(sms_template_en), ''),
-        '[Banana] Reward points update
-Change: {CHANGE} ({KIND})
-Balance: {BALANCE}
-Clinic: {CLINIC}
-Ref: {REF}'),
-    sms_template_zh_hant = coalesce(nullif(trim(sms_template_zh_hant), ''),
-        '【Banana】積分更新
-變動：{CHANGE}（{KIND}）
-結餘：{BALANCE}
-診所：{CLINIC}
-參考：{REF}'),
-    sms_template_zh_cn = coalesce(nullif(trim(sms_template_zh_cn), ''),
-        '【Banana】积分更新
-变动：{CHANGE}（{KIND}）
-结余：{BALANCE}
-诊所：{CLINIC}
-参考：{REF}')
+set sms_template_en =
+        '[Joyful Smile Dental Clinic] 積分更新 / Reward points update
+變動/Change: {CHANGE} ({KIND})
+結餘/Balance: {BALANCE}
+診所/Clinic: {CLINIC}
+參考/Ref: {REF}',
+    sms_template_zh_hant =
+        '[Joyful Smile Dental Clinic] 積分更新 / Reward points update
+變動/Change: {CHANGE} ({KIND})
+結餘/Balance: {BALANCE}
+診所/Clinic: {CLINIC}
+參考/Ref: {REF}',
+    sms_template_zh_cn =
+        '[Joyful Smile Dental Clinic] 積分更新 / Reward points update
+變動/Change: {CHANGE} ({KIND})
+結餘/Balance: {BALANCE}
+診所/Clinic: {CLINIC}
+參考/Ref: {REF}',
+    updated_at = now()
 where id = 1;
 
 -- ════════════════════════════════════════════════════════════

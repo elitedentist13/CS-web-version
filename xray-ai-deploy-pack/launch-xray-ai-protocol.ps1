@@ -45,6 +45,21 @@ $LogDir = Join-Path $env:LOCALAPPDATA "cs-xray-ai"
 $LogPath = Join-Path $LogDir "protocol.log"
 $ClientsPath = Join-Path $LogDir "protocol-clients.txt"
 
+# TEMP on this PC is an 8.3 name (C:\Users\ROOM2~1\...). PowerShell treats "~"
+# as the home shortcut, so Remove-Item and other path cmdlets throw
+# "An object at the specified path C:\Users\ROOM2~1 does not exist" even
+# when the folder is real. LOCALAPPDATA is the long name and has no "~".
+function Get-WorkTemp {
+    $long = Join-Path $env:LOCALAPPDATA "Temp"
+    if ($long -and (Test-Path -LiteralPath $long)) { return $long }
+    return ([System.IO.Path]::GetTempPath().TrimEnd('\'))
+}
+
+function Remove-WorkFile([string]$Path) {
+    if (-not $Path) { return }
+    try { [System.IO.File]::Delete($Path) } catch {}
+}
+
 function Write-ProtoLog([string]$Message) {
     try {
         if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
@@ -324,7 +339,7 @@ function Invoke-LocalApi($Job) {
     $imageUrl = [string]$Job.image_url
     $tmp = $null
     if ($imageUrl) {
-        $tmp = Join-Path $env:TEMP ("cs-xray-ai-" + $Job.id + ".jpg")
+        $tmp = Join-Path (Get-WorkTemp) ("cs-xray-ai-" + $Job.id + ".jpg")
         Invoke-WebRequest -UseBasicParsing -Uri $imageUrl -OutFile $tmp -TimeoutSec 60
     }
     $jsonBody = ""
@@ -342,7 +357,7 @@ function Invoke-LocalApi($Job) {
     # one-element array, which would drop a single finding on the way back.
     $curlArgs = @("-sS", "-m", "180", "-w", "`n%{http_code}", "-X", $method)
     if ($jsonBody -and -not $tmp) {
-        $jsonFile = Join-Path $env:TEMP ("cs-xray-ai-" + $Job.id + "-body.json")
+        $jsonFile = Join-Path (Get-WorkTemp) ("cs-xray-ai-" + $Job.id + "-body.json")
         $utf8Body = New-Object System.Text.UTF8Encoding $false
         [System.IO.File]::WriteAllText($jsonFile, $jsonBody, $utf8Body)
         $curlArgs += @("-H", "Content-Type: application/json", "--data-binary", "@$jsonFile")
@@ -358,7 +373,7 @@ function Invoke-LocalApi($Job) {
         $utf8 = New-Object System.Text.UTF8Encoding $false
         foreach ($prop in @($payload.fields.PSObject.Properties)) {
             $safe = [regex]::Replace([string]$prop.Name, '[^A-Za-z0-9_-]', '_')
-            $fieldPath = Join-Path $env:TEMP ("cs-xray-ai-" + $Job.id + "-" + $safe + ".txt")
+            $fieldPath = Join-Path (Get-WorkTemp) ("cs-xray-ai-" + $Job.id + "-" + $safe + ".txt")
             [System.IO.File]::WriteAllText($fieldPath, [string]$prop.Value, $utf8)
             $fieldFiles += $fieldPath
             $curlArgs += @("-F", ([string]$prop.Name + "=<" + $fieldPath))
@@ -366,10 +381,10 @@ function Invoke-LocalApi($Job) {
     }
     $curlArgs += $url
     $raw = & $curl @curlArgs
-    if ($tmp) { Remove-Item -Force $tmp -ErrorAction SilentlyContinue }
-    if ($jsonFile) { Remove-Item -Force $jsonFile -ErrorAction SilentlyContinue }
+    Remove-WorkFile $tmp
+    Remove-WorkFile $jsonFile
     foreach ($fieldPath in $fieldFiles) {
-        Remove-Item -Force $fieldPath -ErrorAction SilentlyContinue
+        Remove-WorkFile $fieldPath
     }
     # A native program's stdout arrives as one string per line. Casting that
     # array to [string] joins with spaces and glues the HTTP status onto the
@@ -467,6 +482,12 @@ if ($SelfTest) {
     if (Test-PrepareUrl $both) { throw "job URL must not look like prepare" }
     if ((Get-JobId $prep) -ne "00000000-0000-4000-8000-000000000004") { throw "prepare job id failed" }
     if ((Get-ClientId $prep) -ne "11111111-2222-4333-8444-555555555555") { throw "prepare client failed" }
+    $workTemp = Get-WorkTemp
+    if ($workTemp -match '~') { throw "work temp still contains a short-name tilde: $workTemp" }
+    $probe = Join-Path $workTemp "cs-xray-ai-selftest-probe.txt"
+    [System.IO.File]::WriteAllText($probe, "ok")
+    Remove-WorkFile $probe
+    if (Test-Path -LiteralPath $probe) { throw "work file was not deleted: $probe" }
     Write-Output "protocol self-test ok"
     exit 0
 }

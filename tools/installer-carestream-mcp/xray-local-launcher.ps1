@@ -2573,6 +2573,53 @@ function Start-CarestreamFillPatientCard($Patient) {
     }
 }
 
+# Patient.exe started as a direct child of the hidden bridge listener often
+# never creates a MainWindowHandle (windowless zombie). Kill those, then
+# launch via the desktop shortcut through a detached ShellExecute so the
+# UI appears the same as double-clicking "CS Imaging Software".
+function Stop-CarestreamWindowlessPatient {
+    Get-Process -Name "Patient" -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.MainWindowHandle -eq [IntPtr]::Zero) {
+            try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {}
+        }
+    }
+}
+
+function Start-CarestreamPatientBrowserUi($Exe, $WorkDir) {
+    Stop-CarestreamWindowlessPatient
+    Start-Sleep -Milliseconds 200
+    $existingUi = Get-Process -Name "Patient" -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
+        Select-Object -First 1
+    if ($existingUi) {
+        # Already open with a real window — helpers will focus/paste into it.
+        return $true
+    }
+    $shortcut = First-Existing $Systems.carestream.shortcuts
+    if ($shortcut) {
+        try {
+            # Detached explorer launch avoids the bridge's hidden-host quirk.
+            Start-Process -FilePath "explorer.exe" -ArgumentList @($shortcut) | Out-Null
+            return $true
+        } catch {}
+    }
+    if ($Exe -and (Test-PathSafe $Exe)) {
+        try {
+            # Fallback: launch exe from a detached powershell so it is not a
+            # direct child of the HTTP listener process.
+            $safeExe = $Exe.Replace("'", "''")
+            $safeWork = if ($WorkDir) { $WorkDir.Replace("'", "''") } else { "" }
+            $cmd = "Start-Process -FilePath '$safeExe' -WindowStyle Normal"
+            if ($safeWork) { $cmd += " -WorkingDirectory '$safeWork'" }
+            Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $cmd
+            ) | Out-Null
+            return $true
+        } catch {}
+    }
+    return $false
+}
+
 function Start-CarestreamImagingPatient($Resolved, $Patient) {
     $exe = Resolve-CarestreamPatientBrowser $Resolved
     if (-not $exe) { return $null }
@@ -2582,24 +2629,16 @@ function Start-CarestreamImagingPatient($Resolved, $Patient) {
     $searchText = Build-CarestreamSearchText $Patient
     $argLine = Build-CarestreamPatientCommandLine $Patient $existing
     $workDir = Split-Path -Parent $exe
-    if ([string]::IsNullOrWhiteSpace($argLine)) {
-        $startArgs = @{ FilePath = $exe; WindowStyle = "Normal" }
-        if ($workDir -and (Test-PathSafe $workDir)) {
-            $startArgs.WorkingDirectory = $workDir
-        }
-        Start-Process @startArgs
-    } else {
-        Start-NativeCommandLine $exe $argLine $workDir
-    }
+    $launchedUi = Start-CarestreamPatientBrowserUi $exe $workDir
     # Clipboard = patient name for staff Ctrl+V; also paste into the live filter.
-    if (-not [string]::IsNullOrWhiteSpace($searchText)) {
+    if ($launchedUi -and -not [string]::IsNullOrWhiteSpace($searchText)) {
         try { Set-Clipboard -Value $searchText } catch {}
         Start-PasteIntoPatientBrowserSearch $searchText
     }
     # No SCAN folder yet → treat as new patient: open Patient Card and
     # prefill English name / DOB / chart / HKID for staff to Create.
     $isNewPatient = [string]::IsNullOrWhiteSpace([string]$existing)
-    if ($isNewPatient) {
+    if ($launchedUi -and $isNewPatient) {
         Start-CarestreamFillPatientCard $Patient
     }
     return [ordered]@{
@@ -2612,6 +2651,7 @@ function Start-CarestreamImagingPatient($Resolved, $Patient) {
         ui_label = $uiLabel
         search_text = $searchText
         new_patient_card = $isNewPatient
+        launched_ui = $launchedUi
         mode = "carestream_patient_browser"
         argList = $argLine
     }
@@ -4001,6 +4041,8 @@ function Invoke-SelfTest {
     Assert-equal "new card hkid" "A123456(7)" $csCard.hkid
     Assert-equal "new card sex" "M" $csCard.sex
     Assert-equal "fill card helper is a function" $true ($null -ne (Get-Command Start-CarestreamFillPatientCard -ErrorAction SilentlyContinue))
+    Assert-equal "patient UI launcher is a function" $true ($null -ne (Get-Command Start-CarestreamPatientBrowserUi -ErrorAction SilentlyContinue))
+    Assert-equal "windowless patient cleanup is a function" $true ($null -ne (Get-Command Stop-CarestreamWindowlessPatient -ErrorAction SilentlyContinue))
     Write-Host "== Carestream date sides (11 July 2026 stays with the chart folder) ==" -ForegroundColor Cyan
     Assert-Equal "11 July 2026 is the before side" "before" (Get-CarestreamFilmSide "2026-07-11T15:14:00")
     Assert-Equal "12 July 2026 is the after side" "after" (Get-CarestreamFilmSide "2026-07-12T00:00:00")

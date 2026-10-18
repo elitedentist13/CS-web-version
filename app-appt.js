@@ -21621,12 +21621,23 @@ function saveBill(doPrint) {
                         clinicCode: payRecord.clinic_code || payRecord.clinic_tag || '',
                         note: null
                     }).then(function (earnRes) {
+                        if (earnRes && earnRes.ok && !earnRes.skipped && earnRes.balance != null &&
+                                typeof REWARDS.refreshBannerBalances === 'function') {
+                            REWARDS.refreshBannerBalances(earnPatientId, earnRes.balance);
+                        }
                         if (beforeBal == null || !earnRes || earnRes.skipped ||
                                 typeof REWARDS.notifyNetChange !== 'function') {
                             return;
                         }
-                        return REWARDS.getBalance(earnPatientId).then(function (afterBal) {
-                            return REWARDS.notifyNetChange(earnPatientId, beforeBal, afterBal, {
+                        var afterBal = (earnRes.balance != null) ? earnRes.balance : null;
+                        var afterP = (afterBal != null)
+                            ? Promise.resolve(afterBal)
+                            : REWARDS.getBalance(earnPatientId);
+                        return afterP.then(function (bal) {
+                            if (typeof REWARDS.refreshBannerBalances === 'function') {
+                                REWARDS.refreshBannerBalances(earnPatientId, bal);
+                            }
+                            return REWARDS.notifyNetChange(earnPatientId, beforeBal, bal, {
                                 clinicCode: payRecord.clinic_code || payRecord.clinic_tag || '',
                                 ref: 'Bill ' + String(savedBillId).slice(0, 8).toUpperCase()
                             });
@@ -21635,9 +21646,6 @@ function saveBill(doPrint) {
                         console.warn('Initial bill reward earn failed:', e && e.message ? e.message : e);
                     });
                 }).then(function () {
-                    if (earnPatientId && typeof REWARDS.refreshBannerBalances === 'function') {
-                        REWARDS.refreshBannerBalances(earnPatientId);
-                    }
                     continueAfterPending();
                 });
             });
@@ -24081,9 +24089,25 @@ function executeAddPaymentSave(ctx) {
             });
         }
         return earnP.then(function (earnRes) {
-            if (patientId && typeof REWARDS !== 'undefined' && typeof REWARDS.getBalance === 'function' &&
+            // Prefer RPC-reported balance for instant banner paint (avoid stale re-fetch lag).
+            var knownAfter = (earnRes && earnRes.ok && !earnRes.skipped && earnRes.balance != null)
+                ? earnRes.balance
+                : null;
+            if (knownAfter != null && patientId &&
+                    typeof REWARDS !== 'undefined' && typeof REWARDS.refreshBannerBalances === 'function') {
+                REWARDS.refreshBannerBalances(patientId, knownAfter);
+            }
+            if (patientId && typeof REWARDS !== 'undefined' &&
                     typeof REWARDS.notifyNetChange === 'function' && beforeRewardBal != null) {
-                return REWARDS.getBalance(patientId).then(function (afterBal) {
+                var afterP = (knownAfter != null)
+                    ? Promise.resolve(knownAfter)
+                    : (typeof REWARDS.getBalance === 'function'
+                        ? REWARDS.getBalance(patientId)
+                        : Promise.resolve(beforeRewardBal));
+                return afterP.then(function (afterBal) {
+                    if (typeof REWARDS.refreshBannerBalances === 'function') {
+                        REWARDS.refreshBannerBalances(patientId, afterBal);
+                    }
                     return REWARDS.notifyNetChange(patientId, beforeRewardBal, afterBal, {
                         clinicCode: clinicCode,
                         ref: 'Bill ' + String(billId).slice(0, 8).toUpperCase()

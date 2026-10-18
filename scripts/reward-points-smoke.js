@@ -352,10 +352,23 @@ function extractIifeHelpers(src) {
         /積分更新 \/ Reward points update/.test(rewardsSrc) &&
         /變動\/Change/.test(rewardsSrc) &&
         /kindLabelBilingual/.test(rewardsSrc));
-    pass('ledger time uses Asia/Hong_Kong',
-        /Asia\/Hong_Kong/.test(rewardsSrc) && /fmtLedgerTimeHK/.test(rewardsSrc));
-    pass('rewards modal pinned left CSS',
-        /reward-points-modal-box/.test(idxSrc) && /left:16px/.test(rewardsSrc));
+    pass('ledger time matches banner/realtime locale clock',
+        /ledgerDateLocale/.test(rewardsSrc) && /fmtLedgerTimeHK/.test(rewardsSrc) &&
+        /APP_LOCALE/.test(rewardsSrc) && /hour12:\s*true/.test(rewardsSrc));
+    pass('banner balance instant paint API',
+        /paintBannerBalance/.test(rewardsSrc) &&
+        /refreshBannerBalances\(info\.patientId, info\.balance\)/.test(rewardsSrc) &&
+        /function refreshBannerBalances\(patientId, knownBalance\)/.test(rewardsSrc));
+    pass('banner balance id is conBannerRewardsBal (not BtnBal)',
+        /ensureRewardsBannerBtn/.test(rewardsSrc) &&
+        /'conBannerRewardsBal'/.test(rewardsSrc) &&
+        /'apptBannerRewardsBal'/.test(rewardsSrc) &&
+        !/btnId \+ 'Bal'/.test(rewardsSrc));
+    pass('rewards modal centered above billPanel',
+        /reward-points-modal-box/.test(idxSrc) &&
+        /z-index:3200/.test(rewardsSrc) &&
+        /translate\(-50%,-50%\)/.test(rewardsSrc) &&
+        /#billPanel\.open/.test(rewardsSrc));
 
     pass('report excludes reward points',
         /isRewardPayMethod/.test(reportSrc) &&

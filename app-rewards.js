@@ -54,26 +54,49 @@ var REWARDS = (function () {
         return (v > 0 ? '+' : '') + v.toFixed(2);
     }
 
-    /** Ledger timestamps in Asia/Hong_Kong (clinic local), not browser UTC dump. */
+    /** Same locale clock as patient banner / Supabase realtime sync (APP_LOCALE). */
+    function ledgerDateLocale() {
+        if (typeof APP_LOCALE !== 'undefined' && APP_LOCALE) return APP_LOCALE;
+        if (typeof appUiLocale === 'function') {
+            try { return appUiLocale(); } catch (e) { /* ignore */ }
+        }
+        if (typeof apptDateLocale === 'function') {
+            try { return apptDateLocale(); } catch (e2) { /* ignore */ }
+        }
+        return 'en-HK';
+    }
+
+    /**
+     * Format ledger timestamptz like the consultation banner + realtime sync clock:
+     * browser-local instant via APP_LOCALE (clinic PCs are HK), AM/PM like fmtNowDateTimeHK.
+     */
     function fmtLedgerTimeHK(iso) {
         if (!iso) return '—';
         var d = new Date(iso);
         if (isNaN(d.getTime())) {
             return String(iso).replace('T', ' ').slice(0, 19);
         }
+        var loc = ledgerDateLocale();
         try {
-            return d.toLocaleString('en-HK', {
-                timeZone: 'Asia/Hong_Kong',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
+            var datePart = d.toLocaleDateString(loc, {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric'
+            });
+            var timePart = d.toLocaleTimeString(loc, {
                 hour: '2-digit',
                 minute: '2-digit',
                 second: '2-digit',
-                hour12: false
+                hour12: true
             });
+            return datePart + ' ' + timePart;
         } catch (e) {
-            return String(iso).replace('T', ' ').slice(0, 19);
+            try {
+                return d.toLocaleString(loc);
+            } catch (e2) {
+                return String(iso).replace('T', ' ').slice(0, 19);
+            }
         }
     }
 
@@ -81,12 +104,12 @@ var REWARDS = (function () {
         if (!iso) return '—';
         var d = new Date(iso);
         if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+        var loc = ledgerDateLocale();
         try {
-            return d.toLocaleDateString('en-HK', {
-                timeZone: 'Asia/Hong_Kong',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
+            return d.toLocaleDateString(loc, {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric'
             });
         } catch (e) {
             return String(iso).slice(0, 10);
@@ -379,6 +402,10 @@ var REWARDS = (function () {
 
     function notifyBalanceChange(info) {
         // info: { patientId, points, balance, kind, ledgerId, clinic, ref }
+        // Instant banner / panel paint from known balance (do not wait for SMS / re-fetch).
+        if (info && info.patientId && info.balance != null && isFinite(Number(info.balance))) {
+            refreshBannerBalances(info.patientId, info.balance);
+        }
         return loadProgram(false).then(function (program) {
             if (program.sms_notify_enabled === false) {
                 return logSms({
@@ -541,6 +568,9 @@ var REWARDS = (function () {
                     }
                     return { ok: false, error: rr.error || 'redeem failed', rewardAmount: 0 };
                 }
+                if (rr && rr.balance != null) {
+                    refreshBannerBalances(opts.patientId, rr.balance);
+                }
                 return {
                     ok: true,
                     rewardAmount: pts,
@@ -561,6 +591,11 @@ var REWARDS = (function () {
             clinicId: opts.clinicId,
             clinicCode: opts.clinicCode,
             note: opts.note || null
+        }).then(function (res) {
+            if (res && res.ok && !res.skipped && res.balance != null && opts.patientId) {
+                refreshBannerBalances(opts.patientId, res.balance);
+            }
+            return res;
         });
     }
 
@@ -871,77 +906,148 @@ var REWARDS = (function () {
     }
 
     // ── Banner / directory info links ────────────────────────
-    function attachInfoLinks() {
-        function addLink(parentSel, btnId, getPatientId) {
-            var parent = document.querySelector(parentSel);
-            if (!parent) return;
-            if (document.getElementById(btnId)) return;
-            var btn = document.createElement('button');
+    function ensureRewardsBannerBtn(subSel, btnId, balId, resolvePatientId) {
+        var sub = document.querySelector(subSel);
+        if (!sub) return null;
+        var btn = document.getElementById(btnId);
+        if (!btn) {
+            btn = document.createElement('button');
             btn.type = 'button';
             btn.id = btnId;
             btn.className = 'con-banner-balance-btn rw-info-link';
-            btn.setAttribute('data-i18n-title', 'rewards.link.title');
-            btn.title = tr('rewards.link.title', 'Reward points');
-            btn.innerHTML = '<span data-i18n="rewards.link.label">' +
-                esc(tr('rewards.link.label', 'Rewards')) +
-                '</span>&nbsp;<strong id="' + btnId + 'Bal">—</strong>';
-            btn.addEventListener('click', function () {
-                var pid = getPatientId();
-                if (pid) openPatientPanel(pid);
-            });
-            parent.appendChild(btn);
-        }
-
-        addLink('#conBannerBalanceBtn', 'conBannerRewardsBtn', function () {
-            return (typeof conPatientId !== 'undefined' && conPatientId) ? conPatientId :
-                (typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id) ? conPatientData.id : null;
-        });
-        // Place next to balance button's parent
-        var conSub = document.querySelector('#consultationSection .con-banner-sub');
-        if (conSub && !document.getElementById('conBannerRewardsBtn')) {
-            var btn = document.createElement('button');
-            btn.type = 'button';
-            btn.id = 'conBannerRewardsBtn';
-            btn.className = 'con-banner-balance-btn rw-info-link';
             btn.title = tr('rewards.link.title', 'Reward points');
             btn.innerHTML = '<span>' + esc(tr('rewards.link.label', 'Rewards')) +
-                '</span>&nbsp;<strong id="conBannerRewardsBal">—</strong>';
+                '</span>&nbsp;<strong id="' + balId + '">—</strong>';
             btn.addEventListener('click', function () {
-                var pid = (typeof conPatientId !== 'undefined' && conPatientId) ? conPatientId : null;
+                var pid = resolvePatientId();
                 if (pid) openPatientPanel(pid);
             });
-            conSub.appendChild(btn);
+            sub.appendChild(btn);
         }
-
-        var apptSub = document.querySelector('#apptPatientBanner .con-banner-sub');
-        if (apptSub && !document.getElementById('apptBannerRewardsBtn')) {
-            var btn2 = document.createElement('button');
-            btn2.type = 'button';
-            btn2.id = 'apptBannerRewardsBtn';
-            btn2.className = 'con-banner-balance-btn rw-info-link';
-            btn2.title = tr('rewards.link.title', 'Reward points');
-            btn2.innerHTML = '<span>' + esc(tr('rewards.link.label', 'Rewards')) +
-                '</span>&nbsp;<strong id="apptBannerRewardsBal">—</strong>';
-            btn2.addEventListener('click', function () {
-                var pid = null;
-                if (typeof apptActivePatientId === 'function') pid = apptActivePatientId();
-                else if (typeof getActivePatientId === 'function') pid = getActivePatientId();
-                else if (typeof activePatientSlots !== 'undefined' && activePatientSlots && activePatientSlots[0]) {
-                    pid = activePatientSlots[0].id;
-                }
-                if (pid) openPatientPanel(pid);
-            });
-            apptSub.appendChild(btn2);
+        // Repair older builds that used wrong strong id (btnId + "Bal")
+        var balEl = document.getElementById(balId);
+        if (!balEl && btn) {
+            var strong = btn.querySelector('strong');
+            if (strong) strong.id = balId;
+            else {
+                strong = document.createElement('strong');
+                strong.id = balId;
+                strong.textContent = '—';
+                btn.appendChild(document.createTextNode(' '));
+                btn.appendChild(strong);
+            }
         }
+        return btn;
     }
 
-    function refreshBannerBalances(patientId) {
-        if (!patientId) return;
-        getBalance(patientId).then(function (bal) {
-            ['conBannerRewardsBal', 'apptBannerRewardsBal'].forEach(function (id) {
-                var el = document.getElementById(id);
-                if (el) el.textContent = fmtPts(bal);
-            });
+    function resolveConBannerPatientId() {
+        if (typeof conPatientId !== 'undefined' && conPatientId) return conPatientId;
+        if (typeof conPatientData !== 'undefined' && conPatientData && conPatientData.id) {
+            return conPatientData.id;
+        }
+        return null;
+    }
+
+    function resolveApptBannerPatientId() {
+        if (typeof apptActivePatientId === 'function') {
+            var a = apptActivePatientId();
+            if (a) return a;
+        }
+        if (typeof getActivePatientId === 'function') {
+            var gpid = getActivePatientId();
+            if (gpid) return gpid;
+        }
+        if (typeof activePatientSlots !== 'undefined' && activePatientSlots &&
+                activePatientSlots[0] && activePatientSlots[0].id) {
+            return activePatientSlots[0].id;
+        }
+        return null;
+    }
+
+    function attachInfoLinks() {
+        ensureRewardsBannerBtn(
+            '#consultationSection .con-banner-sub',
+            'conBannerRewardsBtn',
+            'conBannerRewardsBal',
+            resolveConBannerPatientId
+        );
+        ensureRewardsBannerBtn(
+            '#apptPatientBanner .con-banner-sub',
+            'apptBannerRewardsBtn',
+            'apptBannerRewardsBal',
+            resolveApptBannerPatientId
+        );
+        // Remove mistaken nested button from older builds (appended inside balance btn)
+        var nested = document.querySelector('#conBannerBalanceBtn #conBannerRewardsBtn');
+        if (nested && nested.parentNode) nested.parentNode.removeChild(nested);
+    }
+
+    function bannerShowsPatient(patientId) {
+        var want = String(patientId || '').trim().toLowerCase();
+        if (!want) return { con: false, appt: false };
+        var conId = String(resolveConBannerPatientId() || '').trim().toLowerCase();
+        var apptId = String(resolveApptBannerPatientId() || '').trim().toLowerCase();
+        return {
+            con: !!(conId && conId === want),
+            appt: !!(apptId && apptId === want)
+        };
+    }
+
+    function setRewardsBalText(el, pts) {
+        if (!el) return;
+        el.textContent = pts;
+    }
+
+    function paintBannerBalance(patientId, bal) {
+        attachInfoLinks(); // ensure buttons + correct strong ids exist
+        var pts = fmtPts(bal);
+        var show = bannerShowsPatient(patientId);
+        var conEl = document.getElementById('conBannerRewardsBal');
+        var apptEl = document.getElementById('apptBannerRewardsBal');
+        var want = String(patientId || '').trim().toLowerCase();
+        var activeCon = String(resolveConBannerPatientId() || '').trim().toLowerCase();
+        var activeAppt = String(resolveApptBannerPatientId() || '').trim().toLowerCase();
+
+        if (show.con || (want && want === activeCon)) {
+            setRewardsBalText(conEl, pts);
+            var conBtn = document.getElementById('conBannerRewardsBtn');
+            if (conBtn) conBtn.style.display = '';
+        }
+        if (show.appt || (want && want === activeAppt)) {
+            setRewardsBalText(apptEl, pts);
+            var apptBtn = document.getElementById('apptBannerRewardsBtn');
+            if (apptBtn) apptBtn.style.display = '';
+        }
+
+        if (_panelPatientId && String(_panelPatientId) === String(patientId)) {
+            var panelBal = document.getElementById('rwPatientBalance');
+            if (panelBal) panelBal.textContent = pts;
+        }
+        try {
+            document.dispatchEvent(new CustomEvent('rewards-balance-changed', {
+                detail: { patientId: patientId, balance: round2(bal) }
+            }));
+        } catch (e) { /* ignore */ }
+    }
+
+    /**
+     * Refresh banner reward balance. Pass knownBalance for instant paint after earn/redeem/transfer.
+     */
+    function refreshBannerBalances(patientId, knownBalance) {
+        if (!patientId) return Promise.resolve(null);
+        attachInfoLinks();
+        if (knownBalance != null && isFinite(Number(knownBalance))) {
+            var instant = round2(knownBalance);
+            paintBannerBalance(patientId, instant);
+            return Promise.resolve(instant);
+        }
+        return getBalance(patientId).then(function (bal) {
+            paintBannerBalance(patientId, bal);
+            return bal;
+        }).catch(function () {
+            // Still show 0.00 rather than leaving em-dash if fetch fails after account exists elsewhere
+            paintBannerBalance(patientId, 0);
+            return 0;
         });
     }
 
@@ -1159,9 +1265,12 @@ var REWARDS = (function () {
     }
 
     function injectStylesOnce() {
-        if (document.getElementById('rwStyles')) return;
-        var s = document.createElement('style');
-        s.id = 'rwStyles';
+        var s = document.getElementById('rwStyles');
+        if (!s) {
+            s = document.createElement('style');
+            s.id = 'rwStyles';
+            document.head.appendChild(s);
+        }
         s.textContent =
             '.rw-info-link{margin-left:6px;}' +
             '.rw-pos{color:#16a34a;}.rw-neg{color:#dc2626;}' +
@@ -1177,17 +1286,19 @@ var REWARDS = (function () {
             '#rwTransferDrop{position:absolute;left:0;right:0;top:100%;z-index:5;background:#fff;border:1px solid #e2e8f0;border-radius:8px;max-height:180px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.08);}' +
             '.rw-xfer-opt{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:transparent;cursor:pointer;font-size:13px;}' +
             '.rw-xfer-opt:hover{background:#f8fafc;}' +
-            /* Above #billPanel (z-index 2000); box pinned to left of the main display */
+            /* Above #billPanel (z-index 2000). Centered in the middle display; */
+            /* when the payment panel is open, center in the free area so they do not overlap. */
             '#rewardPatientModal.reward-points-modal{z-index:3200;background:rgba(15,23,42,.28);}' +
             '#rewardPatientModal .reward-points-modal-box{' +
-            'position:fixed;left:16px;top:50%;transform:translateY(-50%);' +
-            'margin:0;width:min(640px,calc(100vw - 720px));min-width:min(420px,calc(100vw - 32px));' +
-            'max-width:640px;max-height:92vh;overflow:auto;' +
+            'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);' +
+            'margin:0;width:min(640px,92vw);max-width:640px;max-height:92vh;overflow:auto;' +
             'box-shadow:0 18px 50px rgba(15,23,42,.22);}' +
-            '@media (max-width:1100px){' +
-            '#rewardPatientModal .reward-points-modal-box{' +
-            'width:min(560px,calc(100vw - 48px));left:12px;}}';
-        document.head.appendChild(s);
+            'body:has(#billPanel.open) #rewardPatientModal .reward-points-modal-box{' +
+            'left:calc((100vw - min(680px,100vw)) / 2);' +
+            'width:min(640px,calc(100vw - min(680px,100vw) - 32px));}' +
+            '@media (max-width:900px){' +
+            'body:has(#billPanel.open) #rewardPatientModal .reward-points-modal-box{' +
+            'left:50%;width:min(560px,92vw);}}';
     }
 
     function boot() {

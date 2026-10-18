@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261019reward3';
+  var BUILD = '20261019reward6';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -7491,7 +7491,7 @@
 <!-- ════════════════════════════════════════════════════════════
      MODAL — BALANCE TRANSFER CONFIRM (trail check)
 ════════════════════════════════════════════════════════════ -->
-<!-- Reward points — patient ledger + transfer (pinned left so billPanel on the right does not cover it) -->
+<!-- Reward points — patient ledger + transfer (centered; z above billPanel; shifts mid when bill open) -->
 <div id="rewardPatientModal" class="modal reward-points-modal">
   <div class="modal-box reward-points-modal-box">
     <button class="mclose" data-i18n-aria-label="common.closeAria"

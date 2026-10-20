@@ -398,6 +398,10 @@ function extractIifeHelpers(src) {
         /accountsCappedForDoctor/.test(rewardsSrc) &&
         /getRedeemableBalanceForDoctor/.test(rewardsSrc) &&
         /rewards\.pay\.needDoctor/.test(rewardsSrc));
+    pass('transfer pairs reattribute to source doctor',
+        /reattributeUnattributedTransfers/.test(rewardsSrc) &&
+        /doctorWeightMap/.test(rewardsSrc) &&
+        /_unattrib_balance/.test(rewardsSrc));
     pass('index shows payment doctor for rewards',
         idxSrc.indexOf('id="apRewardDoctor"') >= 0);
     pass('patient dir ⋯ has reward ledger',
@@ -681,6 +685,36 @@ function extractIifeHelpers(src) {
                 'status=' + multiRpc.status + ' ' + String(multiRpc.raw || '').slice(0, 140));
         }
 
+        // Prefer known multi-clinic same-person charts (#001003 PL + #021713 PY)
+        var multiClinic = await restGet(sb.url, sb.key, 'patients',
+            'patient_no=in.(001003,021713)&select=id,patient_no,clinic_tag,hkid');
+        if (multiClinic.status < 300 && Array.isArray(multiClinic.json) &&
+                multiClinic.json.length >= 2) {
+            var plChart = multiClinic.json.filter(function (p) {
+                return p.patient_no === '001003';
+            })[0];
+            var pyChart = multiClinic.json.filter(function (p) {
+                return p.patient_no === '021713';
+            })[0];
+            if (plChart && pyChart) {
+                pass('API multi-clinic same person charts', true,
+                    '#001003/' + (plChart.clinic_tag || '?') + ' + #021713/' +
+                    (pyChart.clinic_tag || '?'));
+                global.__REWARD_SMOKE_XFER_PAIR__ = {
+                    pl_id: plChart.id,
+                    py_id: pyChart.id,
+                    pl_no: '001003',
+                    py_no: '021713'
+                };
+                global.__REWARD_SMOKE_PATIENT__ = {
+                    patient_id: plChart.id,
+                    patient_no: '001003',
+                    account_id: null,
+                    balance: 0
+                };
+            }
+        }
+
         // Real patient with reward account (read-only)
         var realAcc = await restGet(sb.url, sb.key, 'reward_accounts',
             'select=id,patient_id,patient_no,clinic_code,balance&balance=gt.0&order=balance.desc&limit=3');
@@ -690,12 +724,22 @@ function extractIifeHelpers(src) {
             pass('API real patient reward account', true,
                 '#' + (top.patient_no || '?') + ' bal=' + top.balance + ' id=' +
                 String(top.patient_id || '').slice(0, 8));
-            global.__REWARD_SMOKE_PATIENT__ = {
-                patient_id: top.patient_id,
-                patient_no: top.patient_no,
-                account_id: top.id,
-                balance: Number(top.balance)
-            };
+            if (!global.__REWARD_SMOKE_PATIENT__) {
+                global.__REWARD_SMOKE_PATIENT__ = {
+                    patient_id: top.patient_id,
+                    patient_no: top.patient_no,
+                    account_id: top.id,
+                    balance: Number(top.balance)
+                };
+            } else if (!global.__REWARD_SMOKE_PATIENT__.account_id) {
+                var matchAcc = realAcc.json.filter(function (a) {
+                    return a.patient_id === global.__REWARD_SMOKE_PATIENT__.patient_id;
+                })[0];
+                if (matchAcc) {
+                    global.__REWARD_SMOKE_PATIENT__.account_id = matchAcc.id;
+                    global.__REWARD_SMOKE_PATIENT__.balance = Number(matchAcc.balance);
+                }
+            }
             var related = await restRpc(sb.url, sb.key, 'reward_related_patient_ids', {
                 p_patient_id: top.patient_id
             });
@@ -1114,6 +1158,60 @@ function extractIifeHelpers(src) {
                 } else if (Number(realLive.total) > 0.005 && realLive.payJoined === false) {
                     warn('live Redeem all skipped', 'clinic redeem join false without patch');
                 }
+            }
+
+            // Cross-clinic transfer attribution: #001003 must see #021713 Dr points
+            var xferPair = global.__REWARD_SMOKE_XFER_PAIR__;
+            if (xferPair && xferPair.pl_id) {
+                var xferLive = await cdp.js(`(async () => {
+  const plId = ${JSON.stringify(xferPair.pl_id)};
+  const out = {};
+  try {
+    const accounts = await REWARDS.listPersonAccounts(plId);
+    out.nos = (accounts || []).map(a => String(a.patient_no || ''));
+    out.has021713 = out.nos.indexOf('021713') >= 0;
+    out.has001003 = out.nos.indexOf('001003') >= 0;
+    const nets = await REWARDS.loadDoctorLedgerNets(plId);
+    const doc = REWARDS.resolveRewardDoctor('DR. NG PUI CHING');
+    out.docKey = doc && doc.key;
+    const capped = REWARDS.accountsCappedForDoctor(accounts, nets, doc.key);
+    out.cappedNos = (capped || []).map(a => a.patient_no + '@' + a.clinic_code + '=' + a.balance);
+    out.pyCapped = (capped || []).filter(a => String(a.patient_no) === '021713')
+      .reduce((s, a) => s + Number(a.balance || 0), 0);
+    out.redeemable = await REWARDS.getRedeemableBalanceForDoctor(plId, 'DR. NG PUI CHING');
+    window.bdCurrentBill = {
+      id: 'smoke-xfer-bill',
+      patient_id: plId,
+      balance: 200,
+      doctor_name: 'DR. NG PUI CHING',
+      doctor_tag: 'DR. NG PUI CHING'
+    };
+    await REWARDS.refreshAddPaymentRewardPanel();
+    const src = document.getElementById('apRewardSources');
+    const balPay = document.getElementById('apRewardBalance');
+    out.payBal = balPay ? String(balPay.textContent || '').trim() : null;
+    out.paySrcText = src ? String(src.textContent || '').replace(/\\s+/g, ' ').trim() : '';
+    out.payShows021713 = !!(out.paySrcText && out.paySrcText.indexOf('021713') >= 0);
+    out.payShowsPY = !!(out.paySrcText && out.paySrcText.indexOf('PY') >= 0);
+    delete window.bdCurrentBill;
+    out.ok = true;
+  } catch (e) {
+    out.ok = false;
+    out.err = String(e && e.message || e);
+  }
+  return out;
+})()`, true, 45000);
+                pass('live cross-clinic charts linked',
+                    xferLive && xferLive.ok !== false && xferLive.has021713 === true,
+                    xferLive && (xferLive.err || JSON.stringify(xferLive.nos || []).slice(0, 80)));
+                pass('live PY transfer points redeemable for same Dr',
+                    xferLive && Number(xferLive.pyCapped) > 0.005,
+                    xferLive && ('py=' + xferLive.pyCapped + ' total=' + xferLive.redeemable +
+                        ' capped=' + JSON.stringify(xferLive.cappedNos || []).slice(0, 120)));
+                pass('live payment panel lists PY #021713',
+                    xferLive && xferLive.payShows021713 === true,
+                    xferLive && ('bal=' + xferLive.payBal + ' src=' +
+                        String(xferLive.paySrcText || '').slice(0, 100)));
             }
         }
 

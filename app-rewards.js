@@ -1493,6 +1493,148 @@ var REWARDS = (function () {
         return !!(doc && doc.key && doc.key !== '__unknown__' && doc.label);
     }
 
+    function applyDoctorNetDelta(byAccount, byDoctor, accountId, doctorKey, label, delta) {
+        if (!accountId || !doctorKey || !delta) return;
+        if (!byAccount[accountId]) byAccount[accountId] = {};
+        if (!byAccount[accountId][doctorKey]) {
+            byAccount[accountId][doctorKey] = { bal: 0, label: label || '' };
+        }
+        byAccount[accountId][doctorKey].bal =
+            round2(byAccount[accountId][doctorKey].bal + delta);
+        if (label && !byAccount[accountId][doctorKey].label) {
+            byAccount[accountId][doctorKey].label = label;
+        }
+        if (!byDoctor[doctorKey]) byDoctor[doctorKey] = { bal: 0, label: label || '' };
+        byDoctor[doctorKey].bal = round2(byDoctor[doctorKey].bal + delta);
+        if (label && !byDoctor[doctorKey].label) byDoctor[doctorKey].label = label;
+    }
+
+    function doctorWeightMap(byAccount, byDoctor, preferAccountId) {
+        var weights = {};
+        var total = 0;
+        function addFrom(slot) {
+            if (!slot) return;
+            Object.keys(slot).forEach(function (dk) {
+                if (dk === '__unknown__') return;
+                var bal = round2(slot[dk].bal);
+                if (bal <= 0.005) return;
+                if (!weights[dk]) weights[dk] = { bal: 0, label: slot[dk].label || '' };
+                weights[dk].bal = round2(weights[dk].bal + bal);
+                if (slot[dk].label && !weights[dk].label) weights[dk].label = slot[dk].label;
+                total = round2(total + bal);
+            });
+        }
+        if (preferAccountId) addFrom(byAccount[preferAccountId]);
+        if (total <= 0.005) {
+            weights = {};
+            total = 0;
+            Object.keys(byAccount || {}).forEach(function (accId) { addFrom(byAccount[accId]); });
+        }
+        if (total <= 0.005) {
+            weights = {};
+            total = 0;
+            Object.keys(byDoctor || {}).forEach(function (dk) {
+                if (dk === '__unknown__') return;
+                var bal = round2(byDoctor[dk].bal);
+                if (bal <= 0.005) return;
+                weights[dk] = { bal: bal, label: byDoctor[dk].label || '' };
+                total = round2(total + bal);
+            });
+        }
+        return { weights: weights, total: total };
+    }
+
+    /**
+     * Chart-to-chart transfers often have null doctor_name. Re-attribute those
+     * pairs onto the source chart's doctor mix so same-Dr redeem still sees
+     * points that moved to another clinic chart (e.g. PL #001003 → PY #021713).
+     */
+    function reattributeUnattributedTransfers(byAccount, byDoctor, rows) {
+        var outs = [];
+        var ins = [];
+        (rows || []).forEach(function (row) {
+            if (!row || !row.account_id) return;
+            if (String(row.doctor_name || '').trim()) return;
+            var kind = String(row.kind || '');
+            if (kind !== 'transfer_out' && kind !== 'transfer_in') return;
+            var pts = round2(row.points);
+            if (!pts) return;
+            var item = {
+                account_id: row.account_id,
+                pts: pts,
+                transfer_id: String(row.transfer_id || ''),
+                created_at: String(row.created_at || '')
+            };
+            if (kind === 'transfer_out') outs.push(item);
+            else ins.push(item);
+        });
+        var usedIn = {};
+        outs.forEach(function (o) {
+            var match = null;
+            var mi = -1;
+            var i;
+            for (i = 0; i < ins.length; i++) {
+                if (usedIn[i]) continue;
+                var cand = ins[i];
+                if (o.transfer_id && cand.transfer_id && o.transfer_id === cand.transfer_id) {
+                    match = cand;
+                    mi = i;
+                    break;
+                }
+                if (o.created_at && cand.created_at === o.created_at &&
+                    round2(Math.abs(cand.pts)) === round2(Math.abs(o.pts))) {
+                    match = cand;
+                    mi = i;
+                    break;
+                }
+            }
+            if (!match) return;
+            usedIn[mi] = true;
+            var P = round2(Math.abs(o.pts));
+            if (P <= 0.005) return;
+            var wm = doctorWeightMap(byAccount, byDoctor, o.account_id);
+            if (wm.total <= 0.005) {
+                // Source doctor nets may already be ~0 after redeems; fall back to
+                // historical earn volume on the source chart so the transfer still
+                // lands under the earning doctor(s).
+                var earnW = {};
+                var earnT = 0;
+                (rows || []).forEach(function (row) {
+                    if (!row || row.account_id !== o.account_id) return;
+                    var kind = String(row.kind || '');
+                    if (kind !== 'earn' && kind !== 'void_earn') return;
+                    var raw = String(row.doctor_name || '').trim();
+                    if (!raw) return;
+                    var doc = resolveRewardDoctor(raw);
+                    if (!isKnownRewardDoctor(doc)) return;
+                    var pts = Math.abs(round2(row.points));
+                    if (pts <= 0.005) return;
+                    if (!earnW[doc.key]) earnW[doc.key] = { bal: 0, label: doc.label || '' };
+                    earnW[doc.key].bal = round2(earnW[doc.key].bal + pts);
+                    if (doc.label && !earnW[doc.key].label) earnW[doc.key].label = doc.label;
+                    earnT = round2(earnT + pts);
+                });
+                wm = { weights: earnW, total: earnT };
+            }
+            if (wm.total <= 0.005) return;
+            var keys = Object.keys(wm.weights);
+            var allocated = 0;
+            keys.forEach(function (dk, idx) {
+                var share = (idx === keys.length - 1)
+                    ? round2(P - allocated)
+                    : round2(P * (wm.weights[dk].bal / wm.total));
+                allocated = round2(allocated + share);
+                if (share <= 0) return;
+                var lab = wm.weights[dk].label || '';
+                // Clear unknown on both sides, put signed transfer onto doctors.
+                applyDoctorNetDelta(byAccount, byDoctor, o.account_id, '__unknown__', '', share);
+                applyDoctorNetDelta(byAccount, byDoctor, o.account_id, dk, lab, -share);
+                applyDoctorNetDelta(byAccount, byDoctor, match.account_id, '__unknown__', '', -share);
+                applyDoctorNetDelta(byAccount, byDoctor, match.account_id, dk, lab, share);
+            });
+        });
+    }
+
     /**
      * Net points per account × doctor from ledger (signed points already).
      * Rows missing doctor_name fall back to linked bill doctor when possible.
@@ -1504,7 +1646,7 @@ var REWARDS = (function () {
         return findRelatedPatientIds(patientId).then(function (ids) {
             if (!ids.length) ids = [patientId];
             return SB.from('reward_ledger')
-                .select('id,account_id,patient_id,kind,points,doctor_name,bill_id')
+                .select('id,account_id,patient_id,kind,points,doctor_name,bill_id,transfer_id,created_at')
                 .in('patient_id', ids)
                 .limit(5000)
                 .then(function (r) {
@@ -1539,18 +1681,9 @@ var REWARDS = (function () {
                                     : { key: '__unknown__', label: '' });
                             var dk = doc.key || '__unknown__';
                             var accId = row.account_id || '';
-                            if (!byAccount[accId]) byAccount[accId] = {};
-                            if (!byAccount[accId][dk]) {
-                                byAccount[accId][dk] = { bal: 0, label: doc.label || '' };
-                            }
-                            byAccount[accId][dk].bal = round2(byAccount[accId][dk].bal + pts);
-                            if (doc.label && !byAccount[accId][dk].label) {
-                                byAccount[accId][dk].label = doc.label;
-                            }
-                            if (!byDoctor[dk]) byDoctor[dk] = { bal: 0, label: doc.label || '' };
-                            byDoctor[dk].bal = round2(byDoctor[dk].bal + pts);
-                            if (doc.label && !byDoctor[dk].label) byDoctor[dk].label = doc.label;
+                            applyDoctorNetDelta(byAccount, byDoctor, accId, dk, doc.label || '', pts);
                         });
+                        reattributeUnattributedTransfers(byAccount, byDoctor, rows);
                         return { byAccount: byAccount, byDoctor: byDoctor, rows: rows };
                     });
                 })
@@ -1572,14 +1705,25 @@ var REWARDS = (function () {
         return slot ? round2(Math.max(0, slot.bal)) : 0;
     }
 
-    /** Cap chart balances to points available for this doctor only. */
+    /**
+     * Cap chart balances to points available for this doctor.
+     * Leftover unattributed nets (__unknown__: orphan adjusts / unpaired
+     * transfers) are included when this doctor already has attributed points
+     * for the person — so cross-clinic chart balances stay usable.
+     */
     function accountsCappedForDoctor(accounts, nets, doctorKey) {
+        var personDoc = doctorTotalBal(nets, doctorKey);
         return (accounts || []).map(function (a) {
             var docBal = doctorBalOnAccount(nets, a.account_id, doctorKey);
-            var capped = round2(Math.min(round2(a.balance), docBal));
+            var unattrib = doctorBalOnAccount(nets, a.account_id, '__unknown__');
+            var avail = (personDoc > 0.005 || docBal > 0.005)
+                ? round2(docBal + unattrib)
+                : docBal;
+            var capped = round2(Math.min(round2(a.balance), avail));
             return Object.assign({}, a, {
                 balance: capped,
                 _doctor_balance: docBal,
+                _unattrib_balance: unattrib,
                 _full_balance: round2(a.balance)
             });
         }).filter(function (a) {
@@ -2674,6 +2818,8 @@ var REWARDS = (function () {
         getBalance: getBalance,
         getRedeemableBalanceForDoctor: getRedeemableBalanceForDoctor,
         resolveRewardDoctor: resolveRewardDoctor,
+        loadDoctorLedgerNets: loadDoctorLedgerNets,
+        accountsCappedForDoctor: accountsCappedForDoctor,
         listPersonAccounts: listPersonAccounts,
         allocateAcrossAccounts: allocateAcrossAccounts,
         loadLedger: loadLedger,

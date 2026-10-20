@@ -339,6 +339,16 @@ function extractIifeHelpers(src) {
         idxSrc.indexOf('id="apRewardRedeemAll"') >= 0 &&
         idxSrc.indexOf('id="apRewardSources"') >= 0 &&
         idxSrc.indexOf('id="rwTransferSources"') >= 0);
+    pass('index payment panel shows cross-clinic same-doctor UI',
+        idxSrc.indexOf('id="apRewardClinicMeta"') >= 0 &&
+        idxSrc.indexOf('rewards.pay.byClinicTitle') >= 0 &&
+        idxSrc.indexOf('rewards.pay.crossClinicBlurb') >= 0 &&
+        /Available for this doctor \(all clinics\)/.test(idxSrc));
+    pass('app groups pay sources by clinic',
+        /groupPaySourcesByClinic/.test(rewardsSrc) &&
+        /updatePayClinicMeta/.test(rewardsSrc) &&
+        /ap-rw-clinic-table/.test(rewardsSrc) &&
+        /hintSameDoctorCross/.test(rewardsSrc));
     pass('SQL void bill reverses earn and redeem',
         /kind in \('earn', 'redeem'\)/.test(sqlSrc) &&
         /kind = 'redeem' then 0/.test(sqlSrc) &&
@@ -521,6 +531,7 @@ function extractIifeHelpers(src) {
         pass('HTML has apRewardRedeemAll', idx.body.indexOf('id="apRewardRedeemAll"') >= 0);
         pass('HTML has apRewardSources', idx.body.indexOf('id="apRewardSources"') >= 0);
         pass('HTML has apRewardAllocPreview', idx.body.indexOf('id="apRewardAllocPreview"') >= 0);
+        pass('HTML has apRewardClinicMeta', idx.body.indexOf('id="apRewardClinicMeta"') >= 0);
         pass('HTML has rwTransferSources', idx.body.indexOf('id="rwTransferSources"') >= 0);
         pass('HTML has rwTransferSubmit', idx.body.indexOf('id="rwTransferSubmit"') >= 0);
         pass('HTML has rwAdminAdjust', idx.body.indexOf('id="rwAdminAdjust"') >= 0);

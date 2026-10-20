@@ -1045,29 +1045,115 @@ var REWARDS = (function () {
         });
     }
 
+    function groupPaySourcesByClinic(accounts) {
+        var groups = {};
+        var order = [];
+        (accounts || []).forEach(function (a) {
+            if (!a || !a.account_id || round2(a.balance) <= 0.005) return;
+            var key = String(a.clinic_code || '').trim().toUpperCase() || '_';
+            if (!groups[key]) {
+                groups[key] = {
+                    key: key,
+                    clinic_code: String(a.clinic_code || '').trim() || '—',
+                    accounts: [],
+                    balance: 0
+                };
+                order.push(key);
+            }
+            groups[key].accounts.push(a);
+            groups[key].balance = round2(groups[key].balance + round2(a.balance));
+        });
+        order.sort(function (a, b) {
+            if (a === '_') return 1;
+            if (b === '_') return -1;
+            return a.localeCompare(b);
+        });
+        return order.map(function (k) {
+            groups[k].accounts.sort(function (x, y) {
+                if (x.balance !== y.balance) return x.balance - y.balance;
+                return String(x.patient_no || '').localeCompare(String(y.patient_no || ''));
+            });
+            return groups[k];
+        });
+    }
+
+    function updatePayClinicMeta(accounts) {
+        var meta = document.getElementById('apRewardClinicMeta');
+        if (!meta) return;
+        var groups = groupPaySourcesByClinic(accounts || _paySourceAccounts);
+        var n = groups.length;
+        var total = sumPersonBalance(accounts || _paySourceAccounts);
+        if (!isKnownRewardDoctor(_payDoctor) || total <= 0.005 || !n) {
+            meta.textContent = '';
+            return;
+        }
+        var codes = groups.map(function (g) { return g.clinic_code; }).filter(Boolean);
+        var clinicList = codes.length ? codes.join(', ') : '';
+        meta.textContent = trRepl('rewards.pay.clinicMeta', {
+            N: String(n),
+            CLINICS: clinicList,
+            DOCTOR: _payDoctor.label
+        }, n === 1
+            ? '1 clinic · ' + clinicList + ' · same doctor (' + _payDoctor.label + ')'
+            : n + ' clinics · ' + clinicList + ' · same doctor (' + _payDoctor.label + ')');
+    }
+
     function renderPaySourceList(accounts, selectAll) {
         var box = document.getElementById('apRewardSources');
         if (!box) return;
         var withBal = (accounts || []).filter(function (a) {
             return a.account_id && round2(a.balance) > 0.005;
         });
+        updatePayClinicMeta(withBal);
         if (!withBal.length) {
             var emptyMsg = (_payDoctor && isKnownRewardDoctor(_payDoctor))
                 ? trRepl('rewards.pay.sameDoctorNone', { DOCTOR: _payDoctor.label },
                     'No reward points for ' + _payDoctor.label + ' to redeem.')
                 : tr('rewards.pay.noCharts', 'No chart balances available.');
-            box.innerHTML = '<div style="font-size:12px;color:#94a3b8;">' + esc(emptyMsg) + '</div>';
+            box.innerHTML = '<div class="ap-rw-empty" style="font-size:12px;color:#94a3b8;">' +
+                esc(emptyMsg) + '</div>';
             return;
         }
-        box.innerHTML = withBal.map(function (a) {
-            var label = '#' + (a.patient_no || '—') +
-                (a.clinic_code ? ' · ' + a.clinic_code : '') +
-                ' — ' + fmtPts(a.balance);
-            var checked = selectAll !== false ? ' checked' : '';
-            return '<label class="ap-rw-src-row" style="display:flex;gap:8px;align-items:center;font-size:12px;margin:3px 0;cursor:pointer;">' +
-                '<input type="checkbox" class="ap-rw-src" data-account-id="' + esc(a.account_id) + '"' + checked + '>' +
-                '<span>' + esc(label) + '</span></label>';
+        var groups = groupPaySourcesByClinic(withBal);
+        var flat = [];
+        groups.forEach(function (g) {
+            g.accounts.forEach(function (a) {
+                flat.push({
+                    account: a,
+                    clinic_code: g.clinic_code,
+                    clinic_total: g.balance,
+                    clinic_count: g.accounts.length
+                });
+            });
+        });
+        var checked = selectAll !== false ? ' checked' : '';
+        var head =
+            '<div class="ap-rw-clinic-head" aria-hidden="true">' +
+            '<span></span>' +
+            '<span>' + esc(tr('rewards.pay.colClinic', 'Clinic')) + '</span>' +
+            '<span>' + esc(tr('rewards.pay.colChart', 'Chart')) + '</span>' +
+            '<span class="ap-rw-num">' + esc(tr('rewards.pay.colPts', 'Points')) + '</span>' +
+            '</div>';
+        var body = flat.map(function (row, idx) {
+            var a = row.account;
+            var showClinic = idx === 0 ||
+                flat[idx - 1].clinic_code !== row.clinic_code;
+            var clinicCell = showClinic
+                ? ('<span class="ap-rw-clinic-code">' + esc(row.clinic_code) +
+                    (row.clinic_count > 1
+                        ? ' <span class="ap-rw-clinic-sub">(' + esc(fmtPts(row.clinic_total)) + ')</span>'
+                        : '') +
+                    '</span>')
+                : '<span class="ap-rw-clinic-code ap-rw-clinic-cont" aria-hidden="true"></span>';
+            return '<label class="ap-rw-clinic-row' + (showClinic ? ' ap-rw-clinic-start' : '') + '">' +
+                '<input type="checkbox" class="ap-rw-src" data-account-id="' + esc(a.account_id) +
+                '" data-clinic="' + esc(row.clinic_code) + '"' + checked + '>' +
+                clinicCell +
+                '<span class="ap-rw-clinic-charts">#' + esc(a.patient_no || '—') + '</span>' +
+                '<span class="ap-rw-num ap-rw-clinic-pts">' + esc(fmtPts(a.balance)) + '</span>' +
+                '</label>';
         }).join('');
+        box.innerHTML = '<div class="ap-rw-clinic-table">' + head + body + '</div>';
     }
 
     function updatePayAllocPreview() {
@@ -1083,12 +1169,14 @@ var REWARDS = (function () {
             }
             var alloc = allocateAcrossAccounts(rows, pts);
             if (!alloc.ok) {
-                prev.textContent = tr('rewards.pay.allocShort', 'Selected charts do not cover this amount.');
+                prev.textContent = tr('rewards.pay.allocShort', 'Selected clinics do not cover this amount.');
                 return;
             }
-            prev.textContent = alloc.plan.map(function (s) {
-                return '#' + (s.patient_no || '?') + ' −' + fmtPts(s.take);
-            }).join(' · ');
+            prev.textContent = tr('rewards.pay.allocPrefix', 'Will take:') + ' ' +
+                alloc.plan.map(function (s) {
+                    var clinic = s.clinic_code ? String(s.clinic_code) + ' ' : '';
+                    return clinic + '#' + (s.patient_no || '?') + ' −' + fmtPts(s.take);
+                }).join(' · ');
         }
         return totalSel;
     }
@@ -1224,10 +1312,12 @@ var REWARDS = (function () {
                         hint.textContent = tr('rewards.pay.needDoctor',
                             'Select the treating doctor on the bill before redeeming reward points.');
                     } else if (bal > 0.005) {
-                        hint.textContent = trRepl('rewards.pay.hintSameDoctor',
-                            { DOCTOR: _payDoctor.label },
-                            'Only points earned with ' + _payDoctor.label +
-                            ' can be redeemed on this bill. Points used here are not counted as income.');
+                        var nClinics = groupPaySourcesByClinic(_paySourceAccounts).length;
+                        hint.textContent = trRepl('rewards.pay.hintSameDoctorCross',
+                            { DOCTOR: _payDoctor.label, N: String(nClinics) },
+                            'Redeem ' + _payDoctor.label +
+                            '\'s points from any of the ' + nClinics +
+                            ' clinic(s) below on this bill. Points used here are not counted as income.');
                     } else {
                         hint.textContent = trRepl('rewards.pay.sameDoctorNone',
                             { DOCTOR: _payDoctor.label },
@@ -2517,6 +2607,21 @@ var REWARDS = (function () {
             '.rw-clinic-row{display:flex;gap:10px;align-items:center;font-size:13px;cursor:pointer;}' +
             '#apRewardPanel{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;margin-bottom:14px;}' +
             '#apRewardPanel .rw-row{display:flex;justify-content:space-between;align-items:center;gap:8px;}' +
+            '#apRewardClinicMeta{line-height:1.35;}' +
+            '.ap-rw-clinic-table{border:1px solid #bbf7d0;border-radius:8px;background:#fff;overflow:hidden;}' +
+            '.ap-rw-clinic-head,.ap-rw-clinic-row{display:grid;grid-template-columns:28px minmax(52px,1fr) minmax(72px,1.4fr) minmax(56px,0.8fr);gap:6px;align-items:center;padding:7px 10px;font-size:12px;}' +
+            '.ap-rw-clinic-head{background:#ecfdf5;color:#64748b;font-weight:700;border-bottom:1px solid #bbf7d0;}' +
+            '.ap-rw-clinic-row{margin:0;cursor:pointer;border-bottom:1px solid #f0fdf4;}' +
+            '.ap-rw-clinic-row:last-child{border-bottom:0;}' +
+            '.ap-rw-clinic-row:hover{background:#f0fdf4;}' +
+            '.ap-rw-clinic-start{border-top:1px solid #dcfce7;}' +
+            '.ap-rw-clinic-table .ap-rw-clinic-row:first-of-type,.ap-rw-clinic-table .ap-rw-clinic-start:first-of-type{border-top:0;}' +
+            '.ap-rw-clinic-code{font-weight:700;color:#0f766e;}' +
+            '.ap-rw-clinic-sub{font-weight:600;color:#94a3b8;font-size:11px;}' +
+            '.ap-rw-clinic-cont:before{content:"";}' +
+            '.ap-rw-clinic-charts{color:#475569;}' +
+            '.ap-rw-num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:#166534;}' +
+            '.ap-rw-clinic-head .ap-rw-num{color:#64748b;font-weight:700;}' +
             '#rwTransferDrop,#rwFinderDrop{position:absolute;left:0;right:0;top:100%;z-index:5;background:#fff;border:1px solid #e2e8f0;border-radius:8px;max-height:180px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.08);}' +
             '.rw-xfer-opt,.rw-finder-opt{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:transparent;cursor:pointer;font-size:13px;}' +
             '.rw-xfer-opt:hover,.rw-finder-opt:hover{background:#f8fafc;}' +

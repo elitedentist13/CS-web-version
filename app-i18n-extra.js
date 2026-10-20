@@ -3110,9 +3110,9 @@
         'alert.rewardsLoading': { en: 'Reward module is still loading…', 'zh-CN': '积分模块仍在加载…', 'zh-Hant': '積分模組仍在載入…' },
         'rewards.ledger.empty': { en: 'No reward transactions yet.', 'zh-CN': '尚无积分记录。', 'zh-Hant': '尚無積分紀錄。' },
         'rewards.pay.balanceLabel': {
-            en: 'Reward points (this doctor)',
-            'zh-CN': '奖励积分（本医生）',
-            'zh-Hant': '獎勵積分（本醫生）'
+            en: 'Available for this doctor (all clinics)',
+            'zh-CN': '本医生可用积分（全部诊所）',
+            'zh-Hant': '本醫生可用積分（全部診所）'
         },
         'rewards.pay.doctorLabel': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
         'rewards.pay.noDoctor': { en: 'No doctor on bill', 'zh-CN': '账单未选医生', 'zh-Hant': '賬單未選醫生' },
@@ -3126,6 +3126,30 @@
             'zh-CN': '本账单仅可使用 {DOCTOR} 赚取的积分。抵扣积分不计作收入。',
             'zh-Hant': '本賬單僅可使用 {DOCTOR} 賺取的積分。抵扣積分不計作收入。'
         },
+        'rewards.pay.hintSameDoctorCross': {
+            en: 'Redeem {DOCTOR}\'s points from any of the {N} clinic(s) below on this bill. Points used here are not counted as income.',
+            'zh-CN': '可在本账单使用 {DOCTOR} 于下列 {N} 个诊所赚取的积分。抵扣不计作收入。',
+            'zh-Hant': '可在本賬單使用 {DOCTOR} 於下列 {N} 個診所賺取的積分。抵扣不計作收入。'
+        },
+        'rewards.pay.clinicMeta': {
+            en: '{N} clinic(s) · {CLINICS} · same doctor ({DOCTOR})',
+            'zh-CN': '{N} 个诊所 · {CLINICS} · 同一医生（{DOCTOR}）',
+            'zh-Hant': '{N} 個診所 · {CLINICS} · 同一醫生（{DOCTOR}）'
+        },
+        'rewards.pay.byClinicTitle': {
+            en: 'By clinic (same doctor)',
+            'zh-CN': '按诊所（同一医生）',
+            'zh-Hant': '按診所（同一醫生）'
+        },
+        'rewards.pay.crossClinicBlurb': {
+            en: 'Spend points earned under this doctor at any clinic on this bill. Tick clinics to include.',
+            'zh-CN': '本医生在任一诊所赚取的积分均可用于本账单。勾选要使用的诊所。',
+            'zh-Hant': '本醫生在任一診所賺取的積分均可用於本賬單。勾選要使用的診所。'
+        },
+        'rewards.pay.colClinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'rewards.pay.colChart': { en: 'Chart', 'zh-CN': '病历号', 'zh-Hant': '病歷號' },
+        'rewards.pay.colPts': { en: 'Points', 'zh-CN': '积分', 'zh-Hant': '積分' },
+        'rewards.pay.allocPrefix': { en: 'Will take:', 'zh-CN': '将扣除：', 'zh-Hant': '將扣除：' },
         'rewards.pay.sameDoctorShort': {
             en: 'Only {AVAIL} pts available for {DOCTOR} (same doctor only).',
             'zh-CN': '{DOCTOR} 仅有 {AVAIL} 积分可兑（须同一医生）。',
@@ -3139,15 +3163,15 @@
         'rewards.pay.useLabel': { en: 'Use reward points as discount', 'zh-CN': '使用积分抵扣', 'zh-Hant': '使用積分抵扣' },
         'rewards.pay.redeemAll': { en: 'Redeem all', 'zh-CN': '全部兑换', 'zh-Hant': '全部兌換' },
         'rewards.pay.redeemAllHint': {
-            en: 'Use every chart balance for this person (smallest first).',
-            'zh-CN': '使用该病人所有病历号余额（先扣较少者）。',
-            'zh-Hant': '使用該病人所有病歷號結餘（先扣較少者）。'
+            en: 'Use every clinic balance for this doctor (smallest first).',
+            'zh-CN': '使用该医生全部诊所余额（先扣较少者）。',
+            'zh-Hant': '使用該醫生全部診所結餘（先扣較少者）。'
         },
         'rewards.pay.noCharts': { en: 'No chart balances available.', 'zh-CN': '暂无可用病历余额。', 'zh-Hant': '暫無可用病歷結餘。' },
         'rewards.pay.allocShort': {
-            en: 'Selected charts do not cover this amount.',
-            'zh-CN': '所选病历余额不足。',
-            'zh-Hant': '所選病歷結餘不足。'
+            en: 'Selected clinics do not cover this amount.',
+            'zh-CN': '所选诊所余额不足。',
+            'zh-Hant': '所選診所結餘不足。'
         },
         'rewards.pay.amountLabel': { en: 'Points to use', 'zh-CN': '使用积分数', 'zh-Hant': '使用積分數' },
         'rewards.pay.hintUse': {

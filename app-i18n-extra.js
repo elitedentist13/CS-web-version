@@ -3109,7 +3109,33 @@
         'rewards.finder.search': { en: 'Patient', 'zh-CN': '病人', 'zh-Hant': '病人' },
         'alert.rewardsLoading': { en: 'Reward module is still loading…', 'zh-CN': '积分模块仍在加载…', 'zh-Hant': '積分模組仍在載入…' },
         'rewards.ledger.empty': { en: 'No reward transactions yet.', 'zh-CN': '尚无积分记录。', 'zh-Hant': '尚無積分紀錄。' },
-        'rewards.pay.balanceLabel': { en: 'Reward points', 'zh-CN': '奖励积分', 'zh-Hant': '獎勵積分' },
+        'rewards.pay.balanceLabel': {
+            en: 'Reward points (this doctor)',
+            'zh-CN': '奖励积分（本医生）',
+            'zh-Hant': '獎勵積分（本醫生）'
+        },
+        'rewards.pay.doctorLabel': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'rewards.pay.noDoctor': { en: 'No doctor on bill', 'zh-CN': '账单未选医生', 'zh-Hant': '賬單未選醫生' },
+        'rewards.pay.needDoctor': {
+            en: 'Select the treating doctor on the bill before redeeming reward points.',
+            'zh-CN': '兑换积分前请先在账单选择主诊医生。',
+            'zh-Hant': '兌換積分前請先在賬單選擇主診醫生。'
+        },
+        'rewards.pay.hintSameDoctor': {
+            en: 'Only points earned with {DOCTOR} can be redeemed on this bill. Points used here are not counted as income.',
+            'zh-CN': '本账单仅可使用 {DOCTOR} 赚取的积分。抵扣积分不计作收入。',
+            'zh-Hant': '本賬單僅可使用 {DOCTOR} 賺取的積分。抵扣積分不計作收入。'
+        },
+        'rewards.pay.sameDoctorShort': {
+            en: 'Only {AVAIL} pts available for {DOCTOR} (same doctor only).',
+            'zh-CN': '{DOCTOR} 仅有 {AVAIL} 积分可兑（须同一医生）。',
+            'zh-Hant': '{DOCTOR} 僅有 {AVAIL} 積分可兌（須同一醫生）。'
+        },
+        'rewards.pay.sameDoctorNone': {
+            en: 'No reward points for {DOCTOR} to redeem.',
+            'zh-CN': '{DOCTOR} 没有可兑换积分。',
+            'zh-Hant': '{DOCTOR} 沒有可兌換積分。'
+        },
         'rewards.pay.useLabel': { en: 'Use reward points as discount', 'zh-CN': '使用积分抵扣', 'zh-Hant': '使用積分抵扣' },
         'rewards.pay.redeemAll': { en: 'Redeem all', 'zh-CN': '全部兑换', 'zh-Hant': '全部兌換' },
         'rewards.pay.redeemAllHint': {

@@ -15,7 +15,9 @@ var REWARDS = (function () {
     var _clinicMapAt = 0;
     var _panelPatientId = null;
     var _panelSourceAccounts = []; // chart ledgers for open patient panel
-    var _paySourceAccounts = [];   // chart ledgers for add-payment panel
+    var _paySourceAccounts = [];   // chart ledgers for add-payment panel (doctor-capped)
+    var _payDoctor = null;         // { key, label } for current bill
+    var _payDoctorNets = null;     // nets from loadDoctorLedgerNets
 
     function tr(key, fallback) {
         if (typeof t === 'function') {
@@ -904,72 +906,117 @@ var REWARDS = (function () {
         if (pts <= 0) {
             return Promise.resolve({ rewardAmount: 0, rewardPaymentId: null, redeemResult: null });
         }
-        var payRecord = {
-            bill_id: opts.billId,
-            paid_date: opts.paidDate || (typeof todayISO === 'function' ? todayISO() : null),
-            amount: pts,
-            method: METHOD,
-            notes: opts.note || tr('rewards.pay.redeemNote', 'Reward points discount'),
-            received_by: actorName()
-        };
-        var ctx = clinicCtx();
-        payRecord.clinic_id = opts.clinicId || ctx.clinic_id;
-        payRecord.clinic_tag = opts.clinicCode || ctx.clinic_code;
-        payRecord.clinic_code = opts.clinicCode || ctx.clinic_code;
-
-        function insertPay(rec) {
-            return SB.from('bill_payments').insert([rec]).select('id').single()
-                .then(function (ir) {
-                    if (ir.error) {
-                        // Retry without clinic cols if schema older
-                        var stripped = Object.assign({}, rec);
-                        delete stripped.clinic_id;
-                        delete stripped.clinic_tag;
-                        delete stripped.clinic_code;
-                        return SB.from('bill_payments').insert([stripped]).select('id').single();
-                    }
-                    return ir;
-                });
+        var billLike = opts.bill ||
+            ((typeof bdCurrentBill !== 'undefined' && bdCurrentBill) ? bdCurrentBill : null);
+        var doc = resolveRewardDoctor(opts.doctorName || billLike);
+        if (!isKnownRewardDoctor(doc)) {
+            return Promise.resolve({
+                ok: false,
+                error: tr('rewards.pay.needDoctor',
+                    'Select the treating doctor on the bill before redeeming reward points.'),
+                rewardAmount: 0
+            });
         }
+        var doctorLabel = doc.label;
 
-        return insertPay(payRecord).then(function (ir) {
-            if (ir.error) {
-                return { ok: false, error: ir.error.message, rewardAmount: 0 };
-            }
-            var payId = ir.data && ir.data.id;
-            return redeem({
-                patientId: opts.patientId,
-                points: pts,
-                billId: opts.billId,
-                billPaymentId: payId,
-                clinicId: payRecord.clinic_id,
-                clinicCode: payRecord.clinic_code,
-                note: payRecord.notes,
-                sourceAccountIds: opts.sourceAccountIds || null,
-                doctorName: opts.doctorName || resolveBillDoctorName(
-                    (typeof bdCurrentBill !== 'undefined' && bdCurrentBill) ? bdCurrentBill : null
-                ) || null
-            }).then(function (rr) {
-                if (!rr.ok) {
-                    // Best-effort: void the reward payment row so bill math stays clean
-                    if (payId) {
-                        SB.from('bill_payments').update({
-                            voided_at: new Date().toISOString(),
-                            voided_by: actorName()
-                        }).eq('id', payId).then(function () {});
-                    }
-                    return { ok: false, error: rr.error || 'redeem failed', rewardAmount: 0 };
-                }
-                var bal = rr.total_balance != null ? rr.total_balance : rr.balance;
-                if (bal != null) {
-                    refreshBannerBalances(opts.patientId, bal);
-                }
+        return Promise.all([
+            listPersonAccounts(opts.patientId),
+            loadDoctorLedgerNets(opts.patientId)
+        ]).then(function (parts) {
+            var capped = accountsCappedForDoctor(parts[0], parts[1], doc.key);
+            var avail = sumPersonBalance(capped);
+            if (pts > avail + 0.005) {
                 return {
-                    ok: true,
-                    rewardAmount: pts,
-                    rewardPaymentId: payId,
-                    redeemResult: rr
+                    ok: false,
+                    error: trRepl('rewards.pay.sameDoctorShort',
+                        { DOCTOR: doctorLabel, AVAIL: fmtPts(avail) },
+                        'Only ' + fmtPts(avail) + ' pts available for ' + doctorLabel +
+                        ' (same doctor only).'),
+                    rewardAmount: 0
                 };
+            }
+            var sourceIds = opts.sourceAccountIds || null;
+            if (!sourceIds || !sourceIds.length) {
+                sourceIds = capped.map(function (a) { return a.account_id; });
+            } else {
+                var allow = {};
+                capped.forEach(function (a) { allow[a.account_id] = true; });
+                sourceIds = sourceIds.filter(function (id) { return allow[id]; });
+            }
+            if (!sourceIds.length) {
+                return {
+                    ok: false,
+                    error: trRepl('rewards.pay.sameDoctorNone',
+                        { DOCTOR: doctorLabel },
+                        'No reward points for ' + doctorLabel + ' to redeem.'),
+                    rewardAmount: 0
+                };
+            }
+
+            var payRecord = {
+                bill_id: opts.billId,
+                paid_date: opts.paidDate || (typeof todayISO === 'function' ? todayISO() : null),
+                amount: pts,
+                method: METHOD,
+                notes: opts.note || tr('rewards.pay.redeemNote', 'Reward points discount'),
+                received_by: actorName()
+            };
+            var ctx = clinicCtx();
+            payRecord.clinic_id = opts.clinicId || ctx.clinic_id;
+            payRecord.clinic_tag = opts.clinicCode || ctx.clinic_code;
+            payRecord.clinic_code = opts.clinicCode || ctx.clinic_code;
+
+            function insertPay(rec) {
+                return SB.from('bill_payments').insert([rec]).select('id').single()
+                    .then(function (ir) {
+                        if (ir.error) {
+                            var stripped = Object.assign({}, rec);
+                            delete stripped.clinic_id;
+                            delete stripped.clinic_tag;
+                            delete stripped.clinic_code;
+                            return SB.from('bill_payments').insert([stripped]).select('id').single();
+                        }
+                        return ir;
+                    });
+            }
+
+            return insertPay(payRecord).then(function (ir) {
+                if (ir.error) {
+                    return { ok: false, error: ir.error.message, rewardAmount: 0 };
+                }
+                var payId = ir.data && ir.data.id;
+                return redeem({
+                    patientId: opts.patientId,
+                    points: pts,
+                    billId: opts.billId,
+                    billPaymentId: payId,
+                    clinicId: payRecord.clinic_id,
+                    clinicCode: payRecord.clinic_code,
+                    note: payRecord.notes,
+                    sourceAccountIds: sourceIds,
+                    doctorName: doctorLabel
+                }).then(function (rr) {
+                    if (!rr.ok) {
+                        if (payId) {
+                            SB.from('bill_payments').update({
+                                voided_at: new Date().toISOString(),
+                                voided_by: actorName()
+                            }).eq('id', payId).then(function () {});
+                        }
+                        return { ok: false, error: rr.error || 'redeem failed', rewardAmount: 0 };
+                    }
+                    var bal = rr.total_balance != null ? rr.total_balance : rr.balance;
+                    if (bal != null) {
+                        refreshBannerBalances(opts.patientId, bal);
+                    }
+                    return {
+                        ok: true,
+                        rewardAmount: pts,
+                        rewardPaymentId: payId,
+                        redeemResult: rr,
+                        doctorName: doctorLabel
+                    };
+                });
             });
         });
     }
@@ -1005,8 +1052,11 @@ var REWARDS = (function () {
             return a.account_id && round2(a.balance) > 0.005;
         });
         if (!withBal.length) {
-            box.innerHTML = '<div style="font-size:12px;color:#94a3b8;">' +
-                esc(tr('rewards.pay.noCharts', 'No chart balances available.')) + '</div>';
+            var emptyMsg = (_payDoctor && isKnownRewardDoctor(_payDoctor))
+                ? trRepl('rewards.pay.sameDoctorNone', { DOCTOR: _payDoctor.label },
+                    'No reward points for ' + _payDoctor.label + ' to redeem.')
+                : tr('rewards.pay.noCharts', 'No chart balances available.');
+            box.innerHTML = '<div style="font-size:12px;color:#94a3b8;">' + esc(emptyMsg) + '</div>';
             return;
         }
         box.innerHTML = withBal.map(function (a) {
@@ -1045,10 +1095,10 @@ var REWARDS = (function () {
 
     function applyEarnForPayment(opts) {
         opts = opts || {};
-        var doctorName = opts.doctorName || resolveBillDoctorName(opts.bill || null) ||
-            resolveBillDoctorName(
-                (typeof bdCurrentBill !== 'undefined' && bdCurrentBill) ? bdCurrentBill : null
-            ) || null;
+        var billLike = opts.bill ||
+            ((typeof bdCurrentBill !== 'undefined' && bdCurrentBill) ? bdCurrentBill : null);
+        var doc = resolveRewardDoctor(opts.doctorName || billLike);
+        var doctorName = isKnownRewardDoctor(doc) ? doc.label : (resolveBillDoctorName(billLike) || null);
         return earn({
             patientId: opts.patientId,
             eligibleAmount: opts.eligibleAmount,
@@ -1136,27 +1186,53 @@ var REWARDS = (function () {
                 return;
             }
             panel.style.display = '';
-            return listPersonAccounts(bill.patient_id).then(function (accs) {
-                _paySourceAccounts = accs || [];
+            _payDoctor = resolveRewardDoctor(bill);
+            return Promise.all([
+                listPersonAccounts(bill.patient_id),
+                loadDoctorLedgerNets(bill.patient_id)
+            ]).then(function (parts) {
+                _payDoctorNets = parts[1];
+                var allAccs = parts[0] || [];
+                if (isKnownRewardDoctor(_payDoctor)) {
+                    _paySourceAccounts = accountsCappedForDoctor(allAccs, _payDoctorNets, _payDoctor.key);
+                } else {
+                    _paySourceAccounts = [];
+                }
                 var bal = sumPersonBalance(_paySourceAccounts);
                 var balEl = document.getElementById('apRewardBalance');
                 if (balEl) {
                     balEl.textContent = fmtPts(bal);
                     balEl.setAttribute('data-balance', String(bal));
                 }
+                var drEl = document.getElementById('apRewardDoctor');
+                if (drEl) {
+                    drEl.textContent = isKnownRewardDoctor(_payDoctor)
+                        ? _payDoctor.label
+                        : tr('rewards.pay.noDoctor', 'No doctor on bill');
+                }
                 renderPaySourceList(_paySourceAccounts, true);
                 var use = document.getElementById('apRewardUse');
                 var amtWrap = document.getElementById('apRewardAmountWrap');
                 if (use) {
                     use.checked = false;
-                    use.disabled = bal <= 0.005;
+                    use.disabled = !isKnownRewardDoctor(_payDoctor) || bal <= 0.005;
                 }
                 if (amtWrap) amtWrap.style.display = 'none';
                 var hint = document.getElementById('apRewardHint');
                 if (hint) {
-                    hint.textContent = bal > 0.005
-                        ? tr('rewards.pay.hintUse', 'Optional — points used here are not counted as income.')
-                        : tr('rewards.pay.hintEmpty', 'No reward points available yet.');
+                    if (!isKnownRewardDoctor(_payDoctor)) {
+                        hint.textContent = tr('rewards.pay.needDoctor',
+                            'Select the treating doctor on the bill before redeeming reward points.');
+                    } else if (bal > 0.005) {
+                        hint.textContent = trRepl('rewards.pay.hintSameDoctor',
+                            { DOCTOR: _payDoctor.label },
+                            'Only points earned with ' + _payDoctor.label +
+                            ' can be redeemed on this bill. Points used here are not counted as income.');
+                    } else {
+                        hint.textContent = trRepl('rewards.pay.sameDoctorNone',
+                            { DOCTOR: _payDoctor.label },
+                            'No reward points for ' + _payDoctor.label + ' to redeem.');
+                    }
                 }
                 var prev = document.getElementById('apRewardAllocPreview');
                 if (prev) prev.textContent = '';
@@ -1259,7 +1335,8 @@ var REWARDS = (function () {
 
     /** Best-effort stamp doctor_name on new ledger row(s) after RPC (column from SQL patch). */
     function stampDoctorOnLedgerResult(res, doctorName) {
-        var name = String(doctorName || '').trim();
+        var doc = resolveRewardDoctor(doctorName);
+        var name = isKnownRewardDoctor(doc) ? doc.label : String(doctorName || '').trim();
         if (!name || !res || !res.ok) return Promise.resolve(res);
         var ids = [];
         if (res.ledger_id) ids.push(res.ledger_id);
@@ -1276,16 +1353,162 @@ var REWARDS = (function () {
             .catch(function () { return res; });
     }
 
-    function resolveBillDoctorName(billLike) {
-        if (!billLike) return '';
-        if (typeof billDisplayDoctorLabel === 'function') {
+    /**
+     * Canonical doctor identity for reward ledger + same-Dr redeem.
+     * Prefer DoctorAliases group label (e.g. "Dr Ng Pui Ching").
+     */
+    function resolveRewardDoctor(input) {
+        var billLike = null;
+        var raw = '';
+        if (input && typeof input === 'object') {
+            billLike = input;
+            raw = String(input.doctor_name || input.dentist_name || input.doctor_tag ||
+                input.doctor_code || input.label || '').trim();
+        } else {
+            raw = String(input || '').trim();
+        }
+        if (typeof DoctorAliases !== 'undefined' && DoctorAliases) {
             try {
-                var lab = billDisplayDoctorLabel(billLike);
-                if (lab) return String(lab).trim();
+                var docs = (typeof billDoctorList !== 'undefined' && billDoctorList) ? billDoctorList : null;
+                var person = billLike && typeof DoctorAliases.resolveFromBill === 'function'
+                    ? DoctorAliases.resolveFromBill(billLike, docs)
+                    : (typeof DoctorAliases.resolveFromTexts === 'function'
+                        ? DoctorAliases.resolveFromTexts([raw])
+                        : null);
+                if (person && person.key && person.key !== '__unknown__') {
+                    var lab = String(person.label || '').trim();
+                    if (lab && lab !== '—') {
+                        return { key: person.key, label: lab };
+                    }
+                }
             } catch (e) { /* ignore */ }
         }
-        return String(billLike.doctor_name || billLike.dentist_name || billLike.doctor_tag ||
-            billLike.doctor_code || '').trim();
+        if (billLike && typeof billDisplayDoctorLabel === 'function') {
+            try {
+                var bl = String(billDisplayDoctorLabel(billLike) || '').trim();
+                if (bl) raw = bl;
+            } catch (e2) { /* ignore */ }
+        }
+        if (!raw) return { key: '__unknown__', label: '' };
+        var key = 'name:' + raw.toLowerCase().replace(/^dr\.?\s+/i, '').replace(/\s+/g, ' ').trim();
+        return { key: key, label: raw };
+    }
+
+    function resolveBillDoctorName(billLike) {
+        var d = resolveRewardDoctor(billLike);
+        return d.label || '';
+    }
+
+    function isKnownRewardDoctor(doc) {
+        return !!(doc && doc.key && doc.key !== '__unknown__' && doc.label);
+    }
+
+    /**
+     * Net points per account × doctor from ledger (signed points already).
+     * Rows missing doctor_name fall back to linked bill doctor when possible.
+     */
+    function loadDoctorLedgerNets(patientId) {
+        if (!patientId) {
+            return Promise.resolve({ byAccount: {}, byDoctor: {}, rows: [] });
+        }
+        return findRelatedPatientIds(patientId).then(function (ids) {
+            if (!ids.length) ids = [patientId];
+            return SB.from('reward_ledger')
+                .select('id,account_id,patient_id,kind,points,doctor_name,bill_id')
+                .in('patient_id', ids)
+                .limit(5000)
+                .then(function (r) {
+                    if (r.error) throw r.error;
+                    return r.data || [];
+                })
+                .then(function (rows) {
+                    var needBills = [];
+                    var seenB = {};
+                    rows.forEach(function (row) {
+                        if (!String(row.doctor_name || '').trim() && row.bill_id && !seenB[row.bill_id]) {
+                            seenB[row.bill_id] = true;
+                            needBills.push(row.bill_id);
+                        }
+                    });
+                    var billsP = needBills.length
+                        ? SB.from('bills')
+                            .select('id,doctor_name,doctor_code,doctor_tag,dentist_name,doctor_id')
+                            .in('id', needBills)
+                        : Promise.resolve({ data: [] });
+                    return billsP.then(function (br) {
+                        var billMap = {};
+                        (br.data || []).forEach(function (b) { billMap[b.id] = b; });
+                        var byAccount = {};
+                        var byDoctor = {};
+                        rows.forEach(function (row) {
+                            var pts = round2(row.points);
+                            if (!pts) return;
+                            var rawName = String(row.doctor_name || '').trim();
+                            var doc = rawName
+                                ? resolveRewardDoctor(rawName)
+                                : (row.bill_id && billMap[row.bill_id]
+                                    ? resolveRewardDoctor(billMap[row.bill_id])
+                                    : { key: '__unknown__', label: '' });
+                            var dk = doc.key || '__unknown__';
+                            var accId = row.account_id || '';
+                            if (!byAccount[accId]) byAccount[accId] = {};
+                            if (!byAccount[accId][dk]) {
+                                byAccount[accId][dk] = { bal: 0, label: doc.label || '' };
+                            }
+                            byAccount[accId][dk].bal = round2(byAccount[accId][dk].bal + pts);
+                            if (doc.label && !byAccount[accId][dk].label) {
+                                byAccount[accId][dk].label = doc.label;
+                            }
+                            if (!byDoctor[dk]) byDoctor[dk] = { bal: 0, label: doc.label || '' };
+                            byDoctor[dk].bal = round2(byDoctor[dk].bal + pts);
+                            if (doc.label && !byDoctor[dk].label) byDoctor[dk].label = doc.label;
+                        });
+                        return { byAccount: byAccount, byDoctor: byDoctor, rows: rows };
+                    });
+                })
+                .catch(function () {
+                    return { byAccount: {}, byDoctor: {}, rows: [] };
+                });
+        });
+    }
+
+    function doctorBalOnAccount(nets, accountId, doctorKey) {
+        if (!nets || !nets.byAccount || !accountId || !doctorKey) return 0;
+        var slot = nets.byAccount[accountId] && nets.byAccount[accountId][doctorKey];
+        return slot ? round2(Math.max(0, slot.bal)) : 0;
+    }
+
+    function doctorTotalBal(nets, doctorKey) {
+        if (!nets || !nets.byDoctor || !doctorKey) return 0;
+        var slot = nets.byDoctor[doctorKey];
+        return slot ? round2(Math.max(0, slot.bal)) : 0;
+    }
+
+    /** Cap chart balances to points available for this doctor only. */
+    function accountsCappedForDoctor(accounts, nets, doctorKey) {
+        return (accounts || []).map(function (a) {
+            var docBal = doctorBalOnAccount(nets, a.account_id, doctorKey);
+            var capped = round2(Math.min(round2(a.balance), docBal));
+            return Object.assign({}, a, {
+                balance: capped,
+                _doctor_balance: docBal,
+                _full_balance: round2(a.balance)
+            });
+        }).filter(function (a) {
+            return a.account_id && a.balance > 0.005;
+        });
+    }
+
+    function getRedeemableBalanceForDoctor(patientId, doctorInput) {
+        var doc = resolveRewardDoctor(doctorInput);
+        if (!isKnownRewardDoctor(doc)) return Promise.resolve(0);
+        return Promise.all([
+            listPersonAccounts(patientId),
+            loadDoctorLedgerNets(patientId)
+        ]).then(function (parts) {
+            var capped = accountsCappedForDoctor(parts[0], parts[1], doc.key);
+            return sumPersonBalance(capped);
+        });
     }
 
     function openPatientPanel(patientId) {
@@ -2286,6 +2509,8 @@ var REWARDS = (function () {
         currentClinicRedeemJoined: currentClinicRedeemJoined,
         getAccount: getAccount,
         getBalance: getBalance,
+        getRedeemableBalanceForDoctor: getRedeemableBalanceForDoctor,
+        resolveRewardDoctor: resolveRewardDoctor,
         listPersonAccounts: listPersonAccounts,
         allocateAcrossAccounts: allocateAcrossAccounts,
         loadLedger: loadLedger,

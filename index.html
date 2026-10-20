@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261020rewardLedgerDr1';
+  var BUILD = '20261020rewardSameDr1';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -7445,8 +7445,12 @@
 
     <!-- Reward points (optional discount; excluded from income reports) -->
     <div id="apRewardPanel" style="display:none;">
+      <div class="rw-row" style="margin-bottom:4px;">
+        <span style="font-size:12px;color:#64748b;" data-i18n="rewards.pay.doctorLabel">Doctor</span>
+        <strong id="apRewardDoctor" style="font-size:13px;color:#0f766e;">—</strong>
+      </div>
       <div class="rw-row" style="margin-bottom:6px;">
-        <strong data-i18n="rewards.pay.balanceLabel">Reward points</strong>
+        <strong data-i18n="rewards.pay.balanceLabel">Reward points (this doctor)</strong>
         <strong id="apRewardBalance" data-balance="0" style="color:#166534;">0.00</strong>
       </div>
       <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;margin-bottom:6px;">
@@ -8221,7 +8225,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20261019reward11',
-    'app-i18n-extra.js?v=20261020rewardLedgerDr1',
+    'app-i18n-extra.js?v=20261020rewardSameDr1',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20261019reward11',
@@ -8280,7 +8284,7 @@
     'app-webbook.js',
     'app-webbook-roster.js',
     'app-mass-broadcast.js',
-    'app-rewards.js?v=20261020rewardLedgerDr1'
+    'app-rewards.js?v=20261020rewardSameDr1'
   ];
   /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {

@@ -382,6 +382,14 @@ function extractIifeHelpers(src) {
     pass('index ledger headers clinic tags + Dr Name',
         idxSrc.indexOf('rewards.col.clinicTag') >= 0 &&
         idxSrc.indexOf('rewards.col.drName') >= 0);
+    pass('same-doctor redeem helpers',
+        /resolveRewardDoctor/.test(rewardsSrc) &&
+        /loadDoctorLedgerNets/.test(rewardsSrc) &&
+        /accountsCappedForDoctor/.test(rewardsSrc) &&
+        /getRedeemableBalanceForDoctor/.test(rewardsSrc) &&
+        /rewards\.pay\.needDoctor/.test(rewardsSrc));
+    pass('index shows payment doctor for rewards',
+        idxSrc.indexOf('id="apRewardDoctor"') >= 0);
     pass('patient dir ⋯ has reward ledger',
         /btn-reward-ledger/.test(patientSrc) &&
         /REWARDS\.openPatientPanel/.test(patientSrc));

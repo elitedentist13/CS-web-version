@@ -1,5 +1,7 @@
 -- Patch: doctor-scoped clinic participation for reward points
--- Run in Supabase SQL editor after reward_points.sql (+ chart ledger patch preferred).
+-- Run in Supabase SQL editor after reward_points.sql.
+-- Safe to run even if reward_points_patch_chart_ledgers.sql is not applied yet
+-- (adds join_gain / join_redeem on reward_program_clinics if missing).
 --
 -- Clinics stay the hierarchy; under each clinic reception picks:
 --   * All Doctors (default when selecting the clinic heading), or
@@ -7,6 +9,35 @@
 -- Join Gain / Join Redeem are stored per (clinic, doctor_key).
 -- doctor_key = '__all__' means every doctor at that clinic.
 
+-- ════════════════════════════════════════════════════════════
+-- Ensure clinic join_gain / join_redeem exist (legacy DBs)
+-- ════════════════════════════════════════════════════════════
+alter table public.reward_program_clinics
+    add column if not exists join_gain boolean,
+    add column if not exists join_redeem boolean;
+
+update public.reward_program_clinics
+set join_gain = coalesce(join_gain, enabled, false),
+    join_redeem = coalesce(join_redeem, enabled, false)
+where join_gain is null or join_redeem is null;
+
+-- Historic default: PL joined
+update public.reward_program_clinics
+set join_gain = true,
+    join_redeem = true,
+    enabled = true
+where upper(trim(coalesce(clinic_code, ''))) = 'PL'
+  and coalesce(join_gain, false) = false
+  and coalesce(join_redeem, false) = false
+  and coalesce(enabled, false) = false;
+
+alter table public.reward_program_clinics
+    alter column join_gain set default false,
+    alter column join_redeem set default false;
+
+-- ════════════════════════════════════════════════════════════
+-- Per-clinic doctor participation
+-- ════════════════════════════════════════════════════════════
 create table if not exists public.reward_program_doctors (
     id              uuid primary key default gen_random_uuid(),
     clinic_id       uuid not null references public.clinics (id) on delete cascade,
@@ -67,8 +98,8 @@ begin
     end if;
 end $$;
 
--- Seed All Doctors rows from existing clinic join flags (idempotent).
--- Historic default: PL All Doctors joined; other clinics follow clinic.enabled.
+-- Seed All Doctors rows from clinic flags (idempotent).
+-- Historic default: PL All Doctors joined; other clinics follow clinic flags.
 insert into public.reward_program_doctors (
     clinic_id, clinic_code, doctor_key, doctor_label, join_gain, join_redeem, enabled
 )
@@ -77,27 +108,15 @@ select
     coalesce(c.clinic_code, ''),
     '__all__',
     'All Doctors',
-    case
-        when upper(trim(coalesce(c.clinic_code, ''))) = 'PL'
-            then coalesce(c.join_gain, c.enabled, true)
-        else coalesce(c.join_gain, c.enabled, false)
-    end,
-    case
-        when upper(trim(coalesce(c.clinic_code, ''))) = 'PL'
-            then coalesce(c.join_redeem, c.enabled, true)
-        else coalesce(c.join_redeem, c.enabled, false)
-    end,
-    case
-        when upper(trim(coalesce(c.clinic_code, ''))) = 'PL'
-            then true
-        else coalesce(c.enabled, false)
-            or coalesce(c.join_gain, false)
-            or coalesce(c.join_redeem, false)
-    end
+    coalesce(c.join_gain, c.enabled, false),
+    coalesce(c.join_redeem, c.enabled, false),
+    coalesce(c.enabled, false)
+        or coalesce(c.join_gain, false)
+        or coalesce(c.join_redeem, false)
 from public.reward_program_clinics c
 on conflict (clinic_id, doctor_key) do nothing;
 
--- Ensure PL exists even if reward_program_clinics row is missing
+-- Ensure PL All Doctors exists even if reward_program_clinics row is missing
 insert into public.reward_program_doctors (
     clinic_id, clinic_code, doctor_key, doctor_label, join_gain, join_redeem, enabled
 )

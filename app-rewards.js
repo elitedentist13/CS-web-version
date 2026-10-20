@@ -13,6 +13,9 @@ var REWARDS = (function () {
     var _programCache = null;
     var _clinicMap = null; // clinic_id|code → { enabled, join_gain, join_redeem }
     var _clinicMapAt = 0;
+    var _doctorJoinMap = null; // clinic bucket → { doctor_key → flags }
+    var _doctorJoinMapAt = 0;
+    var ALL_DOCTORS_KEY = '__all__';
     var _panelPatientId = null;
     var _panelSourceAccounts = []; // chart ledgers for open patient panel
     var _paySourceAccounts = [];   // chart ledgers for add-payment panel (doctor-capped)
@@ -251,32 +254,213 @@ var REWARDS = (function () {
         return { enabled: false, join_gain: false, join_redeem: false };
     }
 
-    function isClinicJoined(clinicId, clinicCode) {
-        return loadClinicJoinMap(false).then(function (map) {
-            return !!lookupClinicFlags(map, clinicId, clinicCode).enabled;
+    function loadDoctorJoinMap(force) {
+        var now = Date.now();
+        if (!force && _doctorJoinMap && (now - _doctorJoinMapAt) < 30000) {
+            return Promise.resolve(_doctorJoinMap);
+        }
+        return SB.from('reward_program_doctors')
+            .select('clinic_id,clinic_code,doctor_key,doctor_id,doctor_label,join_gain,join_redeem,enabled')
+            .then(function (r) {
+                if (r.error) {
+                    _doctorJoinMap = {};
+                    _doctorJoinMapAt = Date.now();
+                    return _doctorJoinMap;
+                }
+                var map = {};
+                (r.data || []).forEach(function (row) {
+                    var flags = clinicJoinFlags(row);
+                    flags.doctor_id = row.doctor_id || null;
+                    flags.doctor_label = row.doctor_label || '';
+                    flags.doctor_key = String(row.doctor_key || ALL_DOCTORS_KEY);
+                    function put(bucketKey) {
+                        if (!bucketKey) return;
+                        if (!map[bucketKey]) map[bucketKey] = {};
+                        map[bucketKey][flags.doctor_key] = flags;
+                    }
+                    if (row.clinic_id) put('id:' + String(row.clinic_id));
+                    var code = String(row.clinic_code || '').trim().toUpperCase();
+                    if (code) put('code:' + code);
+                });
+                _doctorJoinMap = map;
+                _doctorJoinMapAt = Date.now();
+                return _doctorJoinMap;
+            })
+            .catch(function () {
+                _doctorJoinMap = {};
+                _doctorJoinMapAt = Date.now();
+                return _doctorJoinMap;
+            });
+    }
+
+    function lookupDoctorClinicBucket(docMap, clinicId, clinicCode) {
+        docMap = docMap || {};
+        if (clinicId && docMap['id:' + String(clinicId)]) {
+            return docMap['id:' + String(clinicId)];
+        }
+        var code = String(clinicCode || '').trim().toUpperCase();
+        if (code && docMap['code:' + code]) return docMap['code:' + code];
+        return null;
+    }
+
+    function doctorJoinKeyFromDoctorRow(d) {
+        if (!d) return '';
+        if (typeof DoctorAliases !== 'undefined' && DoctorAliases &&
+            typeof DoctorAliases.resolveFromDoctor === 'function') {
+            try {
+                var person = DoctorAliases.resolveFromDoctor(d);
+                if (person && person.key && person.key !== '__unknown__') return person.key;
+            } catch (e) { /* ignore */ }
+        }
+        var raw = '';
+        if (typeof doctorDisplayName === 'function') {
+            try { raw = String(doctorDisplayName(d) || '').trim(); } catch (e2) { raw = ''; }
+        }
+        if (!raw) {
+            raw = String(d.english_name || d.chinese_name || d.doctor_code || d.id || '').trim();
+        }
+        var doc = resolveRewardDoctor(raw);
+        if (isKnownRewardDoctor(doc)) return doc.key;
+        if (d.id) return 'id:' + String(d.id);
+        return '';
+    }
+
+    function doctorJoinLabelFromDoctorRow(d) {
+        if (!d) return '';
+        if (typeof loginDoctorOptionLabel === 'function') {
+            try { return String(loginDoctorOptionLabel(d) || '').trim(); } catch (e) { /* ignore */ }
+        }
+        if (typeof doctorDisplayName === 'function') {
+            try { return String(doctorDisplayName(d) || '').trim(); } catch (e2) { /* ignore */ }
+        }
+        return String(d.english_name || d.chinese_name || d.doctor_code || '').trim();
+    }
+
+    /**
+     * Effective gain/redeem for a clinic + optional treating doctor.
+     * Prefer doctor rows when present: __all__ covers everyone; else match doctor_key.
+     * Fall back to clinic-level flags (PL All Doctors default) when no doctor
+     * scope has been configured for this clinic.
+     */
+    function effectiveJoinFlags(clinicMap, docMap, clinicId, clinicCode, doctorInput) {
+        var clinicFlags = lookupClinicFlags(clinicMap || {}, clinicId, clinicCode);
+        var bucket = lookupDoctorClinicBucket(docMap, clinicId, clinicCode);
+        if (!bucket || !Object.keys(bucket).length) return clinicFlags;
+
+        var all = bucket[ALL_DOCTORS_KEY];
+        var hasAnyConfigured = Object.keys(bucket).some(function (k) {
+            var row = bucket[k];
+            return !!(row && (row.join_gain || row.join_redeem || row.enabled ||
+                row.join_gain === false || row.join_redeem === false));
+        });
+        // Only __all__ / doctor rows that were actually saved should override
+        // the legacy clinic default (PL on). Empty/absent scopes keep clinicFlags.
+        if (!all && !hasAnyConfigured) return clinicFlags;
+
+        var doc = resolveRewardDoctor(doctorInput);
+        var matched = null;
+        if (isKnownRewardDoctor(doc) && bucket[doc.key]) matched = bucket[doc.key];
+        if (!matched && doctorInput && typeof doctorInput === 'object' && doctorInput.id) {
+            var idKey = 'id:' + String(doctorInput.id);
+            if (bucket[idKey]) matched = bucket[idKey];
+            Object.keys(bucket).forEach(function (k) {
+                if (matched) return;
+                var row = bucket[k];
+                if (row && row.doctor_id && String(row.doctor_id) === String(doctorInput.id)) {
+                    matched = row;
+                }
+            });
+        }
+
+        function flagFrom(row, key, fallback) {
+            if (!row) return fallback;
+            if (row[key] != null) return !!row[key];
+            return !!row.enabled;
+        }
+
+        // No __all__ row yet → inherit clinic default for the All Doctors scope
+        // (keeps PL joined for every doctor until reception narrows participation).
+        var allGain = all
+            ? flagFrom(all, 'join_gain', false)
+            : !!clinicFlags.join_gain;
+        var allRedeem = all
+            ? flagFrom(all, 'join_redeem', false)
+            : !!clinicFlags.join_redeem;
+
+        var gain = allGain || flagFrom(matched, 'join_gain', false);
+        var redeem = allRedeem || flagFrom(matched, 'join_redeem', false);
+        // Unknown doctor on bill: only All Doctors scope counts
+        if (!isKnownRewardDoctor(doc) && !matched) {
+            gain = allGain;
+            redeem = allRedeem;
+        }
+        return {
+            enabled: gain || redeem,
+            join_gain: gain,
+            join_redeem: redeem
+        };
+    }
+
+    /** Default UI open target: PL clinic (All Doctors), same as historic scheme default. */
+    function defaultRewardClinicIndex(clinics) {
+        var list = clinics || [];
+        var i;
+        for (i = 0; i < list.length; i++) {
+            if (String(list[i].clinic_code || '').trim().toUpperCase() === 'PL') return i;
+        }
+        return 0;
+    }
+
+    function defaultAllDoctorsFlags(clinicFlags, clinicCode) {
+        var flags = clinicFlags || { join_gain: false, join_redeem: false, enabled: false };
+        // Hard default matches reward_program_clinics seed: PL All Doctors on.
+        if (String(clinicCode || '').trim().toUpperCase() === 'PL' &&
+            !flags.join_gain && !flags.join_redeem && !flags.enabled) {
+            return { join_gain: true, join_redeem: true, enabled: true };
+        }
+        return {
+            join_gain: !!flags.join_gain,
+            join_redeem: !!flags.join_redeem,
+            enabled: !!(flags.enabled || flags.join_gain || flags.join_redeem)
+        };
+    }
+
+    function loadJoinMaps(force) {
+        return Promise.all([
+            loadClinicJoinMap(force),
+            loadDoctorJoinMap(force)
+        ]).then(function (parts) {
+            return { clinicMap: parts[0] || {}, doctorMap: parts[1] || {} };
         });
     }
 
-    function isClinicGainJoined(clinicId, clinicCode) {
-        return loadClinicJoinMap(false).then(function (map) {
-            return !!lookupClinicFlags(map, clinicId, clinicCode).join_gain;
+    function isClinicJoined(clinicId, clinicCode, doctorInput) {
+        return loadJoinMaps(false).then(function (maps) {
+            return !!effectiveJoinFlags(maps.clinicMap, maps.doctorMap, clinicId, clinicCode, doctorInput).enabled;
         });
     }
 
-    function isClinicRedeemJoined(clinicId, clinicCode) {
-        return loadClinicJoinMap(false).then(function (map) {
-            return !!lookupClinicFlags(map, clinicId, clinicCode).join_redeem;
+    function isClinicGainJoined(clinicId, clinicCode, doctorInput) {
+        return loadJoinMaps(false).then(function (maps) {
+            return !!effectiveJoinFlags(maps.clinicMap, maps.doctorMap, clinicId, clinicCode, doctorInput).join_gain;
         });
     }
 
-    function currentClinicJoined() {
+    function isClinicRedeemJoined(clinicId, clinicCode, doctorInput) {
+        return loadJoinMaps(false).then(function (maps) {
+            return !!effectiveJoinFlags(maps.clinicMap, maps.doctorMap, clinicId, clinicCode, doctorInput).join_redeem;
+        });
+    }
+
+    function currentClinicJoined(doctorInput) {
         var ctx = clinicCtx();
-        return isClinicJoined(ctx.clinic_id, ctx.clinic_code);
+        return isClinicJoined(ctx.clinic_id, ctx.clinic_code, doctorInput);
     }
 
-    function currentClinicRedeemJoined() {
+    function currentClinicRedeemJoined(doctorInput) {
         var ctx = clinicCtx();
-        return isClinicRedeemJoined(ctx.clinic_id, ctx.clinic_code);
+        var bill = (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null;
+        return isClinicRedeemJoined(ctx.clinic_id, ctx.clinic_code, doctorInput || bill);
     }
 
     function earnRatePercent() {
@@ -489,18 +673,31 @@ var REWARDS = (function () {
     // ── Mutations via RPC ────────────────────────────────────
     function earn(opts) {
         opts = opts || {};
-        return SB.rpc('reward_earn', {
-            p_patient_id: opts.patientId,
-            p_eligible_amount: round2(opts.eligibleAmount),
-            p_bill_id: opts.billId || null,
-            p_bill_payment_id: opts.billPaymentId || null,
-            p_clinic_id: opts.clinicId || null,
-            p_clinic_code: opts.clinicCode || null,
-            p_created_by: opts.createdBy || actorName(),
-            p_note: opts.note || null
-        }).then(function (r) {
-            if (r.error) return { ok: false, error: r.error.message };
-            return stampDoctorOnLedgerResult(rpcResult(r.data), opts.doctorName);
+        var ctx = clinicCtx();
+        var clinicId = opts.clinicId != null ? opts.clinicId : ctx.clinic_id;
+        var clinicCode = opts.clinicCode != null ? opts.clinicCode : ctx.clinic_code;
+        return isClinicGainJoined(clinicId, clinicCode, opts.doctorName).then(function (joined) {
+            if (!joined) {
+                return {
+                    ok: true,
+                    skipped: true,
+                    reason: 'doctor_gain_disabled',
+                    points: 0
+                };
+            }
+            return SB.rpc('reward_earn', {
+                p_patient_id: opts.patientId,
+                p_eligible_amount: round2(opts.eligibleAmount),
+                p_bill_id: opts.billId || null,
+                p_bill_payment_id: opts.billPaymentId || null,
+                p_clinic_id: clinicId || null,
+                p_clinic_code: clinicCode || null,
+                p_created_by: opts.createdBy || actorName(),
+                p_note: opts.note || null
+            }).then(function (r) {
+                if (r.error) return { ok: false, error: r.error.message };
+                return stampDoctorOnLedgerResult(rpcResult(r.data), opts.doctorName);
+            });
         });
     }
 
@@ -918,11 +1115,25 @@ var REWARDS = (function () {
             });
         }
         var doctorLabel = doc.label;
+        var ctx = clinicCtx();
+        var clinicId = opts.clinicId != null ? opts.clinicId : ctx.clinic_id;
+        var clinicCode = opts.clinicCode != null ? opts.clinicCode : ctx.clinic_code;
 
-        return Promise.all([
-            listPersonAccounts(opts.patientId),
-            loadDoctorLedgerNets(opts.patientId)
-        ]).then(function (parts) {
+        return isClinicRedeemJoined(clinicId, clinicCode, doc).then(function (joined) {
+            if (!joined) {
+                return {
+                    ok: false,
+                    error: tr('rewards.pay.doctorNotJoined',
+                        'This doctor is not joined for redeem at the current clinic.'),
+                    rewardAmount: 0
+                };
+            }
+            return Promise.all([
+                listPersonAccounts(opts.patientId),
+                loadDoctorLedgerNets(opts.patientId)
+            ]);
+        }).then(function (parts) {
+            if (parts && parts.ok === false) return parts;
             var capped = accountsCappedForDoctor(parts[0], parts[1], doc.key);
             var avail = sumPersonBalance(capped);
             if (pts > avail + 0.005) {
@@ -2540,6 +2751,108 @@ var REWARDS = (function () {
             });
     }
 
+    /** Sync clinic-level OR of all doctor scopes so SQL RPCs stay aligned. */
+    function syncClinicFlagsFromDoctorBucket(clinicId, clinicCode, bucket) {
+        var gain = false;
+        var redeem = false;
+        Object.keys(bucket || {}).forEach(function (k) {
+            var row = bucket[k];
+            if (!row) return;
+            if (row.join_gain) gain = true;
+            if (row.join_redeem) redeem = true;
+        });
+        return setClinicJoinFlags(clinicId, clinicCode, {
+            join_gain: gain,
+            join_redeem: redeem
+        });
+    }
+
+    /**
+     * Upsert one doctor scope under a clinic (__all__ or a doctor key).
+     * Also refreshes clinic-level join OR-summary for legacy SQL gates.
+     */
+    function setDoctorJoinFlags(opts) {
+        opts = opts || {};
+        var clinicId = opts.clinicId;
+        var clinicCode = String(opts.clinicCode || '').trim();
+        var doctorKey = String(opts.doctorKey || ALL_DOCTORS_KEY).trim() || ALL_DOCTORS_KEY;
+        var gain = opts.join_gain != null ? !!opts.join_gain : !!opts.enabled;
+        var redeem = opts.join_redeem != null ? !!opts.join_redeem : !!opts.enabled;
+        var label = String(opts.doctorLabel || '').trim() ||
+            (doctorKey === ALL_DOCTORS_KEY ? 'All Doctors' : doctorKey);
+        var payload = {
+            clinic_id: clinicId,
+            clinic_code: clinicCode,
+            doctor_key: doctorKey,
+            doctor_id: opts.doctorId || null,
+            doctor_label: label,
+            join_gain: gain,
+            join_redeem: redeem,
+            enabled: gain || redeem,
+            updated_at: new Date().toISOString(),
+            updated_by: actorName()
+        };
+        return SB.from('reward_program_doctors')
+            .upsert(payload, { onConflict: 'clinic_id,doctor_key' })
+            .then(function (r) {
+                if (r.error) {
+                    var msg = String(r.error.message || '');
+                    if (/reward_program_doctors|schema cache|does not exist|PGRST/i.test(msg)) {
+                        // Table not patched yet — All Doctors falls back to clinic row only.
+                        if (doctorKey === ALL_DOCTORS_KEY) {
+                            return setClinicJoinFlags(clinicId, clinicCode, {
+                                join_gain: gain,
+                                join_redeem: redeem
+                            }).then(function (res) {
+                                if (!res.ok) return res;
+                                return { ok: true, clinicOnly: true };
+                            });
+                        }
+                        return {
+                            ok: false,
+                            error: tr('rewards.err.needDoctorJoinSql',
+                                'Run reward_points_patch_doctor_join.sql in Supabase for per-doctor participation.')
+                        };
+                    }
+                    return { ok: false, error: msg };
+                }
+                _doctorJoinMap = null;
+                return loadDoctorJoinMap(true).then(function (docMap) {
+                    var bucket = lookupDoctorClinicBucket(docMap, clinicId, clinicCode) || {};
+                    bucket[doctorKey] = {
+                        join_gain: gain,
+                        join_redeem: redeem,
+                        enabled: gain || redeem,
+                        doctor_key: doctorKey,
+                        doctor_id: opts.doctorId || null,
+                        doctor_label: label
+                    };
+                    return syncClinicFlagsFromDoctorBucket(clinicId, clinicCode, bucket)
+                        .then(function () { return { ok: true }; });
+                });
+            });
+    }
+
+    function doctorsForRewardClinic(clinicId) {
+        var list = [];
+        if (typeof doctorsForClinic === 'function') {
+            try { list = doctorsForClinic(clinicId) || []; } catch (e) { list = []; }
+        } else if (typeof APP_DOCTORS !== 'undefined' && APP_DOCTORS) {
+            list = (APP_DOCTORS || []).filter(function (d) {
+                return !clinicId || d.clinic_id === clinicId;
+            });
+        }
+        return (list || []).filter(function (d) {
+            if (!d || d.is_active === false) return false;
+            if (typeof isBillDropdownExcludedDoctor === 'function') {
+                try { return !isBillDropdownExcludedDoctor(d); } catch (e2) { return true; }
+            }
+            return true;
+        }).slice().sort(function (a, b) {
+            return doctorJoinLabelFromDoctorRow(a).localeCompare(doctorJoinLabelFromDoctorRow(b));
+        });
+    }
+
     function renderConfigPane(pane) {
         if (!pane) return;
         pane.innerHTML = '<p style="color:#888;">' + esc(tr('common.loadingEllipsis', 'Loading…')) + '</p>';
@@ -2549,20 +2862,23 @@ var REWARDS = (function () {
             loadProgram(true),
             SB.from('clinics').select('id,clinic_code,english_name,chinese_name').order('clinic_code'),
             loadClinicJoinMap(true),
+            loadDoctorJoinMap(true),
             loadLedger(null, 80)
         ]).then(function (parts) {
             var program = parts[0];
             var clinics = (parts[1].data || parts[1]) || [];
             if (parts[1].error) clinics = (typeof APP_CLINICS !== 'undefined' ? APP_CLINICS : []) || [];
             var map = parts[2] || {};
-            var ledgerRaw = parts[3] || [];
+            var docMap = parts[3] || {};
+            var ledgerRaw = parts[4] || [];
             return enrichLedgerMeta(ledgerRaw, clinics).then(function (ledger) {
-                return { program: program, clinics: clinics, map: map, ledger: ledger };
+                return { program: program, clinics: clinics, map: map, docMap: docMap, ledger: ledger };
             });
         }).then(function (ctx) {
             var program = ctx.program;
             var clinics = ctx.clinics;
             var map = ctx.map;
+            var docMap = ctx.docMap || {};
             var ledger = ctx.ledger;
 
             var rate = Number(program.earn_rate_percent);
@@ -2607,29 +2923,64 @@ var REWARDS = (function () {
             }
             html += '</div>';
 
-            // Clinics — reception may toggle Gain / Redeem join
+            // Clinics → All Doctors / per-doctor (login-tree style)
             html += '<div class="rw-cfg-card">';
             html += '<div class="rw-cfg-card-title">' + esc(tr('rewards.cfg.clinicsTitle', 'Clinics in scheme')) + '</div>';
             html += '<p style="margin:0 0 10px;font-size:12px;color:#64748b;">' +
-                esc(tr('rewards.cfg.clinicsHintJoin',
-                    'Reception can join Gain and/or Redeem per clinic. Earn credits the patient chart at this clinic; redeem may draw from multiple charts of the same person.')) +
+                esc(tr('rewards.cfg.clinicsHintDoctors',
+                    'Click a clinic to select All Doctors (default), or highlight a doctor under that clinic. Join Gain / Join Redeem apply to the highlighted scope.')) +
                 '</p>';
-            html += '<div class="rw-clinic-list">';
-            (clinics || []).forEach(function (c) {
+            html += '<div class="rw-clinic-tree">';
+            var openClinicIdx = defaultRewardClinicIndex(clinics);
+            (clinics || []).forEach(function (c, clinicIdx) {
                 var code = String(c.clinic_code || '').trim();
                 var name = c.english_name || c.chinese_name || code;
-                var flags = lookupClinicFlags(map, c.id, code);
-                html += '<div class="rw-clinic-row" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:6px 0;border-bottom:1px solid #f1f5f9;">';
-                html += '<span style="min-width:140px;"><strong>' + esc(code || '—') + '</strong> · ' + esc(name) + '</span>';
-                html += '<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer;">';
-                html += '<input type="checkbox" class="rw-clinic-gain" data-clinic-id="' + esc(c.id) +
-                    '" data-clinic-code="' + esc(code) + '"' + (flags.join_gain ? ' checked' : '') + '>';
-                html += '<span>' + esc(tr('rewards.cfg.joinGain', 'Join Gain')) + '</span></label>';
-                html += '<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer;">';
-                html += '<input type="checkbox" class="rw-clinic-redeem" data-clinic-id="' + esc(c.id) +
-                    '" data-clinic-code="' + esc(code) + '"' + (flags.join_redeem ? ' checked' : '') + '>';
-                html += '<span>' + esc(tr('rewards.cfg.joinRedeem', 'Join Redeem')) + '</span></label>';
-                html += '</div>';
+                var bucket = lookupDoctorClinicBucket(docMap, c.id, code) || {};
+                var clinicFlags = lookupClinicFlags(map, c.id, code);
+                var allFlags = bucket[ALL_DOCTORS_KEY] || defaultAllDoctorsFlags(clinicFlags, code);
+                var docs = doctorsForRewardClinic(c.id);
+                var isOpen = clinicIdx === openClinicIdx;
+                html += '<div class="rw-clinic-block' + (isOpen ? ' is-open' : '') +
+                    '" data-clinic-id="' + esc(c.id) + '" data-clinic-code="' + esc(code) + '">';
+                html += '<button type="button" class="rw-clinic-head" data-clinic-id="' + esc(c.id) + '">';
+                html += '<span class="rw-clinic-head-code">' + esc(code || '—') + '</span>';
+                html += '<span class="rw-clinic-head-name">' + esc(name) + '</span>';
+                html += '<span class="rw-clinic-head-meta">' +
+                    esc(tr('rewards.cfg.allDoctors', 'All Doctors')) +
+                    (allFlags.join_gain || allFlags.join_redeem ? ' · ' +
+                        esc(tr('rewards.cfg.joined', 'joined')) : '') +
+                    '</span></button>';
+                html += '<div class="rw-clinic-docs">';
+                function docRowHtml(doctorKey, doctorLabel, doctorId, flags, selected) {
+                    var gOn = !!(flags && flags.join_gain);
+                    var rOn = !!(flags && flags.join_redeem);
+                    return '<div class="rw-doc-row' + (selected ? ' is-selected' : '') +
+                        '" data-clinic-id="' + esc(c.id) +
+                        '" data-clinic-code="' + esc(code) +
+                        '" data-doctor-key="' + esc(doctorKey) +
+                        '" data-doctor-id="' + esc(doctorId || '') +
+                        '" data-doctor-label="' + esc(doctorLabel) +
+                        '" tabindex="0" role="button">' +
+                        '<span class="rw-doc-label">' + esc(doctorLabel) + '</span>' +
+                        '<label class="rw-doc-toggle">' +
+                        '<input type="checkbox" class="rw-doc-gain"' + (gOn ? ' checked' : '') + '>' +
+                        '<span>' + esc(tr('rewards.cfg.joinGain', 'Join Gain')) + '</span></label>' +
+                        '<label class="rw-doc-toggle">' +
+                        '<input type="checkbox" class="rw-doc-redeem"' + (rOn ? ' checked' : '') + '>' +
+                        '<span>' + esc(tr('rewards.cfg.joinRedeem', 'Join Redeem')) + '</span></label>' +
+                        '</div>';
+                }
+                // Default highlight: All Doctors under the open clinic (PL).
+                html += docRowHtml(ALL_DOCTORS_KEY,
+                    tr('rewards.cfg.allDoctors', 'All Doctors'), '', allFlags, isOpen);
+                docs.forEach(function (d) {
+                    var dKey = doctorJoinKeyFromDoctorRow(d);
+                    if (!dKey) return;
+                    var dLab = doctorJoinLabelFromDoctorRow(d) || dKey;
+                    var dFlags = bucket[dKey] || { join_gain: false, join_redeem: false };
+                    html += docRowHtml(dKey, dLab, d.id, dFlags, false);
+                });
+                html += '</div></div>';
             });
             html += '</div></div>';
 
@@ -2698,30 +3049,80 @@ var REWARDS = (function () {
                 }
             }
 
-            function wireJoinToggle(sel, flagKey) {
+            function selectDocRow(row) {
+                if (!row) return;
+                var block = row.closest('.rw-clinic-block');
+                if (!block) return;
+                pane.querySelectorAll('.rw-clinic-block').forEach(function (b) {
+                    b.classList.toggle('is-open', b === block);
+                });
+                block.querySelectorAll('.rw-doc-row').forEach(function (r) {
+                    r.classList.toggle('is-selected', r === row);
+                });
+            }
+
+            pane.querySelectorAll('.rw-clinic-head').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var block = btn.closest('.rw-clinic-block');
+                    if (!block) return;
+                    var allRow = block.querySelector('.rw-doc-row[data-doctor-key="' + ALL_DOCTORS_KEY + '"]');
+                    selectDocRow(allRow);
+                });
+            });
+
+            pane.querySelectorAll('.rw-doc-row').forEach(function (row) {
+                row.addEventListener('click', function (ev) {
+                    if (ev.target && ev.target.closest && ev.target.closest('.rw-doc-toggle')) return;
+                    selectDocRow(row);
+                });
+                row.addEventListener('keydown', function (ev) {
+                    if (ev.key === 'Enter' || ev.key === ' ') {
+                        ev.preventDefault();
+                        selectDocRow(row);
+                    }
+                });
+            });
+
+            function wireDocFlag(sel, flagKey) {
                 pane.querySelectorAll(sel).forEach(function (cb) {
                     cb.addEventListener('change', function () {
-                        var cid = cb.getAttribute('data-clinic-id');
-                        var code = cb.getAttribute('data-clinic-code');
-                        var gainEl = pane.querySelector('.rw-clinic-gain[data-clinic-id="' + cid + '"]');
-                        var redeemEl = pane.querySelector('.rw-clinic-redeem[data-clinic-id="' + cid + '"]');
+                        var row = cb.closest('.rw-doc-row');
+                        if (!row) return;
+                        selectDocRow(row);
+                        var gainEl = row.querySelector('.rw-doc-gain');
+                        var redeemEl = row.querySelector('.rw-doc-redeem');
                         var flags = {
+                            clinicId: row.getAttribute('data-clinic-id'),
+                            clinicCode: row.getAttribute('data-clinic-code'),
+                            doctorKey: row.getAttribute('data-doctor-key') || ALL_DOCTORS_KEY,
+                            doctorId: row.getAttribute('data-doctor-id') || null,
+                            doctorLabel: row.getAttribute('data-doctor-label') || '',
                             join_gain: gainEl ? !!gainEl.checked : false,
                             join_redeem: redeemEl ? !!redeemEl.checked : false
                         };
                         if (flagKey === 'join_gain') flags.join_gain = !!cb.checked;
                         if (flagKey === 'join_redeem') flags.join_redeem = !!cb.checked;
-                        setClinicJoinFlags(cid, code, flags).then(function (res) {
+                        setDoctorJoinFlags(flags).then(function (res) {
                             if (!res.ok) {
                                 alert(res.error || 'Save failed');
-                                cb.checked = !cb.checked;
+                                if (!res.clinicOnly) cb.checked = !cb.checked;
+                            } else if (typeof toast === 'function') {
+                                toast(tr('rewards.cfg.saved', 'Saved'));
+                            }
+                            var block = row.closest('.rw-clinic-block');
+                            var meta = block && block.querySelector('.rw-clinic-head-meta');
+                            if (meta && flags.doctorKey === ALL_DOCTORS_KEY) {
+                                meta.textContent = tr('rewards.cfg.allDoctors', 'All Doctors') +
+                                    (flags.join_gain || flags.join_redeem
+                                        ? ' · ' + tr('rewards.cfg.joined', 'joined')
+                                        : '');
                             }
                         });
                     });
                 });
             }
-            wireJoinToggle('.rw-clinic-gain', 'join_gain');
-            wireJoinToggle('.rw-clinic-redeem', 'join_redeem');
+            wireDocFlag('.rw-doc-gain', 'join_gain');
+            wireDocFlag('.rw-doc-redeem', 'join_redeem');
         }).catch(function (e) {
             pane.innerHTML = '<p style="color:#dc2626;">' +
                 esc((e && e.message) || tr('rewards.err.load', 'Failed to load rewards.')) +
@@ -2749,6 +3150,23 @@ var REWARDS = (function () {
             '.rw-cfg-card-title{font-weight:700;margin-bottom:10px;font-size:14px;}' +
             '.rw-clinic-list{display:flex;flex-direction:column;gap:8px;}' +
             '.rw-clinic-row{display:flex;gap:10px;align-items:center;font-size:13px;cursor:pointer;}' +
+            '.rw-clinic-tree{display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto;border:1px solid #e2e8f0;border-radius:10px;padding:6px;}' +
+            '.rw-clinic-block{border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;overflow:hidden;}' +
+            '.rw-clinic-block.is-open{border-color:#86efac;background:#fff;}' +
+            '.rw-clinic-head{display:flex;gap:10px;align-items:center;width:100%;text-align:left;padding:10px 12px;border:0;background:transparent;cursor:pointer;font-size:13px;}' +
+            '.rw-clinic-block.is-open .rw-clinic-head{background:#ecfdf5;}' +
+            '.rw-clinic-head-code{font-weight:800;color:#0f766e;min-width:42px;}' +
+            '.rw-clinic-head-name{flex:1;color:#0f172a;font-weight:600;}' +
+            '.rw-clinic-head-meta{font-size:11px;color:#64748b;}' +
+            '.rw-clinic-docs{display:none;flex-direction:column;gap:2px;padding:4px 6px 8px;}' +
+            '.rw-clinic-block.is-open .rw-clinic-docs{display:flex;}' +
+            '.rw-doc-row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent;}' +
+            '.rw-doc-row:hover{background:#f0fdf4;}' +
+            '.rw-doc-row.is-selected{background:#dcfce7;border-color:#86efac;}' +
+            '.rw-doc-label{flex:1;min-width:120px;font-size:13px;font-weight:600;color:#14532d;}' +
+            '.rw-doc-row[data-doctor-key="__all__"] .rw-doc-label{color:#0f766e;}' +
+            '.rw-doc-toggle{display:flex;gap:6px;align-items:center;font-size:12px;color:#334155;cursor:pointer;}' +
+            '.rw-doc-toggle input{accent-color:#166534;}' +
             '#apRewardPanel{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;margin-bottom:14px;}' +
             '#apRewardPanel .rw-row{display:flex;justify-content:space-between;align-items:center;gap:8px;}' +
             '#apRewardClinicMeta{line-height:1.35;}' +
@@ -2814,6 +3232,9 @@ var REWARDS = (function () {
         isClinicRedeemJoined: isClinicRedeemJoined,
         currentClinicJoined: currentClinicJoined,
         currentClinicRedeemJoined: currentClinicRedeemJoined,
+        loadDoctorJoinMap: loadDoctorJoinMap,
+        setDoctorJoinFlags: setDoctorJoinFlags,
+        effectiveJoinFlags: effectiveJoinFlags,
         getAccount: getAccount,
         getBalance: getBalance,
         getRedeemableBalanceForDoctor: getRedeemableBalanceForDoctor,

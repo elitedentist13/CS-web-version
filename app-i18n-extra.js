@@ -3205,8 +3205,25 @@
             'zh-CN': '前台可为每间诊所加入赚取／兑换。赚取记入该病历号；兑换可从同一人多个病历扣减。',
             'zh-Hant': '前台可為每間診所加入賺取／兌換。賺取記入該病歷號；兌換可從同一人多個病歷扣減。'
         },
+        'rewards.cfg.clinicsHintDoctors': {
+            en: 'Default: PL · All Doctors joined. Click a clinic to select All Doctors, or highlight a doctor under that clinic. Join Gain / Join Redeem apply to the highlighted scope — same hierarchy as login.',
+            'zh-CN': '默认：宝林（PL）· 全部医生已加入。点击诊所选中「全部医生」，或点选个别医生。加入赚取／兑换作用于当前高亮范围（与登录层级相同）。',
+            'zh-Hant': '預設：寶琳（PL）· 全部醫生已加入。點擊診所選中「全部醫生」，或點選個別醫生。加入賺取／兌換作用於目前高亮範圍（與登入層級相同）。'
+        },
+        'rewards.cfg.allDoctors': { en: 'All Doctors', 'zh-CN': '全部医生', 'zh-Hant': '全部醫生' },
+        'rewards.cfg.joined': { en: 'joined', 'zh-CN': '已加入', 'zh-Hant': '已加入' },
         'rewards.cfg.joinGain': { en: 'Join Gain', 'zh-CN': '加入赚取', 'zh-Hant': '加入賺取' },
         'rewards.cfg.joinRedeem': { en: 'Join Redeem', 'zh-CN': '加入兑换', 'zh-Hant': '加入兌換' },
+        'rewards.err.needDoctorJoinSql': {
+            en: 'Run reward_points_patch_doctor_join.sql in Supabase for per-doctor participation.',
+            'zh-CN': '请在 Supabase 执行 reward_points_patch_doctor_join.sql 以启用按医生参与。',
+            'zh-Hant': '請在 Supabase 執行 reward_points_patch_doctor_join.sql 以啟用按醫生參與。'
+        },
+        'rewards.pay.doctorNotJoined': {
+            en: 'This doctor is not joined for redeem at the current clinic.',
+            'zh-CN': '该医生未在当前诊所有加入兑换。',
+            'zh-Hant': '該醫生未在目前診所有加入兌換。'
+        },
         'rewards.err.needSqlPatch': {
             en: 'Multi-chart redeem needs SQL patch reward_points_patch_chart_ledgers.sql applied in Supabase.',
             'zh-CN': '多病历兑换需先在 Supabase 执行 reward_points_patch_chart_ledgers.sql。',

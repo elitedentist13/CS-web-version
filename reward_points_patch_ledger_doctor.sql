@@ -13,3 +13,19 @@ comment on column public.reward_ledger.doctor_name is
 create index if not exists reward_ledger_doctor_name_idx
     on public.reward_ledger (doctor_name)
     where doctor_name is not null and doctor_name <> '';
+
+-- Backfill old rows from linked bills (bills has doctor_name / doctor_tag / dentist_name; no doctor_code).
+update public.reward_ledger l
+set doctor_name = left(trim(both from coalesce(
+        nullif(trim(b.doctor_name), ''),
+        nullif(trim(b.doctor_tag), ''),
+        nullif(trim(b.dentist_name), '')
+    )), 200)
+from public.bills b
+where l.bill_id = b.id
+  and (l.doctor_name is null or trim(l.doctor_name) = '')
+  and coalesce(
+        nullif(trim(b.doctor_name), ''),
+        nullif(trim(b.doctor_tag), ''),
+        nullif(trim(b.dentist_name), '')
+      ) is not null;

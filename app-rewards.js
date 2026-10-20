@@ -1431,9 +1431,7 @@ var REWARDS = (function () {
                         }
                     });
                     var billsP = needBills.length
-                        ? SB.from('bills')
-                            .select('id,doctor_name,doctor_code,doctor_tag,dentist_name,doctor_id')
-                            .in('id', needBills)
+                        ? loadBillsDoctorFields(needBills)
                         : Promise.resolve({ data: [] });
                     return billsP.then(function (br) {
                         var billMap = {};
@@ -1835,6 +1833,61 @@ var REWARDS = (function () {
         return code || '—';
     }
 
+    /** bills.doctor_code does not exist in this schema — never select it. */
+    function loadBillsDoctorFields(billIds) {
+        if (!billIds || !billIds.length) return Promise.resolve({ data: [] });
+        return SB.from('bills')
+            .select('id,doctor_name,doctor_tag,dentist_name,doctor_id')
+            .in('id', billIds)
+            .then(function (r) {
+                if (r.error) {
+                    return SB.from('bills')
+                        .select('id,doctor_name,doctor_id')
+                        .in('id', billIds)
+                        .then(function (r2) {
+                            if (r2.error) return { data: [] };
+                            return r2;
+                        })
+                        .catch(function () { return { data: [] }; });
+                }
+                return r;
+            })
+            .catch(function () { return { data: [] }; });
+    }
+
+    /**
+     * Persist resolved doctor names onto ledger rows (needs doctor_name column).
+     * Best-effort; ignores errors if the SQL patch is not applied yet.
+     */
+    function backfillLedgerDoctorNames(enrichedRows) {
+        var updates = [];
+        var seen = {};
+        (enrichedRows || []).forEach(function (row) {
+            if (!row || !row.id) return;
+            if (String(row.doctor_name || '').trim()) return;
+            var dr = String(row._doctor_name || '').trim();
+            if (!dr || dr === '—') return;
+            var canon = resolveRewardDoctor(dr);
+            var label = canon.label || dr;
+            if (!label || seen[row.id]) return;
+            seen[row.id] = true;
+            updates.push({ id: row.id, doctor_name: label });
+        });
+        if (!updates.length) return Promise.resolve(enrichedRows);
+        // Chunk updates (anon client has no bulk upsert by primary without conflict target freely)
+        var chain = Promise.resolve();
+        updates.slice(0, 80).forEach(function (u) {
+            chain = chain.then(function () {
+                return SB.from('reward_ledger')
+                    .update({ doctor_name: u.doctor_name })
+                    .eq('id', u.id)
+                    .then(function () {})
+                    .catch(function () {});
+            });
+        });
+        return chain.then(function () { return enrichedRows; });
+    }
+
     function enrichLedgerMeta(rows, clinicList) {
         rows = rows || [];
         if (!rows.length) return Promise.resolve(rows);
@@ -1861,7 +1914,8 @@ var REWARDS = (function () {
                     (p && p.clinic_tag ? String(p.clinic_tag).trim() : '') || '';
                 var dr = String(row.doctor_name || '').trim();
                 if (!dr && row.bill_id && billMap[row.bill_id]) {
-                    dr = resolveBillDoctorName(billMap[row.bill_id]);
+                    var resolved = resolveRewardDoctor(billMap[row.bill_id]);
+                    dr = resolved.label || resolveBillDoctorName(billMap[row.bill_id]) || '';
                 }
                 return Object.assign({}, row, {
                     _patient_no: p ? (p.patient_no || '') : '',
@@ -1879,20 +1933,24 @@ var REWARDS = (function () {
             ? SB.from('patients')
                 .select('id,patient_no,full_name,chinese_name,clinic_tag')
                 .in('id', ids)
+                .then(function (r) {
+                    if (r.error) return { data: [] };
+                    return r;
+                })
+                .catch(function () { return { data: [] }; })
             : Promise.resolve({ data: [] });
 
-        var billsP = billIds.length
-            ? SB.from('bills')
-                .select('id,doctor_name,doctor_code,doctor_tag,dentist_name')
-                .in('id', billIds)
-            : Promise.resolve({ data: [] });
+        var billsP = loadBillsDoctorFields(billIds);
 
         return Promise.all([patientsP, billsP]).then(function (parts) {
             var map = {};
             ((parts[0] && parts[0].data) || []).forEach(function (p) { map[p.id] = p; });
             var billMap = {};
             ((parts[1] && parts[1].data) || []).forEach(function (b) { billMap[b.id] = b; });
-            return attach(map, billMap);
+            var enriched = attach(map, billMap);
+            // Fire-and-forget persist when column exists
+            backfillLedgerDoctorNames(enriched);
+            return enriched;
         }).catch(function () {
             return attach({}, {});
         });

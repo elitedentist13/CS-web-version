@@ -3086,6 +3086,8 @@
         'rewards.col.ref': { en: 'Ref', 'zh-CN': '参考', 'zh-Hant': '參考' },
         'rewards.col.patient': { en: 'Patient', 'zh-CN': '病人', 'zh-Hant': '病人' },
         'rewards.col.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'rewards.col.clinicTag': { en: 'Clinic tags', 'zh-CN': '诊所标签', 'zh-Hant': '診所標籤' },
+        'rewards.col.drName': { en: 'Dr Name', 'zh-CN': '医生姓名', 'zh-Hant': '醫生姓名' },
         'rewards.col.chartNo': { en: 'Chart no.', 'zh-CN': '病历号', 'zh-Hant': '病歷號' },
         'rewards.col.handler': { en: 'Handled by', 'zh-CN': '操作人', 'zh-Hant': '操作人' },
         'rewards.adj.title': { en: 'Admin adjust', 'zh-CN': '管理员调整', 'zh-Hant': '管理員調整' },

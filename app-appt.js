@@ -21619,7 +21619,10 @@ function saveBill(doPrint) {
                         billPaymentId: cashId || null,
                         clinicId: payRecord.clinic_id || null,
                         clinicCode: payRecord.clinic_code || payRecord.clinic_tag || '',
-                        note: null
+                        note: null,
+                        bill: payload || null,
+                        doctorName: (typeof billDisplayDoctorLabel === 'function')
+                            ? billDisplayDoctorLabel(payload) : (payload && payload.doctor_name) || null
                     }).then(function (earnRes) {
                         if (earnRes && earnRes.ok && !earnRes.skipped && earnRes.balance != null &&
                                 typeof REWARDS.refreshBannerBalances === 'function') {
@@ -24116,7 +24119,12 @@ function executeAddPaymentSave(ctx) {
                 billPaymentId: cashPaymentId || null,
                 clinicId: payRecord.clinic_id || null,
                 clinicCode: clinicCode,
-                note: null
+                note: null,
+                bill: (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null,
+                doctorName: (typeof billDisplayDoctorLabel === 'function' &&
+                    typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
+                    ? billDisplayDoctorLabel(bdCurrentBill)
+                    : (bdCurrentBill && bdCurrentBill.doctor_name) || null
             });
         }
         return earnP.then(function (earnRes) {
@@ -24206,7 +24214,11 @@ function executeAddPaymentSave(ctx) {
                     paidDate: payRecord.paid_date,
                     clinicId: payRecord.clinic_id,
                     clinicCode: clinicCode,
-                    sourceAccountIds: sourceIds
+                    sourceAccountIds: sourceIds,
+                    doctorName: (typeof billDisplayDoctorLabel === 'function' &&
+                        typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
+                        ? billDisplayDoctorLabel(bdCurrentBill)
+                        : (bdCurrentBill && bdCurrentBill.doctor_name) || null
                 }).then(function (rr) {
                     if (!rr || rr.ok === false) {
                         reportAddPaymentSaveError(ctx, (rr && rr.error) || 'Reward redeem failed');

@@ -373,6 +373,15 @@ function extractIifeHelpers(src) {
         /rewards\.col\.chartNo/.test(rewardsSrc) &&
         /rewards\.col\.handler/.test(rewardsSrc) &&
         /enrichLedgerMeta/.test(rewardsSrc));
+    pass('ledger table has clinic tags + Dr Name',
+        /rewards\.col\.clinicTag/.test(rewardsSrc) &&
+        /rewards\.col\.drName/.test(rewardsSrc) &&
+        /ledgerClinicTag/.test(rewardsSrc) &&
+        /ledgerDoctorName/.test(rewardsSrc) &&
+        /stampDoctorOnLedgerResult/.test(rewardsSrc));
+    pass('index ledger headers clinic tags + Dr Name',
+        idxSrc.indexOf('rewards.col.clinicTag') >= 0 &&
+        idxSrc.indexOf('rewards.col.drName') >= 0);
     pass('patient dir ⋯ has reward ledger',
         /btn-reward-ledger/.test(patientSrc) &&
         /REWARDS\.openPatientPanel/.test(patientSrc));

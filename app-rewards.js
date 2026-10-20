@@ -498,7 +498,7 @@ var REWARDS = (function () {
             p_note: opts.note || null
         }).then(function (r) {
             if (r.error) return { ok: false, error: r.error.message };
-            return rpcResult(r.data);
+            return stampDoctorOnLedgerResult(rpcResult(r.data), opts.doctorName);
         });
     }
 
@@ -519,7 +519,7 @@ var REWARDS = (function () {
             p_note: opts.note || null
         }).then(function (r) {
             if (r.error) return { ok: false, error: r.error.message };
-            return rpcResult(r.data);
+            return stampDoctorOnLedgerResult(rpcResult(r.data), opts.doctorName);
         });
     }
 
@@ -543,11 +543,13 @@ var REWARDS = (function () {
             if (r.error) {
                 // Fallback: sequential single-chart redeem if multi RPC not deployed yet
                 if (/reward_redeem_multi|could not find|404|PGRST/i.test(String(r.error.message || ''))) {
-                    return redeemMultiFallback(opts, ids);
+                    return redeemMultiFallback(opts, ids).then(function (res) {
+                        return stampDoctorOnLedgerResult(res, opts.doctorName);
+                    });
                 }
                 return { ok: false, error: r.error.message };
             }
-            return rpcResult(r.data);
+            return stampDoctorOnLedgerResult(rpcResult(r.data), opts.doctorName);
         });
     }
 
@@ -943,7 +945,10 @@ var REWARDS = (function () {
                 clinicId: payRecord.clinic_id,
                 clinicCode: payRecord.clinic_code,
                 note: payRecord.notes,
-                sourceAccountIds: opts.sourceAccountIds || null
+                sourceAccountIds: opts.sourceAccountIds || null,
+                doctorName: opts.doctorName || resolveBillDoctorName(
+                    (typeof bdCurrentBill !== 'undefined' && bdCurrentBill) ? bdCurrentBill : null
+                ) || null
             }).then(function (rr) {
                 if (!rr.ok) {
                     // Best-effort: void the reward payment row so bill math stays clean
@@ -1040,6 +1045,10 @@ var REWARDS = (function () {
 
     function applyEarnForPayment(opts) {
         opts = opts || {};
+        var doctorName = opts.doctorName || resolveBillDoctorName(opts.bill || null) ||
+            resolveBillDoctorName(
+                (typeof bdCurrentBill !== 'undefined' && bdCurrentBill) ? bdCurrentBill : null
+            ) || null;
         return earn({
             patientId: opts.patientId,
             eligibleAmount: opts.eligibleAmount,
@@ -1047,7 +1056,8 @@ var REWARDS = (function () {
             billPaymentId: opts.billPaymentId,
             clinicId: opts.clinicId,
             clinicCode: opts.clinicCode,
-            note: opts.note || null
+            note: opts.note || null,
+            doctorName: doctorName
         }).then(function (res) {
             if (res && res.ok && !res.skipped && res.balance != null && opts.patientId) {
                 refreshBannerBalances(opts.patientId, res.balance);
@@ -1211,9 +1221,19 @@ var REWARDS = (function () {
         return '<span class="rw-kind rw-kind--' + esc(kind) + '">' + esc(label) + '</span>';
     }
 
+    function ledgerClinicTag(row) {
+        var tag = String((row && (row._clinic_tag || row.clinic_code || row.clinic_tag)) || '').trim();
+        return tag || '—';
+    }
+
+    function ledgerDoctorName(row) {
+        var dr = String((row && (row._doctor_name || row.doctor_name)) || '').trim();
+        return dr || '—';
+    }
+
     function renderLedgerRows(rows) {
         if (!rows || !rows.length) {
-            return '<tr><td colspan="5" style="padding:16px;color:#94a3b8;text-align:center;">' +
+            return '<tr><td colspan="7" style="padding:16px;color:#94a3b8;text-align:center;">' +
                 esc(tr('rewards.ledger.empty', 'No reward transactions yet.')) + '</td></tr>';
         }
         return rows.map(function (row) {
@@ -1225,6 +1245,8 @@ var REWARDS = (function () {
             if (row.transfer_id) ref = (ref ? ref + ' · ' : '') + 'Xfer ' + String(row.transfer_id).slice(0, 8);
             return '<tr>' +
                 '<td style="padding:8px 10px;white-space:nowrap;font-size:12px;color:#64748b;">' + esc(dt) + '</td>' +
+                '<td style="padding:8px 10px;font-size:12px;">' + esc(ledgerClinicTag(row)) + '</td>' +
+                '<td style="padding:8px 10px;font-size:12px;">' + esc(ledgerDoctorName(row)) + '</td>' +
                 '<td style="padding:8px 10px;">' + kindBadge(row.kind) + '</td>' +
                 '<td style="padding:8px 10px;text-align:right;font-weight:700;" class="' + ptsCls + '">' +
                 esc(fmtSigned(pts)) + '</td>' +
@@ -1233,6 +1255,37 @@ var REWARDS = (function () {
                 esc(ref || row.note || '—') + '</td>' +
                 '</tr>';
         }).join('');
+    }
+
+    /** Best-effort stamp doctor_name on new ledger row(s) after RPC (column from SQL patch). */
+    function stampDoctorOnLedgerResult(res, doctorName) {
+        var name = String(doctorName || '').trim();
+        if (!name || !res || !res.ok) return Promise.resolve(res);
+        var ids = [];
+        if (res.ledger_id) ids.push(res.ledger_id);
+        if (res.parts && res.parts.length) {
+            res.parts.forEach(function (p) {
+                if (p && p.ledger_id) ids.push(p.ledger_id);
+            });
+        }
+        if (res.from && res.from.ledger_id) ids.push(res.from.ledger_id);
+        if (res.to && res.to.ledger_id) ids.push(res.to.ledger_id);
+        if (!ids.length) return Promise.resolve(res);
+        return SB.from('reward_ledger').update({ doctor_name: name }).in('id', ids)
+            .then(function () { return res; })
+            .catch(function () { return res; });
+    }
+
+    function resolveBillDoctorName(billLike) {
+        if (!billLike) return '';
+        if (typeof billDisplayDoctorLabel === 'function') {
+            try {
+                var lab = billDisplayDoctorLabel(billLike);
+                if (lab) return String(lab).trim();
+            } catch (e) { /* ignore */ }
+        }
+        return String(billLike.doctor_name || billLike.dentist_name || billLike.doctor_tag ||
+            billLike.doctor_code || '').trim();
     }
 
     function openPatientPanel(patientId) {
@@ -1246,7 +1299,7 @@ var REWARDS = (function () {
         var meta = document.getElementById('rwPatientMeta');
         var balEl = document.getElementById('rwPatientBalance');
         var tbody = document.getElementById('rwLedgerBody');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:16px;text-align:center;color:#94a3b8;">' +
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="padding:16px;text-align:center;color:#94a3b8;">' +
             esc(tr('common.loadingEllipsis', 'Loading…')) + '</td></tr>';
         if (typeof openModal === 'function') openModal('rewardPatientModal');
         else modal.style.display = 'flex';
@@ -1305,22 +1358,24 @@ var REWARDS = (function () {
                 meta.textContent = (no ? ('#' + no + '  ') : '') + name +
                     (chartN > 1 ? '  ·  ' + chartN + ' ' + tr('rewards.panel.charts', 'charts') : '');
             }
-            if (tbody) tbody.innerHTML = renderLedgerRows(rows);
-            var xferErr = document.getElementById('rwTransferError');
-            if (xferErr) { xferErr.style.display = 'none'; xferErr.textContent = ''; }
-            var xferAmt = document.getElementById('rwTransferAmount');
-            if (xferAmt) xferAmt.value = '';
-            var xferNote = document.getElementById('rwTransferNote');
-            if (xferNote) xferNote.value = '';
-            var xferTo = document.getElementById('rwTransferTo');
-            if (xferTo) xferTo.value = '';
-            var xferToId = document.getElementById('rwTransferToId');
-            if (xferToId) xferToId.value = '';
-            var xferPrev = document.getElementById('rwTransferAllocPreview');
-            if (xferPrev) xferPrev.textContent = '';
+            return enrichLedgerMeta(rows || [], null).then(function (enriched) {
+                if (tbody) tbody.innerHTML = renderLedgerRows(enriched);
+                var xferErr = document.getElementById('rwTransferError');
+                if (xferErr) { xferErr.style.display = 'none'; xferErr.textContent = ''; }
+                var xferAmt = document.getElementById('rwTransferAmount');
+                if (xferAmt) xferAmt.value = '';
+                var xferNote = document.getElementById('rwTransferNote');
+                if (xferNote) xferNote.value = '';
+                var xferTo = document.getElementById('rwTransferTo');
+                if (xferTo) xferTo.value = '';
+                var xferToId = document.getElementById('rwTransferToId');
+                if (xferToId) xferToId.value = '';
+                var xferPrev = document.getElementById('rwTransferAllocPreview');
+                if (xferPrev) xferPrev.textContent = '';
+            });
         }).catch(function (e) {
             if (tbody) {
-                tbody.innerHTML = '<tr><td colspan="5" style="padding:16px;color:#dc2626;">' +
+                tbody.innerHTML = '<tr><td colspan="7" style="padding:16px;color:#dc2626;">' +
                     esc((e && e.message) || tr('rewards.err.load', 'Failed to load rewards.')) +
                     '</td></tr>';
             }
@@ -1562,40 +1617,62 @@ var REWARDS = (function () {
         if (!rows.length) return Promise.resolve(rows);
         var ids = [];
         var seen = {};
+        var billIds = [];
+        var billSeen = {};
         rows.forEach(function (r) {
             var id = r && r.patient_id;
             if (id && !seen[id]) { seen[id] = true; ids.push(id); }
+            var bid = r && r.bill_id;
+            if (bid && !billSeen[bid] && !String(r.doctor_name || '').trim()) {
+                billSeen[bid] = true;
+                billIds.push(bid);
+            }
         });
-        if (!ids.length) return Promise.resolve(rows);
-        return SB.from('patients')
-            .select('id,patient_no,full_name,chinese_name')
-            .in('id', ids)
-            .then(function (r) {
-                var map = {};
-                (r.data || []).forEach(function (p) { map[p.id] = p; });
-                return rows.map(function (row) {
-                    var p = map[row.patient_id] || null;
-                    var name = p
-                        ? (p.full_name || p.chinese_name || '')
-                        : '';
-                    return Object.assign({}, row, {
-                        _patient_no: p ? (p.patient_no || '') : '',
-                        _patient_name: name,
-                        _clinic_label: clinicDisplayName(row.clinic_code, row.clinic_id, clinicList),
-                        _handler: row.created_by || '—'
-                    });
-                });
-            })
-            .catch(function () {
-                return rows.map(function (row) {
-                    return Object.assign({}, row, {
-                        _patient_no: '',
-                        _patient_name: String(row.patient_id || '').slice(0, 8),
-                        _clinic_label: clinicDisplayName(row.clinic_code, row.clinic_id, clinicList),
-                        _handler: row.created_by || '—'
-                    });
+
+        function attach(map, billMap) {
+            billMap = billMap || {};
+            return rows.map(function (row) {
+                var p = map[row.patient_id] || null;
+                var name = p ? (p.full_name || p.chinese_name || '') : '';
+                var clinicTag = String(row.clinic_code || '').trim() ||
+                    (p && p.clinic_tag ? String(p.clinic_tag).trim() : '') || '';
+                var dr = String(row.doctor_name || '').trim();
+                if (!dr && row.bill_id && billMap[row.bill_id]) {
+                    dr = resolveBillDoctorName(billMap[row.bill_id]);
+                }
+                return Object.assign({}, row, {
+                    _patient_no: p ? (p.patient_no || '') : '',
+                    _patient_name: name,
+                    _clinic_tag: clinicTag,
+                    _clinic_label: clinicDisplayName(row.clinic_code, row.clinic_id, clinicList) ||
+                        clinicTag || '—',
+                    _doctor_name: dr,
+                    _handler: row.created_by || '—'
                 });
             });
+        }
+
+        var patientsP = ids.length
+            ? SB.from('patients')
+                .select('id,patient_no,full_name,chinese_name,clinic_tag')
+                .in('id', ids)
+            : Promise.resolve({ data: [] });
+
+        var billsP = billIds.length
+            ? SB.from('bills')
+                .select('id,doctor_name,doctor_code,doctor_tag,dentist_name')
+                .in('id', billIds)
+            : Promise.resolve({ data: [] });
+
+        return Promise.all([patientsP, billsP]).then(function (parts) {
+            var map = {};
+            ((parts[0] && parts[0].data) || []).forEach(function (p) { map[p.id] = p; });
+            var billMap = {};
+            ((parts[1] && parts[1].data) || []).forEach(function (b) { billMap[b.id] = b; });
+            return attach(map, billMap);
+        }).catch(function () {
+            return attach({}, {});
+        });
     }
 
     function searchTransferPatients(q) {
@@ -2048,7 +2125,8 @@ var REWARDS = (function () {
             html += '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
             html += '<thead><tr style="background:#f8fafc;text-align:left;">' +
                 '<th style="padding:8px 10px;">' + esc(tr('rewards.col.when', 'When')) + '</th>' +
-                '<th style="padding:8px 10px;">' + esc(tr('rewards.col.clinic', 'Clinic')) + '</th>' +
+                '<th style="padding:8px 10px;">' + esc(tr('rewards.col.clinicTag', 'Clinic tags')) + '</th>' +
+                '<th style="padding:8px 10px;">' + esc(tr('rewards.col.drName', 'Dr Name')) + '</th>' +
                 '<th style="padding:8px 10px;">' + esc(tr('rewards.col.chartNo', 'Chart no.')) + '</th>' +
                 '<th style="padding:8px 10px;">' + esc(tr('rewards.col.patient', 'Patient')) + '</th>' +
                 '<th style="padding:8px 10px;">' + esc(tr('rewards.col.kind', 'Type')) + '</th>' +
@@ -2057,14 +2135,17 @@ var REWARDS = (function () {
                 '<th style="padding:8px 10px;">' + esc(tr('rewards.col.handler', 'Handled by')) + '</th>' +
                 '</tr></thead><tbody>';
             if (!ledger.length) {
-                html += '<tr><td colspan="8" style="padding:14px;color:#94a3b8;text-align:center;">' +
+                html += '<tr><td colspan="9" style="padding:14px;color:#94a3b8;text-align:center;">' +
                     esc(tr('rewards.ledger.empty', 'No reward transactions yet.')) + '</td></tr>';
             } else {
                 ledger.forEach(function (row) {
                     var dt = fmtLedgerTimeHK(row.created_at);
                     html += '<tr style="border-top:1px solid #f1f5f9;">' +
                         '<td style="padding:7px 10px;color:#64748b;white-space:nowrap;">' + esc(dt) + '</td>' +
-                        '<td style="padding:7px 10px;font-size:12px;">' + esc(row._clinic_label || '—') + '</td>' +
+                        '<td style="padding:7px 10px;font-size:12px;">' +
+                        esc(row._clinic_tag || row.clinic_code || row._clinic_label || '—') + '</td>' +
+                        '<td style="padding:7px 10px;font-size:12px;">' +
+                        esc(row._doctor_name || row.doctor_name || '—') + '</td>' +
                         '<td style="padding:7px 10px;font-size:12px;">' + esc(row._patient_no || '—') + '</td>' +
                         '<td style="padding:7px 10px;font-size:12px;">' + esc(row._patient_name || '—') + '</td>' +
                         '<td style="padding:7px 10px;">' + kindBadge(row.kind) + '</td>' +

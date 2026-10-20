@@ -3109,6 +3109,18 @@
         'rewards.ledger.empty': { en: 'No reward transactions yet.', 'zh-CN': '尚无积分记录。', 'zh-Hant': '尚無積分紀錄。' },
         'rewards.pay.balanceLabel': { en: 'Reward points', 'zh-CN': '奖励积分', 'zh-Hant': '獎勵積分' },
         'rewards.pay.useLabel': { en: 'Use reward points as discount', 'zh-CN': '使用积分抵扣', 'zh-Hant': '使用積分抵扣' },
+        'rewards.pay.redeemAll': { en: 'Redeem all', 'zh-CN': '全部兑换', 'zh-Hant': '全部兌換' },
+        'rewards.pay.redeemAllHint': {
+            en: 'Use every chart balance for this person (smallest first).',
+            'zh-CN': '使用该病人所有病历号余额（先扣较少者）。',
+            'zh-Hant': '使用該病人所有病歷號結餘（先扣較少者）。'
+        },
+        'rewards.pay.noCharts': { en: 'No chart balances available.', 'zh-CN': '暂无可用病历余额。', 'zh-Hant': '暫無可用病歷結餘。' },
+        'rewards.pay.allocShort': {
+            en: 'Selected charts do not cover this amount.',
+            'zh-CN': '所选病历余额不足。',
+            'zh-Hant': '所選病歷結餘不足。'
+        },
         'rewards.pay.amountLabel': { en: 'Points to use', 'zh-CN': '使用积分数', 'zh-Hant': '使用積分數' },
         'rewards.pay.hintUse': {
             en: 'Optional — points used here are not counted as income. Points earned on this payment can be redeemed on a later payment only (not on the same payment).',
@@ -3123,15 +3135,31 @@
         'rewards.pay.hintEmpty': { en: 'No reward points available yet.', 'zh-CN': '暂无可用积分。', 'zh-Hant': '暫無可用積分。' },
         'rewards.pay.redeemNote': { en: 'Reward points discount', 'zh-CN': '积分抵扣', 'zh-Hant': '積分抵扣' },
         'rewards.xfer.title': { en: 'Transfer to another patient', 'zh-CN': '转给其他病人', 'zh-Hant': '轉給其他病人' },
-        'rewards.xfer.to': { en: 'Destination patient', 'zh-CN': '转入病人', 'zh-Hant': '轉入病人' },
+        'rewards.xfer.to': { en: 'Destination chart no.', 'zh-CN': '转入病历号', 'zh-Hant': '轉入病歷號' },
         'rewards.xfer.toPh': { en: 'Search name / patient no.', 'zh-CN': '搜索姓名 / 病历号', 'zh-Hant': '搜尋姓名 / 病歷號' },
+        'rewards.xfer.sources': { en: 'Source charts (same person)', 'zh-CN': '来源病历（同一人）', 'zh-Hant': '來源病歷（同一人）' },
+        'rewards.xfer.noSources': { en: 'No chart balances to transfer from.', 'zh-CN': '无可转出的病历余额。', 'zh-Hant': '無可轉出的病歷結餘。' },
+        'rewards.xfer.needSources': { en: 'Select at least one source chart.', 'zh-CN': '请至少选择一个来源病历。', 'zh-Hant': '請至少選擇一個來源病歷。' },
         'rewards.xfer.amount': { en: 'Points', 'zh-CN': '积分', 'zh-Hant': '積分' },
         'rewards.xfer.note': { en: 'Note', 'zh-CN': '备注', 'zh-Hant': '備註' },
         'rewards.xfer.submit': { en: 'Transfer points', 'zh-CN': '转移积分', 'zh-Hant': '轉移積分' },
-        'rewards.xfer.needTo': { en: 'Select a destination patient.', 'zh-CN': '请选择转入病人。', 'zh-Hant': '請選擇轉入病人。' },
+        'rewards.xfer.needTo': { en: 'Select a destination patient chart.', 'zh-CN': '请选择转入病历号。', 'zh-Hant': '請選擇轉入病歷號。' },
         'rewards.xfer.same': { en: 'Cannot transfer to the same patient.', 'zh-CN': '不能转给同一病人。', 'zh-Hant': '不能轉給同一病人。' },
         'rewards.xfer.needAmt': { en: 'Enter a points amount greater than 0.', 'zh-CN': '请输入大于 0 的积分数。', 'zh-Hant': '請輸入大於 0 的積分數。' },
         'rewards.xfer.fail': { en: 'Transfer failed.', 'zh-CN': '转移失败。', 'zh-Hant': '轉移失敗。' },
+        'rewards.panel.charts': { en: 'charts', 'zh-CN': '个病历', 'zh-Hant': '個病歷' },
+        'rewards.cfg.clinicsHintJoin': {
+            en: 'Reception can join Gain and/or Redeem per clinic. Earn credits the patient chart; redeem may draw from multiple charts of the same person.',
+            'zh-CN': '前台可为每间诊所加入赚取／兑换。赚取记入该病历号；兑换可从同一人多个病历扣减。',
+            'zh-Hant': '前台可為每間診所加入賺取／兌換。賺取記入該病歷號；兌換可從同一人多個病歷扣減。'
+        },
+        'rewards.cfg.joinGain': { en: 'Join Gain', 'zh-CN': '加入赚取', 'zh-Hant': '加入賺取' },
+        'rewards.cfg.joinRedeem': { en: 'Join Redeem', 'zh-CN': '加入兑换', 'zh-Hant': '加入兌換' },
+        'rewards.err.needSqlPatch': {
+            en: 'Multi-chart redeem needs SQL patch reward_points_patch_chart_ledgers.sql applied in Supabase.',
+            'zh-CN': '多病历兑换需先在 Supabase 执行 reward_points_patch_chart_ledgers.sql。',
+            'zh-Hant': '多病歷兌換需先在 Supabase 執行 reward_points_patch_chart_ledgers.sql。'
+        },
         'rewards.cfg.title': { en: 'Reward Points', 'zh-CN': '奖励积分', 'zh-Hant': '獎勵積分' },
         'rewards.cfg.blurb': {
             en: 'Patients earn points from every eligible payment from the first one onward (default 10%). Points from a payment can only be redeemed on a later payment. Discount redemptions are not counted as clinic income.',

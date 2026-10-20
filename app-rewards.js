@@ -11,9 +11,11 @@ var REWARDS = (function () {
 
     var METHOD = 'Reward points';
     var _programCache = null;
-    var _clinicMap = null; // clinic_id|code → enabled
+    var _clinicMap = null; // clinic_id|code → { enabled, join_gain, join_redeem }
     var _clinicMapAt = 0;
     var _panelPatientId = null;
+    var _panelSourceAccounts = []; // chart ledgers for open patient panel
+    var _paySourceAccounts = [];   // chart ledgers for add-payment panel
 
     function tr(key, fallback) {
         if (typeof t === 'function') {
@@ -179,47 +181,100 @@ var REWARDS = (function () {
             });
     }
 
+    function clinicJoinFlags(row) {
+        var gain = row.join_gain != null ? !!row.join_gain : !!row.enabled;
+        var redeem = row.join_redeem != null ? !!row.join_redeem : !!row.enabled;
+        return {
+            enabled: !!(row.enabled || gain || redeem),
+            join_gain: gain,
+            join_redeem: redeem
+        };
+    }
+
     function loadClinicJoinMap(force) {
         var now = Date.now();
         if (!force && _clinicMap && (now - _clinicMapAt) < 30000) {
             return Promise.resolve(_clinicMap);
         }
-        return SB.from('reward_program_clinics').select('clinic_id,clinic_code,enabled')
-            .then(function (r) {
-                var map = {};
-                (r.data || []).forEach(function (row) {
-                    if (row.clinic_id) map['id:' + String(row.clinic_id)] = !!row.enabled;
-                    var code = String(row.clinic_code || '').trim().toUpperCase();
-                    if (code) map['code:' + code] = !!row.enabled;
+        function mapFromRows(rows) {
+            var map = {};
+            (rows || []).forEach(function (row) {
+                var flags = clinicJoinFlags(row);
+                if (row.clinic_id) map['id:' + String(row.clinic_id)] = flags;
+                var code = String(row.clinic_code || '').trim().toUpperCase();
+                if (code) map['code:' + code] = flags;
+            });
+            return map;
+        }
+        function loadLegacyClinicJoin() {
+            return SB.from('reward_program_clinics').select('clinic_id,clinic_code,enabled')
+                .then(function (r2) {
+                    if (r2.error) throw r2.error;
+                    _clinicMap = mapFromRows(r2.data);
+                    _clinicMapAt = Date.now();
+                    return _clinicMap;
+                })
+                .catch(function () {
+                    _clinicMap = {};
+                    _clinicMapAt = Date.now();
+                    return _clinicMap;
                 });
-                _clinicMap = map;
-                _clinicMapAt = Date.now();
-                return map;
-            })
-            .catch(function () {
-                _clinicMap = {};
+        }
+        return SB.from('reward_program_clinics').select('clinic_id,clinic_code,enabled,join_gain,join_redeem')
+            .then(function (r) {
+                if (r.error) {
+                    // Older DB without join_gain/join_redeem columns
+                    return loadLegacyClinicJoin();
+                }
+                _clinicMap = mapFromRows(r.data);
                 _clinicMapAt = Date.now();
                 return _clinicMap;
+            })
+            .catch(function () {
+                return loadLegacyClinicJoin();
             });
+    }
+
+    function lookupClinicFlags(map, clinicId, clinicCode) {
+        if (clinicId && Object.prototype.hasOwnProperty.call(map, 'id:' + String(clinicId))) {
+            return map['id:' + String(clinicId)];
+        }
+        var code = String(clinicCode || '').trim().toUpperCase();
+        if (code && Object.prototype.hasOwnProperty.call(map, 'code:' + code)) {
+            return map['code:' + code];
+        }
+        if (code === 'PL') {
+            return { enabled: true, join_gain: true, join_redeem: true };
+        }
+        return { enabled: false, join_gain: false, join_redeem: false };
     }
 
     function isClinicJoined(clinicId, clinicCode) {
         return loadClinicJoinMap(false).then(function (map) {
-            if (clinicId && Object.prototype.hasOwnProperty.call(map, 'id:' + String(clinicId))) {
-                return !!map['id:' + String(clinicId)];
-            }
-            var code = String(clinicCode || '').trim().toUpperCase();
-            if (code && Object.prototype.hasOwnProperty.call(map, 'code:' + code)) {
-                return !!map['code:' + code];
-            }
-            // Default seed rule before SQL rows exist
-            return code === 'PL';
+            return !!lookupClinicFlags(map, clinicId, clinicCode).enabled;
+        });
+    }
+
+    function isClinicGainJoined(clinicId, clinicCode) {
+        return loadClinicJoinMap(false).then(function (map) {
+            return !!lookupClinicFlags(map, clinicId, clinicCode).join_gain;
+        });
+    }
+
+    function isClinicRedeemJoined(clinicId, clinicCode) {
+        return loadClinicJoinMap(false).then(function (map) {
+            return !!lookupClinicFlags(map, clinicId, clinicCode).join_redeem;
         });
     }
 
     function currentClinicJoined() {
         var ctx = clinicCtx();
         return isClinicJoined(ctx.clinic_id, ctx.clinic_code);
+    }
+
+    function currentClinicRedeemJoined() {
+        var ctx = clinicCtx();
+        return isClinicRedeemJoined(ctx.clinic_id, ctx.clinic_code);
     }
 
     function earnRatePercent() {
@@ -230,6 +285,55 @@ var REWARDS = (function () {
     }
 
     // ── Account / ledger reads ───────────────────────────────
+    function normalizeHkid(raw) {
+        return String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    }
+
+    function normalizePhone(raw) {
+        return String(raw || '').replace(/[^0-9]/g, '');
+    }
+
+    /** Same person may have multiple charts (universal + clinic-prefixed legacy). */
+    function findRelatedPatientIds(patientId) {
+        if (!patientId) return Promise.resolve([]);
+        return SB.from('patients')
+            .select('id,hkid,phone_number,mobile_phone,patient_no')
+            .eq('id', patientId)
+            .maybeSingle()
+            .then(function (r) {
+                if (r.error || !r.data) return [patientId];
+                var hk = normalizeHkid(r.data.hkid);
+                var ph = normalizePhone(r.data.mobile_phone || r.data.phone_number);
+                var q;
+                if (hk && hk.length >= 7) {
+                    q = SB.from('patients').select('id,patient_no,clinic_tag,full_name,chinese_name,hkid')
+                        .ilike('hkid', '%' + hk.slice(0, 8) + '%')
+                        .limit(40);
+                } else if (ph && ph.length >= 8) {
+                    q = SB.from('patients').select('id,patient_no,clinic_tag,full_name,chinese_name,phone_number,mobile_phone')
+                        .or('phone_number.ilike.%' + ph.slice(-8) + '%,mobile_phone.ilike.%' + ph.slice(-8) + '%')
+                        .limit(40);
+                } else {
+                    return [patientId];
+                }
+                return q.then(function (rr) {
+                    var ids = [patientId];
+                    (rr.data || []).forEach(function (p) {
+                        var match = false;
+                        if (hk && hk.length >= 7) {
+                            match = normalizeHkid(p.hkid) === hk;
+                        } else if (ph && ph.length >= 8) {
+                            var pph = normalizePhone(p.mobile_phone || p.phone_number);
+                            match = pph === ph || (pph && ph && (pph.slice(-8) === ph.slice(-8)));
+                        }
+                        if (match && ids.indexOf(p.id) < 0) ids.push(p.id);
+                    });
+                    return ids;
+                }).catch(function () { return [patientId]; });
+            })
+            .catch(function () { return [patientId]; });
+    }
+
     function getAccount(patientId) {
         if (!patientId) return Promise.resolve(null);
         return SB.from('reward_accounts').select('*').eq('patient_id', patientId).maybeSingle()
@@ -240,10 +344,107 @@ var REWARDS = (function () {
             .catch(function () { return null; });
     }
 
-    function getBalance(patientId) {
-        return getAccount(patientId).then(function (acc) {
-            return acc ? round2(acc.balance) : 0;
+    /** All chart ledgers for this person (creates missing account rows lazily via ensure on earn). */
+    function listPersonAccounts(patientId) {
+        if (!patientId) return Promise.resolve([]);
+        return findRelatedPatientIds(patientId).then(function (ids) {
+            if (!ids.length) return [];
+            return SB.from('patients')
+                .select('id,patient_no,clinic_tag,full_name,chinese_name')
+                .in('id', ids)
+                .then(function (pr) {
+                    var patients = pr.data || [];
+                    return SB.from('reward_accounts').select('*').in('patient_id', ids)
+                        .then(function (ar) {
+                            var byPid = {};
+                            (ar.data || []).forEach(function (a) {
+                                byPid[a.patient_id] = a;
+                            });
+                            return patients.map(function (p) {
+                                var acc = byPid[p.id];
+                                return {
+                                    account_id: acc ? acc.id : null,
+                                    patient_id: p.id,
+                                    patient_no: (acc && acc.patient_no) || p.patient_no || '',
+                                    clinic_code: (acc && acc.clinic_code) || p.clinic_tag || '',
+                                    patient_name: (acc && acc.patient_name) ||
+                                        p.full_name || p.chinese_name || '',
+                                    balance: acc ? round2(acc.balance) : 0,
+                                    started_at: acc ? acc.started_at : null,
+                                    _account: acc || null
+                                };
+                            }).sort(function (a, b) {
+                                if (b.balance !== a.balance) return b.balance - a.balance;
+                                return String(a.patient_no).localeCompare(String(b.patient_no));
+                            });
+                        });
+                })
+                .catch(function () {
+                    return getAccount(patientId).then(function (acc) {
+                        if (!acc) {
+                            return [{
+                                account_id: null,
+                                patient_id: patientId,
+                                patient_no: '',
+                                clinic_code: '',
+                                patient_name: '',
+                                balance: 0,
+                                started_at: null,
+                                _account: null
+                            }];
+                        }
+                        return [{
+                            account_id: acc.id,
+                            patient_id: acc.patient_id,
+                            patient_no: acc.patient_no || '',
+                            clinic_code: acc.clinic_code || '',
+                            patient_name: acc.patient_name || '',
+                            balance: round2(acc.balance),
+                            started_at: acc.started_at,
+                            _account: acc
+                        }];
+                    });
+                });
         });
+    }
+
+    function sumPersonBalance(accounts) {
+        var t = 0;
+        (accounts || []).forEach(function (a) { t += round2(a.balance); });
+        return round2(t);
+    }
+
+    function getBalance(patientId) {
+        return listPersonAccounts(patientId).then(function (accs) {
+            return sumPersonBalance(accs);
+        });
+    }
+
+    /** Drain plan: smallest balance first, remainder from largest (sort asc). */
+    function allocateAcrossAccounts(accounts, points) {
+        var need = round2(points);
+        var withBal = (accounts || []).filter(function (a) {
+            return a.account_id && round2(a.balance) > 0.005;
+        }).slice().sort(function (a, b) {
+            if (a.balance !== b.balance) return a.balance - b.balance;
+            return String(a.patient_no || '').localeCompare(String(b.patient_no || ''));
+        });
+        var plan = [];
+        var i;
+        for (i = 0; i < withBal.length && need > 0.005; i++) {
+            var take = round2(Math.min(withBal[i].balance, need));
+            if (take <= 0) continue;
+            plan.push({
+                account_id: withBal[i].account_id,
+                patient_id: withBal[i].patient_id,
+                patient_no: withBal[i].patient_no,
+                clinic_code: withBal[i].clinic_code,
+                take: take,
+                balance_before: withBal[i].balance
+            });
+            need = round2(need - take);
+        }
+        return { ok: need <= 0.005, remaining: need, plan: plan };
     }
 
     /**
@@ -303,6 +504,10 @@ var REWARDS = (function () {
 
     function redeem(opts) {
         opts = opts || {};
+        var sourceIds = opts.sourceAccountIds || null;
+        if (sourceIds && sourceIds.length) {
+            return redeemMulti(opts);
+        }
         return SB.rpc('reward_redeem', {
             p_patient_id: opts.patientId,
             p_points: round2(opts.points),
@@ -318,8 +523,79 @@ var REWARDS = (function () {
         });
     }
 
+    function redeemMulti(opts) {
+        opts = opts || {};
+        var ids = (opts.sourceAccountIds || []).filter(Boolean);
+        if (!ids.length) {
+            return Promise.resolve({ ok: false, error: 'select at least one chart source' });
+        }
+        return SB.rpc('reward_redeem_multi', {
+            p_anchor_patient_id: opts.patientId,
+            p_points: round2(opts.points),
+            p_source_account_ids: ids,
+            p_bill_id: opts.billId || null,
+            p_bill_payment_id: opts.billPaymentId || null,
+            p_clinic_id: opts.clinicId || null,
+            p_clinic_code: opts.clinicCode || null,
+            p_created_by: opts.createdBy || actorName(),
+            p_note: opts.note || null
+        }).then(function (r) {
+            if (r.error) {
+                // Fallback: sequential single-chart redeem if multi RPC not deployed yet
+                if (/reward_redeem_multi|could not find|404|PGRST/i.test(String(r.error.message || ''))) {
+                    return redeemMultiFallback(opts, ids);
+                }
+                return { ok: false, error: r.error.message };
+            }
+            return rpcResult(r.data);
+        });
+    }
+
+    /** When multi RPC missing: single-chart only; multi-chart needs SQL patch applied. */
+    function redeemMultiFallback(opts, accountIds) {
+        return SB.from('reward_accounts').select('*').in('id', accountIds).then(function (ar) {
+            var rows = (ar.data || []).map(function (a) {
+                return {
+                    account_id: a.id,
+                    patient_id: a.patient_id,
+                    patient_no: a.patient_no,
+                    clinic_code: a.clinic_code,
+                    balance: round2(a.balance)
+                };
+            });
+            var alloc = allocateAcrossAccounts(rows, opts.points);
+            if (!alloc.ok) {
+                return { ok: false, error: 'insufficient reward balance across selected charts' };
+            }
+            if (alloc.plan.length > 1) {
+                return {
+                    ok: false,
+                    error: tr('rewards.err.needSqlPatch',
+                        'Multi-chart redeem needs SQL patch reward_points_patch_chart_ledgers.sql applied in Supabase.')
+                };
+            }
+            var step = alloc.plan[0];
+            return SB.rpc('reward_redeem', {
+                p_patient_id: step.patient_id,
+                p_points: step.take,
+                p_bill_id: opts.billId || null,
+                p_bill_payment_id: opts.billPaymentId || null,
+                p_clinic_id: opts.clinicId || null,
+                p_clinic_code: opts.clinicCode || null,
+                p_created_by: opts.createdBy || actorName(),
+                p_note: opts.note || null
+            }).then(function (r) {
+                if (r.error) return { ok: false, error: r.error.message };
+                return rpcResult(r.data);
+            });
+        });
+    }
+
     function transfer(opts) {
         opts = opts || {};
+        if (opts.sourceAccountIds && opts.sourceAccountIds.length) {
+            return transferMulti(opts);
+        }
         return SB.rpc('reward_transfer', {
             p_from_patient_id: opts.fromPatientId,
             p_to_patient_id: opts.toPatientId,
@@ -330,6 +606,47 @@ var REWARDS = (function () {
             p_note: opts.note || null
         }).then(function (r) {
             if (r.error) return { ok: false, error: r.error.message };
+            return rpcResult(r.data);
+        });
+    }
+
+    function transferMulti(opts) {
+        opts = opts || {};
+        var ids = (opts.sourceAccountIds || []).filter(Boolean);
+        if (!ids.length) {
+            return Promise.resolve({ ok: false, error: 'select at least one source chart' });
+        }
+        return SB.rpc('reward_transfer_multi', {
+            p_to_patient_id: opts.toPatientId,
+            p_points: round2(opts.points),
+            p_source_account_ids: ids,
+            p_clinic_id: opts.clinicId || null,
+            p_clinic_code: opts.clinicCode || null,
+            p_created_by: opts.createdBy || actorName(),
+            p_note: opts.note || null
+        }).then(function (r) {
+            if (r.error) {
+                if (/reward_transfer_multi|could not find|404|PGRST/i.test(String(r.error.message || ''))) {
+                    // Fallback: transfer from first source only via legacy RPC
+                    return listPersonAccounts(opts.fromPatientId || '').then(function () {
+                        var first = ids[0];
+                        return SB.from('reward_accounts').select('patient_id').eq('id', first).maybeSingle()
+                            .then(function (ar) {
+                                var fromId = ar.data && ar.data.patient_id;
+                                if (!fromId) return { ok: false, error: r.error.message };
+                                return transfer({
+                                    fromPatientId: fromId,
+                                    toPatientId: opts.toPatientId,
+                                    points: opts.points,
+                                    clinicId: opts.clinicId,
+                                    clinicCode: opts.clinicCode,
+                                    note: opts.note
+                                });
+                            });
+                    });
+                }
+                return { ok: false, error: r.error.message };
+            }
             return rpcResult(r.data);
         });
     }
@@ -625,7 +942,8 @@ var REWARDS = (function () {
                 billPaymentId: payId,
                 clinicId: payRecord.clinic_id,
                 clinicCode: payRecord.clinic_code,
-                note: payRecord.notes
+                note: payRecord.notes,
+                sourceAccountIds: opts.sourceAccountIds || null
             }).then(function (rr) {
                 if (!rr.ok) {
                     // Best-effort: void the reward payment row so bill math stays clean
@@ -637,8 +955,9 @@ var REWARDS = (function () {
                     }
                     return { ok: false, error: rr.error || 'redeem failed', rewardAmount: 0 };
                 }
-                if (rr && rr.balance != null) {
-                    refreshBannerBalances(opts.patientId, rr.balance);
+                var bal = rr.total_balance != null ? rr.total_balance : rr.balance;
+                if (bal != null) {
+                    refreshBannerBalances(opts.patientId, bal);
                 }
                 return {
                     ok: true,
@@ -648,6 +967,75 @@ var REWARDS = (function () {
                 };
             });
         });
+    }
+
+    function readSelectedPaySourceAccountIds() {
+        var box = document.getElementById('apRewardSources');
+        if (!box) {
+            return (_paySourceAccounts || [])
+                .filter(function (a) { return a.account_id && a.balance > 0.005; })
+                .map(function (a) { return a.account_id; });
+        }
+        var ids = [];
+        box.querySelectorAll('input.ap-rw-src:checked').forEach(function (cb) {
+            var id = cb.getAttribute('data-account-id');
+            if (id) ids.push(id);
+        });
+        return ids;
+    }
+
+    function selectedPaySourceRows() {
+        var ids = readSelectedPaySourceAccountIds();
+        var idSet = {};
+        ids.forEach(function (id) { idSet[id] = true; });
+        return (_paySourceAccounts || []).filter(function (a) {
+            return a.account_id && idSet[a.account_id];
+        });
+    }
+
+    function renderPaySourceList(accounts, selectAll) {
+        var box = document.getElementById('apRewardSources');
+        if (!box) return;
+        var withBal = (accounts || []).filter(function (a) {
+            return a.account_id && round2(a.balance) > 0.005;
+        });
+        if (!withBal.length) {
+            box.innerHTML = '<div style="font-size:12px;color:#94a3b8;">' +
+                esc(tr('rewards.pay.noCharts', 'No chart balances available.')) + '</div>';
+            return;
+        }
+        box.innerHTML = withBal.map(function (a) {
+            var label = '#' + (a.patient_no || '—') +
+                (a.clinic_code ? ' · ' + a.clinic_code : '') +
+                ' — ' + fmtPts(a.balance);
+            var checked = selectAll !== false ? ' checked' : '';
+            return '<label class="ap-rw-src-row" style="display:flex;gap:8px;align-items:center;font-size:12px;margin:3px 0;cursor:pointer;">' +
+                '<input type="checkbox" class="ap-rw-src" data-account-id="' + esc(a.account_id) + '"' + checked + '>' +
+                '<span>' + esc(label) + '</span></label>';
+        }).join('');
+    }
+
+    function updatePayAllocPreview() {
+        var prev = document.getElementById('apRewardAllocPreview');
+        var amtEl = document.getElementById('apRewardAmount');
+        var pts = round2(amtEl ? parseFloat(amtEl.value) : 0);
+        var rows = selectedPaySourceRows();
+        var totalSel = sumPersonBalance(rows);
+        if (prev) {
+            if (pts <= 0 || !rows.length) {
+                prev.textContent = '';
+                return;
+            }
+            var alloc = allocateAcrossAccounts(rows, pts);
+            if (!alloc.ok) {
+                prev.textContent = tr('rewards.pay.allocShort', 'Selected charts do not cover this amount.');
+                return;
+            }
+            prev.textContent = alloc.plan.map(function (s) {
+                return '#' + (s.patient_no || '?') + ' −' + fmtPts(s.take);
+            }).join(' · ');
+        }
+        return totalSel;
     }
 
     function applyEarnForPayment(opts) {
@@ -676,20 +1064,50 @@ var REWARDS = (function () {
         return round2(inp ? parseFloat(inp.value) : 0);
     }
 
+    function readRedeemSourceIdsForPayment() {
+        return readSelectedPaySourceAccountIds();
+    }
+
     function syncRewardAmountMax() {
-        var balEl = document.getElementById('apRewardBalance');
         var amtEl = document.getElementById('apRewardAmount');
         var billBal = 0;
         if (typeof bdCurrentBill !== 'undefined' && bdCurrentBill) {
             billBal = round2(bdCurrentBill.balance);
         }
-        var avail = balEl ? round2(parseFloat(balEl.getAttribute('data-balance') || '0')) : 0;
+        var avail = sumPersonBalance(selectedPaySourceRows());
+        if (!avail) {
+            avail = sumPersonBalance((_paySourceAccounts || []).filter(function (a) {
+                return a.account_id && a.balance > 0.005;
+            }));
+        }
         var max = Math.min(avail, billBal);
         if (amtEl) {
             amtEl.max = String(max);
             if (!amtEl.value || round2(amtEl.value) > max) amtEl.value = max > 0 ? fmtPts(max) : '';
         }
+        updatePayAllocPreview();
         return max;
+    }
+
+    function applyRedeemAllOnPayment() {
+        var use = document.getElementById('apRewardUse');
+        var wrap = document.getElementById('apRewardAmountWrap');
+        if (use) {
+            use.checked = true;
+            use.disabled = false;
+        }
+        if (wrap) wrap.style.display = '';
+        renderPaySourceList(_paySourceAccounts, true);
+        var max = syncRewardAmountMax();
+        var amtEl = document.getElementById('apRewardAmount');
+        if (amtEl) amtEl.value = max > 0 ? fmtPts(max) : '';
+        var cash = document.getElementById('apAmount');
+        var billBal = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
+            ? round2(bdCurrentBill.balance) : 0;
+        if (cash && billBal > 0) {
+            cash.value = fmtPts(Math.max(0, billBal - max));
+        }
+        updatePayAllocPreview();
     }
 
     function refreshAddPaymentRewardPanel() {
@@ -698,20 +1116,25 @@ var REWARDS = (function () {
         var bill = (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null;
         if (!bill || !bill.patient_id) {
             panel.style.display = 'none';
+            _paySourceAccounts = [];
             return Promise.resolve();
         }
-        return currentClinicJoined().then(function (joined) {
+        return currentClinicRedeemJoined().then(function (joined) {
             if (!joined) {
                 panel.style.display = 'none';
+                _paySourceAccounts = [];
                 return;
             }
             panel.style.display = '';
-            return getBalance(bill.patient_id).then(function (bal) {
+            return listPersonAccounts(bill.patient_id).then(function (accs) {
+                _paySourceAccounts = accs || [];
+                var bal = sumPersonBalance(_paySourceAccounts);
                 var balEl = document.getElementById('apRewardBalance');
                 if (balEl) {
                     balEl.textContent = fmtPts(bal);
                     balEl.setAttribute('data-balance', String(bal));
                 }
+                renderPaySourceList(_paySourceAccounts, true);
                 var use = document.getElementById('apRewardUse');
                 var amtWrap = document.getElementById('apRewardAmountWrap');
                 if (use) {
@@ -725,6 +1148,8 @@ var REWARDS = (function () {
                         ? tr('rewards.pay.hintUse', 'Optional — points used here are not counted as income.')
                         : tr('rewards.pay.hintEmpty', 'No reward points available yet.');
                 }
+                var prev = document.getElementById('apRewardAllocPreview');
+                if (prev) prev.textContent = '';
             });
         }).catch(function () {
             panel.style.display = 'none';
@@ -736,17 +1161,28 @@ var REWARDS = (function () {
         window.__REWARDS_AP_WIRED__ = true;
         document.addEventListener('change', function (ev) {
             var t = ev.target;
-            if (!t || t.id !== 'apRewardUse') return;
+            if (!t) return;
+            if (t.classList && t.classList.contains('ap-rw-src')) {
+                syncRewardAmountMax();
+                var cash = document.getElementById('apAmount');
+                var billBal = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
+                    ? round2(bdCurrentBill.balance) : 0;
+                var pts = readUsePointsFromPanel();
+                if (cash && billBal > 0) {
+                    cash.value = fmtPts(Math.max(0, billBal - pts));
+                }
+                return;
+            }
+            if (t.id !== 'apRewardUse') return;
             var wrap = document.getElementById('apRewardAmountWrap');
             if (wrap) wrap.style.display = t.checked ? '' : 'none';
             if (t.checked) syncRewardAmountMax();
-            // Adjust cash amount default = bill balance − reward
-            var cash = document.getElementById('apAmount');
-            var billBal = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
+            var cash2 = document.getElementById('apAmount');
+            var billBal2 = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
                 ? round2(bdCurrentBill.balance) : 0;
-            var pts = t.checked ? readUsePointsFromPanel() : 0;
-            if (cash && billBal > 0) {
-                cash.value = fmtPts(Math.max(0, billBal - pts));
+            var pts2 = t.checked ? readUsePointsFromPanel() : 0;
+            if (cash2 && billBal2 > 0) {
+                cash2.value = fmtPts(Math.max(0, billBal2 - pts2));
             }
         });
         document.addEventListener('input', function (ev) {
@@ -760,6 +1196,12 @@ var REWARDS = (function () {
             if (cash && billBal > 0) {
                 cash.value = fmtPts(Math.max(0, billBal - pts));
             }
+        });
+        document.addEventListener('click', function (ev) {
+            var t = ev.target;
+            if (!t || t.id !== 'apRewardRedeemAll') return;
+            ev.preventDefault();
+            applyRedeemAllOnPayment();
         });
     }
 
@@ -809,30 +1251,60 @@ var REWARDS = (function () {
         if (typeof openModal === 'function') openModal('rewardPatientModal');
         else modal.style.display = 'flex';
 
+        var accsPromise = listPersonAccounts(patientId).then(function (accs) {
+            _panelSourceAccounts = accs || [];
+            var total = sumPersonBalance(_panelSourceAccounts);
+            if (balEl) {
+                balEl.textContent = fmtPts(total);
+                balEl.setAttribute('data-balance', String(total));
+            }
+            renderPanelSourceList(_panelSourceAccounts, true);
+            syncAdminAdjustUi(total);
+            var started = document.getElementById('rwPatientStarted');
+            if (started) {
+                var earliest = null;
+                (_panelSourceAccounts || []).forEach(function (a) {
+                    if (a.started_at && (!earliest || a.started_at < earliest)) earliest = a.started_at;
+                });
+                started.textContent = earliest ? fmtLedgerDateHK(earliest) : '—';
+            }
+            return _panelSourceAccounts;
+        }).catch(function () {
+            _panelSourceAccounts = [];
+            if (balEl) {
+                balEl.textContent = fmtPts(0);
+                balEl.setAttribute('data-balance', '0');
+            }
+            return [];
+        });
+
         Promise.all([
-            loadPatientLite(patientId),
-            getAccount(patientId),
-            loadLedger(patientId, 250)
+            loadPatientLite(patientId).catch(function () { return null; }),
+            accsPromise,
+            findRelatedPatientIds(patientId).then(function (ids) {
+                if (!ids.length) return loadLedger(patientId, 250);
+                return SB.from('reward_ledger')
+                    .select('*')
+                    .in('patient_id', ids)
+                    .order('created_at', { ascending: false })
+                    .limit(250)
+                    .then(function (r) {
+                        if (r.error) return loadLedger(patientId, 250);
+                        return sortLedgerNewestFirst(r.data || []);
+                    })
+                    .catch(function () { return loadLedger(patientId, 250); });
+            }).catch(function () { return loadLedger(patientId, 250); })
         ]).then(function (parts) {
             var pat = parts[0];
-            var acc = parts[1];
-            var rows = parts[2];
+            var accs = parts[1] || _panelSourceAccounts || [];
+            var rows = parts[2] || [];
             if (meta) {
                 var name = pat ? (pat.full_name || pat.chinese_name || '') : '';
                 var no = pat ? (pat.patient_no || '') : '';
-                meta.textContent = (no ? ('#' + no + '  ') : '') + name;
+                var chartN = accs.filter(function (a) { return a.account_id && a.balance > 0.005; }).length;
+                meta.textContent = (no ? ('#' + no + '  ') : '') + name +
+                    (chartN > 1 ? '  ·  ' + chartN + ' ' + tr('rewards.panel.charts', 'charts') : '');
             }
-            if (balEl) {
-                balEl.textContent = fmtPts(acc ? acc.balance : 0);
-                balEl.setAttribute('data-balance', String(acc ? round2(acc.balance) : 0));
-            }
-            var started = document.getElementById('rwPatientStarted');
-            if (started) {
-                started.textContent = acc && acc.started_at
-                    ? fmtLedgerDateHK(acc.started_at)
-                    : '—';
-            }
-            syncAdminAdjustUi(acc ? round2(acc.balance) : 0);
             if (tbody) tbody.innerHTML = renderLedgerRows(rows);
             var xferErr = document.getElementById('rwTransferError');
             if (xferErr) { xferErr.style.display = 'none'; xferErr.textContent = ''; }
@@ -844,6 +1316,8 @@ var REWARDS = (function () {
             if (xferTo) xferTo.value = '';
             var xferToId = document.getElementById('rwTransferToId');
             if (xferToId) xferToId.value = '';
+            var xferPrev = document.getElementById('rwTransferAllocPreview');
+            if (xferPrev) xferPrev.textContent = '';
         }).catch(function (e) {
             if (tbody) {
                 tbody.innerHTML = '<tr><td colspan="5" style="padding:16px;color:#dc2626;">' +
@@ -851,6 +1325,69 @@ var REWARDS = (function () {
                     '</td></tr>';
             }
         });
+    }
+
+    function renderPanelSourceList(accounts, selectAll) {
+        var box = document.getElementById('rwTransferSources');
+        if (!box) return;
+        var withBal = (accounts || []).filter(function (a) {
+            return a.account_id && round2(a.balance) > 0.005;
+        });
+        if (!withBal.length) {
+            box.innerHTML = '<div style="font-size:12px;color:#94a3b8;">' +
+                esc(tr('rewards.xfer.noSources', 'No chart balances to transfer from.')) + '</div>';
+            return;
+        }
+        box.innerHTML = '<div style="font-size:12px;color:#64748b;margin-bottom:4px;">' +
+            esc(tr('rewards.xfer.sources', 'Source charts (same person)')) + '</div>' +
+            withBal.map(function (a) {
+                var label = '#' + (a.patient_no || '—') +
+                    (a.clinic_code ? ' · ' + a.clinic_code : '') +
+                    ' — ' + fmtPts(a.balance);
+                var checked = selectAll !== false ? ' checked' : '';
+                return '<label style="display:flex;gap:8px;align-items:center;font-size:12px;margin:3px 0;cursor:pointer;">' +
+                    '<input type="checkbox" class="rw-xfer-src" data-account-id="' + esc(a.account_id) + '"' + checked + '>' +
+                    '<span>' + esc(label) + '</span></label>';
+            }).join('');
+    }
+
+    function readSelectedTransferSourceIds() {
+        var box = document.getElementById('rwTransferSources');
+        var ids = [];
+        if (!box) {
+            return (_panelSourceAccounts || [])
+                .filter(function (a) { return a.account_id && a.balance > 0.005; })
+                .map(function (a) { return a.account_id; });
+        }
+        box.querySelectorAll('input.rw-xfer-src:checked').forEach(function (cb) {
+            var id = cb.getAttribute('data-account-id');
+            if (id) ids.push(id);
+        });
+        return ids;
+    }
+
+    function updateTransferAllocPreview() {
+        var prev = document.getElementById('rwTransferAllocPreview');
+        var amtEl = document.getElementById('rwTransferAmount');
+        var pts = round2(amtEl ? parseFloat(amtEl.value) : 0);
+        var idSet = {};
+        readSelectedTransferSourceIds().forEach(function (id) { idSet[id] = true; });
+        var rows = (_panelSourceAccounts || []).filter(function (a) {
+            return a.account_id && idSet[a.account_id];
+        });
+        if (!prev) return;
+        if (pts <= 0 || !rows.length) {
+            prev.textContent = '';
+            return;
+        }
+        var alloc = allocateAcrossAccounts(rows, pts);
+        if (!alloc.ok) {
+            prev.textContent = tr('rewards.pay.allocShort', 'Selected charts do not cover this amount.');
+            return;
+        }
+        prev.textContent = alloc.plan.map(function (s) {
+            return '#' + (s.patient_no || '?') + ' −' + fmtPts(s.take);
+        }).join(' · ');
     }
 
     function closePatientPanel() {
@@ -1086,12 +1623,17 @@ var REWARDS = (function () {
         toId = toId ? String(toId.value || '').trim() : '';
         var amt = round2(parseFloat((document.getElementById('rwTransferAmount') || {}).value));
         var note = String((document.getElementById('rwTransferNote') || {}).value || '').trim();
-        if (!toId) { showErr(tr('rewards.xfer.needTo', 'Select a destination patient.')); return; }
+        var sourceIds = readSelectedTransferSourceIds();
+        if (!toId) { showErr(tr('rewards.xfer.needTo', 'Select a destination patient chart.')); return; }
         if (toId === String(_panelPatientId)) {
             showErr(tr('rewards.xfer.same', 'Cannot transfer to the same patient.'));
             return;
         }
         if (amt <= 0) { showErr(tr('rewards.xfer.needAmt', 'Enter a points amount greater than 0.')); return; }
+        if (!sourceIds.length) {
+            showErr(tr('rewards.xfer.needSources', 'Select at least one source chart.'));
+            return;
+        }
 
         var ctx = clinicCtx();
         transfer({
@@ -1100,7 +1642,8 @@ var REWARDS = (function () {
             points: amt,
             clinicId: ctx.clinic_id,
             clinicCode: ctx.clinic_code,
-            note: note || null
+            note: note || null,
+            sourceAccountIds: sourceIds
         }).then(function (res) {
             if (!res.ok) {
                 showErr(res.error || tr('rewards.xfer.fail', 'Transfer failed.'));
@@ -1174,6 +1717,16 @@ var REWARDS = (function () {
         });
         var submitBtn = document.getElementById('rwTransferSubmit');
         if (submitBtn) submitBtn.addEventListener('click', submitTransfer);
+        document.addEventListener('change', function (ev) {
+            var t = ev.target;
+            if (!t || !t.classList || !t.classList.contains('rw-xfer-src')) return;
+            updateTransferAllocPreview();
+        });
+        document.addEventListener('input', function (ev) {
+            var t = ev.target;
+            if (!t || t.id !== 'rwTransferAmount') return;
+            updateTransferAllocPreview();
+        });
     }
 
     // ── Banner / directory info links ────────────────────────
@@ -1354,18 +1907,45 @@ var REWARDS = (function () {
     }
 
     function setClinicEnabled(clinicId, clinicCode, enabled) {
-        if (!isAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
-        return SB.from('reward_program_clinics').upsert({
+        return setClinicJoinFlags(clinicId, clinicCode, {
+            join_gain: !!enabled,
+            join_redeem: !!enabled,
+            enabled: !!enabled
+        });
+    }
+
+    /** Reception may toggle gain / redeem join per clinic. */
+    function setClinicJoinFlags(clinicId, clinicCode, flags) {
+        flags = flags || {};
+        var gain = flags.join_gain != null ? !!flags.join_gain : !!flags.enabled;
+        var redeem = flags.join_redeem != null ? !!flags.join_redeem : !!flags.enabled;
+        var payload = {
             clinic_id: clinicId,
             clinic_code: clinicCode || '',
-            enabled: !!enabled,
+            enabled: gain || redeem,
+            join_gain: gain,
+            join_redeem: redeem,
             updated_at: new Date().toISOString(),
             updated_by: actorName()
-        }, { onConflict: 'clinic_id' }).then(function (r) {
-            if (r.error) return { ok: false, error: r.error.message };
-            _clinicMap = null;
-            return { ok: true };
-        });
+        };
+        return SB.from('reward_program_clinics').upsert(payload, { onConflict: 'clinic_id' })
+            .then(function (r) {
+                if (r.error && /join_gain|join_redeem|column/i.test(String(r.error.message || ''))) {
+                    return SB.from('reward_program_clinics').upsert({
+                        clinic_id: clinicId,
+                        clinic_code: clinicCode || '',
+                        enabled: gain || redeem,
+                        updated_at: payload.updated_at,
+                        updated_by: payload.updated_by
+                    }, { onConflict: 'clinic_id' });
+                }
+                return r;
+            })
+            .then(function (r) {
+                if (r.error) return { ok: false, error: r.error.message };
+                _clinicMap = null;
+                return { ok: true };
+            });
     }
 
     function renderConfigPane(pane) {
@@ -1435,36 +2015,31 @@ var REWARDS = (function () {
             }
             html += '</div>';
 
-            // Clinics
+            // Clinics — reception may toggle Gain / Redeem join
             html += '<div class="rw-cfg-card">';
             html += '<div class="rw-cfg-card-title">' + esc(tr('rewards.cfg.clinicsTitle', 'Clinics in scheme')) + '</div>';
             html += '<p style="margin:0 0 10px;font-size:12px;color:#64748b;">' +
-                esc(tr('rewards.cfg.clinicsHint', 'Default: Po Lam (PL) joined. Others off until enabled.')) + '</p>';
+                esc(tr('rewards.cfg.clinicsHintJoin',
+                    'Reception can join Gain and/or Redeem per clinic. Earn credits the patient chart at this clinic; redeem may draw from multiple charts of the same person.')) +
+                '</p>';
             html += '<div class="rw-clinic-list">';
             (clinics || []).forEach(function (c) {
                 var code = String(c.clinic_code || '').trim();
                 var name = c.english_name || c.chinese_name || code;
-                var enabled = false;
-                if (c.id && Object.prototype.hasOwnProperty.call(map, 'id:' + String(c.id))) {
-                    enabled = !!map['id:' + String(c.id)];
-                } else if (code && Object.prototype.hasOwnProperty.call(map, 'code:' + code.toUpperCase())) {
-                    enabled = !!map['code:' + code.toUpperCase()];
-                } else {
-                    enabled = code.toUpperCase() === 'PL';
-                }
-                html += '<label class="rw-clinic-row"' + (admin ? '' : ' style="opacity:.85;"') + '>';
-                html += '<input type="checkbox" class="rw-clinic-toggle" data-clinic-id="' + esc(c.id) +
-                    '" data-clinic-code="' + esc(code) + '"' +
-                    (enabled ? ' checked' : '') + (admin ? '' : ' disabled') + '>';
-                html += '<span><strong>' + esc(code || '—') + '</strong> · ' + esc(name) + '</span>';
-                html += '</label>';
+                var flags = lookupClinicFlags(map, c.id, code);
+                html += '<div class="rw-clinic-row" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:6px 0;border-bottom:1px solid #f1f5f9;">';
+                html += '<span style="min-width:140px;"><strong>' + esc(code || '—') + '</strong> · ' + esc(name) + '</span>';
+                html += '<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer;">';
+                html += '<input type="checkbox" class="rw-clinic-gain" data-clinic-id="' + esc(c.id) +
+                    '" data-clinic-code="' + esc(code) + '"' + (flags.join_gain ? ' checked' : '') + '>';
+                html += '<span>' + esc(tr('rewards.cfg.joinGain', 'Join Gain')) + '</span></label>';
+                html += '<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer;">';
+                html += '<input type="checkbox" class="rw-clinic-redeem" data-clinic-id="' + esc(c.id) +
+                    '" data-clinic-code="' + esc(code) + '"' + (flags.join_redeem ? ' checked' : '') + '>';
+                html += '<span>' + esc(tr('rewards.cfg.joinRedeem', 'Join Redeem')) + '</span></label>';
+                html += '</div>';
             });
-            html += '</div>';
-            if (!admin) {
-                html += '<div style="font-size:12px;color:#94a3b8;margin-top:8px;">' +
-                    esc(tr('rewards.cfg.adminOnly', 'Only Admin can change this setting.')) + '</div>';
-            }
-            html += '</div>';
+            html += '</div></div>';
 
             // Summary log
             html += '<div class="rw-cfg-card">';
@@ -1525,13 +2100,22 @@ var REWARDS = (function () {
                         });
                     });
                 }
-                pane.querySelectorAll('.rw-clinic-toggle').forEach(function (cb) {
+            }
+
+            function wireJoinToggle(sel, flagKey) {
+                pane.querySelectorAll(sel).forEach(function (cb) {
                     cb.addEventListener('change', function () {
-                        setClinicEnabled(
-                            cb.getAttribute('data-clinic-id'),
-                            cb.getAttribute('data-clinic-code'),
-                            cb.checked
-                        ).then(function (res) {
+                        var cid = cb.getAttribute('data-clinic-id');
+                        var code = cb.getAttribute('data-clinic-code');
+                        var gainEl = pane.querySelector('.rw-clinic-gain[data-clinic-id="' + cid + '"]');
+                        var redeemEl = pane.querySelector('.rw-clinic-redeem[data-clinic-id="' + cid + '"]');
+                        var flags = {
+                            join_gain: gainEl ? !!gainEl.checked : false,
+                            join_redeem: redeemEl ? !!redeemEl.checked : false
+                        };
+                        if (flagKey === 'join_gain') flags.join_gain = !!cb.checked;
+                        if (flagKey === 'join_redeem') flags.join_redeem = !!cb.checked;
+                        setClinicJoinFlags(cid, code, flags).then(function (res) {
                             if (!res.ok) {
                                 alert(res.error || 'Save failed');
                                 cb.checked = !cb.checked;
@@ -1540,6 +2124,8 @@ var REWARDS = (function () {
                     });
                 });
             }
+            wireJoinToggle('.rw-clinic-gain', 'join_gain');
+            wireJoinToggle('.rw-clinic-redeem', 'join_redeem');
         }).catch(function (e) {
             pane.innerHTML = '<p style="color:#dc2626;">' +
                 esc((e && e.message) || tr('rewards.err.load', 'Failed to load rewards.')) +
@@ -1613,13 +2199,20 @@ var REWARDS = (function () {
         loadProgram: loadProgram,
         earnRatePercent: earnRatePercent,
         isClinicJoined: isClinicJoined,
+        isClinicGainJoined: isClinicGainJoined,
+        isClinicRedeemJoined: isClinicRedeemJoined,
         currentClinicJoined: currentClinicJoined,
+        currentClinicRedeemJoined: currentClinicRedeemJoined,
         getAccount: getAccount,
         getBalance: getBalance,
+        listPersonAccounts: listPersonAccounts,
+        allocateAcrossAccounts: allocateAcrossAccounts,
         loadLedger: loadLedger,
         earn: earn,
         redeem: redeem,
+        redeemMulti: redeemMulti,
         transfer: transfer,
+        transferMulti: transferMulti,
         voidForPayment: voidForPayment,
         voidForBill: voidForBill,
         adjust: adjust,
@@ -1630,12 +2223,15 @@ var REWARDS = (function () {
         notifyNetChange: notifyNetChange,
         refreshAddPaymentRewardPanel: refreshAddPaymentRewardPanel,
         readUsePointsFromPanel: readUsePointsFromPanel,
+        readRedeemSourceIdsForPayment: readRedeemSourceIdsForPayment,
+        applyRedeemAllOnPayment: applyRedeemAllOnPayment,
         openPatientPanel: openPatientPanel,
         closePatientPanel: closePatientPanel,
         openLedgerFinder: openLedgerFinder,
         closeLedgerFinder: closeLedgerFinder,
         refreshBannerBalances: refreshBannerBalances,
         renderConfigPane: renderConfigPane,
+        setClinicJoinFlags: setClinicJoinFlags,
         clinicCtx: clinicCtx
     };
 })();

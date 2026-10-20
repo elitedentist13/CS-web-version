@@ -24196,13 +24196,17 @@ function executeAddPaymentSave(ctx) {
         prep.then(function () {
             if (rewardPts > 0.005 && patientId &&
                     typeof REWARDS !== 'undefined' && typeof REWARDS.applyRedeemForBill === 'function') {
+                var sourceIds = (typeof REWARDS.readRedeemSourceIdsForPayment === 'function')
+                    ? REWARDS.readRedeemSourceIdsForPayment()
+                    : null;
                 return REWARDS.applyRedeemForBill({
                     patientId: patientId,
                     points: rewardPts,
                     billId: billId,
                     paidDate: payRecord.paid_date,
                     clinicId: payRecord.clinic_id,
-                    clinicCode: clinicCode
+                    clinicCode: clinicCode,
+                    sourceAccountIds: sourceIds
                 }).then(function (rr) {
                     if (!rr || rr.ok === false) {
                         reportAddPaymentSaveError(ctx, (rr && rr.error) || 'Reward redeem failed');

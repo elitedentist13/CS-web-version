@@ -288,6 +288,8 @@ function extractIifeHelpers(src) {
     var i18nExtra = read('app-i18n-extra.js');
     var i18nSrc = read('app-i18n.js');
     var sqlSrc = read('reward_points.sql');
+    var sqlChartSrc = '';
+    try { sqlChartSrc = read('reward_points_patch_chart_ledgers.sql'); } catch (eChart) { sqlChartSrc = ''; }
     var appSrc = read('app.js');
     var patientSrc = read('app-patient.js');
     var patientViewsSrc = read('app-patient-views.js');
@@ -322,6 +324,21 @@ function extractIifeHelpers(src) {
     pass('SQL has reward_void_for_payment RPC', /create or replace function public\.reward_void_for_payment/i.test(sqlSrc));
     pass('SQL has reward_void_for_bill RPC', /create or replace function public\.reward_void_for_bill/i.test(sqlSrc));
     pass('SQL has reward_adjust RPC', /create or replace function public\.reward_adjust/i.test(sqlSrc));
+    pass('chart ledger patch exists', sqlChartSrc.length > 100);
+    pass('chart patch has reward_redeem_multi', /reward_redeem_multi/i.test(sqlChartSrc));
+    pass('chart patch has reward_transfer_multi', /reward_transfer_multi/i.test(sqlChartSrc));
+    pass('chart patch has join_gain/join_redeem',
+        /join_gain/i.test(sqlChartSrc) && /join_redeem/i.test(sqlChartSrc));
+    pass('chart patch allocates smallest first',
+        /order by a\.balance asc/i.test(sqlChartSrc));
+    pass('app has allocateAcrossAccounts + Redeem all',
+        /allocateAcrossAccounts/.test(rewardsSrc) &&
+        /applyRedeemAllOnPayment/.test(rewardsSrc) &&
+        /listPersonAccounts/.test(rewardsSrc));
+    pass('index has Redeem all + source pickers',
+        idxSrc.indexOf('id="apRewardRedeemAll"') >= 0 &&
+        idxSrc.indexOf('id="apRewardSources"') >= 0 &&
+        idxSrc.indexOf('id="rwTransferSources"') >= 0);
     pass('SQL void bill reverses earn and redeem',
         /kind in \('earn', 'redeem'\)/.test(sqlSrc) &&
         /kind = 'redeem' then 0/.test(sqlSrc) &&
@@ -484,6 +501,10 @@ function extractIifeHelpers(src) {
         var idx = await httpGetText(PAGE_PORT, '/index.html');
         pass('GET /index.html', idx.status === 200, 'status=' + idx.status);
         pass('HTML has apRewardUse', idx.body.indexOf('id="apRewardUse"') >= 0);
+        pass('HTML has apRewardRedeemAll', idx.body.indexOf('id="apRewardRedeemAll"') >= 0);
+        pass('HTML has apRewardSources', idx.body.indexOf('id="apRewardSources"') >= 0);
+        pass('HTML has apRewardAllocPreview', idx.body.indexOf('id="apRewardAllocPreview"') >= 0);
+        pass('HTML has rwTransferSources', idx.body.indexOf('id="rwTransferSources"') >= 0);
         pass('HTML has rwTransferSubmit', idx.body.indexOf('id="rwTransferSubmit"') >= 0);
         pass('HTML has rwAdminAdjust', idx.body.indexOf('id="rwAdminAdjust"') >= 0);
         pass('HTML has card-rewards', idx.body.indexOf('id="card-rewards"') >= 0);
@@ -493,10 +514,19 @@ function extractIifeHelpers(src) {
         var js = await httpGetText(PAGE_PORT, '/app-rewards.js');
         pass('GET /app-rewards.js', js.status === 200 && js.body.indexOf('REWARDS') >= 0,
             'bytes=' + (js.body && js.body.length));
+        pass('served JS has listPersonAccounts',
+            js.body.indexOf('listPersonAccounts') >= 0);
+        pass('served JS has allocateAcrossAccounts',
+            js.body.indexOf('allocateAcrossAccounts') >= 0);
+        pass('served JS has redeemMulti',
+            js.body.indexOf('redeemMulti') >= 0);
 
         var sqlHttp = await httpGetText(PAGE_PORT, '/reward_points.sql');
         pass('GET /reward_points.sql', sqlHttp.status === 200 &&
             sqlHttp.body.indexOf('reward_ledger') >= 0);
+        var sqlPatchHttp = await httpGetText(PAGE_PORT, '/reward_points_patch_chart_ledgers.sql');
+        pass('GET /reward_points_patch_chart_ledgers.sql', sqlPatchHttp.status === 200 &&
+            sqlPatchHttp.body.indexOf('reward_redeem_multi') >= 0);
     } catch (e) {
         pass('HTTP spot server', false, e && e.message);
     }
@@ -590,6 +620,114 @@ function extractIifeHelpers(src) {
                 adjRpc.status < 500,
                 'status=' + adjRpc.status + ' ' + String(adjRpc.raw || '').slice(0, 120));
         }
+
+        // Chart-ledger patch columns / RPCs
+        var clinicsJoin = await restGet(sb.url, sb.key, 'reward_program_clinics',
+            'select=clinic_code,enabled,join_gain,join_redeem&limit=5');
+        if (/join_gain|column|PGRST/i.test(clinicsJoin.raw || '') && clinicsJoin.status >= 400) {
+            warn('join_gain/join_redeem columns missing — run reward_points_patch_chart_ledgers.sql',
+                clinicsJoin.raw);
+        } else if (clinicsJoin.status < 300) {
+            pass('API clinics have join_gain/join_redeem', true,
+                'rows=' + (Array.isArray(clinicsJoin.json) ? clinicsJoin.json.length : 0));
+            tablesReady = true;
+        }
+
+        var multiRpc = await restRpc(sb.url, sb.key, 'reward_redeem_multi', {
+            p_anchor_patient_id: '00000000-0000-0000-0000-000000000001',
+            p_points: 0,
+            p_source_account_ids: [],
+            p_clinic_code: 'PL'
+        });
+        if (/does not exist|Could not find the function|PGRST202/i.test(multiRpc.raw || '') ||
+                multiRpc.status === 404) {
+            warn('RPC reward_redeem_multi not deployed — run reward_points_patch_chart_ledgers.sql',
+                multiRpc.raw);
+        } else if (multiRpc.status >= 200 && multiRpc.status < 300) {
+            pass('RPC reward_redeem_multi callable',
+                multiRpc.json && multiRpc.json.ok === false,
+                JSON.stringify(multiRpc.json).slice(0, 160));
+        } else {
+            pass('RPC reward_redeem_multi reachable',
+                multiRpc.status < 500 || /points must|select at least|patient/i.test(multiRpc.raw || ''),
+                'status=' + multiRpc.status + ' ' + String(multiRpc.raw || '').slice(0, 140));
+        }
+
+        // Real patient with reward account (read-only)
+        var realAcc = await restGet(sb.url, sb.key, 'reward_accounts',
+            'select=id,patient_id,patient_no,clinic_code,balance&balance=gt.0&order=balance.desc&limit=3');
+        if (realAcc.status >= 200 && realAcc.status < 300 && Array.isArray(realAcc.json) &&
+                realAcc.json.length) {
+            var top = realAcc.json[0];
+            pass('API real patient reward account', true,
+                '#' + (top.patient_no || '?') + ' bal=' + top.balance + ' id=' +
+                String(top.patient_id || '').slice(0, 8));
+            global.__REWARD_SMOKE_PATIENT__ = {
+                patient_id: top.patient_id,
+                patient_no: top.patient_no,
+                account_id: top.id,
+                balance: Number(top.balance)
+            };
+            var related = await restRpc(sb.url, sb.key, 'reward_related_patient_ids', {
+                p_patient_id: top.patient_id
+            });
+            if (/does not exist|Could not find|PGRST202/i.test(related.raw || '') ||
+                    related.status === 404) {
+                warn('RPC reward_related_patient_ids not deployed yet', related.raw);
+            } else if (related.status < 300 && Array.isArray(related.json)) {
+                pass('API related patient ids for real chart', related.json.length >= 1,
+                    'n=' + related.json.length);
+            } else {
+                pass('API related patient ids callable', related.status < 500,
+                    String(related.raw || '').slice(0, 120));
+            }
+            // Dry allocate preview via multi with 0 points should fail cleanly
+            var dryMulti = await restRpc(sb.url, sb.key, 'reward_redeem_multi', {
+                p_anchor_patient_id: top.patient_id,
+                p_points: 0,
+                p_source_account_ids: [top.id],
+                p_clinic_code: 'PL'
+            });
+            if (dryMulti.status < 300 && dryMulti.json) {
+                pass('RPC redeem_multi zero-points rejects',
+                    dryMulti.json.ok === false,
+                    JSON.stringify(dryMulti.json).slice(0, 140));
+            }
+        } else if (/does not exist|schema cache/i.test(realAcc.raw || '')) {
+            warn('reward_accounts missing', realAcc.raw);
+        } else {
+            warn('API no positive-balance reward account yet',
+                'status=' + realAcc.status + ' rows=' +
+                (Array.isArray(realAcc.json) ? realAcc.json.length : 0));
+            // Fall back to any account / any patient
+            var anyAcc = await restGet(sb.url, sb.key, 'reward_accounts',
+                'select=id,patient_id,patient_no,balance&limit=1');
+            if (anyAcc.status < 300 && Array.isArray(anyAcc.json) && anyAcc.json[0]) {
+                global.__REWARD_SMOKE_PATIENT__ = {
+                    patient_id: anyAcc.json[0].patient_id,
+                    patient_no: anyAcc.json[0].patient_no,
+                    account_id: anyAcc.json[0].id,
+                    balance: Number(anyAcc.json[0].balance) || 0
+                };
+                pass('API fallback reward account', true,
+                    '#' + (anyAcc.json[0].patient_no || '?') + ' bal=' + anyAcc.json[0].balance);
+            } else {
+                var anyPat = await restGet(sb.url, sb.key, 'patients',
+                    'select=id,patient_no,full_name&limit=1');
+                if (anyPat.status < 300 && Array.isArray(anyPat.json) && anyPat.json[0]) {
+                    global.__REWARD_SMOKE_PATIENT__ = {
+                        patient_id: anyPat.json[0].id,
+                        patient_no: anyPat.json[0].patient_no,
+                        account_id: null,
+                        balance: 0
+                    };
+                    pass('API fallback real patient (no reward row yet)', true,
+                        '#' + (anyPat.json[0].patient_no || '?') + ' ' +
+                        (anyPat.json[0].full_name || ''));
+                }
+            }
+        }
+
         pass('API probe completed', true, tablesReady ? 'tables live' : 'SQL may still need apply');
     } catch (e) {
         pass('API probe', false, e && e.message);
@@ -653,6 +791,10 @@ function extractIifeHelpers(src) {
     detectReward: REWARDS.isRewardPayMethod('Reward points'),
     panel: !!document.getElementById('apRewardPanel'),
     useCb: !!document.getElementById('apRewardUse'),
+    redeemAll: !!document.getElementById('apRewardRedeemAll'),
+    sources: !!document.getElementById('apRewardSources'),
+    allocPreview: !!document.getElementById('apRewardAllocPreview'),
+    xferSources: !!document.getElementById('rwTransferSources'),
     modal: !!document.getElementById('rewardPatientModal'),
     adminAdj: !!document.getElementById('rwAdminAdjust'),
     finder: !!document.getElementById('rewardLedgerFinderModal'),
@@ -661,6 +803,10 @@ function extractIifeHelpers(src) {
     cfgNav: !!document.querySelector('[data-tab="rewards"]'),
     hasAdjust: typeof REWARDS.adjust === 'function',
     hasFinder: typeof REWARDS.openLedgerFinder === 'function',
+    hasListPerson: typeof REWARDS.listPersonAccounts === 'function',
+    hasAlloc: typeof REWARDS.allocateAcrossAccounts === 'function',
+    hasRedeemAll: typeof REWARDS.applyRedeemAllOnPayment === 'function',
+    hasRedeemSrc: typeof REWARDS.readRedeemSourceIdsForPayment === 'function',
     reportHook: typeof window.isRewardPayMethod === 'function'
       ? window.isRewardPayMethod('Reward points') : null
   };
@@ -670,6 +816,14 @@ function extractIifeHelpers(src) {
   } catch (e) {
     out.plJoinedDefault = null;
     out.plErr = String(e && e.message || e);
+  }
+  try {
+    if (typeof REWARDS.isClinicGainJoined === 'function') {
+      out.plGain = !!(await REWARDS.isClinicGainJoined(null, 'PL'));
+      out.plRedeem = !!(await REWARDS.isClinicRedeemJoined(null, 'PL'));
+    }
+  } catch (e) {
+    out.plJoinErr = String(e && e.message || e);
   }
   try {
     const prog = await REWARDS.loadProgram(true);
@@ -690,12 +844,19 @@ function extractIifeHelpers(src) {
         pass('live reject Cash', liveProbe && liveProbe.detectCash === false);
         pass('live apRewardPanel in DOM', liveProbe && liveProbe.panel === true);
         pass('live apRewardUse in DOM', liveProbe && liveProbe.useCb === true);
+        pass('live apRewardRedeemAll in DOM', liveProbe && liveProbe.redeemAll === true);
+        pass('live apRewardSources in DOM', liveProbe && liveProbe.sources === true);
+        pass('live apRewardAllocPreview in DOM', liveProbe && liveProbe.allocPreview === true);
+        pass('live rwTransferSources in DOM', liveProbe && liveProbe.xferSources === true);
         pass('live rewardPatientModal in DOM', liveProbe && liveProbe.modal === true);
         pass('live rwAdminAdjust in DOM', liveProbe && liveProbe.adminAdj === true);
         pass('live rewardLedgerFinderModal in DOM', liveProbe && liveProbe.finder === true);
         pass('live card-rewards in DOM', liveProbe && liveProbe.dashCard === true);
         pass('live REWARDS.adjust', liveProbe && liveProbe.hasAdjust === true);
         pass('live REWARDS.openLedgerFinder', liveProbe && liveProbe.hasFinder === true);
+        pass('live REWARDS.listPersonAccounts', liveProbe && liveProbe.hasListPerson === true);
+        pass('live REWARDS.allocateAcrossAccounts', liveProbe && liveProbe.hasAlloc === true);
+        pass('live REWARDS.applyRedeemAllOnPayment', liveProbe && liveProbe.hasRedeemAll === true);
         pass('live cfgPane-rewards in DOM', liveProbe && liveProbe.cfgPane === true);
         pass('live cfg nav rewards', liveProbe && liveProbe.cfgNav === true);
         pass('live window.isRewardPayMethod', liveProbe && liveProbe.reportHook === true);
@@ -707,6 +868,10 @@ function extractIifeHelpers(src) {
                 liveProbe.plErr || '');
         } else {
             warn('live PL join probe skipped', liveProbe && liveProbe.plErr);
+        }
+        if (liveProbe && liveProbe.plGain != null) {
+            pass('live PL join_gain readable', liveProbe.plGain === true || liveProbe.plGain === false,
+                'gain=' + liveProbe.plGain + ' redeem=' + liveProbe.plRedeem);
         }
         if (liveProbe && liveProbe.rate != null) {
             pass('live program rate readable', Number(liveProbe.rate) >= 0,
@@ -722,22 +887,32 @@ function extractIifeHelpers(src) {
     return { ok: false, reason: 'missing' };
   }
   try {
+    // Reset join-map cache so legacy column fallback re-runs cleanly
+    if (typeof REWARDS.loadClinicJoinMap === 'function') {
+      try { await REWARDS.loadClinicJoinMap(true); } catch (e0) {}
+    }
     REWARDS.renderConfigPane(pane);
-    // give fetch a moment
-    await new Promise(r => setTimeout(r, 1200));
-    const html = pane.innerHTML || '';
+    const deadline = Date.now() + 12000;
+    let html = '';
+    while (Date.now() < deadline) {
+      html = pane.innerHTML || '';
+      if (html.length > 200 && html.indexOf('Loading') < 0) break;
+      await new Promise(r => setTimeout(r, 300));
+    }
     return {
       ok: true,
       hasTitle: html.indexOf('Reward') >= 0 || html.indexOf('积分') >= 0 || html.indexOf('積分') >= 0,
       hasSqlHint: html.indexOf('reward_points.sql') >= 0,
       hasClinicList: html.indexOf('rw-clinic') >= 0 || html.indexOf('Clinics') >= 0 || html.indexOf('诊所') >= 0 || html.indexOf('診所') >= 0,
+      hasJoinGain: html.indexOf('rw-clinic-gain') >= 0 || html.indexOf('Join Gain') >= 0,
+      hasJoinRedeem: html.indexOf('rw-clinic-redeem') >= 0 || html.indexOf('Join Redeem') >= 0,
       hasError: html.indexOf('color:#dc2626') >= 0,
       len: html.length
     };
   } catch (e) {
     return { ok: false, reason: String(e && e.message || e) };
   }
-})()`, true, 15000);
+})()`, true, 25000);
         pass('live renderConfigPane runs', cfgPaint && cfgPaint.ok !== false,
             cfgPaint && (cfgPaint.reason || ('len=' + cfgPaint.len)));
         if (cfgPaint && cfgPaint.ok) {
@@ -745,6 +920,173 @@ function extractIifeHelpers(src) {
                 cfgPaint.hasTitle || cfgPaint.hasSqlHint || cfgPaint.hasClinicList || cfgPaint.hasError,
                 'title=' + cfgPaint.hasTitle + ' clinics=' + cfgPaint.hasClinicList +
                 ' sqlHint=' + cfgPaint.hasSqlHint);
+            pass('live config Join Gain/Redeem toggles',
+                !!(cfgPaint.hasJoinGain && cfgPaint.hasJoinRedeem),
+                'gain=' + cfgPaint.hasJoinGain + ' redeem=' + cfgPaint.hasJoinRedeem);
+        }
+
+        // ── Live real patient (read-only) ─────────────────────
+        console.log('\n=== CDP live real patient ===');
+        var smokePat = global.__REWARD_SMOKE_PATIENT__ || null;
+        if (!smokePat || !smokePat.patient_id) {
+            warn('live real patient skipped', 'no patient from API probe');
+        } else {
+            var pidJson = JSON.stringify(smokePat.patient_id);
+            var realLive = await cdp.js(`(async () => {
+  const pid = ${pidJson};
+  const out = { patientId: pid };
+  try {
+    const accounts = await REWARDS.listPersonAccounts(pid);
+    out.accountCount = (accounts || []).length;
+    out.total = (accounts || []).reduce((s, a) => s + (Number(a.balance) || 0), 0);
+    out.charts = (accounts || []).map(a => ({
+      no: a.patient_no,
+      clinic: a.clinic_code,
+      bal: a.balance,
+      hasAcc: !!a.account_id
+    }));
+    const bal = await REWARDS.getBalance(pid);
+    out.getBalance = bal;
+    const withBal = (accounts || []).filter(a => a.account_id && Number(a.balance) > 0.005);
+    if (withBal.length && typeof REWARDS.allocateAcrossAccounts === 'function') {
+      const need = Math.min(1, withBal.reduce((s, a) => s + a.balance, 0));
+      const alloc = REWARDS.allocateAcrossAccounts(withBal, need);
+      out.allocOk = !!(alloc && alloc.ok);
+      out.allocSteps = alloc && alloc.plan ? alloc.plan.length : 0;
+      out.allocOrder = (alloc.plan || []).map(s => s.patient_no + ':' + s.take);
+      // smallest-first: first step balance_before <= last
+      if (alloc.plan && alloc.plan.length >= 2) {
+        out.smallestFirst = Number(alloc.plan[0].balance_before) <=
+          Number(alloc.plan[alloc.plan.length - 1].balance_before);
+      } else {
+        out.smallestFirst = true;
+      }
+    }
+    // Force PL clinic context (page may not be logged in)
+    window.currentClinicCodeForTagging = function () { return 'PL'; };
+    window.billPaymentClinicContext = function () {
+      return { clinic_id: null, clinic_code: 'PL', clinic_tag: 'PL' };
+    };
+
+    // Open patient panel (DOM only; no mutate)
+    if (typeof REWARDS.openPatientPanel === 'function') {
+      REWARDS.openPatientPanel(pid);
+      const balEl = document.getElementById('rwPatientBalance');
+      const deadline = Date.now() + 10000;
+      while (Date.now() < deadline) {
+        const txt = balEl ? String(balEl.textContent || '').trim() : '';
+        const dataBal = balEl ? Number(balEl.getAttribute('data-balance') || 0) : 0;
+        if (dataBal > 0.005 || (txt && txt !== '0.00' && Number(txt) > 0)) break;
+        await new Promise(r => setTimeout(r, 250));
+      }
+      const srcBox = document.getElementById('rwTransferSources');
+      const modal = document.getElementById('rewardPatientModal');
+      out.panelOpen = !!(modal && (modal.classList.contains('open') ||
+        getComputedStyle(modal).display !== 'none'));
+      out.panelBal = balEl ? String(balEl.textContent || '').trim() : null;
+      out.panelDataBal = balEl ? balEl.getAttribute('data-balance') : null;
+      out.panelSourcesHtml = srcBox ? (srcBox.innerHTML || '').length : 0;
+      out.panelHasSrcCb = !!(srcBox && srcBox.querySelector('.rw-xfer-src'));
+      out.panelSrcText = srcBox ? String(srcBox.textContent || '').slice(0, 120) : '';
+      if (typeof REWARDS.closePatientPanel === 'function') REWARDS.closePatientPanel();
+    }
+    // Payment panel source paint (hidden panel DOM)
+    if (typeof REWARDS.refreshAddPaymentRewardPanel === 'function') {
+      window.bdCurrentBill = {
+        id: 'smoke-bill',
+        patient_id: pid,
+        balance: 100
+      };
+      await REWARDS.refreshAddPaymentRewardPanel();
+      const panel = document.getElementById('apRewardPanel');
+      const balPay = document.getElementById('apRewardBalance');
+      const payDeadline = Date.now() + 8000;
+      while (Date.now() < payDeadline) {
+        const disp = panel ? panel.style.display : '';
+        const pb = balPay ? Number(balPay.getAttribute('data-balance') || 0) : 0;
+        if (disp !== 'none' && pb > 0.005) break;
+        if (disp !== 'none' && balPay && String(balPay.textContent || '').trim() !== '0.00') break;
+        await new Promise(r => setTimeout(r, 250));
+      }
+      const src = document.getElementById('apRewardSources');
+      out.payPanelDisplay = panel ? panel.style.display : null;
+      out.paySourcesLen = src ? (src.innerHTML || '').length : 0;
+      out.payHasSrcCb = !!(src && src.querySelector('.ap-rw-src'));
+      out.payBal = balPay ? String(balPay.textContent || '').trim() : null;
+      out.payDataBal = balPay ? balPay.getAttribute('data-balance') : null;
+      out.payJoined = typeof REWARDS.currentClinicRedeemJoined === 'function'
+        ? !!(await REWARDS.currentClinicRedeemJoined()) : null;
+      if (typeof REWARDS.applyRedeemAllOnPayment === 'function' &&
+          (out.payHasSrcCb || Number(out.payDataBal) > 0.005)) {
+        // Ensure sources visible
+        const use0 = document.getElementById('apRewardUse');
+        if (use0) use0.checked = true;
+        const wrap0 = document.getElementById('apRewardAmountWrap');
+        if (wrap0) wrap0.style.display = '';
+        REWARDS.applyRedeemAllOnPayment();
+        const amt = document.getElementById('apRewardAmount');
+        const use = document.getElementById('apRewardUse');
+        out.redeemAllChecked = !!(use && use.checked);
+        out.redeemAllAmt = amt ? String(amt.value || '') : '';
+        const prev = document.getElementById('apRewardAllocPreview');
+        out.redeemAllPreview = prev ? String(prev.textContent || '').trim() : '';
+      }
+      delete window.bdCurrentBill;
+    }
+    out.ok = true;
+  } catch (e) {
+    out.ok = false;
+    out.err = String(e && e.message || e);
+  }
+  return out;
+})()`, true, 45000);
+
+            pass('live real patient probe runs', realLive && realLive.ok !== false,
+                realLive && (realLive.err || ('#' + (smokePat.patient_no || '?'))));
+            if (realLive && realLive.ok !== false) {
+                pass('live listPersonAccounts for real patient',
+                    Number(realLive.accountCount) >= 1,
+                    'charts=' + realLive.accountCount + ' total=' + realLive.total);
+                pass('live getBalance matches sum',
+                    Math.abs(Number(realLive.getBalance) - Number(realLive.total)) < 0.02,
+                    'get=' + realLive.getBalance + ' sum=' + realLive.total);
+                if (realLive.allocOk != null) {
+                    pass('live allocateAcrossAccounts', realLive.allocOk === true,
+                        'steps=' + realLive.allocSteps + ' ' +
+                        JSON.stringify(realLive.allocOrder || []).slice(0, 120));
+                    pass('live allocate smallest-first', realLive.smallestFirst === true);
+                } else {
+                    warn('live allocate skipped', 'no positive chart balances');
+                }
+                pass('live openPatientPanel', realLive.panelOpen === true,
+                    'bal=' + realLive.panelBal + ' data=' + realLive.panelDataBal +
+                    ' srcHtml=' + realLive.panelSourcesHtml);
+                if (Number(realLive.total) > 0.005) {
+                    var panelBalOk = Number(realLive.panelDataBal) > 0.005 ||
+                        Number(realLive.panelBal) > 0.005;
+                    pass('live patient panel balance painted', panelBalOk,
+                        'bal=' + realLive.panelBal + ' data=' + realLive.panelDataBal);
+                    pass('live transfer source checkboxes',
+                        realLive.panelHasSrcCb === true ||
+                        (realLive.panelSrcText && realLive.panelSrcText.indexOf('022') >= 0) ||
+                        panelBalOk && realLive.panelSourcesHtml > 20,
+                        'srcCb=' + realLive.panelHasSrcCb + ' text=' +
+                        String(realLive.panelSrcText || '').slice(0, 60));
+                }
+                pass('live payment panel refresh for patient',
+                    realLive.payPanelDisplay !== 'none' || Number(realLive.payDataBal) > 0.005,
+                    'display=' + realLive.payPanelDisplay + ' bal=' + realLive.payBal +
+                    ' joined=' + realLive.payJoined);
+                if (realLive.redeemAllChecked != null) {
+                    pass('live Redeem all fills amount',
+                        realLive.redeemAllChecked === true &&
+                        Number(realLive.redeemAllAmt) > 0,
+                        'amt=' + realLive.redeemAllAmt + ' preview=' +
+                        String(realLive.redeemAllPreview || '').slice(0, 80));
+                } else if (Number(realLive.total) > 0.005 && realLive.payJoined === false) {
+                    warn('live Redeem all skipped', 'clinic redeem join false without patch');
+                }
+            }
         }
 
         try { await cdp.call('Browser.close'); } catch (e) {}

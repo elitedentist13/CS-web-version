@@ -852,7 +852,7 @@ var REWARDS = (function () {
         });
     }
 
-    function voidForPayment(billPaymentId, note) {
+    function voidForPayment(billPaymentId, note, preferredPatientId) {
         if (!billPaymentId) return Promise.resolve({ ok: true, skipped: true });
         return SB.rpc('reward_void_for_payment', {
             p_bill_payment_id: billPaymentId,
@@ -862,14 +862,13 @@ var REWARDS = (function () {
             if (r.error) return { ok: false, error: r.error.message };
             return rpcResult(r.data);
         }).then(function (res) {
-            // Multi-chart redeem voids several accounts; refresh person total.
-            if (res && res.ok && !res.skipped && res.patient_id) {
-                return refreshBannerBalances(res.patient_id).then(function (bal) {
-                    if (bal != null) res.balance = bal;
-                    return res;
-                });
-            }
-            return res;
+            // Capsule is keyed to the open chart; RPC may return a related chart id
+            // after multi-source redeem — always refresh active banner patient(s).
+            var prefer = preferredPatientId || (res && res.patient_id) || null;
+            return refreshActiveBannerBalances(prefer).then(function (bal) {
+                if (res && bal != null) res.balance = bal;
+                return res;
+            });
         });
     }
 
@@ -878,7 +877,7 @@ var REWARDS = (function () {
      *   - earn  → remove derived points from payments on that bill
      *   - redeem → restore points that were used as discount on that bill
      */
-    function voidForBill(billId, note) {
+    function voidForBill(billId, note, preferredPatientId) {
         if (!billId) return Promise.resolve({ ok: true, skipped: true });
         return SB.rpc('reward_void_for_bill', {
             p_bill_id: billId,
@@ -888,10 +887,11 @@ var REWARDS = (function () {
             if (r.error) return { ok: false, error: r.error.message };
             return rpcResult(r.data);
         }).then(function (res) {
-            if (res && res.ok && !res.skipped && res.patient_id != null && res.balance != null) {
-                refreshBannerBalances(res.patient_id, res.balance);
-            }
-            return res;
+            var prefer = preferredPatientId || (res && res.patient_id) || null;
+            return refreshActiveBannerBalances(prefer).then(function (bal) {
+                if (res && bal != null) res.balance = bal;
+                return res;
+            });
         });
     }
 
@@ -2687,6 +2687,37 @@ var REWARDS = (function () {
         });
     }
 
+    /**
+     * After void/delete: re-fetch person totals for whoever the Rewards capsule
+     * is showing (consultation + appointment banners), plus an optional preferred id.
+     * Multi-chart redeem/void often returns a related chart patient_id that would
+     * not match the capsule, leaving the UI stale.
+     */
+    function refreshActiveBannerBalances(preferredPatientId) {
+        attachInfoLinks();
+        var ids = [];
+        function add(id) {
+            id = String(id || '').trim();
+            if (!id) return;
+            if (ids.indexOf(id) < 0) ids.push(id);
+        }
+        add(preferredPatientId);
+        add(resolveConBannerPatientId());
+        add(resolveApptBannerPatientId());
+        if (!ids.length) return Promise.resolve(null);
+        return Promise.all(ids.map(function (id) {
+            return refreshBannerBalances(id);
+        })).then(function (bals) {
+            var prefer = String(preferredPatientId || '').trim();
+            if (prefer) {
+                for (var i = 0; i < ids.length; i++) {
+                    if (ids[i] === prefer) return bals[i];
+                }
+            }
+            return bals[0];
+        });
+    }
+
     // ── Config tab ───────────────────────────────────────────
     function saveRate(rate) {
         if (!isAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
@@ -3293,6 +3324,7 @@ var REWARDS = (function () {
         transferMulti: transferMulti,
         voidForPayment: voidForPayment,
         voidForBill: voidForBill,
+        refreshActiveBannerBalances: refreshActiveBannerBalances,
         adjust: adjust,
         applyRedeemForBill: applyRedeemForBill,
         applyEarnForPayment: applyEarnForPayment,

@@ -366,6 +366,11 @@ function extractIifeHelpers(src) {
     pass('appt bill void reverses rewards',
         /voidForBill/.test(apptSrc) && /executeBillDelete/.test(apptSrc) &&
         /reverse earn \+ redeem/.test(apptSrc));
+    pass('void payment/bill refreshes active reward capsule',
+        /refreshActiveBannerBalances/.test(rewardsSrc) &&
+        /refreshActiveBannerBalances/.test(apptSrc) &&
+        /voidForPayment\(p\.id,\s*'Void payment'/.test(apptSrc) &&
+        /voidForBill\(\s*_voidTargetId/.test(apptSrc));
     pass('SQL default rate 10', /earn_rate_percent[\s\S]{0,40}default 10/i.test(sqlSrc));
 
     pass('index loads app-rewards.js', /['"]app-rewards\.js(\?[^'"]*)?['"]/.test(idxSrc));

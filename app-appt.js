@@ -22937,19 +22937,19 @@ function executeBillDelete() {
         // Reverse reward earn (derived) AND redeem (used) linked to this bill.
         var rewardP = Promise.resolve({ ok: true, skipped: true });
         if (typeof REWARDS !== 'undefined' && typeof REWARDS.voidForBill === 'function') {
-            rewardP = REWARDS.voidForBill(_voidTargetId, 'Void bill: reverse earn + redeem').then(function (vr) {
+            rewardP = REWARDS.voidForBill(
+                _voidTargetId,
+                'Void bill: reverse earn + redeem',
+                _voidPatientId
+            ).then(function (vr) {
                 if (vr && vr.ok && !vr.skipped && typeof REWARDS.notifyFromRpcResult === 'function') {
                     return REWARDS.notifyFromRpcResult(vr, {
-                        patientId: vr.patient_id || _voidPatientId,
+                        patientId: _voidPatientId || vr.patient_id,
                         clinicCode: (typeof billPaymentClinicContext === 'function'
                             ? (billPaymentClinicContext().clinic_code || '') : ''),
                         ref: 'Void bill ' + String(_voidTargetId).slice(0, 8).toUpperCase(),
                         kind: vr.kind || 'void_earn'
                     });
-                }
-                if (vr && vr.patient_id && vr.balance != null &&
-                        typeof REWARDS.refreshBannerBalances === 'function') {
-                    REWARDS.refreshBannerBalances(vr.patient_id, vr.balance);
                 }
                 return vr;
             }).catch(function (e) {
@@ -22973,9 +22973,12 @@ function executeBillDelete() {
                 if (typeof showBillDetail === 'function') showBillDetail(bdCurrentBill);
             }
         }
-        if (_voidPatientId && typeof REWARDS !== 'undefined' &&
-                typeof REWARDS.refreshBannerBalances === 'function') {
-            REWARDS.refreshBannerBalances(_voidPatientId);
+        if (typeof REWARDS !== 'undefined') {
+            if (typeof REWARDS.refreshActiveBannerBalances === 'function') {
+                REWARDS.refreshActiveBannerBalances(_voidPatientId);
+            } else if (_voidPatientId && typeof REWARDS.refreshBannerBalances === 'function') {
+                REWARDS.refreshBannerBalances(_voidPatientId);
+            }
         }
         try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
     });
@@ -24377,16 +24380,19 @@ function voidPaymentRecord(p) {
             return null;
         }
         // Reverse linked reward earn/redeem (best-effort; never blocks void)
+        var billPatientId = (bdCurrentBill && bdCurrentBill.patient_id) || p.patient_id || null;
         var afterReward = Promise.resolve();
         if (typeof REWARDS !== 'undefined' && typeof REWARDS.voidForPayment === 'function') {
-            afterReward = REWARDS.voidForPayment(p.id, 'Void payment').then(function (vr) {
+            afterReward = REWARDS.voidForPayment(p.id, 'Void payment', billPatientId).then(function (vr) {
                 if (vr && vr.ok && !vr.skipped && typeof REWARDS.notifyFromRpcResult === 'function') {
                     return REWARDS.notifyFromRpcResult(vr, {
+                        patientId: billPatientId || (vr && vr.patient_id),
                         clinicCode: (typeof billPaymentClinicContext === 'function'
                             ? (billPaymentClinicContext().clinic_code || '') : ''),
                         ref: 'Void ' + String(p.id).slice(0, 8).toUpperCase()
                     });
                 }
+                return vr;
             }).catch(function () {});
         }
         return afterReward.then(function () { return applyVoidAndRecalc(); });
@@ -24446,6 +24452,14 @@ function voidPaymentRecord(p) {
             loadBillHistory(function() {
                 renderStep1UI({ focusBillId: p.bill_id });
             });
+            var refreshPid = (bdCurrentBill && bdCurrentBill.patient_id) || p.patient_id || null;
+            if (typeof REWARDS !== 'undefined') {
+                if (typeof REWARDS.refreshActiveBannerBalances === 'function') {
+                    REWARDS.refreshActiveBannerBalances(refreshPid);
+                } else if (refreshPid && typeof REWARDS.refreshBannerBalances === 'function') {
+                    REWARDS.refreshBannerBalances(refreshPid);
+                }
+            }
             try { document.dispatchEvent(new CustomEvent('consultation-ar-refresh')); } catch (_) {}
         });
     });

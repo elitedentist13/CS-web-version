@@ -2923,14 +2923,15 @@ var REWARDS = (function () {
             }
             html += '</div>';
 
-            // Clinics → All Doctors / per-doctor (login-tree style)
+            // Clinics → subtabs; body lists All Doctors + doctors (Join toggle)
             html += '<div class="rw-cfg-card">';
             html += '<div class="rw-cfg-card-title">' + esc(tr('rewards.cfg.clinicsTitle', 'Clinics in scheme')) + '</div>';
             html += '<p style="margin:0 0 10px;font-size:12px;color:#64748b;">' +
                 esc(tr('rewards.cfg.clinicsHintDoctors',
-                    'Click a clinic to select All Doctors (default), or highlight a doctor under that clinic. Join Gain / Join Redeem apply to the highlighted scope.')) +
+                    'Default: PL · All Doctors joined. Pick a clinic tab, then Join / leave for All Doctors or an individual doctor.')) +
                 '</p>';
-            html += '<div class="rw-clinic-tree">';
+            html += '<div class="rw-clinic-scheme">';
+            html += '<div class="rw-clinic-tabs" role="tablist">';
             var openClinicIdx = defaultRewardClinicIndex(clinics);
             (clinics || []).forEach(function (c, clinicIdx) {
                 var code = String(c.clinic_code || '').trim();
@@ -2938,22 +2939,38 @@ var REWARDS = (function () {
                 var bucket = lookupDoctorClinicBucket(docMap, c.id, code) || {};
                 var clinicFlags = lookupClinicFlags(map, c.id, code);
                 var allFlags = bucket[ALL_DOCTORS_KEY] || defaultAllDoctorsFlags(clinicFlags, code);
+                var joined = !!(allFlags.join_gain || allFlags.join_redeem || allFlags.enabled);
+                var isActive = clinicIdx === openClinicIdx;
+                html += '<button type="button" class="rw-clinic-tab' + (isActive ? ' is-active' : '') +
+                    '" role="tab" aria-selected="' + (isActive ? 'true' : 'false') +
+                    '" data-clinic-id="' + esc(c.id) +
+                    '" data-clinic-code="' + esc(code) +
+                    '" title="' + esc(name) + '">' +
+                    '<span class="rw-clinic-tab-code">' + esc(code || '—') + '</span>' +
+                    (joined ? '<span class="rw-clinic-tab-dot" title="' +
+                        esc(tr('rewards.cfg.joined', 'joined')) + '"></span>' : '') +
+                    '</button>';
+            });
+            html += '</div>';
+            html += '<div class="rw-clinic-panels">';
+            (clinics || []).forEach(function (c, clinicIdx) {
+                var code = String(c.clinic_code || '').trim();
+                var name = c.english_name || c.chinese_name || code;
+                var bucket = lookupDoctorClinicBucket(docMap, c.id, code) || {};
+                var clinicFlags = lookupClinicFlags(map, c.id, code);
+                var allFlags = bucket[ALL_DOCTORS_KEY] || defaultAllDoctorsFlags(clinicFlags, code);
                 var docs = doctorsForRewardClinic(c.id);
-                var isOpen = clinicIdx === openClinicIdx;
-                html += '<div class="rw-clinic-block' + (isOpen ? ' is-open' : '') +
-                    '" data-clinic-id="' + esc(c.id) + '" data-clinic-code="' + esc(code) + '">';
-                html += '<button type="button" class="rw-clinic-head" data-clinic-id="' + esc(c.id) + '">';
-                html += '<span class="rw-clinic-head-code">' + esc(code || '—') + '</span>';
-                html += '<span class="rw-clinic-head-name">' + esc(name) + '</span>';
-                html += '<span class="rw-clinic-head-meta">' +
-                    esc(tr('rewards.cfg.allDoctors', 'All Doctors')) +
-                    (allFlags.join_gain || allFlags.join_redeem ? ' · ' +
-                        esc(tr('rewards.cfg.joined', 'joined')) : '') +
-                    '</span></button>';
+                var isActive = clinicIdx === openClinicIdx;
+                html += '<div class="rw-clinic-panel' + (isActive ? ' is-active' : '') +
+                    '" role="tabpanel" data-clinic-id="' + esc(c.id) +
+                    '" data-clinic-code="' + esc(code) +
+                    '"' + (isActive ? '' : ' hidden') + '>';
+                html += '<div class="rw-clinic-panel-head">' +
+                    '<strong>' + esc(code || '—') + '</strong> · ' + esc(name) +
+                    '</div>';
                 html += '<div class="rw-clinic-docs">';
                 function docRowHtml(doctorKey, doctorLabel, doctorId, flags, selected) {
-                    var gOn = !!(flags && flags.join_gain);
-                    var rOn = !!(flags && flags.join_redeem);
+                    var joinedOn = !!(flags && (flags.join_gain || flags.join_redeem || flags.enabled));
                     return '<div class="rw-doc-row' + (selected ? ' is-selected' : '') +
                         '" data-clinic-id="' + esc(c.id) +
                         '" data-clinic-code="' + esc(code) +
@@ -2963,16 +2980,12 @@ var REWARDS = (function () {
                         '" tabindex="0" role="button">' +
                         '<span class="rw-doc-label">' + esc(doctorLabel) + '</span>' +
                         '<label class="rw-doc-toggle">' +
-                        '<input type="checkbox" class="rw-doc-gain"' + (gOn ? ' checked' : '') + '>' +
-                        '<span>' + esc(tr('rewards.cfg.joinGain', 'Join Gain')) + '</span></label>' +
-                        '<label class="rw-doc-toggle">' +
-                        '<input type="checkbox" class="rw-doc-redeem"' + (rOn ? ' checked' : '') + '>' +
-                        '<span>' + esc(tr('rewards.cfg.joinRedeem', 'Join Redeem')) + '</span></label>' +
+                        '<input type="checkbox" class="rw-doc-join"' + (joinedOn ? ' checked' : '') + '>' +
+                        '<span>' + esc(tr('rewards.cfg.join', 'Join')) + '</span></label>' +
                         '</div>';
                 }
-                // Default highlight: All Doctors under the open clinic (PL).
                 html += docRowHtml(ALL_DOCTORS_KEY,
-                    tr('rewards.cfg.allDoctors', 'All Doctors'), '', allFlags, isOpen);
+                    tr('rewards.cfg.allDoctors', 'All Doctors'), '', allFlags, true);
                 docs.forEach(function (d) {
                     var dKey = doctorJoinKeyFromDoctorRow(d);
                     if (!dKey) return;
@@ -2982,7 +2995,7 @@ var REWARDS = (function () {
                 });
                 html += '</div></div>';
             });
-            html += '</div></div>';
+            html += '</div></div></div>';
 
             // Summary log
             html += '<div class="rw-cfg-card">';
@@ -3049,24 +3062,53 @@ var REWARDS = (function () {
                 }
             }
 
+            function activateClinicTab(clinicId) {
+                var id = String(clinicId || '');
+                pane.querySelectorAll('.rw-clinic-tab').forEach(function (tab) {
+                    var on = String(tab.getAttribute('data-clinic-id') || '') === id;
+                    tab.classList.toggle('is-active', on);
+                    tab.setAttribute('aria-selected', on ? 'true' : 'false');
+                });
+                pane.querySelectorAll('.rw-clinic-panel').forEach(function (panel) {
+                    var on = String(panel.getAttribute('data-clinic-id') || '') === id;
+                    panel.classList.toggle('is-active', on);
+                    if (on) panel.removeAttribute('hidden');
+                    else panel.setAttribute('hidden', '');
+                    if (on) {
+                        panel.querySelectorAll('.rw-doc-row').forEach(function (r) {
+                            r.classList.toggle('is-selected',
+                                r.getAttribute('data-doctor-key') === ALL_DOCTORS_KEY);
+                        });
+                    }
+                });
+            }
+
             function selectDocRow(row) {
                 if (!row) return;
-                var block = row.closest('.rw-clinic-block');
-                if (!block) return;
-                pane.querySelectorAll('.rw-clinic-block').forEach(function (b) {
-                    b.classList.toggle('is-open', b === block);
-                });
-                block.querySelectorAll('.rw-doc-row').forEach(function (r) {
+                var panel = row.closest('.rw-clinic-panel');
+                if (!panel) return;
+                panel.querySelectorAll('.rw-doc-row').forEach(function (r) {
                     r.classList.toggle('is-selected', r === row);
                 });
             }
 
-            pane.querySelectorAll('.rw-clinic-head').forEach(function (btn) {
-                btn.addEventListener('click', function () {
-                    var block = btn.closest('.rw-clinic-block');
-                    if (!block) return;
-                    var allRow = block.querySelector('.rw-doc-row[data-doctor-key="' + ALL_DOCTORS_KEY + '"]');
-                    selectDocRow(allRow);
+            function syncTabDot(clinicId, joined) {
+                var tab = pane.querySelector('.rw-clinic-tab[data-clinic-id="' + clinicId + '"]');
+                if (!tab) return;
+                var dot = tab.querySelector('.rw-clinic-tab-dot');
+                if (joined && !dot) {
+                    var span = document.createElement('span');
+                    span.className = 'rw-clinic-tab-dot';
+                    span.title = tr('rewards.cfg.joined', 'joined');
+                    tab.appendChild(span);
+                } else if (!joined && dot) {
+                    dot.parentNode.removeChild(dot);
+                }
+            }
+
+            pane.querySelectorAll('.rw-clinic-tab').forEach(function (tab) {
+                tab.addEventListener('click', function () {
+                    activateClinicTab(tab.getAttribute('data-clinic-id'));
                 });
             });
 
@@ -3083,46 +3125,34 @@ var REWARDS = (function () {
                 });
             });
 
-            function wireDocFlag(sel, flagKey) {
-                pane.querySelectorAll(sel).forEach(function (cb) {
-                    cb.addEventListener('change', function () {
-                        var row = cb.closest('.rw-doc-row');
-                        if (!row) return;
-                        selectDocRow(row);
-                        var gainEl = row.querySelector('.rw-doc-gain');
-                        var redeemEl = row.querySelector('.rw-doc-redeem');
-                        var flags = {
-                            clinicId: row.getAttribute('data-clinic-id'),
-                            clinicCode: row.getAttribute('data-clinic-code'),
-                            doctorKey: row.getAttribute('data-doctor-key') || ALL_DOCTORS_KEY,
-                            doctorId: row.getAttribute('data-doctor-id') || null,
-                            doctorLabel: row.getAttribute('data-doctor-label') || '',
-                            join_gain: gainEl ? !!gainEl.checked : false,
-                            join_redeem: redeemEl ? !!redeemEl.checked : false
-                        };
-                        if (flagKey === 'join_gain') flags.join_gain = !!cb.checked;
-                        if (flagKey === 'join_redeem') flags.join_redeem = !!cb.checked;
-                        setDoctorJoinFlags(flags).then(function (res) {
-                            if (!res.ok) {
-                                alert(res.error || 'Save failed');
-                                if (!res.clinicOnly) cb.checked = !cb.checked;
-                            } else if (typeof toast === 'function') {
-                                toast(tr('rewards.cfg.saved', 'Saved'));
-                            }
-                            var block = row.closest('.rw-clinic-block');
-                            var meta = block && block.querySelector('.rw-clinic-head-meta');
-                            if (meta && flags.doctorKey === ALL_DOCTORS_KEY) {
-                                meta.textContent = tr('rewards.cfg.allDoctors', 'All Doctors') +
-                                    (flags.join_gain || flags.join_redeem
-                                        ? ' · ' + tr('rewards.cfg.joined', 'joined')
-                                        : '');
-                            }
-                        });
+            pane.querySelectorAll('.rw-doc-join').forEach(function (cb) {
+                cb.addEventListener('change', function () {
+                    var row = cb.closest('.rw-doc-row');
+                    if (!row) return;
+                    selectDocRow(row);
+                    var joined = !!cb.checked;
+                    var flags = {
+                        clinicId: row.getAttribute('data-clinic-id'),
+                        clinicCode: row.getAttribute('data-clinic-code'),
+                        doctorKey: row.getAttribute('data-doctor-key') || ALL_DOCTORS_KEY,
+                        doctorId: row.getAttribute('data-doctor-id') || null,
+                        doctorLabel: row.getAttribute('data-doctor-label') || '',
+                        join_gain: joined,
+                        join_redeem: joined
+                    };
+                    setDoctorJoinFlags(flags).then(function (res) {
+                        if (!res.ok) {
+                            alert(res.error || 'Save failed');
+                            if (!res.clinicOnly) cb.checked = !cb.checked;
+                            return;
+                        }
+                        if (typeof toast === 'function') toast(tr('rewards.cfg.saved', 'Saved'));
+                        if (flags.doctorKey === ALL_DOCTORS_KEY) {
+                            syncTabDot(flags.clinicId, joined);
+                        }
                     });
                 });
-            }
-            wireDocFlag('.rw-doc-gain', 'join_gain');
-            wireDocFlag('.rw-doc-redeem', 'join_redeem');
+            });
         }).catch(function (e) {
             pane.innerHTML = '<p style="color:#dc2626;">' +
                 esc((e && e.message) || tr('rewards.err.load', 'Failed to load rewards.')) +
@@ -3150,22 +3180,25 @@ var REWARDS = (function () {
             '.rw-cfg-card-title{font-weight:700;margin-bottom:10px;font-size:14px;}' +
             '.rw-clinic-list{display:flex;flex-direction:column;gap:8px;}' +
             '.rw-clinic-row{display:flex;gap:10px;align-items:center;font-size:13px;cursor:pointer;}' +
-            '.rw-clinic-tree{display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto;border:1px solid #e2e8f0;border-radius:10px;padding:6px;}' +
-            '.rw-clinic-block{border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;overflow:hidden;}' +
-            '.rw-clinic-block.is-open{border-color:#86efac;background:#fff;}' +
-            '.rw-clinic-head{display:flex;gap:10px;align-items:center;width:100%;text-align:left;padding:10px 12px;border:0;background:transparent;cursor:pointer;font-size:13px;}' +
-            '.rw-clinic-block.is-open .rw-clinic-head{background:#ecfdf5;}' +
-            '.rw-clinic-head-code{font-weight:800;color:#0f766e;min-width:42px;}' +
-            '.rw-clinic-head-name{flex:1;color:#0f172a;font-weight:600;}' +
-            '.rw-clinic-head-meta{font-size:11px;color:#64748b;}' +
-            '.rw-clinic-docs{display:none;flex-direction:column;gap:2px;padding:4px 6px 8px;}' +
-            '.rw-clinic-block.is-open .rw-clinic-docs{display:flex;}' +
-            '.rw-doc-row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent;}' +
+            '.rw-clinic-scheme{border:1px solid #e2e8f0;border-radius:10px;background:#fff;overflow:hidden;}' +
+            '.rw-clinic-tabs{display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:#f8fafc;border-bottom:1px solid #e2e8f0;}' +
+            '.rw-clinic-tab{position:relative;display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;font-size:13px;font-weight:700;color:#334155;}' +
+            '.rw-clinic-tab:hover{border-color:#86efac;background:#f0fdf4;}' +
+            '.rw-clinic-tab.is-active{border-color:#16a34a;background:#dcfce7;color:#14532d;}' +
+            '.rw-clinic-tab-code{letter-spacing:.02em;}' +
+            '.rw-clinic-tab-dot{width:8px;height:8px;border-radius:50%;background:#16a34a;flex:0 0 auto;}' +
+            '.rw-clinic-panels{background:#fff;}' +
+            '.rw-clinic-panel{display:none;}' +
+            '.rw-clinic-panel.is-active{display:block;}' +
+            '.rw-clinic-panel-head{padding:10px 14px;font-size:13px;color:#0f172a;border-bottom:1px solid #f1f5f9;background:#ecfdf5;}' +
+            /* ~10 doctor rows visible, then scroll inside the panel body only */
+            '.rw-clinic-docs{display:flex;flex-direction:column;gap:2px;padding:8px;height:calc(10 * 42px);max-height:calc(10 * 42px);overflow-y:auto;overflow-x:hidden;box-sizing:border-box;}' +
+            '.rw-doc-row{display:flex;flex-wrap:nowrap;gap:12px;align-items:center;min-height:40px;padding:6px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent;box-sizing:border-box;}' +
             '.rw-doc-row:hover{background:#f0fdf4;}' +
             '.rw-doc-row.is-selected{background:#dcfce7;border-color:#86efac;}' +
-            '.rw-doc-label{flex:1;min-width:120px;font-size:13px;font-weight:600;color:#14532d;}' +
+            '.rw-doc-label{flex:1;min-width:0;font-size:13px;font-weight:600;color:#14532d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
             '.rw-doc-row[data-doctor-key="__all__"] .rw-doc-label{color:#0f766e;}' +
-            '.rw-doc-toggle{display:flex;gap:6px;align-items:center;font-size:12px;color:#334155;cursor:pointer;}' +
+            '.rw-doc-toggle{display:flex;gap:6px;align-items:center;font-size:12px;color:#334155;cursor:pointer;flex:0 0 auto;}' +
             '.rw-doc-toggle input{accent-color:#166534;}' +
             '#apRewardPanel{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;margin-bottom:14px;}' +
             '#apRewardPanel .rw-row{display:flex;justify-content:space-between;align-items:center;gap:8px;}' +

@@ -3206,12 +3206,13 @@
             'zh-Hant': '前台可為每間診所加入賺取／兌換。賺取記入該病歷號；兌換可從同一人多個病歷扣減。'
         },
         'rewards.cfg.clinicsHintDoctors': {
-            en: 'Default: PL · All Doctors joined. Click a clinic to select All Doctors, or highlight a doctor under that clinic. Join Gain / Join Redeem apply to the highlighted scope — same hierarchy as login.',
-            'zh-CN': '默认：宝林（PL）· 全部医生已加入。点击诊所选中「全部医生」，或点选个别医生。加入赚取／兑换作用于当前高亮范围（与登录层级相同）。',
-            'zh-Hant': '預設：寶琳（PL）· 全部醫生已加入。點擊診所選中「全部醫生」，或點選個別醫生。加入賺取／兌換作用於目前高亮範圍（與登入層級相同）。'
+            en: 'Default: PL · All Doctors joined. Pick a clinic tab, then Join / leave for All Doctors or an individual doctor.',
+            'zh-CN': '默认：宝林（PL）· 全部医生已加入。选择诊所分栏，再为「全部医生」或个别医生切换加入。',
+            'zh-Hant': '預設：寶琳（PL）· 全部醫生已加入。選擇診所分欄，再為「全部醫生」或個別醫生切換加入。'
         },
         'rewards.cfg.allDoctors': { en: 'All Doctors', 'zh-CN': '全部医生', 'zh-Hant': '全部醫生' },
         'rewards.cfg.joined': { en: 'joined', 'zh-CN': '已加入', 'zh-Hant': '已加入' },
+        'rewards.cfg.join': { en: 'Join', 'zh-CN': '加入', 'zh-Hant': '加入' },
         'rewards.cfg.joinGain': { en: 'Join Gain', 'zh-CN': '加入赚取', 'zh-Hant': '加入賺取' },
         'rewards.cfg.joinRedeem': { en: 'Join Redeem', 'zh-CN': '加入兑换', 'zh-Hant': '加入兌換' },
         'rewards.err.needDoctorJoinSql': {

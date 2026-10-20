@@ -403,15 +403,20 @@ function extractIifeHelpers(src) {
         /doctorWeightMap/.test(rewardsSrc) &&
         /_unattrib_balance/.test(rewardsSrc));
     pass('config clinic tree has All Doctors + per-doctor join',
-        /rw-clinic-tree/.test(rewardsSrc) &&
+        /rw-clinic-scheme/.test(rewardsSrc) &&
+        /rw-clinic-tabs/.test(rewardsSrc) &&
         /ALL_DOCTORS_KEY/.test(rewardsSrc) &&
         /setDoctorJoinFlags/.test(rewardsSrc) &&
         /effectiveJoinFlags/.test(rewardsSrc) &&
-        /rewards\.cfg\.allDoctors/.test(rewardsSrc));
+        /rewards\.cfg\.allDoctors/.test(rewardsSrc) &&
+        /rw-doc-join/.test(rewardsSrc));
     pass('default participating clinic is PL All Doctors',
         /defaultRewardClinicIndex/.test(rewardsSrc) &&
         /defaultAllDoctorsFlags/.test(rewardsSrc) &&
         /clinic_code[^\n]{0,40}=== 'PL'/.test(rewardsSrc));
+    pass('config doctor list scrolls ~10 rows in panel body',
+        /10 \* 42px/.test(rewardsSrc) &&
+        /rw-clinic-docs/.test(rewardsSrc));
     pass('doctor join SQL patch exists',
         fs.existsSync(path.join(root, 'reward_points_patch_doctor_join.sql')) &&
         /reward_program_doctors/.test(read('reward_points_patch_doctor_join.sql')));
@@ -989,10 +994,12 @@ function extractIifeHelpers(src) {
       hasTitle: html.indexOf('Reward') >= 0 || html.indexOf('积分') >= 0 || html.indexOf('積分') >= 0,
       hasSqlHint: html.indexOf('reward_points.sql') >= 0,
       hasClinicList: html.indexOf('rw-clinic') >= 0 || html.indexOf('Clinics') >= 0 || html.indexOf('诊所') >= 0 || html.indexOf('診所') >= 0,
-      hasJoinGain: html.indexOf('rw-doc-gain') >= 0 || html.indexOf('rw-clinic-gain') >= 0 || html.indexOf('Join Gain') >= 0,
-      hasJoinRedeem: html.indexOf('rw-doc-redeem') >= 0 || html.indexOf('rw-clinic-redeem') >= 0 || html.indexOf('Join Redeem') >= 0,
-      hasClinicTree: html.indexOf('rw-clinic-tree') >= 0,
+      hasJoinGain: html.indexOf('rw-doc-join') >= 0 || html.indexOf('rw-doc-gain') >= 0 || html.indexOf('Join') >= 0,
+      hasJoinRedeem: html.indexOf('rw-doc-join') >= 0 || html.indexOf('rw-doc-redeem') >= 0 || html.indexOf('Join') >= 0,
+      hasClinicTree: html.indexOf('rw-clinic-scheme') >= 0 || html.indexOf('rw-clinic-tabs') >= 0,
       hasAllDoctors: html.indexOf('All Doctors') >= 0 || html.indexOf('全部医生') >= 0 || html.indexOf('全部醫生') >= 0,
+      hasClinicTabs: html.indexOf('rw-clinic-tab') >= 0,
+      hasDocJoin: html.indexOf('rw-doc-join') >= 0,
       hasError: html.indexOf('color:#dc2626') >= 0,
       len: html.length
     };
@@ -1013,6 +1020,9 @@ function extractIifeHelpers(src) {
             pass('live config clinic→doctor tree',
                 !!(cfgPaint.hasClinicTree && cfgPaint.hasAllDoctors),
                 'tree=' + cfgPaint.hasClinicTree + ' allDocs=' + cfgPaint.hasAllDoctors);
+            pass('live config clinic subtabs + Join toggle',
+                !!(cfgPaint.hasClinicTabs && cfgPaint.hasDocJoin),
+                'tabs=' + cfgPaint.hasClinicTabs + ' join=' + cfgPaint.hasDocJoin);
         }
 
         // ── Live real patient (read-only) ─────────────────────

@@ -376,6 +376,12 @@ function extractIifeHelpers(src) {
     pass('index loads app-rewards.js', /['"]app-rewards\.js(\?[^'"]*)?['"]/.test(idxSrc));
     pass('index has apRewardPanel', idxSrc.indexOf('id="apRewardPanel"') >= 0);
     pass('index has rewardPatientModal', idxSrc.indexOf('id="rewardPatientModal"') >= 0);
+    pass('ledger balance shows clinic breakdown when multi-clinic',
+        idxSrc.indexOf('id="rwPatientClinicBreakdown"') >= 0 &&
+        /renderPanelClinicBreakdown/.test(rewardsSrc) &&
+        /groupPaySourcesByClinic/.test(rewardsSrc) &&
+        /rw-bal-breakdown/.test(rewardsSrc) &&
+        /rewards\.panel\.clinicBreakdownAria/.test(i18nExtra || i18nSrc || ''));
     pass('index has admin adjust controls',
         idxSrc.indexOf('id="rwAdminAdjust"') >= 0 &&
         idxSrc.indexOf('id="rwAdjPlus"') >= 0 &&
@@ -567,6 +573,8 @@ function extractIifeHelpers(src) {
         pass('HTML has rwTransferSources', idx.body.indexOf('id="rwTransferSources"') >= 0);
         pass('HTML has rwTransferSubmit', idx.body.indexOf('id="rwTransferSubmit"') >= 0);
         pass('HTML has rwAdminAdjust', idx.body.indexOf('id="rwAdminAdjust"') >= 0);
+        pass('HTML has rwPatientClinicBreakdown',
+            idx.body.indexOf('id="rwPatientClinicBreakdown"') >= 0);
         pass('HTML has card-rewards', idx.body.indexOf('id="card-rewards"') >= 0);
         pass('HTML has rewardLedgerFinderModal', idx.body.indexOf('id="rewardLedgerFinderModal"') >= 0);
         pass('HTML lists app-rewards.js', idx.body.indexOf('app-rewards.js') >= 0);
@@ -1098,6 +1106,20 @@ function extractIifeHelpers(src) {
       out.panelSourcesHtml = srcBox ? (srcBox.innerHTML || '').length : 0;
       out.panelHasSrcCb = !!(srcBox && srcBox.querySelector('.rw-xfer-src'));
       out.panelSrcText = srcBox ? String(srcBox.textContent || '').slice(0, 120) : '';
+      const brk = document.getElementById('rwPatientClinicBreakdown');
+      out.panelBreakdownExists = !!brk;
+      out.panelBreakdownVisible = !!(brk && !brk.hidden && getComputedStyle(brk).display !== 'none');
+      out.panelBreakdownText = brk ? String(brk.textContent || '').replace(/\s+/g, ' ').trim() : '';
+      out.panelBreakdownChipCount = brk ? brk.querySelectorAll('.rw-bal-chip').length : 0;
+      // Expect chips when person has balances in ≥2 clinics
+      const clinicBal = {};
+      (accounts || []).forEach(function (a) {
+        if (!a || !(Number(a.balance) > 0.005)) return;
+        const cc = String(a.clinic_code || '').trim().toUpperCase() || '_';
+        clinicBal[cc] = (clinicBal[cc] || 0) + Number(a.balance);
+      });
+      out.panelClinicCount = Object.keys(clinicBal).length;
+      out.panelBreakdownExpected = out.panelClinicCount >= 2;
       if (typeof REWARDS.closePatientPanel === 'function') REWARDS.closePatientPanel();
     }
     // Payment panel source paint (hidden panel DOM)
@@ -1182,6 +1204,20 @@ function extractIifeHelpers(src) {
                         panelBalOk && realLive.panelSourcesHtml > 20,
                         'srcCb=' + realLive.panelHasSrcCb + ' text=' +
                         String(realLive.panelSrcText || '').slice(0, 60));
+                    pass('live patient panel clinic breakdown node',
+                        realLive.panelBreakdownExists === true);
+                    if (realLive.panelBreakdownExpected) {
+                        pass('live patient panel clinic chips when multi-clinic',
+                            realLive.panelBreakdownVisible === true &&
+                            Number(realLive.panelBreakdownChipCount) >= 2,
+                            'clinics=' + realLive.panelClinicCount +
+                            ' chips=' + realLive.panelBreakdownChipCount +
+                            ' text=' + String(realLive.panelBreakdownText || '').slice(0, 80));
+                    } else {
+                        pass('live patient panel clinic breakdown hidden for single clinic',
+                            realLive.panelBreakdownVisible !== true,
+                            'clinics=' + realLive.panelClinicCount);
+                    }
                 }
                 pass('live payment panel refresh for patient',
                     realLive.payPanelDisplay !== 'none' || Number(realLive.payDataBal) > 0.005,

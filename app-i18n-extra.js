@@ -3078,6 +3078,11 @@
         'rewards.link.title': { en: 'Reward points', 'zh-CN': '奖励积分', 'zh-Hant': '獎勵積分' },
         'rewards.panel.title': { en: 'Reward points', 'zh-CN': '奖励积分', 'zh-Hant': '獎勵積分' },
         'rewards.panel.balance': { en: 'Balance', 'zh-CN': '结余', 'zh-Hant': '結餘' },
+        'rewards.panel.clinicBreakdownAria': {
+            en: 'Balance by clinic: {DETAIL}',
+            'zh-CN': '各诊所结余：{DETAIL}',
+            'zh-Hant': '各診所結餘：{DETAIL}'
+        },
         'rewards.panel.started': { en: 'Started', 'zh-CN': '开始日期', 'zh-Hant': '開始日期' },
         'rewards.col.when': { en: 'When', 'zh-CN': '时间', 'zh-Hant': '時間' },
         'rewards.col.kind': { en: 'Type', 'zh-CN': '类型', 'zh-Hant': '類型' },

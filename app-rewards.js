@@ -1963,6 +1963,40 @@ var REWARDS = (function () {
         });
     }
 
+    /**
+     * Under the ledger Balance total: show clinic chips when ≥2 clinics hold points.
+     * Single-clinic / empty → hide (avoid noise). Person-scoped, not doctor-scoped.
+     */
+    function renderPanelClinicBreakdown(accounts) {
+        var el = document.getElementById('rwPatientClinicBreakdown');
+        if (!el) return;
+        var groups = groupPaySourcesByClinic(accounts || []);
+        if (groups.length < 2) {
+            el.style.display = 'none';
+            el.hidden = true;
+            el.innerHTML = '';
+            el.removeAttribute('aria-label');
+            return;
+        }
+        var ariaParts = [];
+        var html = groups.map(function (g, idx) {
+            var pts = fmtPts(g.balance);
+            ariaParts.push(g.clinic_code + ' ' + pts);
+            var chip = '<span class="rw-bal-chip"><b class="rw-bal-clinic">' + esc(g.clinic_code) +
+                '</b> <span class="rw-bal-pts">' + esc(pts) + '</span></span>';
+            if (idx > 0) {
+                return '<span class="rw-bal-sep" aria-hidden="true">·</span>' + chip;
+            }
+            return chip;
+        }).join('');
+        el.innerHTML = html;
+        el.setAttribute('aria-label', trRepl('rewards.panel.clinicBreakdownAria', {
+            DETAIL: ariaParts.join(', ')
+        }, 'Balance by clinic: ' + ariaParts.join(', ')));
+        el.hidden = false;
+        el.style.display = 'block';
+    }
+
     function openPatientPanel(patientId) {
         if (!patientId) return;
         _panelPatientId = patientId;
@@ -1986,6 +2020,7 @@ var REWARDS = (function () {
                 balEl.textContent = fmtPts(total);
                 balEl.setAttribute('data-balance', String(total));
             }
+            renderPanelClinicBreakdown(_panelSourceAccounts);
             renderPanelSourceList(_panelSourceAccounts, true);
             syncAdminAdjustUi(total);
             var started = document.getElementById('rwPatientStarted');
@@ -2003,6 +2038,7 @@ var REWARDS = (function () {
                 balEl.textContent = fmtPts(0);
                 balEl.setAttribute('data-balance', '0');
             }
+            renderPanelClinicBreakdown([]);
             return [];
         });
 
@@ -3257,6 +3293,11 @@ var REWARDS = (function () {
             '.ap-rw-clinic-charts{color:#475569;}' +
             '.ap-rw-num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:#166534;}' +
             '.ap-rw-clinic-head .ap-rw-num{color:#64748b;font-weight:700;}' +
+            '.rw-bal-breakdown{margin-top:4px;font-size:12px;color:#64748b;line-height:1.35;font-variant-numeric:tabular-nums;}' +
+            '.rw-bal-chip{white-space:nowrap;}' +
+            '.rw-bal-clinic{font-weight:700;color:#0f766e;}' +
+            '.rw-bal-pts{font-weight:600;color:#475569;}' +
+            '.rw-bal-sep{margin:0 6px;color:#cbd5e1;font-weight:600;}' +
             '#rwTransferDrop,#rwFinderDrop{position:absolute;left:0;right:0;top:100%;z-index:5;background:#fff;border:1px solid #e2e8f0;border-radius:8px;max-height:180px;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,.08);}' +
             '.rw-xfer-opt,.rw-finder-opt{display:block;width:100%;text-align:left;padding:8px 10px;border:0;background:transparent;cursor:pointer;font-size:13px;}' +
             '.rw-xfer-opt:hover,.rw-finder-opt:hover{background:#f8fafc;}' +

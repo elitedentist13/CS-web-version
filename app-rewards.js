@@ -861,6 +861,15 @@ var REWARDS = (function () {
         }).then(function (r) {
             if (r.error) return { ok: false, error: r.error.message };
             return rpcResult(r.data);
+        }).then(function (res) {
+            // Multi-chart redeem voids several accounts; refresh person total.
+            if (res && res.ok && !res.skipped && res.patient_id) {
+                return refreshBannerBalances(res.patient_id).then(function (bal) {
+                    if (bal != null) res.balance = bal;
+                    return res;
+                });
+            }
+            return res;
         });
     }
 

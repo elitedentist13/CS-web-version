@@ -323,6 +323,11 @@ function extractIifeHelpers(src) {
     pass('SQL has reward_transfer RPC', /create or replace function public\.reward_transfer/i.test(sqlSrc));
     pass('SQL has reward_void_for_payment RPC', /create or replace function public\.reward_void_for_payment/i.test(sqlSrc));
     pass('SQL has reward_void_for_bill RPC', /create or replace function public\.reward_void_for_bill/i.test(sqlSrc));
+    pass('void payment reverses all ledger rows (multi redeem)',
+        /order by case when kind = 'redeem' then 0 else 1 end/.test(sqlSrc) &&
+        /not exists \(\s*select 1 from public\.reward_ledger r/i.test(sqlSrc) &&
+        fs.existsSync(path.join(root, 'reward_points_patch_void_payment_multi.sql')) &&
+        /for v_src in/i.test(read('reward_points_patch_void_payment_multi.sql')));
     pass('SQL has reward_adjust RPC', /create or replace function public\.reward_adjust/i.test(sqlSrc));
     pass('chart ledger patch exists', sqlChartSrc.length > 100);
     pass('chart patch has reward_redeem_multi', /reward_redeem_multi/i.test(sqlChartSrc));

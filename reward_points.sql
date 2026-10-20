@@ -583,6 +583,8 @@ begin
 end;
 $$;
 
+-- Reverse ALL unreversed earn/redeem rows for a payment (multi-chart redeem
+-- writes one redeem ledger row per source chart). Redeem first, then earn.
 create or replace function public.reward_void_for_payment(
     p_bill_payment_id uuid,
     p_created_by text default null,
@@ -598,83 +600,86 @@ declare
     v_ledger public.reward_ledger;
     v_rev_kind text;
     v_delta numeric(12, 2);
+    v_count int := 0;
+    v_net numeric(12, 2) := 0;
+    v_patient uuid := null;
+    v_last_bal numeric(12, 2) := null;
+    v_last_ledger uuid := null;
+    v_last_kind text := null;
 begin
     if p_bill_payment_id is null then
         return jsonb_build_object('ok', false, 'error', 'bill_payment_id required');
     end if;
 
-    -- Already voided?
-    if exists (
-        select 1 from public.reward_ledger
-        where reverses_ledger_id in (
-            select id from public.reward_ledger
-            where bill_payment_id = p_bill_payment_id
-              and kind in ('earn', 'redeem')
+    for v_src in
+        select *
+        from public.reward_ledger
+        where bill_payment_id = p_bill_payment_id
+          and kind in ('earn', 'redeem')
+          and not exists (
+              select 1 from public.reward_ledger r
+              where r.reverses_ledger_id = reward_ledger.id
+          )
+        order by case when kind = 'redeem' then 0 else 1 end,
+                 created_at asc
+    loop
+        select * into v_acc from public.reward_accounts where id = v_src.account_id;
+        if not found then
+            continue;
+        end if;
+
+        v_delta := -v_src.points;
+        v_rev_kind := case when v_src.kind = 'earn' then 'void_earn' else 'void_redeem' end;
+        v_new_bal := public.reward_round2(v_acc.balance + v_delta);
+        if v_new_bal < 0 then v_new_bal := 0; end if;
+
+        update public.reward_accounts
+        set balance = v_new_bal,
+            lifetime_earned = case
+                when v_src.kind = 'earn' then greatest(0, public.reward_round2(lifetime_earned - abs(v_src.points)))
+                else lifetime_earned end,
+            lifetime_redeemed = case
+                when v_src.kind = 'redeem' then greatest(0, public.reward_round2(lifetime_redeemed - abs(v_src.points)))
+                else lifetime_redeemed end,
+            updated_at = now()
+        where id = v_acc.id
+        returning * into v_acc;
+
+        insert into public.reward_ledger (
+            account_id, patient_id, kind, points, balance_after,
+            earn_rate_percent, eligible_amount,
+            bill_id, bill_payment_id, clinic_id, clinic_code,
+            note, created_by, created_at, reverses_ledger_id
+        ) values (
+            v_acc.id, v_src.patient_id, v_rev_kind, v_delta, v_new_bal,
+            v_src.earn_rate_percent, v_src.eligible_amount,
+            v_src.bill_id, p_bill_payment_id, v_src.clinic_id, v_src.clinic_code,
+            coalesce(p_note, 'Void payment reverse'), p_created_by,
+            clock_timestamp(), v_src.id
         )
-    ) then
-        return jsonb_build_object('ok', true, 'skipped', true, 'reason', 'already_voided');
+        returning * into v_ledger;
+
+        v_count := v_count + 1;
+        v_net := public.reward_round2(v_net + v_delta);
+        v_patient := coalesce(v_patient, v_src.patient_id);
+        v_last_bal := v_new_bal;
+        v_last_ledger := v_ledger.id;
+        v_last_kind := v_rev_kind;
+    end loop;
+
+    if v_count = 0 then
+        return jsonb_build_object('ok', true, 'skipped', true, 'reason', 'no_ledger', 'count', 0);
     end if;
-
-    select * into v_src
-    from public.reward_ledger
-    where bill_payment_id = p_bill_payment_id
-      and kind in ('earn', 'redeem')
-    order by created_at desc
-    limit 1;
-
-    if not found then
-        return jsonb_build_object('ok', true, 'skipped', true, 'reason', 'no_ledger');
-    end if;
-
-    select * into v_acc from public.reward_accounts where id = v_src.account_id;
-    if not found then
-        return jsonb_build_object('ok', false, 'error', 'account missing');
-    end if;
-
-    -- Reverse: earn (+pts) → void_earn (-pts); redeem (-pts) → void_redeem (+pts)
-    v_delta := -v_src.points;
-    v_rev_kind := case when v_src.kind = 'earn' then 'void_earn' else 'void_redeem' end;
-    v_new_bal := public.reward_round2(v_acc.balance + v_delta);
-
-    if v_new_bal < -0.005 then
-        return jsonb_build_object('ok', false, 'error', 'void would make balance negative',
-            'balance', v_acc.balance);
-    end if;
-    if v_new_bal < 0 then v_new_bal := 0; end if;
-
-    update public.reward_accounts
-    set balance = v_new_bal,
-        lifetime_earned = case
-            when v_src.kind = 'earn' then greatest(0, public.reward_round2(lifetime_earned - abs(v_src.points)))
-            else lifetime_earned end,
-        lifetime_redeemed = case
-            when v_src.kind = 'redeem' then greatest(0, public.reward_round2(lifetime_redeemed - abs(v_src.points)))
-            else lifetime_redeemed end,
-        updated_at = now()
-    where id = v_acc.id
-    returning * into v_acc;
-
-    insert into public.reward_ledger (
-        account_id, patient_id, kind, points, balance_after,
-        earn_rate_percent, eligible_amount,
-        bill_id, bill_payment_id, clinic_id, clinic_code,
-        note, created_by, reverses_ledger_id
-    ) values (
-        v_acc.id, v_src.patient_id, v_rev_kind, v_delta, v_new_bal,
-        v_src.earn_rate_percent, v_src.eligible_amount,
-        v_src.bill_id, p_bill_payment_id, v_src.clinic_id, v_src.clinic_code,
-        coalesce(p_note, 'Void payment reverse'), p_created_by, v_src.id
-    )
-    returning * into v_ledger;
 
     return jsonb_build_object(
         'ok', true,
         'skipped', false,
-        'points', v_delta,
-        'balance', v_new_bal,
-        'ledger_id', v_ledger.id,
-        'kind', v_rev_kind,
-        'patient_id', v_src.patient_id
+        'count', v_count,
+        'points', v_net,
+        'balance', v_last_bal,
+        'ledger_id', v_last_ledger,
+        'kind', case when v_count = 1 then v_last_kind else 'net' end,
+        'patient_id', v_patient
     );
 end;
 $$;

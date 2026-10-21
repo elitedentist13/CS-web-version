@@ -12,6 +12,7 @@ when `build-installer-packages.ps1` syncs the shared engine scripts.
 | MyRay | [`installer-myray/`](installer-myray/) | [`reference/patient-handoff.reference.xml`](installer-myray/reference/patient-handoff.reference.xml) |
 | Digirex (Apixia) | [`installer-digirex/`](installer-digirex/) | [`reference/patient-handoff.reference.xml`](installer-digirex/reference/patient-handoff.reference.xml) |
 | Carestream MCP | [`installer-carestream-mcp/`](installer-carestream-mcp/) | [`reference/patient-handoff.reference.xml`](installer-carestream-mcp/reference/patient-handoff.reference.xml) |
+| Trophy (TW.exe) | [`installer-trophy/`](installer-trophy/) | [`reference/patient-handoff.reference.xml`](installer-trophy/reference/patient-handoff.reference.xml) |
 
 ## Rules for independent development
 

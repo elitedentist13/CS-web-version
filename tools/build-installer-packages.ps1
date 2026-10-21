@@ -76,6 +76,12 @@ $Packages = @(
         folder = "installer-digirex"
         zipName = "Banana-Digirex-Bridge-Installer.zip"
         sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "launch-csxray-protocol.ps1")
+    },
+    [ordered]@{
+        name = "Trophy"
+        folder = "installer-trophy"
+        zipName = "Banana-Trophy-Bridge-Installer.zip"
+        sharedFiles = @("xray-local-launcher.ps1", "install-xray-bridge.ps1", "xray-bridge-auto-update.ps1", "launch-csxray-protocol.ps1")
     }
 )
 

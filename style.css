@@ -11615,7 +11615,16 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .xray-sys-sirona    { border-color: #e63946; color: #e63946; }
 .xray-sys-vatech    { border-color: #2196f3; color: #2196f3; }
 .xray-sys-planmeca  { border-color: #4caf50; color: #4caf50; }
-.xray-sys-carestream{ border-color: #ff9800; color: #ff9800; }
+.xray-sys-carestream,
+.xray-sys-carestream:hover,
+.xray-sys-carestream:disabled {
+    border-color: #d1d5db;
+    color: #9ca3af;
+    background: #f3f4f6;
+    cursor: not-allowed;
+    opacity: 0.55;
+    transform: none;
+}
 .xray-sys-nntnewtom { border-color: #0f766e; color: #0f766e; }
 .xray-sys-myray { border-color: #0369a1; color: #0369a1; }
 .xray-sys-digirex { border-color: #0d9488; color: #0d9488; }
@@ -11631,7 +11640,6 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .xray-sys-sirona:hover     { background: #e63946; color: white; }
 .xray-sys-vatech:hover     { background: #2196f3; color: white; }
 .xray-sys-planmeca:hover   { background: #4caf50; color: white; }
-.xray-sys-carestream:hover { background: #ff9800; color: white; }
 .xray-sys-nntnewtom:hover  { background: #0f766e; color: white; }
 .xray-sys-myray:hover     { background: #0369a1; color: white; }
 .xray-sys-digirex:hover   { background: #0d9488; color: white; }

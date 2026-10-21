@@ -30,7 +30,7 @@ var SYSTEMS = [
     { pkg: 'installer-nntnewtom', key: 'nntnewtom', btn: 'xray-sys-nntnewtom', openKey: 'nntnewtom', launcherKey: 'nntnewtom', nativeHint: '/PATID' },
     { pkg: 'installer-myray', key: 'myray', btn: 'xray-sys-myray', openKey: 'myray', launcherKey: 'myray', nativeHint: '/PATID' },
     { pkg: 'installer-digirex', key: 'digirex', btn: 'xray-sys-digirex', openKey: 'digirex', launcherKey: 'digirex', nativeHint: 'Switch.ini' },
-    { pkg: 'installer-carestream-mcp', key: 'trophy', btn: 'xray-sys-carestream', openKey: 'trophy', launcherKey: 'carestream', nativeHint: 'TW.exe' }
+    { pkg: 'installer-carestream-mcp', key: 'trophy', btn: 'xray-sys-carestream', openKey: 'trophy', launcherKey: 'carestream', nativeHint: 'CS Imaging Software.lnk' }
 ];
 
 function pass(name, ok, detail) {
@@ -168,18 +168,18 @@ function dryUrl(openKey) {
             text.indexOf('/open/' + s.openKey) >= 0);
         pass(s.key + ' native hint present', text.indexOf(s.nativeHint) >= 0, s.nativeHint);
         if (s.key === 'trophy') {
-            pass('carestream TW + FILEDATA documented',
-                text.indexOf('TW.exe') >= 0 &&
-                text.indexOf('FILEDATA.TXT') >= 0 &&
-                text.indexOf('Ensure-TrophyScanPatientFolder') >= 0);
-            pass('carestream client Patient.exe still documented',
-                text.indexOf('Patient.exe') >= 0 && text.indexOf('Start-CarestreamImagingPatient') >= 0);
+            pass('carestream desktop shortcut documented',
+                text.indexOf('CS Imaging Software.lnk') >= 0 &&
+                text.indexOf('Patient.exe') >= 0 &&
+                text.indexOf('Start-CarestreamImagingPatient') >= 0);
             var launcherSrc = read('tools/xray-local-launcher.ps1');
-            pass('launcher has TW capture + FILEDATA seed',
+            pass('launcher carestream is inactive, trophy stays TW',
+                /carestream_inactive/.test(launcherSrc) &&
+                /function Start-TrophyTwPatient/.test(launcherSrc) &&
                 /function Ensure-TrophyScanPatientFolder/.test(launcherSrc) &&
-                /function Test-TrophyTwCaptureStation/.test(launcherSrc) &&
-                /carestream_trophy_tw/.test(launcherSrc) &&
                 /Write-TrophyFileData/.test(launcherSrc));
+            pass('carestream button markup is disabled',
+                /xray-sys-carestream[\s\S]{0,180}disabled/.test(read('index.html')));
         }
         pass(s.key + ' dry_run URL documented', /dry_run=1/.test(text));
         var h = sha256(text);
@@ -190,6 +190,33 @@ function dryUrl(openKey) {
             pass(s.key + ' unique hash', true, h.slice(0, 12));
         }
     });
+
+    var trophyRel = 'tools/installer-trophy/reference/patient-handoff.reference.xml';
+    var trophyRefOk = exists(trophyRel);
+    pass('installer-trophy reference exists', trophyRefOk, trophyRel);
+    if (trophyRefOk) {
+        var trophyText = read(trophyRel);
+        pass('installer-trophy systemKey=trophy', /systemKey="trophy"/.test(trophyText));
+        pass('installer-trophy independent=true', /independent="true"/.test(trophyText));
+        pass('installer-trophy TW + FILEDATA only',
+            trophyText.indexOf('TW.exe') >= 0 &&
+            trophyText.indexOf('FILEDATA.TXT') >= 0 &&
+            trophyText.indexOf('Ensure-TrophyScanPatientFolder') >= 0 &&
+            trophyText.indexOf('Start-TrophyTwPatient') >= 0 &&
+            trophyText.indexOf('Patient.exe') < 0);
+        pass('installer-trophy enabledSystems trophy', /enabledSystems="trophy"/.test(trophyText));
+        var trophyHash = sha256(trophyText);
+        pass('installer-trophy unique vs carestream MCP reference',
+            !hashes[trophyHash], trophyHash.slice(0, 12));
+        hashes[trophyHash] = 'installer-trophy';
+    }
+    pass('index lists installer-trophy', indexMd.indexOf('installer-trophy') >= 0);
+    pass('check script lists installer-trophy',
+        read('tools/check-xray-system-references.ps1').indexOf('installer-trophy') >= 0);
+    pass('build script packs installer-trophy',
+        read('tools/build-installer-packages.ps1').indexOf('installer-trophy') >= 0);
+    pass('Trophy button points at trophy installer',
+        read('app-xray.js').indexOf('tools\\\\installer-trophy\\\\Start Trophy Launcher.bat') >= 0);
 
     // Cross-contamination: EzDent Linkage must not appear as native mode in Rayscan primary payload.
     if (refs.rayscan && refs.ezdenti) {
@@ -300,23 +327,13 @@ function dryUrl(openKey) {
             var csArgs = String(csBridge.argList || '');
             var csMode = String(csBridge.mode || '');
             var csTarget = String(csBridge.target || csOpen.body.target || '');
-            var csTwPath = csMode === 'carestream_trophy_tw' || /TW\.exe$/i.test(csTarget);
-            var csClientPath = csMode === 'carestream_patient_browser' || /Patient\.exe$/i.test(csTarget);
-            if (csTwPath) {
-                pass('/open/carestream dry_run quiet TW (capture station)',
-                    csOpen.body.dry_run === true && csOpen.body.launched === false &&
-                    /TW\.exe$/i.test(csTarget) &&
-                    csArgs.indexOf('-P') === 0 && csArgs.indexOf('-NSMOKE QUIET') >= 0,
-                    JSON.stringify({ mode: csMode, target: csTarget, arg: csArgs.slice(0, 180) }));
-            } else if (csClientPath) {
-                pass('/open/carestream dry_run quiet Patient.exe (consultation client)',
-                    csOpen.body.dry_run === true && csOpen.body.launched === false &&
-                    csArgs.indexOf('-P') < 0,
-                    JSON.stringify({ mode: csMode, target: csTarget, arg: csArgs.slice(0, 160) }));
-            } else {
-                pass('/open/carestream dry_run quiet TW or Patient.exe', false,
-                    JSON.stringify({ mode: csMode, target: csTarget, arg: csArgs.slice(0, 160) }));
-            }
+            var csShortcut = String(csBridge.shortcut || '');
+            pass('/open/carestream dry_run stays inactive',
+                csOpen.body.dry_run === true && csOpen.body.launched === false &&
+                csMode === 'carestream_inactive' &&
+                !/Patient\.exe$/i.test(csTarget) &&
+                !/TW\.exe$/i.test(csTarget),
+                JSON.stringify({ mode: csMode, target: csTarget, shortcut: csShortcut }));
         } else if (csOpen.status === 404) {
             pass('/open/carestream dry_run reaches bridge', true, '404 not-installed/disabled');
         } else {
@@ -336,27 +353,14 @@ function dryUrl(openKey) {
         var sampleTwArgs = String((sampleTw.body && sampleTw.body.bridge && sampleTw.body.bridge.argList) || '');
         var sampleCsMode = String((sampleCs.body && sampleCs.body.bridge && sampleCs.body.bridge.mode) || '');
         var sampleCsTarget = String((sampleCs.body && sampleCs.body.target) || '');
-        if (sampleCsMode === 'carestream_trophy_tw' || /TW\.exe$/i.test(sampleCsTarget)) {
-            pass('sample patient carestream TW Clinic Solution -P',
-                sampleCs.status === 200 && sampleCs.body && sampleCs.body.launched === false &&
-                sampleCs.body.dry_run === true &&
-                sampleCsArgs.indexOf('-P') === 0 &&
-                sampleCsArgs.indexOf('SCAN\\001287') >= 0 &&
-                sampleCsArgs.indexOf('-NSMOKE QUIET') >= 0 &&
-                sampleCsArgs.indexOf('-P"') !== 0,
-                sampleCsArgs || '(empty command)');
-        } else {
-            pass('sample patient carestream Patient.exe (no -P)',
-                sampleCs.status === 200 && sampleCs.body && sampleCs.body.launched === false &&
-                sampleCs.body.dry_run === true &&
-                /Patient\.exe$/i.test(sampleCsTarget) &&
-                sampleCsArgs.indexOf('-P') < 0,
-                sampleCsArgs || '(empty command)');
-        }
-        var sampleCsSearch = String((sampleCs.body && sampleCs.body.bridge && sampleCs.body.bridge.search_text) || '');
-        pass('sample patient carestream search is patient name',
-            sampleCs.status === 200 && (sampleCsSearch === 'SMOKE QUIET' || sampleCsMode === 'carestream_trophy_tw' || /TW\.exe$/i.test(sampleCsTarget)),
-            sampleCsSearch || sampleCsMode || '(empty search_text)');
+        var sampleCsShortcut = String((sampleCs.body && sampleCs.body.bridge && sampleCs.body.bridge.shortcut) || '');
+        pass('sample patient carestream stays inactive',
+            sampleCs.status === 200 && sampleCs.body && sampleCs.body.launched === false &&
+            sampleCs.body.dry_run === true &&
+            sampleCsMode === 'carestream_inactive' &&
+            !/Patient\.exe$/i.test(sampleCsTarget) &&
+            !/TW\.exe$/i.test(sampleCsTarget),
+            sampleCsMode || sampleCsShortcut || '(no mode)');
         // Chart that should not have a SCAN folder: client Patient Card vs capture TW seed.
         var newCardQs = 'dry_run=1&patient_no=PL009999&patient_name=' + encodeURIComponent('SIU KAI WING') +
             '&dob=1969-05-23&sex=M&hkid=' + encodeURIComponent('A123456(7)');
@@ -368,20 +372,12 @@ function dryUrl(openKey) {
         var newCardMode = String(newCardBridge.mode || '');
         var newCardTarget = String(newCardBridge.target || (newCardCs.body && newCardCs.body.target) || '');
         var newCardArgs = String(newCardBridge.argList || '');
-        if (newCardMode === 'carestream_trophy_tw' || /TW\.exe$/i.test(newCardTarget)) {
-            pass('sample new patient carestream TW seed path',
-                newCardCs.status === 200 && newCardCs.body && newCardCs.body.launched === false &&
-                newCardCs.body.dry_run === true &&
-                newCardArgs.indexOf('009999') >= 0 && newCardArgs.indexOf('-P') === 0,
-                newCardArgs || newCardMode);
-        } else {
-            pass('sample new patient carestream card payload',
-                newCardCs.status === 200 && newCardBridge.new_patient_card === true &&
-                newCardPayload.first === 'KAI WING' && newCardPayload.last === 'SIU' &&
-                newCardPayload.day === '23' && newCardPayload.month === '05' && newCardPayload.year === '1969' &&
-                newCardPayload.chart === '009999' && newCardPayload.hkid === 'A123456(7)' && newCardPayload.sex === 'M',
-                JSON.stringify(newCardPayload));
-        }
+        pass('sample new patient carestream stays inactive',
+            newCardCs.status === 200 && newCardMode === 'carestream_inactive' &&
+            newCardCs.body && newCardCs.body.launched === false &&
+            !/TW\.exe$/i.test(newCardTarget) &&
+            !/Patient\.exe$/i.test(newCardTarget),
+            newCardMode || JSON.stringify(newCardPayload));
         pass('sample patient trophy unquoted -P folder (Clinic Solution)',
             sampleTw.status === 200 && sampleTw.body && sampleTw.body.launched === false &&
             sampleTw.body.dry_run === true &&
@@ -504,7 +500,7 @@ function dryUrl(openKey) {
                     cs.patientExe = t.indexOf('Patient.exe') >= 0 && t.indexOf('Start-CarestreamImagingPatient') >= 0;
                     cs.newPatientCard = t.indexOf('carestream-fill-patient-card.ps1') >= 0 &&
                       t.indexOf('Patient Card') >= 0;
-                    cs.filedata = t.indexOf('FILEDATA.TXT') >= 0 && t.indexOf('Ensure-TrophyScanPatientFolder') >= 0;
+                    cs.filedata = t.indexOf('CS Imaging Software.lnk') >= 0 && t.indexOf('Start-CarestreamImagingPatient') >= 0;
                   } catch (e) {}
                   let csDry = null;
                   try {
@@ -558,7 +554,7 @@ function dryUrl(openKey) {
                     !!(evalResult && evalResult.cs && evalResult.cs.http === 200 && evalResult.cs.key === 'trophy' && evalResult.cs.patientExe));
                 pass('Runtime.evaluate carestream ref documents Patient Card fill',
                     !!(evalResult && evalResult.cs && evalResult.cs.newPatientCard));
-                pass('Runtime.evaluate carestream ref documents FILEDATA + Patient.exe',
+                pass('Runtime.evaluate carestream ref documents desktop shortcut',
                     !!(evalResult && evalResult.cs && evalResult.cs.http === 200 && evalResult.cs.key === 'trophy' &&
                         evalResult.cs.patientExe && evalResult.cs.filedata));
                 pass('Runtime.evaluate carestream shortcut is CS Imaging Software',
@@ -571,9 +567,9 @@ function dryUrl(openKey) {
                 if (evalResult && evalResult.csDry && !evalResult.csDry.error && evalResult.csDry.http === 200) {
                     var csBody = evalResult.csDry.body || {};
                     var csMode = csBody.bridge && csBody.bridge.mode;
-                    var csOkMode = csMode === 'carestream_trophy_tw' || csMode === 'carestream_patient_browser';
-                    pass('Runtime.evaluate /open/carestream dry_run TW or Patient.exe',
-                        csBody.launched === false && csBody.dry_run === true && csOkMode,
+                    pass('Runtime.evaluate /open/carestream dry_run inactive',
+                        csBody.launched === false && csBody.dry_run === true &&
+                        csMode === 'carestream_inactive',
                         csMode);
                 } else if (evalResult && evalResult.csDry && evalResult.csDry.http === 404) {
                     pass('Runtime.evaluate /open/carestream dry_run', true, '404');
@@ -584,11 +580,10 @@ function dryUrl(openKey) {
                     var csNewBody = evalResult.csNew.body || {};
                     var csNewBridge = csNewBody.bridge || {};
                     var csNewCard = csNewBridge.new_patient_payload || {};
-                    pass('Runtime.evaluate carestream new-patient card payload',
-                        csNewBody.dry_run === true && csNewBridge.new_patient_card === true &&
-                        csNewCard.first === 'KAI WING' && csNewCard.last === 'SIU' &&
-                        csNewCard.chart === '009999' && csNewCard.hkid === 'A123456(7)',
-                        JSON.stringify(csNewCard));
+                    pass('Runtime.evaluate carestream new-patient stays inactive',
+                        csNewBody.dry_run === true && csNewBody.launched === false &&
+                        csNewBridge.mode === 'carestream_inactive',
+                        csNewBridge.mode || JSON.stringify(csNewCard));
                 } else if (evalResult && evalResult.csNew && evalResult.csNew.http === 404) {
                     pass('Runtime.evaluate carestream new-patient card payload', true, '404');
                 } else {
@@ -672,19 +667,12 @@ function dryUrl(openKey) {
                     var liveTwArg = String(livePage && livePage.sampleTw && livePage.sampleTw.argList || '');
                     var liveCsMode = String(livePage && livePage.sampleCs && livePage.sampleCs.mode || '');
                     var liveCsTarget = String(livePage && livePage.sampleCs && livePage.sampleCs.target || '');
-                    if (liveCsMode === 'carestream_trophy_tw' || /TW\.exe$/i.test(liveCsTarget)) {
-                        pass('live sample patient carestream TW -P (capture)',
-                            !!(livePage && livePage.sampleCs && livePage.sampleCs.http === 200 &&
-                                livePage.sampleCs.launched === false && livePage.sampleCs.dry_run === true &&
-                                liveCsArg.indexOf('-P') === 0 && liveCsArg.indexOf('001287') >= 0),
-                            liveCsArg || liveCsMode);
-                    } else {
-                        pass('live sample patient carestream Patient.exe (no -P)',
-                            !!(livePage && livePage.sampleCs && livePage.sampleCs.http === 200 &&
-                                livePage.sampleCs.launched === false && livePage.sampleCs.dry_run === true &&
-                                /Patient\.exe$/i.test(liveCsTarget) && liveCsArg.indexOf('-P') < 0),
-                            liveCsArg || (livePage && livePage.sampleCs && JSON.stringify(livePage.sampleCs)));
-                    }
+                    pass('live sample patient carestream stays inactive',
+                        !!(livePage && livePage.sampleCs && livePage.sampleCs.http === 200 &&
+                            livePage.sampleCs.launched === false && livePage.sampleCs.dry_run === true &&
+                            liveCsMode === 'carestream_inactive' &&
+                            !/TW\.exe$/i.test(liveCsTarget) && !/Patient\.exe$/i.test(liveCsTarget)),
+                        liveCsMode || (livePage && livePage.sampleCs && JSON.stringify(livePage.sampleCs)));
                     pass('live sample patient trophy unquoted -P',
                         !!(livePage && livePage.sampleTw && livePage.sampleTw.http === 200 &&
                             livePage.sampleTw.launched === false && livePage.sampleTw.dry_run === true &&

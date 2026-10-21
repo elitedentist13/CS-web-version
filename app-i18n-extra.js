@@ -6389,9 +6389,19 @@
             'zh-Hant': '啟動 Romexis 軟件'
         },
         'media.sys.carestream.info': {
-            en: 'Opens Carestream like Clinic Solution: TW.exe on the SCAN chart (old films + new panorama). Consultation PCs without TW use Patient Browser search.',
-            'zh-CN': '按 Clinic Solution 方式打开 Carestream：在 SCAN 病历上启动 TW.exe（旧片 + 新全景）。无 TW 的诊症电脑则用 Patient Browser 搜索。',
-            'zh-Hant': '按 Clinic Solution 方式開啟 Carestream：在 SCAN 病歷上啟動 TW.exe（舊片 + 新全景）。無 TW 的診症電腦則用 Patient Browser 搜尋。'
+            en: 'Inactive. Use Trophy. CS Imaging Patient Browser does not load these x-rays and it takes over the Trophy window.',
+            'zh-CN': '已停用。请用 Trophy。CS Imaging 患者浏览器读不到这些影像，而且会抢走 Trophy 窗口。',
+            'zh-Hant': '已停用。請用 Trophy。CS Imaging 患者瀏覽器讀不到這些影像，而且會搶走 Trophy 視窗。'
+        },
+        'media.sys.carestream.inactive': {
+            en: 'CS Imaging (Carestream) is turned off. Use Trophy.',
+            'zh-CN': 'CS Imaging（Carestream）已停用。请使用 Trophy。',
+            'zh-Hant': 'CS Imaging（Carestream）已停用。請使用 Trophy。'
+        },
+        'media.sys.carestream.inactiveHint': {
+            en: 'Inactive. Use the Trophy button.',
+            'zh-CN': '已停用。请按 Trophy。',
+            'zh-Hant': '已停用。請按 Trophy。'
         },
         'media.sys.carestream.desktopHint': {
             en: 'CS Imaging Software (Carestream Patient Browser on this PC)',
@@ -6518,19 +6528,19 @@
             'zh-Hant': '無法從瀏覽器啟動 EzDent-i。\n\n1. 執行：{BAT}（保持啟動器視窗開啟）\n2. 再次按 EzDent-i\n\n或按兩下桌面「{SHORTCUT}」。\n剪貼簿病歷號：{PATIENT}\n程式：{EXE}'
         },
         'media.local.carestreamOpen': {
-            en: 'Open Carestream (Clinic Solution style) on this computer?\n\n• Shortcut / program: "{SHORTCUT}"\n• Program: {EXE}\n• Patient: {PATIENT}\n• SCAN folder: {FOLDER}\n\nExisting chart → open films in TW.exe.\nNew chart → create SCAN folder + FILEDATA, then open TW ready for a new panorama.',
-            'zh-CN': '在本机按 Clinic Solution 方式打开 Carestream？\n\n• 快捷方式 / 程序：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者：{PATIENT}\n• SCAN 文件夹：{FOLDER}\n\n已有病历 → 在 TW.exe 打开旧片。\n新病历 → 建立 SCAN 文件夹 + FILEDATA，再打开 TW 准备拍新全景。',
-            'zh-Hant': '在本機按 Clinic Solution 方式開啟 Carestream？\n\n• 捷徑 / 程式：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人：{PATIENT}\n• SCAN 資料夾：{FOLDER}\n\n已有病歷 → 在 TW.exe 開啟舊片。\n新病歷 → 建立 SCAN 資料夾 + FILEDATA，再開啟 TW 準備拍新全景。'
+            en: 'Open CS Imaging from the desktop icon and align this patient?\n\n• Desktop icon: "{SHORTCUT}"\n• Program: {EXE}\n• Patient: {PATIENT}\n\nThe name is placed in CS Imaging search. A new chart also prefills Patient Card (name, DOB, chart, HKID, gender).',
+            'zh-CN': '从桌面图标打开 CS Imaging，并对齐该患者？\n\n• 桌面图标：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者：{PATIENT}\n\n姓名会填入 CS Imaging 搜索。新病历还会预填患者卡（姓名、出生日期、病历号、身份证、性别）。',
+            'zh-Hant': '從桌面圖示開啟 CS Imaging，並對齊該病人？\n\n• 桌面圖示：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人：{PATIENT}\n\n姓名會填入 CS Imaging 搜尋。新病歷還會預填病人卡（姓名、出生日期、病歷號、身份證、性別）。'
         },
         'media.local.carestreamLaunched': {
-            en: 'Carestream / Trophy is starting for {PATIENT}.\n\nExisting films open from the SCAN chart; a new chart is seeded then opened in TW.exe for the next panorama.',
-            'zh-CN': '正在为 {PATIENT} 启动 Carestream / Trophy。\n\n旧片从 SCAN 病历打开；新病历会先建档再在 TW.exe 中打开，准备拍全景。',
-            'zh-Hant': '正在為 {PATIENT} 啟動 Carestream / Trophy。\n\n舊片從 SCAN 病歷開啟；新病歷會先建檔再在 TW.exe 中開啟，準備拍全景。'
+            en: 'CS Imaging is opening from the desktop icon for {PATIENT}. The patient name is aligned into search.',
+            'zh-CN': '正在从桌面图标为 {PATIENT} 打开 CS Imaging。患者姓名会对齐到搜索。',
+            'zh-Hant': '正在從桌面圖示為 {PATIENT} 開啟 CS Imaging。病人姓名會對齊到搜尋。'
         },
         'media.local.carestreamLauncherNeeded': {
-            en: 'Could not start Carestream from the browser.\n\n1. Run: {BAT} (leave the Carestream MCP bridge window open)\n2. Click CS Imaging (Carestream) / Trophy again\n\nOr double-click desktop "{SHORTCUT}".\nPatient: {PATIENT}\nProgram: {EXE}',
-            'zh-CN': '无法从浏览器启动 Carestream。\n\n1. 运行：{BAT}（保持 Carestream MCP 桥接窗口打开）\n2. 再次点击 CS Imaging (Carestream) / Trophy\n\n或双击桌面「{SHORTCUT}」。\n患者：{PATIENT}\n程序：{EXE}',
-            'zh-Hant': '無法從瀏覽器啟動 Carestream。\n\n1. 執行：{BAT}（保持 Carestream MCP 橋接視窗開啟）\n2. 再次按 CS Imaging (Carestream) / Trophy\n\n或按兩下桌面「{SHORTCUT}」。\n病人：{PATIENT}\n程式：{EXE}'
+            en: 'Could not start CS Imaging from the browser.\n\n1. Run: {BAT} (leave the Carestream bridge window open)\n2. Click CS Imaging (Carestream) again\n\nOr double-click desktop "{SHORTCUT}".\nPatient: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 CS Imaging。\n\n1. 运行：{BAT}（保持 Carestream 桥接窗口打开）\n2. 再次点击 CS Imaging (Carestream)\n\n或双击桌面「{SHORTCUT}」。\n患者：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 CS Imaging。\n\n1. 執行：{BAT}（保持 Carestream 橋接視窗開啟）\n2. 再次按 CS Imaging (Carestream)\n\n或按兩下桌面「{SHORTCUT}」。\n病人：{PATIENT}\n程式：{EXE}'
         },
         'media.local.trophyOpen': {
             en: 'Open Trophy / CS Imaging (TW.exe) for this patient?\n\n• Program: {EXE}\n• Patient: {PATIENT}\n• SCAN folder: {FOLDER}\n\nSame Clinic Solution handoff: open existing films, or seed a new chart ready for panorama.',

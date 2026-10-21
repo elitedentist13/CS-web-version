@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Banana / Joyful Smile — X-ray system patient-handoff REFERENCE
+  ==============================================================
+  Owned contract for the Trophy-only installer (TW.exe / CS Imaging).
+  Carestream Patient Browser lives in installer-carestream-mcp and is not
+  part of this package. build-installer-packages.ps1 must not overwrite
+  this file.
+
+  Sample chart is fictional. Do not use on real patients.
+-->
+<BananaXrayHandoffReference
+    systemKey="trophy"
+    displayName="Trophy (CS Imaging TW.exe)"
+    bananaOpenPath="/open/trophy"
+    csxrayProtocol="csxray://open/trophy"
+    handoffMode="tw-filedata"
+    runtimeWriter="Start-TrophyTwPatient / Ensure-TrophyScanPatientFolder"
+    enabledSystems="trophy"
+    installPath="C:\BananaBridge-Trophy"
+    confirmed="2026-10-22"
+    independent="true">
+
+  <Notes>
+    <Note>This package enables trophy only. Capture PCs with TW.exe: seed SCAN\{chart}\ and FILEDATA.TXT when the chart folder is missing, then launch TW.exe -P{scan}\{chart} -N{label} -F{label}. Existing charts keep FILEDATA; TW refreshes PatientInfo.xml. -P is unquoted unless the path contains spaces. -N and -F are glued to the label and unquoted.</Note>
+    <Note>SCAN roots come from xray-launcher-config.ps1 written by install-trophy.ps1 (reachable RECEPTION_* / CSMAIN / local IMAGE\SCAN).</Note>
+    <Note>Carestream Patient Browser, paste-search, and Patient Card fill are not this installer. Those stay in installer-carestream-mcp, which still enables carestream and trophy together for MCP PCs that need both buttons.</Note>
+    <Note>Do not install this package and installer-carestream-mcp on the same PC. Both listen on port 17890.</Note>
+  </Notes>
+
+  <NativePayload fileName="FILEDATA.TXT" encoding="windows-1252" locationHint="\\RECEPTION_MCP\IMAGE\SCAN\{chart}\FILEDATA.TXT (new charts only)">
+    <CommandLine exe="TW.exe" role="trophy-capture-existing">
+      <Arg>-P\\RECEPTION_MCP\IMAGE\SCAN\009998</Arg>
+      <Arg>-NSMOKE QUIET</Arg>
+      <Arg>-FSMOKE QUIET</Arg>
+    </CommandLine>
+    <CommandLine exe="TW.exe" role="trophy-capture-new">
+      <Arg>-P\\RECEPTION_MCP\IMAGE\SCAN\009999</Arg>
+      <Arg>-NSMOKE QUIET</Arg>
+      <Arg>-FSMOKE QUIET</Arg>
+    </CommandLine>
+  </NativePayload>
+
+  <FileDataSample chart="009999" name="SMOKE QUIET">
+    <Line>[Patient file]</Line>
+    <Line>NUMERO=009999</Line>
+    <Line>NOM=SMOKE</Line>
+    <Line>PRENOM=QUIET</Line>
+    <Line>DATE=19800101</Line>
+    <Line>EXTNUM=009999</Line>
+  </FileDataSample>
+
+  <FieldMap>
+    <Field banana="patient_no" native="SCAN\{6-digit chart} + FILEDATA NUMERO/EXTNUM + TW -P path" transform="Get-TrophyPreferredChartId; Convert-NntPatientId" />
+    <Field banana="patient_name + chinese_name" native="TW -N / -F glued bilingual label" transform="Build-TrophyTwUiLabel" />
+    <Field banana="patient_name" native="FILEDATA NOM/PRENOM (ASCII; surname-first; single token duplicated)" transform="Build-TrophyFileDataNames" />
+    <Field banana="dob" native="FILEDATA DATE=yyyyMMdd" transform="Convert-CarestreamBirthDate" />
+  </FieldMap>
+
+  <DryRun>
+    <Url>http://127.0.0.1:17890/open/trophy?dry_run=1&amp;patient_no=009999&amp;patient_name=SMOKE%20QUIET&amp;sex=M</Url>
+  </DryRun>
+</BananaXrayHandoffReference>

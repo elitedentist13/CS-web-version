@@ -413,6 +413,11 @@ function Resolve-System($Key, $PreferredExecutable) {
 
     $preferred = ""
     if (Test-PathSafe $PreferredExecutable) { $preferred = $PreferredExecutable }
+    # Carestream is the public desktop icon only. A web app_path of TW.exe
+    # must not pull this button onto the Trophy capture path.
+    if ($Key -eq "carestream" -and $preferred -match '(?i)(^|[\\/])TW\.exe$') {
+        $preferred = ""
+    }
     if (-not $preferred -and $Key -eq "ezdenti" -and $script:EzdentiExePath) {
         $configured = Resolve-EzdentiExeInDir ([string]$script:EzdentiExePath)
         if ($configured) { $preferred = $configured }
@@ -423,8 +428,19 @@ function Resolve-System($Key, $PreferredExecutable) {
     if ($Key -eq "ezdenti" -and -not $exe) {
         $exe = Find-EzdentiExecutable
     }
-    $target = if ($preferred) { $preferred } elseif ($shortcutInfo -and (Test-PathSafe $shortcutInfo.target)) { $shortcutInfo.target } elseif ($exe) { $exe } else { $shortcut }
-    $type = if ($preferred) { "configured" } elseif ($shortcutInfo -and (Test-PathSafe $shortcutInfo.target)) { "shortcut-target" } elseif ($exe) { "executable" } elseif ($shortcut) { "shortcut" } else { "" }
+    if ($Key -eq "carestream") {
+        $fixedShortcut = "C:\Users\Public\Desktop\CS Imaging Software.lnk"
+        if (Test-PathSafe $fixedShortcut) { $shortcut = $fixedShortcut }
+        $shortcutInfo = Resolve-Shortcut $shortcut
+        $patientExe = First-Existing $cfg.executables
+        if ($shortcutInfo -and $shortcutInfo.target -match '(?i)(^|[\\/])Patient\.exe$' -and (Test-PathSafe $shortcutInfo.target)) {
+            $patientExe = [string]$shortcutInfo.target
+        }
+        $exe = $patientExe
+        $preferred = ""
+    }
+    $target = if ($preferred) { $preferred } elseif ($Key -eq "carestream" -and $exe) { $exe } elseif ($shortcutInfo -and (Test-PathSafe $shortcutInfo.target)) { $shortcutInfo.target } elseif ($exe) { $exe } else { $shortcut }
+    $type = if ($Key -eq "carestream" -and $shortcut) { "shortcut" } elseif ($preferred) { "configured" } elseif ($shortcutInfo -and (Test-PathSafe $shortcutInfo.target)) { "shortcut-target" } elseif ($exe) { "executable" } elseif ($shortcut) { "shortcut" } else { "" }
     $arguments = if ($shortcutInfo) { $shortcutInfo.arguments } else { "" }
     $workingDirectory = if ($shortcutInfo -and $shortcutInfo.workingDirectory) { $shortcutInfo.workingDirectory } elseif ($target) { Split-Path -Parent $target } else { "" }
 
@@ -1908,6 +1924,7 @@ function Build-PatientContext($Query) {
         folder_path = $Query["folder_path"]
         dentist_id = $Query["dentist_id"]
         doctor_code = $Query["doctor_code"]
+        search_text = $Query["search_text"]
     }
 }
 
@@ -2336,7 +2353,68 @@ if ($winTid -ne $curTid -and $winTid -ne $fgTid) { [RayWin]::AttachThreadInput($
     } catch {}
 }
 
-# CS Imaging -> TW.exe. Command shape traced 2026-09-27 from CS.exe.
+# Same minimized-bridge foreground lock as Rayscan: TW.exe / Patient.exe often
+# open minimized with a flashing taskbar button. Wait for the real CS Imaging
+# window, maximize it, and force-focus (AttachThreadInput + dummy Alt).
+function Start-RestoreCarestreamViewerWindow {
+    $helper = @'
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class CsWin {
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr extra);
+}
+"@
+$SW_SHOW = 5
+$SW_MAXIMIZE = 3
+$deadline = (Get-Date).AddSeconds(15)
+$hwnd = [IntPtr]::Zero
+while ((Get-Date) -lt $deadline) {
+    foreach ($n in @("TW", "Patient", "CS")) {
+        $p = Get-Process -Name $n -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
+            Select-Object -First 1
+        if ($p) { $hwnd = $p.MainWindowHandle; break }
+    }
+    if ($hwnd -ne [IntPtr]::Zero) { break }
+    Start-Sleep -Milliseconds 300
+}
+if ($hwnd -eq [IntPtr]::Zero) { exit 0 }
+[CsWin]::ShowWindow($hwnd, $SW_SHOW) | Out-Null
+[CsWin]::ShowWindow($hwnd, $SW_MAXIMIZE) | Out-Null
+$fg = [CsWin]::GetForegroundWindow()
+$dummy = [uint32]0
+$fgTid = [CsWin]::GetWindowThreadProcessId($fg, [ref]$dummy)
+$curTid = [CsWin]::GetCurrentThreadId()
+$dummy2 = [uint32]0
+$winTid = [CsWin]::GetWindowThreadProcessId($hwnd, [ref]$dummy2)
+if ($fgTid -ne $curTid) { [CsWin]::AttachThreadInput($curTid, $fgTid, $true) | Out-Null }
+if ($winTid -ne $curTid -and $winTid -ne $fgTid) { [CsWin]::AttachThreadInput($curTid, $winTid, $true) | Out-Null }
+[CsWin]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+[CsWin]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+[CsWin]::BringWindowToTop($hwnd) | Out-Null
+[CsWin]::SetForegroundWindow($hwnd) | Out-Null
+if ($fgTid -ne $curTid) { [CsWin]::AttachThreadInput($curTid, $fgTid, $false) | Out-Null }
+if ($winTid -ne $curTid -and $winTid -ne $fgTid) { [CsWin]::AttachThreadInput($curTid, $winTid, $false) | Out-Null }
+'@
+    try {
+        $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($helper))
+        Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $enc
+        ) | Out-Null
+    } catch {}
+}
+
+# CS Imaging -> TW.exe. Command shape traced 2026-09-27 / 2026-10-22 from
+# Clinic Solution on XRAY-MCP (existing chart + new "testing" chart).
 function Build-TrophyTwUiLabel($Patient) {
     $en = [string]$Patient.patient_name
     $zh = [string]$Patient.chinese_name
@@ -2348,16 +2426,27 @@ function Build-TrophyTwUiLabel($Patient) {
     return ""
 }
 
+# Clinic Solution SCAN folders are 6-digit chart ids (003501, 003510).
+function Get-TrophyPreferredChartId($PatientNo) {
+    $ids = @(Get-NntScanIdCandidates $PatientNo)
+    foreach ($id in $ids) {
+        if ($id -match '^\d{6}$') { return $id }
+    }
+    foreach ($id in $ids) {
+        if ($id -match '^\d+$') { return $id.PadLeft(6, '0') }
+    }
+    if ($ids.Count -gt 0) { return $ids[0] }
+    return ""
+}
+
 function Get-TrophyScanFolderPath($PatientNo) {
     if ([string]::IsNullOrWhiteSpace($PatientNo)) { return "" }
     $found = Find-NntScanFolder $PatientNo
     if ($found) { return $found }
-    $ids = Get-NntScanIdCandidates $PatientNo
-    if ($ids.Count -eq 0) { return "" }
+    $id = Get-TrophyPreferredChartId $PatientNo
+    if ([string]::IsNullOrWhiteSpace($id)) { return "" }
     foreach ($root in Get-NntScanRoots) {
-        foreach ($id in $ids) {
-            return (Join-Path $root $id)
-        }
+        return (Join-Path $root $id)
     }
     return ""
 }
@@ -2370,44 +2459,386 @@ function Resolve-TrophyTwExe($Resolved) {
     return First-Existing $Systems.trophy.executables
 }
 
+# True when this PC can run the Clinic Solution capture path (TW.exe + SCAN).
+# Consultation clients without TW.exe fall back to Patient Browser paste-search.
+function Test-TrophyTwCaptureStation($Resolved) {
+    if (Resolve-TrophyTwExe $Resolved) { return $true }
+    if ($script:CarestreamBridgeRole -eq "xray-server") { return $true }
+    return $false
+}
+
 function Build-TrophyTwCommandLine($ScanPath, $UiLabel) {
-    # CS glues the value to the switch and does not quote the name, even
-    # when it contains spaces: -NSIU KAI WING  {chinese}
-    return ("-P" + $ScanPath + " -N" + $UiLabel + " -F" + $UiLabel)
+    # Live Clinic Solution (2026-10-22): unquoted -P\\share\SCAN\chart.
+    # Quote only when the path contains whitespace (defensive).
+    # -N/-F stay glued and unquoted (bilingual label may include spaces).
+    if ([string]::IsNullOrWhiteSpace($ScanPath)) { return "" }
+    $line = if ($ScanPath -match '\s') { '-P"' + $ScanPath + '"' } else { '-P' + $ScanPath }
+    if (-not [string]::IsNullOrWhiteSpace($UiLabel)) {
+        $line += " -N" + $UiLabel + " -F" + $UiLabel
+    }
+    return $line
+}
+
+# FILEDATA.TXT names for a new SCAN chart. Live "testing" chart used
+# NOM=TESTING / PRENOM=TESTING (single token duplicated). Multi-token HK
+# English names: surname-first -> NOM=first token, PRENOM=rest.
+function Build-TrophyFileDataNames($Patient) {
+    $en = ([string]$Patient.patient_name).Trim()
+    $ascii = if ($en) { ([regex]::Replace($en, '[^\x20-\x7E]', '')).Trim() } else { "" }
+    if ([string]::IsNullOrWhiteSpace($ascii)) {
+        $id = Convert-NntPatientId ([string]$Patient.patient_no)
+        if ([string]::IsNullOrWhiteSpace($id)) { $id = "NEW" }
+        return [ordered]@{ Nom = $id; Prenom = $id }
+    }
+    $parts = Split-RayPatientName $ascii
+    $nom = [string]$parts.last
+    $prenom = (@($parts.first, $parts.middle) | Where-Object { $_ }) -join " "
+    if ([string]::IsNullOrWhiteSpace($prenom)) { $prenom = $nom }
+    return [ordered]@{ Nom = $nom; Prenom = $prenom }
+}
+
+function Write-TrophyFileData($Folder, $ChartId, $Patient) {
+    $names = Build-TrophyFileDataNames $Patient
+    $dob = Convert-CarestreamBirthDate $Patient.dob
+    if ([string]::IsNullOrWhiteSpace($dob)) { $dob = "19000101" }
+    $lines = @(
+        "[Patient file]",
+        ("NUMERO=" + $ChartId),
+        ("NOM=" + $names.Nom),
+        ("PRENOM=" + $names.Prenom),
+        ("DATE=" + $dob),
+        ("EXTNUM=" + $ChartId)
+    )
+    $path = Join-Path $Folder "FILEDATA.TXT"
+    $content = ($lines -join "`r`n") + "`r`n"
+    # Trophy FILEDATA is historically ANSI; ASCII patient names are fine.
+    [IO.File]::WriteAllText($path, $content, [Text.Encoding]::GetEncoding(1252))
+    return $path
+}
+
+# Clinic Solution new-patient order (2026-10-22 "testing" / 003510):
+#   1) create \\...\SCAN\{chart}\
+#   2) write FILEDATA.TXT
+#   3) launch TW.exe -P...\SCAN\{chart} -N... -F...
+#   4) TW writes PatientInfo.xml (we do not invent that file)
+# Existing charts: leave FILEDATA alone; just open TW on the folder.
+function Ensure-TrophyScanPatientFolder($Patient) {
+    $scanPath = Get-TrophyScanFolderPath $Patient.patient_no
+    if ([string]::IsNullOrWhiteSpace($scanPath)) { return $null }
+    $chartId = Split-Path -Leaf $scanPath
+    $created = $false
+    $wroteFileData = $false
+    try {
+        if (-not (Test-PathSafe $scanPath)) {
+            New-Item -ItemType Directory -Path $scanPath -Force | Out-Null
+            $created = $true
+        }
+        $fd = Join-Path $scanPath "FILEDATA.TXT"
+        if ($created -or -not (Test-PathSafe $fd)) {
+            Write-TrophyFileData $scanPath $chartId $Patient | Out-Null
+            $wroteFileData = $true
+        }
+    } catch {
+        return $null
+    }
+    return [ordered]@{
+        scan_path = $scanPath
+        chart_id = $chartId
+        folder_created = $created
+        filedata_written = $wroteFileData
+    }
+}
+
+function Start-NativeCommandLine($Exe, $ArgumentLine, $WorkDir) {
+    # Start-Process -ArgumentList splits on spaces and can strip quotes TW
+    # needs. ProcessStartInfo keeps one raw command line (Clinic Solution style).
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $Exe
+    $psi.Arguments = [string]$ArgumentLine
+    $psi.UseShellExecute = $true
+    # Prefer Maximized; Start-RestoreCarestreamViewerWindow still force-focuses
+    # because the minimized bridge host often still starts TW minimized.
+    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Maximized
+    if ($WorkDir -and (Test-PathSafe $WorkDir)) {
+        $psi.WorkingDirectory = $WorkDir
+    }
+    [void][System.Diagnostics.Process]::Start($psi)
 }
 
 function Start-TrophyTwPatient($Resolved, $Patient) {
     $tw = Resolve-TrophyTwExe $Resolved
-    $patNo = [string]$Patient.patient_no
-    $scanPath = Get-TrophyScanFolderPath $patNo
-    if (-not $tw -or [string]::IsNullOrWhiteSpace($scanPath)) {
+    if (-not $tw) { return $null }
+    $seed = Ensure-TrophyScanPatientFolder $Patient
+    if (-not $seed -or [string]::IsNullOrWhiteSpace([string]$seed.scan_path)) {
         return $null
     }
+    $scanPath = [string]$seed.scan_path
+    $patNo = [string]$Patient.patient_no
     $uiLabel = Build-TrophyTwUiLabel $Patient
     if ([string]::IsNullOrWhiteSpace($uiLabel)) { $uiLabel = $patNo.Trim() }
+    if ([string]::IsNullOrWhiteSpace($uiLabel)) { $uiLabel = [string]$seed.chart_id }
     if ([string]::IsNullOrWhiteSpace($uiLabel)) { return $null }
 
     $workDir = Split-Path -Parent $tw
     $argLine = Build-TrophyTwCommandLine $scanPath $uiLabel
-
-    $startArgs = @{ FilePath = $tw; ArgumentList = $argLine; WindowStyle = "Normal" }
-    if ($workDir -and (Test-PathSafe $workDir)) {
-        $startArgs.WorkingDirectory = $workDir
-    }
-    Start-Process @startArgs
+    Start-NativeCommandLine $tw $argLine $workDir
+    Start-RestoreCarestreamViewerWindow
     return [ordered]@{
         bridge = $tw
         target = $tw
         workingDirectory = $workDir
         patient_id = Convert-NntPatientId $patNo
         scan_path = $scanPath
+        chart_id = $seed.chart_id
+        folder_created = [bool]$seed.folder_created
+        filedata_written = [bool]$seed.filedata_written
         ui_label = $uiLabel
         mode = "trophy_tw"
         argList = $argLine
     }
 }
 
-function Start-RayBridgePatient($Resolved, $Patient) {
+# Carestream button (every PC): public desktop icon
+# "C:\Users\Public\Desktop\CS Imaging Software.lnk" -> Patient.exe.
+# Its wx parser only accepts /pas.* options. Passing Trophy's -P switch
+# raises "Unknown option 'P'". Launch that shortcut with an empty command
+# line, then align Banana's patient into the window (live-filter name,
+# and Patient Card when the chart is new). Trophy / TW.exe is /open/trophy.
+function Convert-CarestreamBirthDate($Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
+    $formats = @("yyyy-MM-dd", "yyyy/M/d", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "d-M-yyyy", "yyyyMMdd")
+    foreach ($fmt in $formats) {
+        try {
+            $dt = [DateTime]::ParseExact($Value, $fmt, [Globalization.CultureInfo]::InvariantCulture)
+            return $dt.ToString("yyyyMMdd")
+        } catch {}
+    }
+    try {
+        $dt = [DateTime]::Parse($Value, [Globalization.CultureInfo]::InvariantCulture)
+        return $dt.ToString("yyyyMMdd")
+    } catch {
+        return ""
+    }
+}
+
+function Resolve-CarestreamPatientBrowser($Resolved) {
+    $target = if ($Resolved) { [string]$Resolved.target } else { "" }
+    if ($target -and ($target -match '(?i)(^|[\\/])Patient\.exe$') -and (Test-PathSafe $target)) {
+        return $target
+    }
+    $shortcut = First-Existing $Systems.carestream.shortcuts
+    $info = Resolve-Shortcut $shortcut
+    if ($info -and $info.target -and ($info.target -match '(?i)(^|[\\/])Patient\.exe$') -and (Test-PathSafe $info.target)) {
+        return [string]$info.target
+    }
+    return First-Existing $Systems.carestream.executables
+}
+
+function Build-CarestreamPatientCommandLine($Patient, $ScanPath) {
+    # Patient.exe rejects -P/-D/-N/-F ("Unknown option 'P'"). Keep this
+    # empty so the desktop shortcut's command line is unchanged.
+    return ""
+}
+
+function Build-CarestreamSearchText($Patient) {
+    # Patient Browser opens on its live-filter search page. Prefer the
+    # current patient's name (English, then Chinese). Banana may also send
+    # search_text from the web UI. Chart digits are last-resort only.
+    $hint = if ($Patient -and $Patient.search_text) { [string]$Patient.search_text } else { "" }
+    if (-not [string]::IsNullOrWhiteSpace($hint)) { return $hint.Trim() }
+    $name = [string]$Patient.patient_name
+    if (-not [string]::IsNullOrWhiteSpace($name)) { return $name.Trim() }
+    $zh = [string]$Patient.chinese_name
+    if (-not [string]::IsNullOrWhiteSpace($zh)) { return $zh.Trim() }
+    $id = Convert-NntPatientId ([string]$Patient.patient_no)
+    if (-not [string]::IsNullOrWhiteSpace($id)) { return $id.Trim() }
+    return ""
+}
+
+# Patient.exe has no patient CLI (/pas.* is host/port only). After launch,
+# write the patient name into the live-filter Win32 Edit control via
+# tools/carestream-paste-search.ps1 (EM_REPLACESEL + EN_CHANGE).
+# Non-blocking so /open/carestream returns immediately — same as Rayscan.
+function Resolve-CarestreamHelperScript([string]$FileName) {
+    $scriptPath = Join-Path $PSScriptRoot $FileName
+    if (-not (Test-Path -LiteralPath $scriptPath)) {
+        $scriptPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) $FileName
+    }
+    if (Test-Path -LiteralPath $scriptPath) { return $scriptPath }
+    return $null
+}
+
+function Start-PasteIntoPatientBrowserSearch([string]$SearchText) {
+    if ([string]::IsNullOrWhiteSpace($SearchText)) { return }
+    $scriptPath = Resolve-CarestreamHelperScript "carestream-paste-search.ps1"
+    if (-not $scriptPath) { return }
+    # Pass name via temp file — Start-Process does not quote ArgumentList, so
+    # multi-word / Chinese names break -SearchText on the command line.
+    $tmp = Join-Path $env:TEMP ("banana-cs-search-" + [Guid]::NewGuid().ToString("N") + ".txt")
+    try {
+        [IO.File]::WriteAllText($tmp, $SearchText, (New-Object System.Text.UTF8Encoding $false))
+    } catch {
+        return
+    }
+    try {
+        Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", $scriptPath,
+            "-SearchFile", $tmp
+        ) | Out-Null
+    } catch {
+        try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch {}
+    }
+}
+
+# New patient (no SCAN folder yet): open Patient Card and prefill English
+# name, DOB, chart digits, HKID/SSN, gender. Staff clicks Create patient.
+function Build-CarestreamNewPatientCardPayload($Patient) {
+    $parts = Split-RayPatientName ([string]$Patient.patient_name)
+    $last = [string]$parts.last
+    $first = (@($parts.first, $parts.middle) | Where-Object { $_ }) -join " "
+    if ([string]::IsNullOrWhiteSpace($first) -and -not [string]::IsNullOrWhiteSpace($last)) {
+        # Single-token English name → put it in First name (required field).
+        $first = $last
+        $last = $last
+    }
+    $dobRaw = Convert-CarestreamBirthDate $Patient.dob
+    $day = ""; $month = ""; $year = ""
+    if ($dobRaw -and $dobRaw.Length -eq 8) {
+        $year = $dobRaw.Substring(0, 4)
+        $month = $dobRaw.Substring(4, 2)
+        $day = $dobRaw.Substring(6, 2)
+    }
+    $chart = Convert-NntPatientId ([string]$Patient.patient_no)
+    $hkid = [string]$Patient.hkid
+    $sex = Convert-NntSex $Patient.sex
+    return [ordered]@{
+        first = $first
+        last = $last
+        day = $day
+        month = $month
+        year = $year
+        chart = $chart
+        hkid = $hkid
+        sex = $sex
+    }
+}
+
+function Start-CarestreamFillPatientCard($Patient) {
+    $scriptPath = Resolve-CarestreamHelperScript "carestream-fill-patient-card.ps1"
+    if (-not $scriptPath) { return }
+    $payload = Build-CarestreamNewPatientCardPayload $Patient
+    if ([string]::IsNullOrWhiteSpace([string]$payload.first) -and
+        [string]::IsNullOrWhiteSpace([string]$payload.last) -and
+        [string]::IsNullOrWhiteSpace([string]$payload.chart)) {
+        return
+    }
+    $tmp = Join-Path $env:TEMP ("banana-cs-card-" + [Guid]::NewGuid().ToString("N") + ".json")
+    try {
+        ($payload | ConvertTo-Json -Compress) | Set-Content -LiteralPath $tmp -Encoding UTF8
+    } catch {
+        return
+    }
+    try {
+        Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", $scriptPath,
+            "-DataFile", $tmp
+        ) | Out-Null
+    } catch {
+        try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch {}
+    }
+}
+
+# Patient.exe started as a direct child of the hidden bridge listener often
+# never creates a MainWindowHandle (windowless zombie). Kill those, then
+# launch via the desktop shortcut through a detached ShellExecute so the
+# UI appears the same as double-clicking "CS Imaging Software".
+function Stop-CarestreamWindowlessPatient {
+    Get-Process -Name "Patient" -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.MainWindowHandle -eq [IntPtr]::Zero) {
+            try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {}
+        }
+    }
+}
+
+function Start-CarestreamPatientBrowserUi($Exe, $WorkDir) {
+    Stop-CarestreamWindowlessPatient
+    Start-Sleep -Milliseconds 200
+    $existingUi = Get-Process -Name "Patient" -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
+        Select-Object -First 1
+    if ($existingUi) {
+        # Already open with a real window — maximize/focus then paste helpers.
+        Start-RestoreCarestreamViewerWindow
+        return $true
+    }
+    $shortcut = First-Existing $Systems.carestream.shortcuts
+    if ($shortcut) {
+        try {
+            # Detached explorer launch avoids the bridge's hidden-host quirk.
+            Start-Process -FilePath "explorer.exe" -ArgumentList @($shortcut) | Out-Null
+            Start-RestoreCarestreamViewerWindow
+            return $true
+        } catch {}
+    }
+    if ($Exe -and (Test-PathSafe $Exe)) {
+        try {
+            # Fallback: launch exe from a detached powershell so it is not a
+            # direct child of the HTTP listener process.
+            $safeExe = $Exe.Replace("'", "''")
+            $safeWork = if ($WorkDir) { $WorkDir.Replace("'", "''") } else { "" }
+            $cmd = "Start-Process -FilePath '$safeExe' -WindowStyle Maximized"
+            if ($safeWork) { $cmd += " -WorkingDirectory '$safeWork'" }
+            Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $cmd
+            ) | Out-Null
+            Start-RestoreCarestreamViewerWindow
+            return $true
+        } catch {}
+    }
+    return $false
+}
+
+function Start-CarestreamImagingPatient($Resolved, $Patient) {
+    $exe = Resolve-CarestreamPatientBrowser $Resolved
+    $shortcut = if ($Resolved -and $Resolved.shortcut) { [string]$Resolved.shortcut } else { "C:\Users\Public\Desktop\CS Imaging Software.lnk" }
+    if (-not $exe -and -not (Test-PathSafe $shortcut)) { return $null }
+    $patNo = [string]$Patient.patient_no
+    $existing = Find-NntScanFolder $patNo
+    $uiLabel = Build-TrophyTwUiLabel $Patient
+    $searchText = Build-CarestreamSearchText $Patient
+    $argLine = Build-CarestreamPatientCommandLine $Patient $existing
+    $workDir = if ($exe) { Split-Path -Parent $exe } else { "" }
+    $launchedUi = Start-CarestreamPatientBrowserUi $exe $workDir
+    # Clipboard = patient name for staff Ctrl+V; also paste into the live filter.
+    if ($launchedUi -and -not [string]::IsNullOrWhiteSpace($searchText)) {
+        try { Set-Clipboard -Value $searchText } catch {}
+        Start-PasteIntoPatientBrowserSearch $searchText
+    }
+    # No SCAN folder yet → treat as new patient: open Patient Card and
+    # prefill English name / DOB / chart / HKID for staff to Create.
+    $isNewPatient = [string]::IsNullOrWhiteSpace([string]$existing)
+    if ($launchedUi -and $isNewPatient) {
+        Start-CarestreamFillPatientCard $Patient
+    }
+    return [ordered]@{
+        bridge = $exe
+        target = $exe
+        shortcut = $shortcut
+        workingDirectory = $workDir
+        patient_id = Convert-NntPatientId $patNo
+        scan_path = $existing
+        ui_label = $uiLabel
+        search_text = $searchText
+        new_patient_card = $isNewPatient
+        launched_ui = $launchedUi
+        mode = "carestream_patient_browser"
+        argList = $argLine
+    }
+}
+
+function Start-RayBridgePatient($Resolved, $Patient, [switch]$DryRun) {
     $bridge = Resolve-RayBridge $Resolved
     $patId = if ($Patient.patient_no) { Convert-RayPatientId $Patient.patient_no } else { $Patient.patient_id }
     if (-not $bridge -or [string]::IsNullOrWhiteSpace($patId)) {
@@ -2427,12 +2858,16 @@ function Start-RayBridgePatient($Resolved, $Patient) {
     if ($dob) { $argList.Add((Quote-ProcessArg ("BirthDay:" + $dob))) }
     if ($sex) { $argList.Add((Quote-ProcessArg ("Sex:" + $sex))) }
 
-    $startArgs = @{ FilePath = $bridge; ArgumentList = ($argList -join " "); WindowStyle = "Normal" }
-    if ($workDir -and (Test-PathSafe $workDir)) {
-        $startArgs.WorkingDirectory = $workDir
+    # Quiet/background tests pass -DryRun or ?dry_run=1 so RAYBridge/SMARTDent
+    # never pop a window. Default SelfTest and smoke suites always use this.
+    if (-not $DryRun) {
+        $startArgs = @{ FilePath = $bridge; ArgumentList = ($argList -join " "); WindowStyle = "Normal" }
+        if ($workDir -and (Test-PathSafe $workDir)) {
+            $startArgs.WorkingDirectory = $workDir
+        }
+        Start-Process @startArgs
+        Start-RestoreRayViewerWindow
     }
-    Start-Process @startArgs
-    Start-RestoreRayViewerWindow
     return [ordered]@{
         bridge = $bridge
         target = $bridge
@@ -2440,6 +2875,8 @@ function Start-RayBridgePatient($Resolved, $Patient) {
         patient_id = $patId
         mode = "raybridge"
         argList = ($argList -join " ")
+        dry_run = [bool]$DryRun
+        launched = (-not $DryRun)
     }
 }
 
@@ -3570,47 +4007,125 @@ function Handle-Request($RawPath) {
         if ($key -eq "digirex") {
             $patientContext = Sanitize-DigirexPatientContext $patientContext
         }
-        # A new Carestream chart must be created by TW.exe from the -P -N -F
-        # launch. Writing nnt-patient-info here would create an empty SCAN
-        # folder before the patient file exists.
+        # Do not let Save-PatientContext create a random Banana folder.
+        # Trophy seeds SCAN\FILEDATA itself. Carestream only opens the
+        # CS Imaging desktop icon. Clear a missing folder_path so Save is a no-op.
         if (($key -eq "trophy" -or $key -eq "carestream") -and $patientContext.folder_path) {
             if (-not (Test-Path -LiteralPath ([string]$patientContext.folder_path))) {
                 $patientContext.folder_path = ""
             }
         }
-        $patientInfoPath = Save-PatientContext $patientContext
-        Copy-PatientContextToClipboard $patientContext
+        $dryRun = ($query["dry_run"] -eq "1") -or ($query["dry_run"] -eq "true") -or ($env:XRAY_BRIDGE_DRY_RUN -eq "1")
+        $patientInfoPath = ""
+        if (-not $dryRun) {
+            $patientInfoPath = Save-PatientContext $patientContext
+            Copy-PatientContextToClipboard $patientContext
+        }
         $bridgeLaunch = $null
         if ($key -eq "nntnewtom") {
-            $bridgeLaunch = Start-NntBridgePatient $resolved $patientContext
+            if ($dryRun) {
+                $bridgeLaunch = [ordered]@{
+                    target = $resolved.target
+                    patient_id = (Convert-NntPatientId $patientContext.patient_no)
+                    mode = "nnt-dry-run"
+                    dry_run = $true
+                    launched = $false
+                }
+            } else {
+                $bridgeLaunch = Start-NntBridgePatient $resolved $patientContext
+            }
         } elseif ($key -eq "ezdenti") {
-            $bridgeLaunch = Start-EzdentiBridgePatient $resolved $patientContext
+            if ($dryRun) {
+                $bridgeLaunch = [ordered]@{
+                    target = $resolved.target
+                    chart_number = (Convert-EzdentiPatientId $patientContext.patient_no)
+                    mode = "ezdenti-dry-run"
+                    dry_run = $true
+                    launched = $false
+                }
+            } else {
+                $bridgeLaunch = Start-EzdentiBridgePatient $resolved $patientContext
+            }
         } elseif ($key -eq "rayscan") {
-            $bridgeLaunch = Start-RayBridgePatient $resolved $patientContext
-        } elseif ($key -eq "trophy" -or $key -eq "carestream") {
-            # Clinic Solution's Carestream button is TW.exe, not Patient.exe.
-            # Patient.exe stays the fallback when this PC has no TW.exe.
-            $bridgeLaunch = Start-TrophyTwPatient $resolved $patientContext
+            $bridgeLaunch = Start-RayBridgePatient $resolved $patientContext -DryRun:$dryRun
+        } elseif ($key -eq "trophy") {
+            # Server / MCP capture station. TW.exe opens the chart folder;
+            # 2D and 3D acquire buttons are inside that program. New charts
+            # get SCAN\{id}\ + FILEDATA.TXT first (Clinic Solution order).
+            if ($dryRun) {
+                $bridgeLaunch = [ordered]@{
+                    target = (Resolve-TrophyTwExe $resolved)
+                    mode = "trophy-dry-run"
+                    patient_id = (Convert-NntPatientId $patientContext.patient_no)
+                    scan_path = (Get-TrophyScanFolderPath $patientContext.patient_no)
+                    argList = (Build-TrophyTwCommandLine (Get-TrophyScanFolderPath $patientContext.patient_no) (Build-TrophyTwUiLabel $patientContext))
+                    dry_run = $true
+                    launched = $false
+                }
+            } else {
+                $bridgeLaunch = Start-TrophyTwPatient $resolved $patientContext
+            }
+        } elseif ($key -eq "carestream") {
+            # Inactive. Patient.exe / CS Imaging Software.lnk does not load
+            # the films correctly and it takes the window from Trophy.
+            # Do not start it. Trophy (/open/trophy) is the only handoff.
+            $bridgeLaunch = [ordered]@{
+                target = ""
+                shortcut = "C:\Users\Public\Desktop\CS Imaging Software.lnk"
+                mode = "carestream_inactive"
+                use = "trophy"
+                dry_run = [bool]$dryRun
+                launched = $false
+                inactive = $true
+            }
         } elseif ($key -eq "myray") {
-            $bridgeLaunch = Start-MyRayBridgePatient $resolved $patientContext
+            if ($dryRun) {
+                $bridgeLaunch = [ordered]@{
+                    target = $resolved.target
+                    patient_id = (Convert-NntPatientId $patientContext.patient_no)
+                    mode = "myray-dry-run"
+                    dry_run = $true
+                    launched = $false
+                }
+            } else {
+                $bridgeLaunch = Start-MyRayBridgePatient $resolved $patientContext
+            }
         } elseif ($key -eq "digirex") {
-            $bridgeLaunch = Start-DigirexBridgePatient $resolved $patientContext
+            if ($dryRun) {
+                $bridgeLaunch = [ordered]@{
+                    target = $resolved.target
+                    patient_id = (Convert-DigirexPatientId $patientContext.patient_no)
+                    mode = "digirex-dry-run"
+                    dry_run = $true
+                    launched = $false
+                }
+            } else {
+                $bridgeLaunch = Start-DigirexBridgePatient $resolved $patientContext
+            }
         }
-        if (-not $bridgeLaunch) {
+        if (-not $bridgeLaunch -and -not $dryRun -and $key -ne "carestream") {
             Start-ResolvedProgram $resolved
         }
-        if ($bridgeLaunch -and $key -eq "nntnewtom" -and $patientContext.patient_name) {
+        if ($dryRun -and -not $bridgeLaunch) {
+            $bridgeLaunch = [ordered]@{
+                target = $resolved.target
+                mode = "dry-run"
+                dry_run = $true
+                launched = $false
+            }
+        }
+        if (-not $dryRun -and $bridgeLaunch -and $key -eq "nntnewtom" -and $patientContext.patient_name) {
             Start-NntIdentityGuard $patientContext
         }
-        if ($bridgeLaunch -and $key -eq "nntnewtom" -and $patientContext.patient_id -and $patientContext.patient_no) {
+        if (-not $dryRun -and $bridgeLaunch -and $key -eq "nntnewtom" -and $patientContext.patient_id -and $patientContext.patient_no) {
             Start-NntNewOpgWatcher $patientContext $bridgeLaunch
         }
         # MyRay shares the same CEFLA identity-guard and OPG-watcher logic as
         # NNT/NewTom: same internal patient DB drift risk, same scan folder layout.
-        if ($bridgeLaunch -and $key -eq "myray" -and $patientContext.patient_name) {
+        if (-not $dryRun -and $bridgeLaunch -and $key -eq "myray" -and $patientContext.patient_name) {
             Start-NntIdentityGuard $patientContext
         }
-        if ($bridgeLaunch -and $key -eq "myray" -and $patientContext.patient_id -and $patientContext.patient_no) {
+        if (-not $dryRun -and $bridgeLaunch -and $key -eq "myray" -and $patientContext.patient_id -and $patientContext.patient_no) {
             Start-NntNewOpgWatcher $patientContext $bridgeLaunch
         }
         return @{
@@ -3618,13 +4133,15 @@ function Handle-Request($RawPath) {
             body = [ordered]@{
                 ok = $true
                 key = $key
+                dry_run = [bool]$dryRun
+                launched = if ($bridgeLaunch -and $null -ne $bridgeLaunch.launched) { [bool]$bridgeLaunch.launched } else { -not $dryRun }
                 target = if ($bridgeLaunch) { $bridgeLaunch.target } else { $resolved.target }
                 type = $resolved.type
                 workingDirectory = $resolved.workingDirectory
                 bridge = $bridgeLaunch
                 patient_info_path = $patientInfoPath
                 patient_no = $query["patient_no"]
-                nnt_patid = if ($bridgeLaunch) { $bridgeLaunch.patient_id } else { Convert-NntPatientId $query["patient_no"] }
+                nnt_patid = if ($bridgeLaunch -and $bridgeLaunch.patient_id) { $bridgeLaunch.patient_id } else { Convert-NntPatientId $query["patient_no"] }
                 patient_name = $query["patient_name"]
             }
         }
@@ -3661,12 +4178,89 @@ function Invoke-SelfTest {
     Assert-Equal "Null stays empty"    ""            (Convert-NntBirthDate $null)
     Assert-Equal "Slash legacy format" "09/06/1958"  (Convert-NntBirthDate "1958/6/9")
 
-    Write-Host "== Build-TrophyTwCommandLine (CS 2026-09-27: -P -N -F glued, unquoted) ==" -ForegroundColor Cyan
-    Assert-Equal "existing chart command" `
-        "-P\\RECEPTION_MCP\IMAGE\SCAN\003509 -NSIU KAI WING  TEST -FSIU KAI WING  TEST" `
-        (Build-TrophyTwCommandLine "\\RECEPTION_MCP\IMAGE\SCAN\003509" "SIU KAI WING  TEST")
-    Assert-Equal "label is not quoted" $false ((Build-TrophyTwCommandLine "C:\SCAN\1" "A B") -match '"')
+    Write-Host "== Build-TrophyTwCommandLine (Clinic Solution: unquoted -P when no spaces) ==" -ForegroundColor Cyan
+    Assert-equal "existing chart command (live CS 2026-10-22)" `
+        '-P\\RECEPTION_MCP\IMAGE\SCAN\003501 -NWONG YIK YU FINIAN  TEST -FWONG YIK YU FINIAN  TEST' `
+        (Build-TrophyTwCommandLine '\\RECEPTION_MCP\IMAGE\SCAN\003501' 'WONG YIK YU FINIAN  TEST')
+    Assert-equal "new testing chart command" `
+        '-P\\RECEPTION_MCP\IMAGE\SCAN\003510 -NTESTING -FTESTING' `
+        (Build-TrophyTwCommandLine '\\RECEPTION_MCP\IMAGE\SCAN\003510' 'TESTING')
+    Assert-equal "path unquoted without spaces" $true ((Build-TrophyTwCommandLine 'C:\SCAN\1' 'A B').StartsWith('-PC:\SCAN\1'))
+    Assert-equal "path quoted when spaces" $true ((Build-TrophyTwCommandLine 'C:\SCAN folder\1' 'A').StartsWith('-P"C:\SCAN folder\1"'))
+    Assert-equal "name is not quoted" $false ((Build-TrophyTwCommandLine 'C:\SCAN\1' 'A B') -match '-N"')
 
+    Write-Host "== Trophy FILEDATA seed (Clinic Solution new-patient order) ==" -ForegroundColor Cyan
+    $fdNames = Build-TrophyFileDataNames ([ordered]@{ patient_no = "003510"; patient_name = "TESTING" })
+    Assert-equal "single token NOM=PRENOM" "TESTING" $fdNames.Nom
+    Assert-equal "single token PRENOM duplicates" "TESTING" $fdNames.Prenom
+    $fdMulti = Build-TrophyFileDataNames ([ordered]@{ patient_no = "003501"; patient_name = "WONG YIK YU FINIAN" })
+    Assert-equal "HK surname NOM" "WONG" $fdMulti.Nom
+    Assert-equal "HK given PRENOM" "YIK YU FINIAN" $fdMulti.Prenom
+    Assert-equal "preferred chart pads to 6" "003510" (Get-TrophyPreferredChartId "3510")
+    Assert-equal "preferred chart keeps 6" "003510" (Get-TrophyPreferredChartId "PL003510")
+    $fdTemp = Join-Path $env:TEMP ("trophy-filedata-" + [Guid]::NewGuid().ToString("N"))
+    try {
+        New-Item -ItemType Directory -Path $fdTemp -Force | Out-Null
+        $fdPath = Write-TrophyFileData $fdTemp "003510" ([ordered]@{
+            patient_no = "003510"; patient_name = "TESTING"; dob = "1984-08-15"
+        })
+        $fdText = [IO.File]::ReadAllText($fdPath)
+        Assert-equal "FILEDATA has NUMERO" $true ($fdText -match '(?m)^NUMERO=003510\r?$')
+        Assert-equal "FILEDATA has NOM" $true ($fdText -match '(?m)^NOM=TESTING\r?$')
+        Assert-equal "FILEDATA has PRENOM" $true ($fdText -match '(?m)^PRENOM=TESTING\r?$')
+        Assert-equal "FILEDATA has DATE yyyyMMdd" $true ($fdText -match '(?m)^DATE=19840815\r?$')
+        Assert-equal "FILEDATA has EXTNUM" $true ($fdText -match '(?m)^EXTNUM=003510\r?$')
+    } finally {
+        if (Test-Path -LiteralPath $fdTemp) { Remove-Item -LiteralPath $fdTemp -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    Assert-equal "Ensure-TrophyScanPatientFolder is a function" $true ($null -ne (Get-Command Ensure-TrophyScanPatientFolder -ErrorAction SilentlyContinue))
+    Assert-equal "Test-TrophyTwCaptureStation is a function" $true ($null -ne (Get-Command Test-TrophyTwCaptureStation -ErrorAction SilentlyContinue))
+
+    Write-Host "== Carestream client Patient.exe (no -P; paste name into live-filter search) ==" -ForegroundColor Cyan
+    $csPatient = [ordered]@{
+        patient_no = "PL003509"
+        patient_name = "SIU KAI WING"
+        chinese_name = "TEST"
+        dob = "1969-05-23"
+    }
+    Assert-equal "client chart strips clinic prefix" "003509" (Convert-NntPatientId "PL003509")
+    Assert-equal "client command is empty" "" (Build-CarestreamPatientCommandLine $csPatient "")
+    Assert-equal "client command has no -P" $false ((Build-CarestreamPatientCommandLine $csPatient "C:\SCAN\1") -match '-P')
+    Assert-equal "search text is patient name" "SIU KAI WING" (Build-CarestreamSearchText $csPatient)
+    Assert-equal "search_text query wins" "SIU" (Build-CarestreamSearchText ([ordered]@{ patient_no = "PL003509"; search_text = "SIU" }))
+    Assert-equal "chinese name when no English" "TEST" (Build-CarestreamSearchText ([ordered]@{ patient_no = "PL003509"; chinese_name = "TEST" }))
+    Assert-equal "paste helper is a function" $true ($null -ne (Get-Command Start-PasteIntoPatientBrowserSearch -ErrorAction SilentlyContinue))
+    $csCard = Build-CarestreamNewPatientCardPayload ([ordered]@{
+        patient_no = "PL003509"
+        patient_name = "SIU KAI WING"
+        dob = "1969-05-23"
+        sex = "M"
+        hkid = "A123456(7)"
+    })
+    Assert-equal "new card last name" "SIU" $csCard.last
+    Assert-equal "new card first name" "KAI WING" $csCard.first
+    Assert-equal "new card day" "23" $csCard.day
+    Assert-equal "new card month" "05" $csCard.month
+    Assert-equal "new card year" "1969" $csCard.year
+    Assert-equal "new card chart" "003509" $csCard.chart
+    Assert-equal "new card hkid" "A123456(7)" $csCard.hkid
+    Assert-equal "new card sex" "M" $csCard.sex
+    Assert-equal "fill card helper is a function" $true ($null -ne (Get-Command Start-CarestreamFillPatientCard -ErrorAction SilentlyContinue))
+    Assert-equal "patient UI launcher is a function" $true ($null -ne (Get-Command Start-CarestreamPatientBrowserUi -ErrorAction SilentlyContinue))
+    $csViaTw = Resolve-System "carestream" "C:\Program Files (x86)\Carestream\CSImaging\TW.exe"
+    Assert-equal "carestream app_path TW.exe is ignored" $true (($null -eq $csViaTw) -or ([string]$csViaTw.target -notmatch '(?i)TW\.exe$'))
+    if ($csViaTw -and $csViaTw.shortcut) {
+        Assert-equal "carestream shortcut is CS Imaging Software.lnk" $true ([string]$csViaTw.shortcut -match 'CS Imaging Software\.lnk$')
+    }
+    $csOff = Handle-Request "/open/carestream?dry_run=1&patient_no=PL001287&patient_name=SMOKE%20QUIET&sex=M"
+    if ($csOff.status -eq 200) {
+        Assert-equal "carestream open stays inactive" "carestream_inactive" ([string]$csOff.body.bridge.mode)
+        Assert-equal "carestream open does not launch" $false ([bool]$csOff.body.launched)
+        Assert-equal "carestream open target is empty" "" ([string]$csOff.body.target)
+    } else {
+        Assert-equal "carestream missing is 404 not a launch" 404 ([int]$csOff.status)
+    }
+    Assert-equal "windowless patient cleanup is a function" $true ($null -ne (Get-Command Stop-CarestreamWindowlessPatient -ErrorAction SilentlyContinue))
     Write-Host "== Carestream date sides (11 July 2026 stays with the chart folder) ==" -ForegroundColor Cyan
     Assert-Equal "11 July 2026 is the before side" "before" (Get-CarestreamFilmSide "2026-07-11T15:14:00")
     Assert-Equal "12 July 2026 is the after side" "after" (Get-CarestreamFilmSide "2026-07-12T00:00:00")
@@ -3735,6 +4329,9 @@ function Invoke-SelfTest {
 
     Write-Host "== Start-RestoreRayViewerWindow (helper exists; does not wait on SMARTDent) ==" -ForegroundColor Cyan
     Assert-Equal "helper is a function" $true ($null -ne (Get-Command Start-RestoreRayViewerWindow -ErrorAction SilentlyContinue))
+
+    Write-Host "== Start-RestoreCarestreamViewerWindow (helper exists; does not wait on TW) ==" -ForegroundColor Cyan
+    Assert-Equal "carestream restore helper is a function" $true ($null -ne (Get-Command Start-RestoreCarestreamViewerWindow -ErrorAction SilentlyContinue))
 
     Write-Host "== Start-RayBridgePatient (no real launch -- negative paths only) ==" -ForegroundColor Cyan
     $rayPatient = [ordered]@{ patient_no = "KT005455"; patient_name = "TANG PUI SHEUNG"; dob = "1966-09-15"; sex = "F" }
@@ -4174,32 +4771,36 @@ Pass=digirex
     Assert-Equal "/open/<unknown key> returns 404" 404 $missingResp.status
     $absOpen = Handle-Request "http://127.0.0.1:17890/open/does-not-exist?patient_no=1"
     Assert-Equal "absolute-form /open still routes (not a generic 404)" "does-not-exist" ([string]$absOpen.body.key)
+
+    # Quiet Rayscan contract - always on, never pops RAYBridge/SMARTDent.
+    Write-Host "== /open/rayscan?dry_run=1 (quiet; no UI) ==" -ForegroundColor Cyan
+    $rayDry = Handle-Request ("/open/rayscan?dry_run=1&" + $qs.Split('?')[1])
+    if ($rayResolveCheck -and $rayResolveCheck.exists) {
+        Assert-Equal "quiet /open/rayscan dry_run returns 200" 200 $rayDry.status
+        Assert-equal "quiet dry_run flag true" $true ([bool]$rayDry.body.dry_run)
+        Assert-equal "quiet dry_run does not launch" $false ([bool]$rayDry.body.launched)
+        Assert-Equal "quiet dry_run builds raybridge plan" "raybridge" ([string]$rayDry.body.bridge.mode)
+        Assert-Equal "quiet dry_run patient_id" "001287" ([string]$rayDry.body.bridge.patient_id)
+        Assert-Equal "quiet dry_run argList has ID:" $true ([string]$rayDry.body.bridge.argList -match 'ID:001287')
+    } else {
+        Assert-Equal "quiet /open/rayscan dry_run 404 when Rayscan missing" 404 $rayDry.status
+    }
+
     if ($IncludeLiveLaunch) {
-        # Opt-in only: if NNT is actually installed here, this really does invoke
-        # NNTBridge.exe / NNT.exe with the fabricated patient below
-        # (patient_no=001287, "HSIUNG KWAN MING"). Genuine end-to-end coverage,
-        # but a real, visible launch -- not a mock. Skipped unless requested so
-        # that routine "-SelfTest" runs never surprise anyone with a popped-up
-        # NNT window.
+        # Opt-in only: real visible launches (RAYBridge window will open).
+        Write-Host "== IncludeLiveLaunch (VISIBLE apps - opt-in only) ==" -ForegroundColor Yellow
         $nntOpenResp = Handle-Request ("/open/nntnewtom?" + $qs.Split('?')[1])
         if ($nnt.exists) {
             Assert-Equal "/open/nntnewtom returns 200 and launches the real bridge" 200 $nntOpenResp.status
         } else {
             Assert-Equal "/open/nntnewtom returns 404 when NNT not installed on this PC" 404 $nntOpenResp.status
         }
-        # Same opt-in trade-off as NNT above: if EzDent-i is actually installed
-        # here, this closes any already-open window, writes fresh Linkage.xml,
-        # and opens via the desktop ReqAdmin .lnk when Bin is writable.
-        # VTEzBridge32.exe is NOT fired unless EzdentiUseLinkageBridge is set.
         $ezOpenResp = Handle-Request ("/open/ezdenti?" + $ezQs.Split('?')[1])
         if ($ezResolveCheck.exists) {
             Assert-Equal "/open/ezdenti returns 200 and opens the real app" 200 $ezOpenResp.status
         } else {
             Assert-Equal "/open/ezdenti returns 404 when EzDent-i not installed on this PC" 404 $ezOpenResp.status
         }
-        # Same opt-in trade-off: if RAYBridge.exe is actually installed here,
-        # this really does launch it with the fabricated patient above
-        # (patient_no=001287, "HSIUNG KWAN MING").
         $rayQs = "/open/rayscan?" + $qs.Split('?')[1]
         $rayOpenResp = Handle-Request $rayQs
         if ($rayResolveCheck.exists) {
@@ -4214,11 +4815,12 @@ Pass=digirex
             $dxOpenResp = Handle-Request "/open/digirex?patient_no=PL001287"
             Assert-Equal "/open/digirex returns 404 when Digirex not installed on this PC" 404 $dxOpenResp.status
         }
+    } else {
         if (-not ($digirexResolveCheck -and $digirexResolveCheck.exists)) {
             $dxMissing = Handle-Request "/open/digirex?patient_no=PL001287"
             Assert-Equal "/open/digirex returns 404 when Digirex not installed (no live launch)" 404 $dxMissing.status
         }
-        Write-Host "  [SKIP] /open/nntnewtom, /open/ezdenti, /open/rayscan, /open/digirex live-launch checks (pass -IncludeLiveLaunch to run them)" -ForegroundColor DarkYellow
+        Write-Host "  [SKIP] visible /open/* live launches (pass -IncludeLiveLaunch only when you want apps to pop)" -ForegroundColor DarkYellow
     }
 
     Write-Host ""

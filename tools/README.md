@@ -3,15 +3,15 @@
 This folder holds the **local X-ray bridge**: a small background helper
 that lets the Banana web app (running in a normal browser) open desktop
 imaging software — **NNT-NEWTOM**, **EzDent-i (Vatech)**, **Rayscan
-(RAYBridge / SMARTDent V3)**, **Carestream CS Imaging**,
-**MyRay**, or **Apixia Digirex**
+(RAYBridge / SMARTDent V3)**, **Carestream CS Imaging**, **Trophy
+(TW.exe)**, **MyRay**, or **Apixia Digirex**
 — with the current patient's chart no., name, DOB and gender already sent
 across, instead of a doctor/assistant re-typing everything by hand.
 
 ## Two ways to deploy it
 
 **Most clinic PCs only ever need one imaging system.** For that case, use
-one of the two dedicated, single-system packages instead of anything in
+one of the dedicated, single-system packages instead of anything in
 this top-level folder — each is a fully self-contained folder/zip that can
 be copied to a different PC without dragging any other system's files or
 branding along, and each is restricted **at runtime** to its own system
@@ -26,9 +26,11 @@ PC:
 | [`installer-myray/`](installer-myray/README.md) (`Banana-MyRay-Bridge-Installer.zip`) | Kwun Tong CEFLA PCs (**MyRay + NNT**). Digirex on the same PC is a sidecar after this update. |
 | [`installer-rayscan/`](installer-rayscan/README.md) (`Banana-Rayscan-Bridge-Installer.zip`) | Any PC that only needs **Rayscan (RAYBridge / SMARTDent V3)**. |
 | [`installer-digirex/`](installer-digirex/README.md) (`Banana-Digirex-Bridge-Installer.zip`) | Any PC that only needs **Apixia Digirex** (periapical / bitewing). Do **not** install this on a PC that already has EzDent-i (PL) or MyRay (KT). |
+| [`installer-trophy/`](installer-trophy/README.md) (`Banana-Trophy-Bridge-Installer.zip`) | Any PC that only needs **Trophy / TW.exe**. MCP PCs that also need Carestream Patient Browser use [`installer-carestream-mcp/`](installer-carestream-mcp/README.md) instead (that package enables both). |
 
 Each has its own install path (`C:\BananaBridge-EzDenti` /
-`C:\BananaBridge-Digirex` / `C:\BananaBridge-Rayscan` / `C:\NNT`), its own
+`C:\BananaBridge-Digirex` / `C:\BananaBridge-Rayscan` /
+`C:\BananaBridge-Trophy` / `C:\NNT`), its own
 startup-shortcut name, and its own README with system-specific
 troubleshooting. Don't install more than one of these packages on the
 same PC — Banana always talks to a bridge on the same port (17890), so
@@ -46,7 +48,9 @@ is what keeps the subfolders in sync with it and rebuilds their zips
 — run that after editing `xray-local-launcher.ps1` or `install-xray-bridge.ps1`
 here, rather than hand-editing the copies inside `installer-ezdenti/`,
 `installer-nntnewtom/`, `installer-rayscan/`, `installer-myray/`,
-or `installer-digirex/`.
+`installer-digirex/`, or `installer-trophy/`.
+`installer-carestream-mcp/` is synced by `build-installer-carestream-mcp.ps1`
+(it enables Carestream and Trophy together).
 
 ## The combined (multi-system) bridge in this folder
 
@@ -75,7 +79,7 @@ already exists in *its* database.
 | `Start X-Ray Launcher.bat` | Double-click wrapper to run the bridge in the foreground (for manual testing — the installer sets up automatic background start, so you normally won't need this). |
 | `Test X-Ray Launcher.bat` | Double-click wrapper for `-SelfTest` (200+ automated checks, nothing is launched or written outside a temp folder). |
 | `Uninstall X-Ray Bridge.bat` | Double-click wrapper to remove the auto-start shortcut and stop the bridge. |
-| `installer-ezdenti/`, `installer-nntnewtom/`, `installer-rayscan/`, `installer-myray/`, `installer-digirex/` | The dedicated single-system packages described above — each deployable on its own. |
+| `installer-ezdenti/`, `installer-nntnewtom/`, `installer-rayscan/`, `installer-myray/`, `installer-digirex/`, `installer-trophy/`, `installer-carestream-mcp/` | The dedicated packages described above — each deployable on its own. |
 | `installer-*/reference/patient-handoff.reference.xml` | **Per-system** patient-handoff contract (independent XML reference). Edit only the package you are changing — see [`xray-system-references.md`](xray-system-references.md). |
 | `check-xray-system-references.ps1` | Verifies every package has its own non-identical handoff XML reference. |
 | `build-installer-packages.ps1` | Syncs `xray-local-launcher.ps1` / `install-xray-bridge.ps1` into the subfolders above and rebuilds their zips. Run after editing either canonical file. Does **not** overwrite `reference/`. |

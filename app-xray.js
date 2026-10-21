@@ -3410,13 +3410,14 @@ var XRAY_SYSTEMS = {
         infoKey: 'media.sys.carestream.info',
         url: '',
         launcherKey: 'carestream',
+        inactive: true,
         desktopShortcutName: 'CS Imaging Software',
         desktopShortcutPath: 'C:\\Users\\Public\\Desktop\\CS Imaging Software.lnk',
-        // Capture PCs (TW.exe): Clinic Solution SCAN chart. Clients without TW
-        // still open Patient.exe; bridge chooses which path at launch time.
+        // Carestream always opens this desktop icon and aligns the Banana
+        // patient into CS Imaging. Trophy / TW.exe is the Trophy button.
         defaultDataPath: xrayTrophyScanRoot(),
         defaultSubPattern: xrayTrophySubPattern(),
-        defaultAppPath: 'C:\\Program Files (x86)\\Carestream\\CSImaging\\TW.exe',
+        defaultAppPath: 'C:\\Users\\Public\\Desktop\\CS Imaging Software.lnk',
         launchProtocol: false,
         launcherBat: 'tools\\installer-carestream-mcp\\Start Carestream MCP Launcher.bat',
         openMsgKey: 'media.local.carestreamOpen',
@@ -3516,7 +3517,7 @@ var XRAY_SYSTEMS = {
         defaultSubPattern: xrayTrophySubPattern(),
         defaultAppPath: 'C:\\Program Files (x86)\\Carestream\\CSImaging\\TW.exe',
         launchProtocol: false,
-        launcherBat: 'tools\\installer-carestream-mcp\\Start Carestream MCP Launcher.bat',
+        launcherBat: 'tools\\installer-trophy\\Start Trophy Launcher.bat',
         openMsgKey: 'media.local.trophyOpen',
         launchedMsgKey: 'media.local.trophyLaunched',
         launcherNeededMsgKey: 'media.local.trophyLauncherNeeded'
@@ -4261,7 +4262,7 @@ function openDesktopXrayAppWithPatient(key, sys, patient) {
 }
 
 function openCarestreamImaging() {
-    openDesktopXrayApp('carestream');
+    xrayNotify(mediaTr('media.sys.carestream.inactive'));
 }
 
 function openNntNewtom() {
@@ -4363,6 +4364,10 @@ function openXraySystem(key) {
     var sys = XRAY_SYSTEMS[key];
     if (!sys) {
         xrayNotify('Unknown X-ray system: ' + key);
+        return;
+    }
+    if (sys.inactive || key === 'carestream') {
+        xrayNotify(mediaTr('media.sys.carestream.inactive'));
         return;
     }
     if (sys.launcherKey) {

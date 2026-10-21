@@ -413,6 +413,11 @@ function Resolve-System($Key, $PreferredExecutable) {
 
     $preferred = ""
     if (Test-PathSafe $PreferredExecutable) { $preferred = $PreferredExecutable }
+    # Carestream is the public desktop icon only. A web app_path of TW.exe
+    # must not pull this button onto the Trophy capture path.
+    if ($Key -eq "carestream" -and $preferred -match '(?i)(^|[\\/])TW\.exe$') {
+        $preferred = ""
+    }
     if (-not $preferred -and $Key -eq "ezdenti" -and $script:EzdentiExePath) {
         $configured = Resolve-EzdentiExeInDir ([string]$script:EzdentiExePath)
         if ($configured) { $preferred = $configured }
@@ -423,8 +428,19 @@ function Resolve-System($Key, $PreferredExecutable) {
     if ($Key -eq "ezdenti" -and -not $exe) {
         $exe = Find-EzdentiExecutable
     }
-    $target = if ($preferred) { $preferred } elseif ($shortcutInfo -and (Test-PathSafe $shortcutInfo.target)) { $shortcutInfo.target } elseif ($exe) { $exe } else { $shortcut }
-    $type = if ($preferred) { "configured" } elseif ($shortcutInfo -and (Test-PathSafe $shortcutInfo.target)) { "shortcut-target" } elseif ($exe) { "executable" } elseif ($shortcut) { "shortcut" } else { "" }
+    if ($Key -eq "carestream") {
+        $fixedShortcut = "C:\Users\Public\Desktop\CS Imaging Software.lnk"
+        if (Test-PathSafe $fixedShortcut) { $shortcut = $fixedShortcut }
+        $shortcutInfo = Resolve-Shortcut $shortcut
+        $patientExe = First-Existing $cfg.executables
+        if ($shortcutInfo -and $shortcutInfo.target -match '(?i)(^|[\\/])Patient\.exe$' -and (Test-PathSafe $shortcutInfo.target)) {
+            $patientExe = [string]$shortcutInfo.target
+        }
+        $exe = $patientExe
+        $preferred = ""
+    }
+    $target = if ($preferred) { $preferred } elseif ($Key -eq "carestream" -and $exe) { $exe } elseif ($shortcutInfo -and (Test-PathSafe $shortcutInfo.target)) { $shortcutInfo.target } elseif ($exe) { $exe } else { $shortcut }
+    $type = if ($Key -eq "carestream" -and $shortcut) { "shortcut" } elseif ($preferred) { "configured" } elseif ($shortcutInfo -and (Test-PathSafe $shortcutInfo.target)) { "shortcut-target" } elseif ($exe) { "executable" } elseif ($shortcut) { "shortcut" } else { "" }
     $arguments = if ($shortcutInfo) { $shortcutInfo.arguments } else { "" }
     $workingDirectory = if ($shortcutInfo -and $shortcutInfo.workingDirectory) { $shortcutInfo.workingDirectory } elseif ($target) { Split-Path -Parent $target } else { "" }
 
@@ -2582,11 +2598,12 @@ function Start-TrophyTwPatient($Resolved, $Patient) {
     }
 }
 
-# Consultation client: the public desktop icon "CS Imaging Software" is
-# Patient.exe. Its wx parser only accepts /pas.* options. Passing Trophy's
-# -P switch raises "Unknown option 'P'". Launch Patient.exe with the same
-# empty command line as a double-click of that shortcut. Chart images are
-# opened by Trophy / TW.exe via -P"folder", not by Patient.exe.
+# Carestream button (every PC): public desktop icon
+# "C:\Users\Public\Desktop\CS Imaging Software.lnk" -> Patient.exe.
+# Its wx parser only accepts /pas.* options. Passing Trophy's -P switch
+# raises "Unknown option 'P'". Launch that shortcut with an empty command
+# line, then align Banana's patient into the window (live-filter name,
+# and Patient Card when the chart is new). Trophy / TW.exe is /open/trophy.
 function Convert-CarestreamBirthDate($Value) {
     if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
     $formats = @("yyyy-MM-dd", "yyyy/M/d", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "d-M-yyyy", "yyyyMMdd")
@@ -2785,13 +2802,14 @@ function Start-CarestreamPatientBrowserUi($Exe, $WorkDir) {
 
 function Start-CarestreamImagingPatient($Resolved, $Patient) {
     $exe = Resolve-CarestreamPatientBrowser $Resolved
-    if (-not $exe) { return $null }
+    $shortcut = if ($Resolved -and $Resolved.shortcut) { [string]$Resolved.shortcut } else { "C:\Users\Public\Desktop\CS Imaging Software.lnk" }
+    if (-not $exe -and -not (Test-PathSafe $shortcut)) { return $null }
     $patNo = [string]$Patient.patient_no
     $existing = Find-NntScanFolder $patNo
     $uiLabel = Build-TrophyTwUiLabel $Patient
     $searchText = Build-CarestreamSearchText $Patient
     $argLine = Build-CarestreamPatientCommandLine $Patient $existing
-    $workDir = Split-Path -Parent $exe
+    $workDir = if ($exe) { Split-Path -Parent $exe } else { "" }
     $launchedUi = Start-CarestreamPatientBrowserUi $exe $workDir
     # Clipboard = patient name for staff Ctrl+V; also paste into the live filter.
     if ($launchedUi -and -not [string]::IsNullOrWhiteSpace($searchText)) {
@@ -2807,7 +2825,7 @@ function Start-CarestreamImagingPatient($Resolved, $Patient) {
     return [ordered]@{
         bridge = $exe
         target = $exe
-        shortcut = "C:\Users\Public\Desktop\CS Imaging Software.lnk"
+        shortcut = $shortcut
         workingDirectory = $workDir
         patient_id = Convert-NntPatientId $patNo
         scan_path = $existing
@@ -3989,10 +4007,9 @@ function Handle-Request($RawPath) {
         if ($key -eq "digirex") {
             $patientContext = Sanitize-DigirexPatientContext $patientContext
         }
-        # Carestream/Trophy: do not let Save-PatientContext create a random
-        # Banana folder_path with nnt-patient-info.json. New SCAN charts are
-        # seeded by Ensure-TrophyScanPatientFolder (FILEDATA.TXT) to match
-        # Clinic Solution. Clear a non-existent folder_path so Save is a no-op.
+        # Do not let Save-PatientContext create a random Banana folder.
+        # Trophy seeds SCAN\FILEDATA itself. Carestream only opens the
+        # CS Imaging desktop icon. Clear a missing folder_path so Save is a no-op.
         if (($key -eq "trophy" -or $key -eq "carestream") -and $patientContext.folder_path) {
             if (-not (Test-Path -LiteralPath ([string]$patientContext.folder_path))) {
                 $patientContext.folder_path = ""
@@ -4049,45 +4066,17 @@ function Handle-Request($RawPath) {
                 $bridgeLaunch = Start-TrophyTwPatient $resolved $patientContext
             }
         } elseif ($key -eq "carestream") {
-            # Capture PC with TW.exe: same Clinic Solution path as Trophy
-            # (seed SCAN + FILEDATA for new charts, open TW for old films /
-            # new panorama). Consultation client without TW.exe: Patient.exe
-            # + live-filter paste (no patient CLI).
-            if (Test-TrophyTwCaptureStation $resolved) {
-                if ($dryRun) {
-                    $bridgeLaunch = [ordered]@{
-                        target = (Resolve-TrophyTwExe $resolved)
-                        patient_id = (Convert-NntPatientId $patientContext.patient_no)
-                        scan_path = (Get-TrophyScanFolderPath $patientContext.patient_no)
-                        search_text = (Build-CarestreamSearchText $patientContext)
-                        mode = "carestream_trophy_tw"
-                        argList = (Build-TrophyTwCommandLine (Get-TrophyScanFolderPath $patientContext.patient_no) (Build-TrophyTwUiLabel $patientContext))
-                        dry_run = $true
-                        launched = $false
-                    }
-                } else {
-                    $bridgeLaunch = Start-TrophyTwPatient $resolved $patientContext
-                    if ($bridgeLaunch) { $bridgeLaunch.mode = "carestream_trophy_tw" }
-                }
-            } elseif ($dryRun) {
-                $existingScan = Find-NntScanFolder $patientContext.patient_no
-                $bridgeLaunch = [ordered]@{
-                    target = (Resolve-CarestreamPatientBrowser $resolved)
-                    patient_id = (Convert-NntPatientId $patientContext.patient_no)
-                    scan_path = $existingScan
-                    search_text = (Build-CarestreamSearchText $patientContext)
-                    new_patient_card = [string]::IsNullOrWhiteSpace([string]$existingScan)
-                    new_patient_payload = (Build-CarestreamNewPatientCardPayload $patientContext)
-                    mode = "carestream_patient_browser"
-                    argList = (Build-CarestreamPatientCommandLine $patientContext $existingScan)
-                    dry_run = $true
-                    launched = $false
-                }
-            } else {
-                $bridgeLaunch = Start-CarestreamImagingPatient $resolved $patientContext
-                if (-not $bridgeLaunch) {
-                    $bridgeLaunch = Start-TrophyTwPatient $resolved $patientContext
-                }
+            # Inactive. Patient.exe / CS Imaging Software.lnk does not load
+            # the films correctly and it takes the window from Trophy.
+            # Do not start it. Trophy (/open/trophy) is the only handoff.
+            $bridgeLaunch = [ordered]@{
+                target = ""
+                shortcut = "C:\Users\Public\Desktop\CS Imaging Software.lnk"
+                mode = "carestream_inactive"
+                use = "trophy"
+                dry_run = [bool]$dryRun
+                launched = $false
+                inactive = $true
             }
         } elseif ($key -eq "myray") {
             if ($dryRun) {
@@ -4114,7 +4103,7 @@ function Handle-Request($RawPath) {
                 $bridgeLaunch = Start-DigirexBridgePatient $resolved $patientContext
             }
         }
-        if (-not $bridgeLaunch -and -not $dryRun) {
+        if (-not $bridgeLaunch -and -not $dryRun -and $key -ne "carestream") {
             Start-ResolvedProgram $resolved
         }
         if ($dryRun -and -not $bridgeLaunch) {
@@ -4258,6 +4247,19 @@ function Invoke-SelfTest {
     Assert-equal "new card sex" "M" $csCard.sex
     Assert-equal "fill card helper is a function" $true ($null -ne (Get-Command Start-CarestreamFillPatientCard -ErrorAction SilentlyContinue))
     Assert-equal "patient UI launcher is a function" $true ($null -ne (Get-Command Start-CarestreamPatientBrowserUi -ErrorAction SilentlyContinue))
+    $csViaTw = Resolve-System "carestream" "C:\Program Files (x86)\Carestream\CSImaging\TW.exe"
+    Assert-equal "carestream app_path TW.exe is ignored" $true (($null -eq $csViaTw) -or ([string]$csViaTw.target -notmatch '(?i)TW\.exe$'))
+    if ($csViaTw -and $csViaTw.shortcut) {
+        Assert-equal "carestream shortcut is CS Imaging Software.lnk" $true ([string]$csViaTw.shortcut -match 'CS Imaging Software\.lnk$')
+    }
+    $csOff = Handle-Request "/open/carestream?dry_run=1&patient_no=PL001287&patient_name=SMOKE%20QUIET&sex=M"
+    if ($csOff.status -eq 200) {
+        Assert-equal "carestream open stays inactive" "carestream_inactive" ([string]$csOff.body.bridge.mode)
+        Assert-equal "carestream open does not launch" $false ([bool]$csOff.body.launched)
+        Assert-equal "carestream open target is empty" "" ([string]$csOff.body.target)
+    } else {
+        Assert-equal "carestream missing is 404 not a launch" 404 ([int]$csOff.status)
+    }
     Assert-equal "windowless patient cleanup is a function" $true ($null -ne (Get-Command Stop-CarestreamWindowlessPatient -ErrorAction SilentlyContinue))
     Write-Host "== Carestream date sides (11 July 2026 stays with the chart folder) ==" -ForegroundColor Cyan
     Assert-Equal "11 July 2026 is the before side" "before" (Get-CarestreamFilmSide "2026-07-11T15:14:00")

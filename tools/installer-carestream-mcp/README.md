@@ -2,6 +2,11 @@
 
 **Unified package for x-ray SERVER and consultation CLIENT PCs**
 
+Trophy-only PCs (TW.exe, no Carestream Patient Browser button) use
+[`../installer-trophy/`](../installer-trophy/README.md) instead. This
+package still enables **both** `carestream` and `trophy`. Do not install
+both packages on the same PC — they share port 17890.
+
 This installer auto-detects your PC type and configures the correct SCAN paths:
 
 | Detected role | Typical PC | Trophy (TW.exe) | SCAN path |
@@ -49,12 +54,13 @@ Rayscan / NNT / Digirex. Index: [`../xray-system-references.md`](../xray-system-
 - Detects Carestream **Patient.exe** and **TW.exe**
 - Writes per-PC config — one installer zip for all clinic PCs
 
-### Trophy F7 Integration
-- Same behavior as Clinic Solution's Trophy F7 button on server/MCP PCs
-- Launches: `TW.exe -P\\RECEPTION_MCP\IMAGE\SCAN\{patient_no} -NLUI "{name}" -FLUI "{name}"`
+### Carestream (CS Imaging) button
+- Inactive in Banana. It does not open `CS Imaging Software.lnk` or Patient.exe.
+- That window was not loading the films and it took over Trophy.
 
-### Carestream Patient Browser
-- Opens Patient.exe for the selected patient (all PCs with Carestream installed)
+### Trophy
+- Separate button and installer (`../installer-trophy/`)
+- TW.exe SCAN handoff is not used by the Carestream button
 
 ## Requirements
 

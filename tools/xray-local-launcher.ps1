@@ -2337,7 +2337,8 @@ if ($winTid -ne $curTid -and $winTid -ne $fgTid) { [RayWin]::AttachThreadInput($
     } catch {}
 }
 
-# CS Imaging -> TW.exe. Command shape traced 2026-09-27 from CS.exe.
+# CS Imaging -> TW.exe. Command shape traced 2026-09-27 / 2026-10-22 from
+# Clinic Solution on XRAY-MCP (existing chart + new "testing" chart).
 function Build-TrophyTwUiLabel($Patient) {
     $en = [string]$Patient.patient_name
     $zh = [string]$Patient.chinese_name
@@ -2349,16 +2350,27 @@ function Build-TrophyTwUiLabel($Patient) {
     return ""
 }
 
+# Clinic Solution SCAN folders are 6-digit chart ids (003501, 003510).
+function Get-TrophyPreferredChartId($PatientNo) {
+    $ids = @(Get-NntScanIdCandidates $PatientNo)
+    foreach ($id in $ids) {
+        if ($id -match '^\d{6}$') { return $id }
+    }
+    foreach ($id in $ids) {
+        if ($id -match '^\d+$') { return $id.PadLeft(6, '0') }
+    }
+    if ($ids.Count -gt 0) { return $ids[0] }
+    return ""
+}
+
 function Get-TrophyScanFolderPath($PatientNo) {
     if ([string]::IsNullOrWhiteSpace($PatientNo)) { return "" }
     $found = Find-NntScanFolder $PatientNo
     if ($found) { return $found }
-    $ids = Get-NntScanIdCandidates $PatientNo
-    if ($ids.Count -eq 0) { return "" }
+    $id = Get-TrophyPreferredChartId $PatientNo
+    if ([string]::IsNullOrWhiteSpace($id)) { return "" }
     foreach ($root in Get-NntScanRoots) {
-        foreach ($id in $ids) {
-            return (Join-Path $root $id)
-        }
+        return (Join-Path $root $id)
     }
     return ""
 }
@@ -2371,20 +2383,99 @@ function Resolve-TrophyTwExe($Resolved) {
     return First-Existing $Systems.trophy.executables
 }
 
+# True when this PC can run the Clinic Solution capture path (TW.exe + SCAN).
+# Consultation clients without TW.exe fall back to Patient Browser paste-search.
+function Test-TrophyTwCaptureStation($Resolved) {
+    if (Resolve-TrophyTwExe $Resolved) { return $true }
+    if ($script:CarestreamBridgeRole -eq "xray-server") { return $true }
+    return $false
+}
+
 function Build-TrophyTwCommandLine($ScanPath, $UiLabel) {
-    # This PC's TW.exe format string is -P"%s" (quotes required). An unquoted
-    # -P\\share\SCAN\chart is ignored, so the viewer opens with no images.
-    # -N/-F stay glued and unquoted, matching the 2026-09-27 CS.exe trace.
-    $line = '-P"' + $ScanPath + '"'
+    # Live Clinic Solution (2026-10-22): unquoted -P\\share\SCAN\chart.
+    # Quote only when the path contains whitespace (defensive).
+    # -N/-F stay glued and unquoted (bilingual label may include spaces).
+    if ([string]::IsNullOrWhiteSpace($ScanPath)) { return "" }
+    $line = if ($ScanPath -match '\s') { '-P"' + $ScanPath + '"' } else { '-P' + $ScanPath }
     if (-not [string]::IsNullOrWhiteSpace($UiLabel)) {
         $line += " -N" + $UiLabel + " -F" + $UiLabel
     }
     return $line
 }
 
+# FILEDATA.TXT names for a new SCAN chart. Live "testing" chart used
+# NOM=TESTING / PRENOM=TESTING (single token duplicated). Multi-token HK
+# English names: surname-first -> NOM=first token, PRENOM=rest.
+function Build-TrophyFileDataNames($Patient) {
+    $en = ([string]$Patient.patient_name).Trim()
+    $ascii = if ($en) { ([regex]::Replace($en, '[^\x20-\x7E]', '')).Trim() } else { "" }
+    if ([string]::IsNullOrWhiteSpace($ascii)) {
+        $id = Convert-NntPatientId ([string]$Patient.patient_no)
+        if ([string]::IsNullOrWhiteSpace($id)) { $id = "NEW" }
+        return [ordered]@{ Nom = $id; Prenom = $id }
+    }
+    $parts = Split-RayPatientName $ascii
+    $nom = [string]$parts.last
+    $prenom = (@($parts.first, $parts.middle) | Where-Object { $_ }) -join " "
+    if ([string]::IsNullOrWhiteSpace($prenom)) { $prenom = $nom }
+    return [ordered]@{ Nom = $nom; Prenom = $prenom }
+}
+
+function Write-TrophyFileData($Folder, $ChartId, $Patient) {
+    $names = Build-TrophyFileDataNames $Patient
+    $dob = Convert-CarestreamBirthDate $Patient.dob
+    if ([string]::IsNullOrWhiteSpace($dob)) { $dob = "19000101" }
+    $lines = @(
+        "[Patient file]",
+        ("NUMERO=" + $ChartId),
+        ("NOM=" + $names.Nom),
+        ("PRENOM=" + $names.Prenom),
+        ("DATE=" + $dob),
+        ("EXTNUM=" + $ChartId)
+    )
+    $path = Join-Path $Folder "FILEDATA.TXT"
+    $content = ($lines -join "`r`n") + "`r`n"
+    # Trophy FILEDATA is historically ANSI; ASCII patient names are fine.
+    [IO.File]::WriteAllText($path, $content, [Text.Encoding]::GetEncoding(1252))
+    return $path
+}
+
+# Clinic Solution new-patient order (2026-10-22 "testing" / 003510):
+#   1) create \\...\SCAN\{chart}\
+#   2) write FILEDATA.TXT
+#   3) launch TW.exe -P...\SCAN\{chart} -N... -F...
+#   4) TW writes PatientInfo.xml (we do not invent that file)
+# Existing charts: leave FILEDATA alone; just open TW on the folder.
+function Ensure-TrophyScanPatientFolder($Patient) {
+    $scanPath = Get-TrophyScanFolderPath $Patient.patient_no
+    if ([string]::IsNullOrWhiteSpace($scanPath)) { return $null }
+    $chartId = Split-Path -Leaf $scanPath
+    $created = $false
+    $wroteFileData = $false
+    try {
+        if (-not (Test-PathSafe $scanPath)) {
+            New-Item -ItemType Directory -Path $scanPath -Force | Out-Null
+            $created = $true
+        }
+        $fd = Join-Path $scanPath "FILEDATA.TXT"
+        if ($created -or -not (Test-PathSafe $fd)) {
+            Write-TrophyFileData $scanPath $chartId $Patient | Out-Null
+            $wroteFileData = $true
+        }
+    } catch {
+        return $null
+    }
+    return [ordered]@{
+        scan_path = $scanPath
+        chart_id = $chartId
+        folder_created = $created
+        filedata_written = $wroteFileData
+    }
+}
+
 function Start-NativeCommandLine($Exe, $ArgumentLine, $WorkDir) {
-    # Start-Process -ArgumentList splits on spaces and strips the quotes
-    # TW.exe needs around -P"path". ProcessStartInfo keeps one raw command line.
+    # Start-Process -ArgumentList splits on spaces and can strip quotes TW
+    # needs. ProcessStartInfo keeps one raw command line (Clinic Solution style).
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $Exe
     $psi.Arguments = [string]$ArgumentLine
@@ -2398,13 +2489,16 @@ function Start-NativeCommandLine($Exe, $ArgumentLine, $WorkDir) {
 
 function Start-TrophyTwPatient($Resolved, $Patient) {
     $tw = Resolve-TrophyTwExe $Resolved
-    $patNo = [string]$Patient.patient_no
-    $scanPath = Get-TrophyScanFolderPath $patNo
-    if (-not $tw -or [string]::IsNullOrWhiteSpace($scanPath)) {
+    if (-not $tw) { return $null }
+    $seed = Ensure-TrophyScanPatientFolder $Patient
+    if (-not $seed -or [string]::IsNullOrWhiteSpace([string]$seed.scan_path)) {
         return $null
     }
+    $scanPath = [string]$seed.scan_path
+    $patNo = [string]$Patient.patient_no
     $uiLabel = Build-TrophyTwUiLabel $Patient
     if ([string]::IsNullOrWhiteSpace($uiLabel)) { $uiLabel = $patNo.Trim() }
+    if ([string]::IsNullOrWhiteSpace($uiLabel)) { $uiLabel = [string]$seed.chart_id }
     if ([string]::IsNullOrWhiteSpace($uiLabel)) { return $null }
 
     $workDir = Split-Path -Parent $tw
@@ -2416,6 +2510,9 @@ function Start-TrophyTwPatient($Resolved, $Patient) {
         workingDirectory = $workDir
         patient_id = Convert-NntPatientId $patNo
         scan_path = $scanPath
+        chart_id = $seed.chart_id
+        folder_created = [bool]$seed.folder_created
+        filedata_written = [bool]$seed.filedata_written
         ui_label = $uiLabel
         mode = "trophy_tw"
         argList = $argLine
@@ -3826,9 +3923,10 @@ function Handle-Request($RawPath) {
         if ($key -eq "digirex") {
             $patientContext = Sanitize-DigirexPatientContext $patientContext
         }
-        # A new Carestream chart must be created by TW.exe from the -P -N -F
-        # launch. Writing nnt-patient-info here would create an empty SCAN
-        # folder before the patient file exists.
+        # Carestream/Trophy: do not let Save-PatientContext create a random
+        # Banana folder_path with nnt-patient-info.json. New SCAN charts are
+        # seeded by Ensure-TrophyScanPatientFolder (FILEDATA.TXT) to match
+        # Clinic Solution. Clear a non-existent folder_path so Save is a no-op.
         if (($key -eq "trophy" -or $key -eq "carestream") -and $patientContext.folder_path) {
             if (-not (Test-Path -LiteralPath ([string]$patientContext.folder_path))) {
                 $patientContext.folder_path = ""
@@ -3869,11 +3967,14 @@ function Handle-Request($RawPath) {
             $bridgeLaunch = Start-RayBridgePatient $resolved $patientContext -DryRun:$dryRun
         } elseif ($key -eq "trophy") {
             # Server / MCP capture station. TW.exe opens the chart folder;
-            # 2D and 3D acquire buttons are inside that program.
+            # 2D and 3D acquire buttons are inside that program. New charts
+            # get SCAN\{id}\ + FILEDATA.TXT first (Clinic Solution order).
             if ($dryRun) {
                 $bridgeLaunch = [ordered]@{
                     target = (Resolve-TrophyTwExe $resolved)
                     mode = "trophy-dry-run"
+                    patient_id = (Convert-NntPatientId $patientContext.patient_no)
+                    scan_path = (Get-TrophyScanFolderPath $patientContext.patient_no)
                     argList = (Build-TrophyTwCommandLine (Get-TrophyScanFolderPath $patientContext.patient_no) (Build-TrophyTwUiLabel $patientContext))
                     dry_run = $true
                     launched = $false
@@ -3882,9 +3983,27 @@ function Handle-Request($RawPath) {
                 $bridgeLaunch = Start-TrophyTwPatient $resolved $patientContext
             }
         } elseif ($key -eq "carestream") {
-            # Consultation client: public desktop "CS Imaging Software" -> Patient.exe.
-            # Patient name goes into the live-filter search box (no patient CLI).
-            if ($dryRun) {
+            # Capture PC with TW.exe: same Clinic Solution path as Trophy
+            # (seed SCAN + FILEDATA for new charts, open TW for old films /
+            # new panorama). Consultation client without TW.exe: Patient.exe
+            # + live-filter paste (no patient CLI).
+            if (Test-TrophyTwCaptureStation $resolved) {
+                if ($dryRun) {
+                    $bridgeLaunch = [ordered]@{
+                        target = (Resolve-TrophyTwExe $resolved)
+                        patient_id = (Convert-NntPatientId $patientContext.patient_no)
+                        scan_path = (Get-TrophyScanFolderPath $patientContext.patient_no)
+                        search_text = (Build-CarestreamSearchText $patientContext)
+                        mode = "carestream_trophy_tw"
+                        argList = (Build-TrophyTwCommandLine (Get-TrophyScanFolderPath $patientContext.patient_no) (Build-TrophyTwUiLabel $patientContext))
+                        dry_run = $true
+                        launched = $false
+                    }
+                } else {
+                    $bridgeLaunch = Start-TrophyTwPatient $resolved $patientContext
+                    if ($bridgeLaunch) { $bridgeLaunch.mode = "carestream_trophy_tw" }
+                }
+            } elseif ($dryRun) {
                 $existingScan = Find-NntScanFolder $patientContext.patient_no
                 $bridgeLaunch = [ordered]@{
                     target = (Resolve-CarestreamPatientBrowser $resolved)
@@ -4004,12 +4123,43 @@ function Invoke-SelfTest {
     Assert-Equal "Null stays empty"    ""            (Convert-NntBirthDate $null)
     Assert-Equal "Slash legacy format" "09/06/1958"  (Convert-NntBirthDate "1958/6/9")
 
-    Write-Host "== Build-TrophyTwCommandLine (TW.exe requires -P\"path\") ==" -ForegroundColor Cyan
-    Assert-Equal "existing chart command" `
-        "-P""\\RECEPTION_MCP\IMAGE\SCAN\003509"" -NSIU KAI WING  TEST -FSIU KAI WING  TEST" `
-        (Build-TrophyTwCommandLine "\\RECEPTION_MCP\IMAGE\SCAN\003509" "SIU KAI WING  TEST")
-    Assert-Equal "path is quoted" $true ((Build-TrophyTwCommandLine "C:\SCAN\1" "A B").StartsWith('-P"C:\SCAN\1"'))
-    Assert-Equal "name is not quoted" $false ((Build-TrophyTwCommandLine "C:\SCAN\1" "A B") -match '-N"')
+    Write-Host "== Build-TrophyTwCommandLine (Clinic Solution: unquoted -P when no spaces) ==" -ForegroundColor Cyan
+    Assert-equal "existing chart command (live CS 2026-10-22)" `
+        '-P\\RECEPTION_MCP\IMAGE\SCAN\003501 -NWONG YIK YU FINIAN  TEST -FWONG YIK YU FINIAN  TEST' `
+        (Build-TrophyTwCommandLine '\\RECEPTION_MCP\IMAGE\SCAN\003501' 'WONG YIK YU FINIAN  TEST')
+    Assert-equal "new testing chart command" `
+        '-P\\RECEPTION_MCP\IMAGE\SCAN\003510 -NTESTING -FTESTING' `
+        (Build-TrophyTwCommandLine '\\RECEPTION_MCP\IMAGE\SCAN\003510' 'TESTING')
+    Assert-equal "path unquoted without spaces" $true ((Build-TrophyTwCommandLine 'C:\SCAN\1' 'A B').StartsWith('-PC:\SCAN\1'))
+    Assert-equal "path quoted when spaces" $true ((Build-TrophyTwCommandLine 'C:\SCAN folder\1' 'A').StartsWith('-P"C:\SCAN folder\1"'))
+    Assert-equal "name is not quoted" $false ((Build-TrophyTwCommandLine 'C:\SCAN\1' 'A B') -match '-N"')
+
+    Write-Host "== Trophy FILEDATA seed (Clinic Solution new-patient order) ==" -ForegroundColor Cyan
+    $fdNames = Build-TrophyFileDataNames ([ordered]@{ patient_no = "003510"; patient_name = "TESTING" })
+    Assert-equal "single token NOM=PRENOM" "TESTING" $fdNames.Nom
+    Assert-equal "single token PRENOM duplicates" "TESTING" $fdNames.Prenom
+    $fdMulti = Build-TrophyFileDataNames ([ordered]@{ patient_no = "003501"; patient_name = "WONG YIK YU FINIAN" })
+    Assert-equal "HK surname NOM" "WONG" $fdMulti.Nom
+    Assert-equal "HK given PRENOM" "YIK YU FINIAN" $fdMulti.Prenom
+    Assert-equal "preferred chart pads to 6" "003510" (Get-TrophyPreferredChartId "3510")
+    Assert-equal "preferred chart keeps 6" "003510" (Get-TrophyPreferredChartId "PL003510")
+    $fdTemp = Join-Path $env:TEMP ("trophy-filedata-" + [Guid]::NewGuid().ToString("N"))
+    try {
+        New-Item -ItemType Directory -Path $fdTemp -Force | Out-Null
+        $fdPath = Write-TrophyFileData $fdTemp "003510" ([ordered]@{
+            patient_no = "003510"; patient_name = "TESTING"; dob = "1984-08-15"
+        })
+        $fdText = [IO.File]::ReadAllText($fdPath)
+        Assert-equal "FILEDATA has NUMERO" $true ($fdText -match '(?m)^NUMERO=003510\r?$')
+        Assert-equal "FILEDATA has NOM" $true ($fdText -match '(?m)^NOM=TESTING\r?$')
+        Assert-equal "FILEDATA has PRENOM" $true ($fdText -match '(?m)^PRENOM=TESTING\r?$')
+        Assert-equal "FILEDATA has DATE yyyyMMdd" $true ($fdText -match '(?m)^DATE=19840815\r?$')
+        Assert-equal "FILEDATA has EXTNUM" $true ($fdText -match '(?m)^EXTNUM=003510\r?$')
+    } finally {
+        if (Test-Path -LiteralPath $fdTemp) { Remove-Item -LiteralPath $fdTemp -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    Assert-equal "Ensure-TrophyScanPatientFolder is a function" $true ($null -ne (Get-Command Ensure-TrophyScanPatientFolder -ErrorAction SilentlyContinue))
+    Assert-equal "Test-TrophyTwCaptureStation is a function" $true ($null -ne (Get-Command Test-TrophyTwCaptureStation -ErrorAction SilentlyContinue))
 
     Write-Host "== Carestream client Patient.exe (no -P; paste name into live-filter search) ==" -ForegroundColor Cyan
     $csPatient = [ordered]@{
@@ -4018,9 +4168,9 @@ function Invoke-SelfTest {
         chinese_name = "TEST"
         dob = "1969-05-23"
     }
-    Assert-Equal "client chart strips clinic prefix" "003509" (Convert-NntPatientId "PL003509")
-    Assert-Equal "client command is empty" "" (Build-CarestreamPatientCommandLine $csPatient "")
-    Assert-Equal "client command has no -P" $false ((Build-CarestreamPatientCommandLine $csPatient "C:\SCAN\1") -match '-P')
+    Assert-equal "client chart strips clinic prefix" "003509" (Convert-NntPatientId "PL003509")
+    Assert-equal "client command is empty" "" (Build-CarestreamPatientCommandLine $csPatient "")
+    Assert-equal "client command has no -P" $false ((Build-CarestreamPatientCommandLine $csPatient "C:\SCAN\1") -match '-P')
     Assert-equal "search text is patient name" "SIU KAI WING" (Build-CarestreamSearchText $csPatient)
     Assert-equal "search_text query wins" "SIU" (Build-CarestreamSearchText ([ordered]@{ patient_no = "PL003509"; search_text = "SIU" }))
     Assert-equal "chinese name when no English" "TEST" (Build-CarestreamSearchText ([ordered]@{ patient_no = "PL003509"; chinese_name = "TEST" }))

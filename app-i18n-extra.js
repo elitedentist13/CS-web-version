@@ -6254,9 +6254,9 @@
             'zh-Hant': '啟動 Romexis 軟件'
         },
         'media.sys.carestream.info': {
-            en: 'Opens CS Imaging (Patient Browser) — same as the "CS Imaging Software" shortcut on this PC desktop',
-            'zh-CN': '打开 CS Imaging（Patient Browser）— 与本机桌面「CS Imaging Software」快捷方式相同',
-            'zh-Hant': '開啟 CS Imaging（Patient Browser）— 與本機桌面「CS Imaging Software」捷徑相同'
+            en: 'Opens Carestream like Clinic Solution: TW.exe on the SCAN chart (old films + new panorama). Consultation PCs without TW use Patient Browser search.',
+            'zh-CN': '按 Clinic Solution 方式打开 Carestream：在 SCAN 病历上启动 TW.exe（旧片 + 新全景）。无 TW 的诊症电脑则用 Patient Browser 搜索。',
+            'zh-Hant': '按 Clinic Solution 方式開啟 Carestream：在 SCAN 病歷上啟動 TW.exe（舊片 + 新全景）。無 TW 的診症電腦則用 Patient Browser 搜尋。'
         },
         'media.sys.carestream.desktopHint': {
             en: 'CS Imaging Software (Carestream Patient Browser on this PC)',
@@ -6383,19 +6383,34 @@
             'zh-Hant': '無法從瀏覽器啟動 EzDent-i。\n\n1. 執行：{BAT}（保持啟動器視窗開啟）\n2. 再次按 EzDent-i\n\n或按兩下桌面「{SHORTCUT}」。\n剪貼簿病歷號：{PATIENT}\n程式：{EXE}'
         },
         'media.local.carestreamOpen': {
-            en: 'Open Carestream CS Imaging on this computer?\n\n• Desktop shortcut: "{SHORTCUT}"\n• Program: {EXE}\n• Patient (name + no., copied to clipboard): {PATIENT}\n• Optional local folder: {FOLDER}\n\nThis PC does not use a browser link — search in the app by name or patient no.',
-            'zh-CN': '在本机打开 Carestream CS Imaging？\n\n• 桌面快捷方式：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者（姓名 + 编号，将复制到剪贴板）：{PATIENT}\n• 可选本地文件夹：{FOLDER}\n\n本机不使用浏览器链接 — 请在软件中按姓名或患者编号搜索。',
-            'zh-Hant': '在本機開啟 Carestream CS Imaging？\n\n• 桌面捷徑：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人（姓名 + 編號，將複製到剪貼簿）：{PATIENT}\n• 可選本機資料夾：{FOLDER}\n\n本機不使用瀏覽器連結 — 請在軟件內按姓名或病人編號搜尋。'
+            en: 'Open Carestream (Clinic Solution style) on this computer?\n\n• Shortcut / program: "{SHORTCUT}"\n• Program: {EXE}\n• Patient: {PATIENT}\n• SCAN folder: {FOLDER}\n\nExisting chart → open films in TW.exe.\nNew chart → create SCAN folder + FILEDATA, then open TW ready for a new panorama.',
+            'zh-CN': '在本机按 Clinic Solution 方式打开 Carestream？\n\n• 快捷方式 / 程序：「{SHORTCUT}」\n• 程序：{EXE}\n• 患者：{PATIENT}\n• SCAN 文件夹：{FOLDER}\n\n已有病历 → 在 TW.exe 打开旧片。\n新病历 → 建立 SCAN 文件夹 + FILEDATA，再打开 TW 准备拍新全景。',
+            'zh-Hant': '在本機按 Clinic Solution 方式開啟 Carestream？\n\n• 捷徑 / 程式：「{SHORTCUT}」\n• 程式：{EXE}\n• 病人：{PATIENT}\n• SCAN 資料夾：{FOLDER}\n\n已有病歷 → 在 TW.exe 開啟舊片。\n新病歷 → 建立 SCAN 資料夾 + FILEDATA，再開啟 TW 準備拍新全景。'
         },
         'media.local.carestreamLaunched': {
-            en: 'CS Imaging is starting.\n\nCopied to clipboard: {PATIENT}\nSearch by name or patient no. in "{SHORTCUT}".',
-            'zh-CN': '正在启动 CS Imaging。\n\n已复制到剪贴板：{PATIENT}\n请在「{SHORTCUT}」中按姓名或患者编号搜索。',
-            'zh-Hant': '正在啟動 CS Imaging。\n\n已複製到剪貼簿：{PATIENT}\n請在「{SHORTCUT}」中按姓名或病人編號搜尋。'
+            en: 'Carestream / Trophy is starting for {PATIENT}.\n\nExisting films open from the SCAN chart; a new chart is seeded then opened in TW.exe for the next panorama.',
+            'zh-CN': '正在为 {PATIENT} 启动 Carestream / Trophy。\n\n旧片从 SCAN 病历打开；新病历会先建档再在 TW.exe 中打开，准备拍全景。',
+            'zh-Hant': '正在為 {PATIENT} 啟動 Carestream / Trophy。\n\n舊片從 SCAN 病歷開啟；新病歷會先建檔再在 TW.exe 中開啟，準備拍全景。'
         },
         'media.local.carestreamLauncherNeeded': {
-            en: 'Could not start CS Imaging from the browser.\n\n1. Run: current work\\{BAT} (leave window open)\n2. Click CS Imaging (Carestream) again\n\nOr double-click desktop "{SHORTCUT}".\nCopied to clipboard: {PATIENT}\nProgram: {EXE}',
-            'zh-CN': '无法从浏览器启动 CS Imaging。\n\n1. 运行：current work\\{BAT}（保持窗口打开）\n2. 再次点击 CS Imaging (Carestream)\n\n或双击桌面「{SHORTCUT}」。\n已复制到剪贴板：{PATIENT}\n程序：{EXE}',
-            'zh-Hant': '無法從瀏覽器啟動 CS Imaging。\n\n1. 執行：current work\\{BAT}（保持視窗開啟）\n2. 再次按 CS Imaging (Carestream)\n\n或按兩下桌面「{SHORTCUT}」。\n已複製到剪貼簿：{PATIENT}\n程式：{EXE}'
+            en: 'Could not start Carestream from the browser.\n\n1. Run: {BAT} (leave the Carestream MCP bridge window open)\n2. Click CS Imaging (Carestream) / Trophy again\n\nOr double-click desktop "{SHORTCUT}".\nPatient: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 Carestream。\n\n1. 运行：{BAT}（保持 Carestream MCP 桥接窗口打开）\n2. 再次点击 CS Imaging (Carestream) / Trophy\n\n或双击桌面「{SHORTCUT}」。\n患者：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 Carestream。\n\n1. 執行：{BAT}（保持 Carestream MCP 橋接視窗開啟）\n2. 再次按 CS Imaging (Carestream) / Trophy\n\n或按兩下桌面「{SHORTCUT}」。\n病人：{PATIENT}\n程式：{EXE}'
+        },
+        'media.local.trophyOpen': {
+            en: 'Open Trophy / CS Imaging (TW.exe) for this patient?\n\n• Program: {EXE}\n• Patient: {PATIENT}\n• SCAN folder: {FOLDER}\n\nSame Clinic Solution handoff: open existing films, or seed a new chart ready for panorama.',
+            'zh-CN': '为该患者打开 Trophy / CS Imaging（TW.exe）？\n\n• 程序：{EXE}\n• 患者：{PATIENT}\n• SCAN 文件夹：{FOLDER}\n\n与 Clinic Solution 相同：打开旧片，或为新病历建档准备拍全景。',
+            'zh-Hant': '為該病人開啟 Trophy / CS Imaging（TW.exe）？\n\n• 程式：{EXE}\n• 病人：{PATIENT}\n• SCAN 資料夾：{FOLDER}\n\n與 Clinic Solution 相同：開啟舊片，或為新病歷建檔準備拍全景。'
+        },
+        'media.local.trophyLaunched': {
+            en: 'Trophy / TW.exe is starting for {PATIENT}.',
+            'zh-CN': '正在为 {PATIENT} 启动 Trophy / TW.exe。',
+            'zh-Hant': '正在為 {PATIENT} 啟動 Trophy / TW.exe。'
+        },
+        'media.local.trophyLauncherNeeded': {
+            en: 'Could not start Trophy / TW.exe from the browser.\n\n1. Run: {BAT}\n2. Click Trophy again\n\nPatient: {PATIENT}\nProgram: {EXE}',
+            'zh-CN': '无法从浏览器启动 Trophy / TW.exe。\n\n1. 运行：{BAT}\n2. 再次点击 Trophy\n\n患者：{PATIENT}\n程序：{EXE}',
+            'zh-Hant': '無法從瀏覽器啟動 Trophy / TW.exe。\n\n1. 執行：{BAT}\n2. 再次按 Trophy\n\n病人：{PATIENT}\n程式：{EXE}'
         },
         'media.local.launcherReady': {
             en: '✓ Local launcher is running — OK to open the program.',
@@ -6443,9 +6458,9 @@
             'zh-Hant': '（開啟桌面程式後，按已複製的病人姓名或編號搜尋）'
         },
         'media.sys.trophy.info': {
-            en: 'Launches Trophy/Kodak imaging system',
-            'zh-CN': '启动 Trophy/Kodak 影像系统',
-            'zh-Hant': '啟動 Trophy/Kodak 影像系統'
+            en: 'Launches Trophy TW.exe on the Clinic Solution SCAN chart (same handoff as Carestream on the x-ray PC)',
+            'zh-CN': '在 Clinic Solution SCAN 病历上启动 Trophy TW.exe（与拍片电脑上的 Carestream 相同）',
+            'zh-Hant': '在 Clinic Solution SCAN 病歷上啟動 Trophy TW.exe（與拍片電腦上的 Carestream 相同）'
         },
         'media.customLink': { en: 'Custom Link', 'zh-CN': '自定义链接', 'zh-Hant': '自訂連結' },
         'media.local.foldersBtn': { en: 'Local PC folders', 'zh-CN': '本机文件夹', 'zh-Hant': '本機資料夾' },

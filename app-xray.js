@@ -3412,10 +3412,13 @@ var XRAY_SYSTEMS = {
         launcherKey: 'carestream',
         desktopShortcutName: 'CS Imaging Software',
         desktopShortcutPath: 'C:\\Users\\Public\\Desktop\\CS Imaging Software.lnk',
-        defaultDataPath: 'C:\\Image',
-        defaultSubPattern: 'Xrays\\{patient_no}',
-        defaultAppPath: 'C:\\Program Files (x86)\\Carestream\\Patient Browser\\Patient.exe',
+        // Capture PCs (TW.exe): Clinic Solution SCAN chart. Clients without TW
+        // still open Patient.exe; bridge chooses which path at launch time.
+        defaultDataPath: xrayTrophyScanRoot(),
+        defaultSubPattern: xrayTrophySubPattern(),
+        defaultAppPath: 'C:\\Program Files (x86)\\Carestream\\CSImaging\\TW.exe',
         launchProtocol: false,
+        launcherBat: 'tools\\installer-carestream-mcp\\Start Carestream MCP Launcher.bat',
         openMsgKey: 'media.local.carestreamOpen',
         launchedMsgKey: 'media.local.carestreamLaunched',
         launcherNeededMsgKey: 'media.local.carestreamLauncherNeeded'
@@ -3513,6 +3516,7 @@ var XRAY_SYSTEMS = {
         defaultSubPattern: xrayTrophySubPattern(),
         defaultAppPath: 'C:\\Program Files (x86)\\Carestream\\CSImaging\\TW.exe',
         launchProtocol: false,
+        launcherBat: 'tools\\installer-carestream-mcp\\Start Carestream MCP Launcher.bat',
         openMsgKey: 'media.local.trophyOpen',
         launchedMsgKey: 'media.local.trophyLaunched',
         launcherNeededMsgKey: 'media.local.trophyLauncherNeeded'
@@ -3602,7 +3606,7 @@ function seedXrayLocalPathsFromDesktop() {
             appPath: cur.appPath || ''
         };
         if (needsImageRoot(next.dataPath)) {
-            if (key === 'Trophy') {
+            if (key === 'Trophy' || key === 'carestream') {
                 next.dataPath = xrayTrophyScanRoot();
                 next.subPattern = xrayTrophySubPattern();
             } else {
@@ -3610,16 +3614,16 @@ function seedXrayLocalPathsFromDesktop() {
             }
             patch = true;
         }
-        if (key === 'Trophy' && next.dataPath && /^C:\\Image/i.test(next.dataPath)) {
+        if ((key === 'Trophy' || key === 'carestream') && next.dataPath && /^C:\\Image/i.test(next.dataPath)) {
             next.dataPath = xrayTrophyScanRoot();
             next.subPattern = xrayTrophySubPattern();
             patch = true;
         }
-        if (key === 'Trophy' && next.subPattern && /Xrays/i.test(next.subPattern)) {
+        if ((key === 'Trophy' || key === 'carestream') && next.subPattern && /Xrays/i.test(next.subPattern)) {
             next.subPattern = xrayTrophySubPattern();
             patch = true;
         }
-        if (key === 'Trophy' && next.subPattern === '{patient_no}') {
+        if ((key === 'Trophy' || key === 'carestream') && next.subPattern === '{patient_no}') {
             next.subPattern = xrayTrophySubPattern();
             patch = true;
         }

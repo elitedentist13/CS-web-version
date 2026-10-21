@@ -436,6 +436,39 @@ function extractIifeHelpers(src) {
     pass('doctor join SQL patch exists',
         fs.existsSync(path.join(root, 'reward_points_patch_doctor_join.sql')) &&
         /reward_program_doctors/.test(read('reward_points_patch_doctor_join.sql')));
+    pass('RESET ZERO + policy + step-back helpers',
+        /openResetZeroFlow/.test(rewardsSrc) &&
+        /openAdminRewardAuthGate/.test(rewardsSrc) &&
+        /zeroClinicBalances/.test(rewardsSrc) &&
+        /revertLastZeroBatch/.test(rewardsSrc) &&
+        /saveZeroPolicy/.test(rewardsSrc) &&
+        /maybeRunScheduledZero/.test(rewardsSrc) &&
+        /rwCfgResetZero/.test(rewardsSrc) &&
+        /rwCfgStepBack/.test(rewardsSrc) &&
+        /rwZeroPolicy/.test(rewardsSrc) &&
+        /zero_policy/.test(rewardsSrc));
+    pass('zero policy default is manual',
+        /normalizeZeroPolicy/.test(rewardsSrc) &&
+        /\|\| 'manual'/.test(rewardsSrc) &&
+        /zeroPolicyDefault/.test(rewardsSrc) &&
+        /zeroPolicyManual/.test(rewardsSrc));
+    pass('zero clinics SQL patch has snapshot + revert + lifespan',
+        fs.existsSync(path.join(root, 'reward_points_patch_zero_clinics.sql')) &&
+        (function () {
+            var sql = read('reward_points_patch_zero_clinics.sql');
+            return /reward_zero_batches/.test(sql) &&
+                /reward_zero_snapshot_rows/.test(sql) &&
+                /reward_revert_zero_batch/.test(sql) &&
+                /reward_expire_lifespan/.test(sql) &&
+                /zero_policy/.test(sql) &&
+                /default 'manual'/.test(sql);
+        })());
+    pass('i18n RESET ZERO / step-back / policy keys',
+        /rewards\.cfg\.resetZeroBtn/.test(i18nExtra) &&
+        /rewards\.cfg\.stepBackBtn/.test(i18nExtra) &&
+        /rewards\.cfg\.zeroPolicyYearEnd/.test(i18nExtra) &&
+        /rewards\.cfg\.zeroPolicyAuthTitle/.test(i18nExtra) &&
+        /rewards\.cfg\.zeroPolicyDefault/.test(i18nExtra));
     pass('index shows payment doctor for rewards',
         idxSrc.indexOf('id="apRewardDoctor"') >= 0);
     pass('patient dir ⋯ has reward ledger',

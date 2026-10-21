@@ -918,6 +918,699 @@ var REWARDS = (function () {
         });
     }
 
+    /** Load current admin row (needs totp_secret for mid-session re-auth). */
+    function loadCurrentAdminUser() {
+        var uid = typeof currentUserId !== 'undefined' ? currentUserId : null;
+        if (!uid || !isAdmin()) {
+            return Promise.resolve({ ok: false, error: 'admin only' });
+        }
+        return SB.from('app_users')
+            .select('user_id,role,totp_secret,display_name,is_active')
+            .eq('user_id', uid)
+            .maybeSingle()
+            .then(function (r) {
+                if (r.error) return { ok: false, error: r.error.message };
+                var u = r.data;
+                if (!u || String(u.role || '').toLowerCase() !== 'admin' || u.is_active === false) {
+                    return { ok: false, error: 'admin only' };
+                }
+                return { ok: true, user: u };
+            });
+    }
+
+    var LIFESPAN_MONTH_OPTIONS = [1, 2, 3, 4, 6, 9, 12, 24];
+
+    function normalizeZeroPolicy(program) {
+        var p = String((program && program.zero_policy) || 'manual').toLowerCase();
+        if (p !== 'year_end' && p !== 'lifespan') p = 'manual';
+        var months = Number(program && program.lifespan_months);
+        if (LIFESPAN_MONTH_OPTIONS.indexOf(months) < 0) months = 12;
+        return { zero_policy: p, lifespan_months: months };
+    }
+
+    function loadLastZeroBatch() {
+        return SB.from('reward_zero_batches')
+            .select('id,created_at,created_by,source,scope_all,clinic_codes,accounts,points_cleared,reverted_at,note')
+            .is('reverted_at', null)
+            .in('source', ['manual', 'year_end', 'lifespan'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+            .then(function (r) {
+                if (r.error) return { ok: false, error: r.error.message, batch: null };
+                return { ok: true, batch: r.data || null };
+            })
+            .catch(function (e) {
+                return { ok: false, error: (e && e.message) || 'load failed', batch: null };
+            });
+    }
+
+    function revertLastZeroBatch(opts) {
+        opts = opts || {};
+        if (!isAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
+        return SB.rpc('reward_revert_zero_batch', {
+            p_batch_id: opts.batchId || null,
+            p_created_by: opts.createdBy || actorName(),
+            p_note: opts.note || 'Step back — recover last balance before set zero'
+        }).then(function (r) {
+            if (r.error) return { ok: false, error: r.error.message };
+            return rpcResult(r.data);
+        });
+    }
+
+    function saveZeroPolicy(policy, lifespanMonths) {
+        if (!isAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
+        var p = String(policy || 'manual').toLowerCase();
+        if (p !== 'year_end' && p !== 'lifespan') p = 'manual';
+        var months = Number(lifespanMonths);
+        if (LIFESPAN_MONTH_OPTIONS.indexOf(months) < 0) months = 12;
+        var patch = {
+            zero_policy: p,
+            lifespan_months: p === 'lifespan' ? months : null,
+            updated_at: new Date().toISOString(),
+            updated_by: actorName()
+        };
+        // When enabling year-end mid-year, mark current HK year done so first wipe is next Dec 31.
+        if (p === 'year_end') {
+            try {
+                var y = Number(new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'Asia/Hong_Kong', year: 'numeric'
+                }).format(new Date()));
+                if (isFinite(y)) patch.last_year_end_zero_year = y;
+            } catch (e1) {
+                patch.last_year_end_zero_year = new Date().getFullYear();
+            }
+        }
+        return SB.from('reward_program').update(patch).eq('id', 1).then(function (r) {
+            if (r.error) return { ok: false, error: r.error.message };
+            _programCache = null;
+            return { ok: true, policy: p, lifespan_months: months };
+        });
+    }
+
+    /**
+     * Wipe reward balances for selected clinics (or all). Writes a safety snapshot
+     * batch so Step Back can restore. Tries bulk RPC first; client fallback also
+     * writes snapshot rows when tables exist.
+     */
+    function zeroClinicBalances(opts) {
+        opts = opts || {};
+        if (!isAdmin() && opts.source !== 'year_end' && opts.source !== 'lifespan') {
+            return Promise.resolve({ ok: false, error: 'admin only' });
+        }
+        var all = !!opts.all;
+        var clinicIds = (opts.clinicIds || []).filter(Boolean);
+        var clinicCodes = (opts.clinicCodes || []).map(function (c) {
+            return String(c || '').trim();
+        }).filter(Boolean);
+        var source = String(opts.source || 'manual').toLowerCase();
+        if (source !== 'year_end' && source !== 'lifespan') source = 'manual';
+        var note = String(opts.note || 'Admin RESET ZERO').trim();
+        if (!note) note = 'Admin RESET ZERO';
+        if (!all && !clinicIds.length && !clinicCodes.length) {
+            return Promise.resolve({ ok: false, error: 'no clinics selected' });
+        }
+
+        function viaRpc() {
+            return SB.rpc('reward_zero_clinics', {
+                p_all: all,
+                p_clinic_ids: all ? null : (clinicIds.length ? clinicIds : null),
+                p_clinic_codes: all ? null : (clinicCodes.length ? clinicCodes : null),
+                p_created_by: opts.createdBy || actorName(),
+                p_note: note,
+                p_source: source
+            }).then(function (r) {
+                if (r.error) return { ok: false, error: r.error.message, fallback: true };
+                var data = rpcResult(r.data);
+                if (!data || data.ok === false) {
+                    return {
+                        ok: false,
+                        error: (data && data.error) || 'zero failed',
+                        fallback: true
+                    };
+                }
+                return {
+                    ok: true,
+                    batch_id: data.batch_id || null,
+                    accounts: Number(data.accounts) || 0,
+                    points_cleared: round2(data.points_cleared),
+                    via: 'rpc',
+                    source: source
+                };
+            });
+        }
+
+        function viaClientLoop() {
+            return SB.from('reward_accounts')
+                .select('id,patient_id,balance,clinic_id,clinic_code,lifetime_earned,lifetime_redeemed')
+                .gt('balance', 0)
+                .then(function (r) {
+                    if (r.error) return { ok: false, error: r.error.message };
+                    var rows = r.data || [];
+                    var idSet = {};
+                    var codeSet = {};
+                    clinicIds.forEach(function (id) { idSet[String(id)] = true; });
+                    clinicCodes.forEach(function (c) { codeSet[String(c).toUpperCase()] = true; });
+                    var targets = rows.filter(function (row) {
+                        if (all) return round2(row.balance) > 0;
+                        if (row.clinic_id && idSet[String(row.clinic_id)]) return true;
+                        var code = String(row.clinic_code || '').trim().toUpperCase();
+                        return !!(code && codeSet[code]);
+                    });
+
+                    var batchId = null;
+                    return SB.from('reward_zero_batches').insert({
+                        created_by: opts.createdBy || actorName(),
+                        source: source,
+                        scope_all: all,
+                        clinic_ids: all ? null : (clinicIds.length ? clinicIds : null),
+                        clinic_codes: all ? null : (clinicCodes.length ? clinicCodes : null),
+                        note: note,
+                        accounts: 0,
+                        points_cleared: 0
+                    }).select('id').maybeSingle().then(function (br) {
+                        if (!br.error && br.data && br.data.id) batchId = br.data.id;
+                        var snapRows = targets.map(function (row) {
+                            return {
+                                batch_id: batchId,
+                                patient_id: row.patient_id,
+                                account_id: row.id,
+                                clinic_id: row.clinic_id,
+                                clinic_code: row.clinic_code || '',
+                                balance_before: round2(row.balance),
+                                lifetime_earned: row.lifetime_earned,
+                                lifetime_redeemed: row.lifetime_redeemed
+                            };
+                        }).filter(function (s) { return !!s.batch_id; });
+                        var snapP = snapRows.length
+                            ? SB.from('reward_zero_snapshot_rows').insert(snapRows)
+                            : Promise.resolve({ error: null });
+                        return snapP.then(function () {
+                            var chain = Promise.resolve({
+                                ok: true, accounts: 0, points_cleared: 0, via: 'client', batch_id: batchId, source: source
+                            });
+                            targets.forEach(function (row) {
+                                chain = chain.then(function (acc) {
+                                    if (!acc.ok) return acc;
+                                    var bal = round2(row.balance);
+                                    if (bal <= 0) return acc;
+                                    return adjust({
+                                        patientId: row.patient_id,
+                                        pointsDelta: -bal,
+                                        clinicId: row.clinic_id,
+                                        clinicCode: row.clinic_code,
+                                        note: note + (batchId ? (' [batch ' + batchId + ']') : '')
+                                    }).then(function (res) {
+                                        if (!res || !res.ok) {
+                                            return {
+                                                ok: false,
+                                                error: (res && res.error) || 'adjust failed',
+                                                accounts: acc.accounts,
+                                                points_cleared: acc.points_cleared,
+                                                via: 'client',
+                                                batch_id: batchId,
+                                                source: source
+                                            };
+                                        }
+                                        if (res.skipped) return acc;
+                                        return {
+                                            ok: true,
+                                            accounts: acc.accounts + 1,
+                                            points_cleared: round2(acc.points_cleared + bal),
+                                            via: 'client',
+                                            batch_id: batchId,
+                                            source: source
+                                        };
+                                    });
+                                });
+                            });
+                            return chain.then(function (acc) {
+                                if (!batchId || !acc.ok) return acc;
+                                return SB.from('reward_zero_batches').update({
+                                    accounts: acc.accounts,
+                                    points_cleared: acc.points_cleared
+                                }).eq('id', batchId).then(function () { return acc; });
+                            });
+                        });
+                    });
+                });
+        }
+
+        return viaRpc().then(function (res) {
+            if (res && res.ok) return res;
+            if (res && res.fallback) return viaClientLoop();
+            return res || { ok: false, error: 'zero failed' };
+        });
+    }
+
+    function hkYearNow() {
+        try {
+            return Number(new Intl.DateTimeFormat('en-US', {
+                timeZone: 'Asia/Hong_Kong', year: 'numeric'
+            }).format(new Date()));
+        } catch (e) {
+            return new Date().getFullYear();
+        }
+    }
+
+    /** Auto year-end / lifespan jobs (idempotent; safe to call on config load). */
+    function maybeRunScheduledZero(program) {
+        var norm = normalizeZeroPolicy(program || {});
+        if (norm.zero_policy === 'year_end') {
+            var y = hkYearNow();
+            var last = Number(program && program.last_year_end_zero_year);
+            // After Jan 1 HK, previous calendar year's Dec 31 23:59 has passed.
+            if (!last || last < y) {
+                return zeroClinicBalances({
+                    all: true,
+                    source: 'year_end',
+                    note: 'Auto year-end RESET ZERO (31 Dec 23:59 HK) for ' + (y - 1),
+                    createdBy: actorName() || 'system'
+                }).then(function (res) {
+                    _programCache = null;
+                    return res;
+                });
+            }
+        }
+        if (norm.zero_policy === 'lifespan') {
+            var lastRun = program && program.last_lifespan_run_at
+                ? new Date(program.last_lifespan_run_at).getTime() : 0;
+            var dayMs = 24 * 60 * 60 * 1000;
+            if (lastRun && (Date.now() - lastRun) < dayMs) {
+                return Promise.resolve({ ok: true, skipped: true, reason: 'ran_today' });
+            }
+            return SB.rpc('reward_expire_lifespan', {
+                p_months: norm.lifespan_months,
+                p_created_by: actorName() || 'system',
+                p_note: 'Auto lifespan expiry ' + norm.lifespan_months + ' months'
+            }).then(function (r) {
+                if (r.error) {
+                    // Fallback: full zero of stale not available — skip quietly
+                    return { ok: false, error: r.error.message, skipped: true };
+                }
+                _programCache = null;
+                return rpcResult(r.data);
+            });
+        }
+        return Promise.resolve({ ok: true, skipped: true, reason: 'manual' });
+    }
+
+    function ensureResetZeroModal() {
+        var el = document.getElementById('rwResetZeroModal');
+        if (el) return el;
+        el = document.createElement('div');
+        el.id = 'rwResetZeroModal';
+        el.className = 'modal modal-no-backdrop-close reward-points-modal';
+        el.setAttribute('data-no-backdrop-close', '1');
+        el.style.display = 'none';
+        el.innerHTML =
+            '<div class="modal-box rw-reset-modal-box">' +
+            '  <div class="rw-reset-head">' +
+            '    <h3 id="rwResetTitle"></h3>' +
+            '    <button type="button" class="btn" id="rwResetCloseX" aria-label="Close">×</button>' +
+            '  </div>' +
+            '  <div id="rwResetBody"></div>' +
+            '  <p id="rwResetErr" class="rw-reset-err" style="display:none;"></p>' +
+            '</div>';
+        document.body.appendChild(el);
+        return el;
+    }
+
+    function closeResetZeroModal() {
+        if (typeof closeModal === 'function') closeModal('rwResetZeroModal');
+        var el = document.getElementById('rwResetZeroModal');
+        if (el) el.style.display = 'none';
+    }
+
+    function setResetZeroError(msg) {
+        var err = document.getElementById('rwResetErr');
+        if (!err) return;
+        err.textContent = msg || '';
+        err.style.display = msg ? '' : 'none';
+    }
+
+    /**
+     * Shared admin SMS + Google Authenticator gate (same pieces as login).
+     * opts: { title, onSuccess(adminUser), keepOpen }
+     * keepOpen=true leaves the modal open after TOTP so the caller can paint next steps.
+     */
+    function openAdminRewardAuthGate(opts) {
+        opts = opts || {};
+        if (!isAdmin()) {
+            alert(tr('rewards.cfg.adminOnly', 'Only Admin can change this setting.'));
+            return;
+        }
+        var modal = ensureResetZeroModal();
+        var body = document.getElementById('rwResetBody');
+        var title = document.getElementById('rwResetTitle');
+        var phase = 'loading';
+        var adminUser = null;
+        var smsMasked = '';
+        var gateTitle = opts.title || tr('rewards.cfg.resetZeroTitle', 'Reset reward points to zero');
+
+        function paintAuth(step) {
+            phase = step;
+            title.textContent = gateTitle;
+            var heading = step === 'sms'
+                ? tr('login.adminStep.smsTitle', 'SMS verification')
+                : tr('login.adminStep.totpTitle', 'Authenticator verification');
+            var phoneLabel = smsMasked || (typeof ADMINVERIFY !== 'undefined' ? ADMINVERIFY.phoneMask : '');
+            var hint = step === 'sms'
+                ? tr('login.adminStep.smsSent', 'A verification code was sent by SMS to {PHONE}.')
+                    .replace(/\{PHONE\}/g, phoneLabel)
+                : tr('login.adminStep.totpSub', 'Enter the 6-digit code from Google Authenticator.');
+            var btnLabel = step === 'sms'
+                ? tr('login.adminStep.smsVerifyBtn', 'Verify SMS')
+                : tr('login.totpStep.verifyBtn', 'Verify');
+            body.innerHTML =
+                '<p class="rw-reset-sub">' + esc(heading) + '</p>' +
+                '<p class="rw-reset-hint">' + esc(hint) + '</p>' +
+                '<input id="rwResetAuthCode" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" ' +
+                'autocomplete="one-time-code" placeholder="000000" class="rw-reset-code">' +
+                '<div class="rw-reset-actions">' +
+                '<button type="button" class="btn btn--primary" id="rwResetAuthSubmit">' + esc(btnLabel) + '</button>' +
+                (step === 'sms'
+                    ? '<button type="button" class="btn" id="rwResetAuthResend">' +
+                      esc(tr('login.adminStep.resendSms', 'Resend SMS')) + '</button>'
+                    : '') +
+                '<button type="button" class="btn" id="rwResetAuthCancel">' +
+                esc(tr('common.cancel', 'Cancel')) + '</button>' +
+                '</div>';
+            setResetZeroError('');
+            var inp = document.getElementById('rwResetAuthCode');
+            if (inp) setTimeout(function () { inp.focus(); }, 30);
+            var submit = document.getElementById('rwResetAuthSubmit');
+            var cancel = document.getElementById('rwResetAuthCancel');
+            var resend = document.getElementById('rwResetAuthResend');
+            if (cancel) cancel.onclick = function () { closeResetZeroModal(); };
+            if (resend) {
+                resend.onclick = function () {
+                    if (typeof ADMINVERIFY === 'undefined' || !ADMINVERIFY.resend) return;
+                    resend.disabled = true;
+                    ADMINVERIFY.resend().then(function (res) {
+                        resend.disabled = false;
+                        if (res && res.ok) {
+                            smsMasked = res.phone_masked || smsMasked;
+                            paintAuth('sms');
+                        }
+                    }).catch(function () { resend.disabled = false; });
+                };
+            }
+            if (submit) submit.onclick = function () { submitAuth(); };
+            if (inp) {
+                inp.onkeydown = function (ev) {
+                    if (ev.key === 'Enter') submitAuth();
+                };
+            }
+        }
+
+        function submitAuth() {
+            var inp = document.getElementById('rwResetAuthCode');
+            var submit = document.getElementById('rwResetAuthSubmit');
+            var token = String(inp && inp.value || '').trim();
+            setResetZeroError('');
+            if (!/^\d{6}$/.test(token)) {
+                setResetZeroError(tr('login.totpStep.errInvalid', 'Invalid code. Try again.'));
+                return;
+            }
+            if (submit) submit.disabled = true;
+
+            function fail() {
+                if (submit) submit.disabled = false;
+                setResetZeroError(tr('login.totpStep.errInvalid', 'Invalid code. Try again.'));
+                if (inp) { inp.value = ''; inp.focus(); }
+            }
+
+            if (phase === 'sms') {
+                if (typeof ADMINVERIFY === 'undefined' || !ADMINVERIFY.check) { fail(); return; }
+                ADMINVERIFY.check(token).then(function (res) {
+                    if (!res || !res.ok) { fail(); return; }
+                    paintAuth('totp');
+                }).catch(fail);
+                return;
+            }
+
+            var secret = adminUser && String(adminUser.totp_secret || '').trim();
+            if (!secret) {
+                if (submit) submit.disabled = false;
+                setResetZeroError(tr('login.totpStep.errNoSecret', 'Authenticator is not set up for this admin.'));
+                return;
+            }
+            if (typeof _totpVerify !== 'function') {
+                if (submit) submit.disabled = false;
+                setResetZeroError(tr('rewards.cfg.resetZeroErrVerify', 'Verification unavailable. Reload and try again.'));
+                return;
+            }
+            _totpVerify(secret, token).then(function (ok) {
+                if (!ok) { fail(); return; }
+                if (!opts.keepOpen) closeResetZeroModal();
+                if (typeof opts.onSuccess === 'function') {
+                    try { opts.onSuccess(adminUser); } catch (e1) { /* ignore */ }
+                }
+            }).catch(fail);
+        }
+
+        if (typeof openModal === 'function') openModal('rwResetZeroModal');
+        modal.style.display = 'flex';
+        title.textContent = gateTitle;
+        body.innerHTML = '<p class="rw-reset-hint">' + esc(tr('common.loadingEllipsis', 'Loading…')) + '</p>';
+        setResetZeroError('');
+        var closeX = document.getElementById('rwResetCloseX');
+        if (closeX) closeX.onclick = function () { closeResetZeroModal(); };
+
+        loadCurrentAdminUser().then(function (res) {
+            if (!res || !res.ok) {
+                setResetZeroError((res && res.error) || tr('rewards.cfg.adminOnly', 'Only Admin can change this setting.'));
+                return;
+            }
+            adminUser = res.user;
+            var hasTotp = !!(adminUser && String(adminUser.totp_secret || '').trim());
+
+            function startTotpOnly() {
+                if (!hasTotp) {
+                    setResetZeroError(tr('login.totpStep.errNoSecret', 'Authenticator is not set up for this admin.'));
+                    return;
+                }
+                paintAuth('totp');
+            }
+
+            if (typeof ADMINVERIFY === 'undefined' || typeof ADMINVERIFY.send !== 'function') {
+                startTotpOnly();
+                return;
+            }
+            ADMINVERIFY.send().then(function (sendRes) {
+                if (sendRes && sendRes.ok) {
+                    smsMasked = sendRes.phone_masked || smsMasked;
+                    paintAuth('sms');
+                    return;
+                }
+                startTotpOnly();
+            }).catch(startTotpOnly);
+        });
+    }
+
+    /**
+     * Admin RESET ZERO flow:
+     * 1) Twilio SMS + Google Authenticator (same pieces as admin login)
+     * 2) Clinic checkboxes (All + each clinic)
+     * 3) Type the word "confirm"
+     * 4) Wipe balances for selected clinics
+     */
+    function openResetZeroFlow(clinics) {
+        if (!isAdmin()) {
+            alert(tr('rewards.cfg.adminOnly', 'Only Admin can change this setting.'));
+            return;
+        }
+        clinics = (clinics || []).slice();
+        var body = document.getElementById('rwResetBody');
+        var title = document.getElementById('rwResetTitle');
+        var selected = { all: false, ids: {}, codes: {} };
+
+        openAdminRewardAuthGate({
+            title: tr('rewards.cfg.resetZeroTitle', 'Reset reward points to zero'),
+            keepOpen: true,
+            onSuccess: function () {
+                body = document.getElementById('rwResetBody');
+                title = document.getElementById('rwResetTitle');
+                paintClinicSelect();
+            }
+        });
+
+        function paintClinicSelect() {
+            body = document.getElementById('rwResetBody');
+            title = document.getElementById('rwResetTitle');
+            title.textContent = tr('rewards.cfg.resetZeroPickTitle', 'Select clinics to reset');
+            var html = '<p class="rw-reset-hint">' +
+                esc(tr('rewards.cfg.resetZeroPickHint',
+                    'Choose All clinics or individual clinics, then confirm.')) +
+                '</p>';
+            html += '<div class="rw-reset-clinic-list">';
+            html += '<label class="rw-reset-clinic-row rw-reset-clinic-row--all">' +
+                '<input type="checkbox" id="rwResetClinicAll">' +
+                '<span>' + esc(tr('rewards.cfg.resetZeroAll', 'All clinics')) + '</span></label>';
+            clinics.forEach(function (c) {
+                var code = String(c.clinic_code || '').trim();
+                var name = c.english_name || c.chinese_name || code || String(c.id || '');
+                html += '<label class="rw-reset-clinic-row">' +
+                    '<input type="checkbox" class="rw-reset-clinic-cb" data-clinic-id="' + esc(c.id) +
+                    '" data-clinic-code="' + esc(code) + '">' +
+                    '<span><strong>' + esc(code || '—') + '</strong> · ' + esc(name) + '</span></label>';
+            });
+            html += '</div>';
+            html += '<div class="rw-reset-actions">' +
+                '<button type="button" class="btn btn--danger" id="rwResetConfirmZero">' +
+                esc(tr('rewards.cfg.resetZeroConfirmBtn', 'Confirm set zero')) + '</button>' +
+                '<button type="button" class="btn" id="rwResetCancelZero">' +
+                esc(tr('common.cancel', 'Cancel')) + '</button></div>';
+            body.innerHTML = html;
+            setResetZeroError('');
+
+            var allCb = document.getElementById('rwResetClinicAll');
+            var cbs = body.querySelectorAll('.rw-reset-clinic-cb');
+            function syncFromAll() {
+                var on = !!(allCb && allCb.checked);
+                selected.all = on;
+                cbs.forEach(function (cb) {
+                    cb.checked = on;
+                    cb.disabled = on;
+                });
+            }
+            function syncFromIndividuals() {
+                if (!allCb) return;
+                var every = true;
+                var any = false;
+                cbs.forEach(function (cb) {
+                    if (cb.checked) any = true;
+                    else every = false;
+                });
+                if (every && cbs.length) {
+                    allCb.checked = true;
+                    syncFromAll();
+                } else {
+                    allCb.checked = false;
+                    selected.all = false;
+                    cbs.forEach(function (cb) { cb.disabled = false; });
+                }
+                if (!any && !allCb.checked) selected.all = false;
+            }
+            if (allCb) allCb.addEventListener('change', syncFromAll);
+            cbs.forEach(function (cb) {
+                cb.addEventListener('change', syncFromIndividuals);
+            });
+
+            document.getElementById('rwResetCancelZero').onclick = function () {
+                closeResetZeroModal();
+            };
+            document.getElementById('rwResetConfirmZero').onclick = function () {
+                selected.all = !!(allCb && allCb.checked);
+                selected.ids = {};
+                selected.codes = {};
+                if (!selected.all) {
+                    cbs.forEach(function (cb) {
+                        if (!cb.checked) return;
+                        var id = cb.getAttribute('data-clinic-id');
+                        var code = cb.getAttribute('data-clinic-code');
+                        if (id) selected.ids[id] = true;
+                        if (code) selected.codes[code] = true;
+                    });
+                }
+                var idList = Object.keys(selected.ids);
+                var codeList = Object.keys(selected.codes);
+                if (!selected.all && !idList.length && !codeList.length) {
+                    setResetZeroError(tr('rewards.cfg.resetZeroNeedClinic',
+                        'Select All or at least one clinic.'));
+                    return;
+                }
+                paintTypeConfirm();
+            };
+        }
+
+        function paintTypeConfirm() {
+            body = document.getElementById('rwResetBody');
+            title = document.getElementById('rwResetTitle');
+            title.textContent = tr('rewards.cfg.resetZeroTypeTitle', 'Type confirm to wipe points');
+            var scope = selected.all
+                ? tr('rewards.cfg.resetZeroAll', 'All clinics')
+                : Object.keys(selected.codes).join(', ');
+            body.innerHTML =
+                '<p class="rw-reset-hint">' +
+                esc(tr('rewards.cfg.resetZeroTypeHint',
+                    'This permanently sets reward balances to 0 for: {scope}. Type the word confirm below.').replace('{scope}', scope)) +
+                '</p>' +
+                '<input id="rwResetTypeConfirm" type="text" class="rw-reset-code" autocomplete="off" ' +
+                'placeholder="confirm" style="letter-spacing:normal;font-size:16px;text-align:left;">' +
+                '<div class="rw-reset-actions">' +
+                '<button type="button" class="btn btn--danger" id="rwResetDoWipe">' +
+                esc(tr('rewards.cfg.resetZeroWipeBtn', 'Wipe points now')) + '</button>' +
+                '<button type="button" class="btn" id="rwResetBackClinics">' +
+                esc(tr('common.cancel', 'Cancel')) + '</button></div>';
+            setResetZeroError('');
+            var inp = document.getElementById('rwResetTypeConfirm');
+            if (inp) setTimeout(function () { inp.focus(); }, 30);
+            document.getElementById('rwResetBackClinics').onclick = function () {
+                closeResetZeroModal();
+            };
+            document.getElementById('rwResetDoWipe').onclick = function () {
+                var typed = String(inp && inp.value || '').trim().toLowerCase();
+                if (typed !== 'confirm') {
+                    setResetZeroError(tr('rewards.cfg.resetZeroTypeMismatch',
+                        'Please type the word confirm exactly.'));
+                    return;
+                }
+                runWipe();
+            };
+        }
+
+        function runWipe() {
+            body = document.getElementById('rwResetBody');
+            title = document.getElementById('rwResetTitle');
+            body.innerHTML = '<p class="rw-reset-hint">' +
+                esc(tr('rewards.cfg.resetZeroRunning', 'Resetting reward points…')) + '</p>';
+            setResetZeroError('');
+            var idList = Object.keys(selected.ids);
+            var codeList = Object.keys(selected.codes);
+            zeroClinicBalances({
+                all: selected.all,
+                clinicIds: idList,
+                clinicCodes: codeList,
+                source: 'manual',
+                note: 'Admin MANUAL RESET ZERO - typed confirm'
+            }).then(function (res) {
+                body = document.getElementById('rwResetBody');
+                title = document.getElementById('rwResetTitle');
+                if (!res || !res.ok) {
+                    setResetZeroError((res && res.error) || tr('rewards.cfg.resetZeroFailed', 'Reset failed.'));
+                    body.innerHTML += '<div class="rw-reset-actions">' +
+                        '<button type="button" class="btn" id="rwResetCloseFail">' +
+                        esc(tr('common.close', 'Close')) + '</button></div>';
+                    var cf = document.getElementById('rwResetCloseFail');
+                    if (cf) cf.onclick = function () { closeResetZeroModal(); };
+                    return;
+                }
+                title.textContent = tr('rewards.cfg.resetZeroDoneTitle', 'Reset complete');
+                body.innerHTML =
+                    '<p class="rw-reset-hint">' +
+                    esc(tr('rewards.cfg.resetZeroDone',
+                        'Cleared {accounts} account(s), {points} points.').replace('{accounts}', String(res.accounts || 0)).replace('{points}', fmtPts(res.points_cleared || 0))) +
+                    (res.batch_id
+                        ? ('<br>' + esc(tr('rewards.cfg.resetZeroBatchKept',
+                            'Safety log saved. You can Step Back to recover.')))
+                        : '') +
+                    '</p>' +
+                    '<div class="rw-reset-actions">' +
+                    '<button type="button" class="btn btn--primary" id="rwResetCloseOk">' +
+                    esc(tr('common.close', 'Close')) + '</button></div>';
+                document.getElementById('rwResetCloseOk').onclick = function () {
+                    closeResetZeroModal();
+                    var pane = document.getElementById('cfgPane-rewards');
+                    if (pane) renderConfigPane(pane);
+                };
+            }).catch(function (e) {
+                setResetZeroError((e && e.message) || tr('rewards.cfg.resetZeroFailed', 'Reset failed.'));
+            });
+        }
+    }
+
     // ── SMS ──────────────────────────────────────────────────
     function kindLabel(kind, lang) {
         var map = {
@@ -2999,6 +3692,72 @@ var REWARDS = (function () {
             }
             html += '</div>';
 
+            // Zero policy + manual RESET ZERO + Step Back recover
+            var zeroNorm = normalizeZeroPolicy(program);
+            html += '<div class="rw-cfg-card rw-cfg-card--danger">';
+            html += '<div class="rw-cfg-card-title">' +
+                esc(tr('rewards.cfg.resetZeroTitle', 'Reset reward points to zero')) + '</div>';
+            html += '<p style="margin:0 0 12px;font-size:12px;color:#7f1d1d;">' +
+                esc(tr('rewards.cfg.resetZeroPolicyBlurb',
+                    'Choose how balances are cleared. Saving a policy change requires admin SMS + Google Authenticator. Manual RESET ZERO always keeps a safety log so you can Step Back.')) +
+                '</p>';
+            if (admin) {
+                html += '<div class="rw-zero-policy" role="radiogroup" aria-label="Zero policy">';
+                function policyOpt(val, label) {
+                    return '<label class="rw-zero-policy-opt">' +
+                        '<input type="radio" name="rwZeroPolicy" value="' + esc(val) + '"' +
+                        (zeroNorm.zero_policy === val ? ' checked' : '') + '>' +
+                        '<span>' + esc(label) + '</span></label>';
+                }
+                html += policyOpt('manual', tr('rewards.cfg.zeroPolicyManual', 'Manual') +
+                    ' (' + tr('rewards.cfg.zeroPolicyDefault', 'default') + ')');
+                html += policyOpt('year_end', tr('rewards.cfg.zeroPolicyYearEnd',
+                    'Auto set zero every year on 31 Dec 23:59 (HK)'));
+                html += policyOpt('lifespan', tr('rewards.cfg.zeroPolicyLifespan',
+                    'Set each reward points life span of:'));
+                html += '</div>';
+                html += '<div id="rwLifespanMonthsWrap" class="rw-lifespan-months"' +
+                    (zeroNorm.zero_policy === 'lifespan' ? '' : ' hidden') + '>';
+                LIFESPAN_MONTH_OPTIONS.forEach(function (m) {
+                    html += '<button type="button" class="rw-lifespan-btn' +
+                        (zeroNorm.lifespan_months === m ? ' is-active' : '') +
+                        '" data-months="' + m + '">' + m +
+                        esc(tr('rewards.cfg.monthsShort', ' mo')) + '</button>';
+                });
+                html += '</div>';
+                html += '<div class="rw-reset-actions" style="margin:12px 0;">';
+                html += '<button type="button" id="rwCfgZeroPolicySave" class="btn btn--primary" style="padding:8px 14px;">' +
+                    esc(tr('common.save', 'Save')) + '</button>';
+                html += '</div>';
+                html += '<div style="border-top:1px solid #fecaca;margin:12px 0;padding-top:12px;">';
+                html += '<div style="font-weight:700;margin-bottom:8px;font-size:13px;">' +
+                    esc(tr('rewards.cfg.resetZeroManualTitle', 'Manual RESET ZERO')) + '</div>';
+                html += '<p style="margin:0 0 10px;font-size:12px;color:#7f1d1d;">' +
+                    esc(tr('rewards.cfg.resetZeroBlurb',
+                        'Requires admin SMS + Google Authenticator. Then pick clinics and type confirm to wipe balances.')) +
+                    '</p>';
+                html += '<div class="rw-reset-actions">';
+                html += '<button type="button" id="rwCfgResetZero" class="btn btn--danger" style="padding:8px 14px;">' +
+                    esc(tr('rewards.cfg.resetZeroBtn', 'RESET ZERO')) + '</button>';
+                html += '<button type="button" id="rwCfgStepBack" class="btn" style="padding:8px 14px;">' +
+                    esc(tr('rewards.cfg.stepBackBtn', 'Step back and recover last balance before set zero')) +
+                    '</button>';
+                html += '</div>';
+                html += '<p id="rwCfgLastBatchMeta" style="margin:10px 0 0;font-size:12px;color:#64748b;"></p>';
+                html += '</div>';
+            } else {
+                html += '<div style="font-size:13px;color:#7f1d1d;">' +
+                    esc(tr('rewards.cfg.adminOnly', 'Only Admin can change this setting.')) +
+                    ' · ' + esc(zeroNorm.zero_policy === 'year_end'
+                        ? tr('rewards.cfg.zeroPolicyYearEnd', 'Auto set zero every year on 31 Dec 23:59 (HK)')
+                        : (zeroNorm.zero_policy === 'lifespan'
+                            ? (tr('rewards.cfg.zeroPolicyLifespan', 'Set each reward points life span of:') +
+                                ' ' + zeroNorm.lifespan_months + tr('rewards.cfg.monthsShort', ' mo'))
+                            : tr('rewards.cfg.zeroPolicyManual', 'Manual'))) +
+                    '</div>';
+            }
+            html += '</div>';
+
             // Clinics → subtabs; body lists All Doctors + doctors (Join toggle)
             html += '<div class="rw-cfg-card">';
             html += '<div class="rw-cfg-card-title">' + esc(tr('rewards.cfg.clinicsTitle', 'Clinics in scheme')) + '</div>';
@@ -3136,7 +3895,124 @@ var REWARDS = (function () {
                         });
                     });
                 }
+                var resetZeroBtn = document.getElementById('rwCfgResetZero');
+                if (resetZeroBtn) {
+                    resetZeroBtn.addEventListener('click', function () {
+                        openResetZeroFlow(clinics);
+                    });
+                }
+
+                function selectedZeroPolicy() {
+                    var checked = pane.querySelector('input[name="rwZeroPolicy"]:checked');
+                    return checked ? checked.value : 'manual';
+                }
+                function selectedLifespanMonths() {
+                    var active = pane.querySelector('.rw-lifespan-btn.is-active');
+                    var m = active ? Number(active.getAttribute('data-months')) : 12;
+                    return LIFESPAN_MONTH_OPTIONS.indexOf(m) >= 0 ? m : 12;
+                }
+                function syncLifespanVisibility() {
+                    var wrap = document.getElementById('rwLifespanMonthsWrap');
+                    if (!wrap) return;
+                    if (selectedZeroPolicy() === 'lifespan') wrap.removeAttribute('hidden');
+                    else wrap.setAttribute('hidden', '');
+                }
+                pane.querySelectorAll('input[name="rwZeroPolicy"]').forEach(function (r) {
+                    r.addEventListener('change', syncLifespanVisibility);
+                });
+                pane.querySelectorAll('.rw-lifespan-btn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        pane.querySelectorAll('.rw-lifespan-btn').forEach(function (b) {
+                            b.classList.toggle('is-active', b === btn);
+                        });
+                    });
+                });
+                var policySave = document.getElementById('rwCfgZeroPolicySave');
+                if (policySave) {
+                    policySave.addEventListener('click', function () {
+                        var policy = selectedZeroPolicy();
+                        var months = selectedLifespanMonths();
+                        openAdminRewardAuthGate({
+                            title: tr('rewards.cfg.zeroPolicyAuthTitle',
+                                'Verify to change zero policy'),
+                            keepOpen: false,
+                            onSuccess: function () {
+                                saveZeroPolicy(policy, months).then(function (res) {
+                                    if (!res.ok) {
+                                        alert(res.error || 'Save failed');
+                                        return;
+                                    }
+                                    if (typeof toast === 'function') toast(tr('rewards.cfg.saved', 'Saved'));
+                                    else alert(tr('rewards.cfg.saved', 'Saved'));
+                                    renderConfigPane(pane);
+                                });
+                            }
+                        });
+                    });
+                }
+
+                function refreshLastBatchMeta() {
+                    var meta = document.getElementById('rwCfgLastBatchMeta');
+                    var stepBtn = document.getElementById('rwCfgStepBack');
+                    if (!meta) return;
+                    loadLastZeroBatch().then(function (res) {
+                        var batch = res && res.batch;
+                        if (!batch) {
+                            meta.textContent = tr('rewards.cfg.stepBackNone',
+                                'No unreverted RESET ZERO safety log yet.');
+                            if (stepBtn) stepBtn.disabled = true;
+                            return;
+                        }
+                        var when = fmtLedgerTimeHK(batch.created_at);
+                        meta.textContent = tr('rewards.cfg.stepBackMeta',
+                            'Last safety log: {when} · {source} · {accounts} accounts · {points} pts')
+                            .replace('{when}', when)
+                            .replace('{source}', String(batch.source || 'manual'))
+                            .replace('{accounts}', String(batch.accounts || 0))
+                            .replace('{points}', fmtPts(batch.points_cleared || 0));
+                        if (stepBtn) stepBtn.disabled = false;
+                    });
+                }
+                refreshLastBatchMeta();
+
+                var stepBackBtn = document.getElementById('rwCfgStepBack');
+                if (stepBackBtn) {
+                    stepBackBtn.addEventListener('click', function () {
+                        if (!window.confirm(tr('rewards.cfg.stepBackConfirm',
+                            'Recover balances from the last RESET ZERO safety log?'))) return;
+                        stepBackBtn.disabled = true;
+                        revertLastZeroBatch({}).then(function (res) {
+                            if (!res || !res.ok) {
+                                alert((res && res.error) || tr('rewards.cfg.stepBackFailed', 'Recover failed.'));
+                                stepBackBtn.disabled = false;
+                                refreshLastBatchMeta();
+                                return;
+                            }
+                            if (typeof toast === 'function') {
+                                toast(tr('rewards.cfg.stepBackDone',
+                                    'Restored {accounts} account(s), {points} points.')
+                                    .replace('{accounts}', String(res.accounts || 0))
+                                    .replace('{points}', fmtPts(res.points_restored || 0)));
+                            }
+                            renderConfigPane(pane);
+                        }).catch(function (e) {
+                            alert((e && e.message) || tr('rewards.cfg.stepBackFailed', 'Recover failed.'));
+                            stepBackBtn.disabled = false;
+                        });
+                    });
+                }
             }
+
+            // Fire scheduled year-end / lifespan jobs after paint (non-blocking)
+            maybeRunScheduledZero(program).then(function (autoRes) {
+                if (autoRes && autoRes.ok && !autoRes.skipped && Number(autoRes.accounts) > 0) {
+                    if (typeof toast === 'function') {
+                        toast(tr('rewards.cfg.autoZeroRan',
+                            'Auto reset cleared {accounts} account(s).')
+                            .replace('{accounts}', String(autoRes.accounts || 0)));
+                    }
+                }
+            }).catch(function () { /* ignore */ });
 
             function activateClinicTab(clinicId) {
                 var id = String(clinicId || '');
@@ -3253,7 +4129,31 @@ var REWARDS = (function () {
             '.rw-kind--redeem,.rw-kind--transfer_out,.rw-kind--void_earn{background:#fee2e2;color:#991b1b;}' +
             '.rw-kind--adjust{background:#e0e7ff;color:#3730a3;}' +
             '.rw-cfg-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 18px;margin-bottom:14px;}' +
+            '.rw-cfg-card--danger{border-color:#fecaca;background:#fff7f7;}' +
             '.rw-cfg-card-title{font-weight:700;margin-bottom:10px;font-size:14px;}' +
+            '.btn--danger{background:#dc2626;color:#fff;border:1px solid #b91c1c;border-radius:8px;cursor:pointer;}' +
+            '.btn--danger:hover{background:#b91c1c;}' +
+            '#rwResetZeroModal.reward-points-modal{z-index:3300;background:rgba(15,23,42,.4);display:none;align-items:center;justify-content:center;}' +
+            '#rwResetZeroModal .rw-reset-modal-box{width:min(440px,92vw);max-height:90vh;overflow:auto;padding:18px 20px;}' +
+            '.rw-reset-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px;}' +
+            '.rw-reset-head h3{margin:0;font-size:17px;}' +
+            '.rw-reset-sub{margin:0 0 6px;font-weight:700;font-size:14px;}' +
+            '.rw-reset-hint{margin:0 0 12px;font-size:13px;color:#64748b;line-height:1.4;}' +
+            '.rw-reset-code{display:block;width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;letter-spacing:.25em;font-size:22px;text-align:center;margin-bottom:12px;}' +
+            '.rw-reset-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}' +
+            '.rw-reset-err{margin:10px 0 0;color:#dc2626;font-size:13px;}' +
+            '.rw-reset-clinic-list{display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:auto;margin:0 0 14px;padding:8px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;}' +
+            '.rw-reset-clinic-row{display:flex;gap:10px;align-items:flex-start;font-size:13px;cursor:pointer;padding:6px 4px;}' +
+            '.rw-reset-clinic-row--all{font-weight:700;border-bottom:1px solid #f1f5f9;padding-bottom:10px;margin-bottom:2px;}' +
+            '.rw-reset-clinic-row input{margin-top:2px;}' +
+            '.rw-zero-policy{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;}' +
+            '.rw-zero-policy-opt{display:flex;gap:10px;align-items:flex-start;font-size:13px;cursor:pointer;color:#7f1d1d;}' +
+            '.rw-zero-policy-opt input{margin-top:2px;}' +
+            '.rw-lifespan-months{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px 26px;}' +
+            '.rw-lifespan-btn{padding:6px 10px;border:1px solid #fca5a5;border-radius:8px;background:#fff;color:#991b1b;cursor:pointer;font-size:12px;font-weight:700;}' +
+            '.rw-lifespan-btn:hover{background:#fef2f2;}' +
+            '.rw-lifespan-btn.is-active{background:#dc2626;border-color:#b91c1c;color:#fff;}' +
+            '#rwLifespanMonthsWrap[hidden]{display:none!important;}' +
             '.rw-clinic-list{display:flex;flex-direction:column;gap:8px;}' +
             '.rw-clinic-row{display:flex;gap:10px;align-items:center;font-size:13px;cursor:pointer;}' +
             '.rw-clinic-scheme{border:1px solid #e2e8f0;border-radius:10px;background:#fff;overflow:hidden;}' +
@@ -3383,7 +4283,14 @@ var REWARDS = (function () {
         refreshBannerBalances: refreshBannerBalances,
         renderConfigPane: renderConfigPane,
         setClinicJoinFlags: setClinicJoinFlags,
-        clinicCtx: clinicCtx
+        clinicCtx: clinicCtx,
+        openResetZeroFlow: openResetZeroFlow,
+        openAdminRewardAuthGate: openAdminRewardAuthGate,
+        zeroClinicBalances: zeroClinicBalances,
+        revertLastZeroBatch: revertLastZeroBatch,
+        loadLastZeroBatch: loadLastZeroBatch,
+        saveZeroPolicy: saveZeroPolicy,
+        maybeRunScheduledZero: maybeRunScheduledZero
     };
 })();
 

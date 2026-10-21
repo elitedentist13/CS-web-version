@@ -3253,6 +3253,141 @@
         },
         'rewards.cfg.logTitle': { en: 'Summary log', 'zh-CN': '汇总日志', 'zh-Hant': '匯總日誌' },
         'rewards.cfg.saved': { en: 'Saved', 'zh-CN': '已保存', 'zh-Hant': '已儲存' },
+        'rewards.cfg.resetZeroTitle': {
+            en: 'Reset reward points to zero',
+            'zh-CN': '将奖励积分清零',
+            'zh-Hant': '將獎勵積分清零'
+        },
+        'rewards.cfg.resetZeroPolicyBlurb': {
+            en: 'Choose how balances are cleared. Saving a policy change requires admin SMS + Google Authenticator. Manual RESET ZERO always keeps a safety log so you can Step Back.',
+            'zh-CN': '选择清零方式。保存策略更改需管理员短信与 Google 验证器。手动 RESET ZERO 会写入安全日志，可用 Step Back 恢复。',
+            'zh-Hant': '選擇清零方式。儲存策略更改需管理員短訊與 Google 驗證器。手動 RESET ZERO 會寫入安全日誌，可用 Step Back 還原。'
+        },
+        'rewards.cfg.zeroPolicyAuthTitle': {
+            en: 'Verify to change zero policy',
+            'zh-CN': '验证以更改清零策略',
+            'zh-Hant': '驗證以更改清零策略'
+        },
+        'rewards.cfg.zeroPolicyManual': { en: 'Manual', 'zh-CN': '手动', 'zh-Hant': '手動' },
+        'rewards.cfg.zeroPolicyDefault': { en: 'default', 'zh-CN': '默认', 'zh-Hant': '預設' },
+        'rewards.cfg.zeroPolicyYearEnd': {
+            en: 'Auto set zero every year on 31 Dec 23:59 (HK)',
+            'zh-CN': '每年 12 月 31 日 23:59（香港时间）自动清零',
+            'zh-Hant': '每年 12 月 31 日 23:59（香港時間）自動清零'
+        },
+        'rewards.cfg.zeroPolicyLifespan': {
+            en: 'Set each reward points life span of:',
+            'zh-CN': '设置每笔奖励积分有效期为：',
+            'zh-Hant': '設定每筆獎勵積分有效期為：'
+        },
+        'rewards.cfg.monthsShort': { en: ' mo', 'zh-CN': ' 个月', 'zh-Hant': ' 個月' },
+        'rewards.cfg.resetZeroManualTitle': {
+            en: 'Manual RESET ZERO',
+            'zh-CN': '手动清零',
+            'zh-Hant': '手動清零'
+        },
+        'rewards.cfg.resetZeroBlurb': {
+            en: 'Requires admin SMS + Google Authenticator. Then pick clinics and type confirm to wipe balances.',
+            'zh-CN': '需管理员短信与 Google 验证器验证。随后选择诊所并输入 confirm 以清零余额。',
+            'zh-Hant': '需管理員短訊與 Google 驗證器驗證。其後選擇診所並輸入 confirm 以清零結餘。'
+        },
+        'rewards.cfg.resetZeroBtn': { en: 'RESET ZERO', 'zh-CN': '清零重置', 'zh-Hant': '清零重置' },
+        'rewards.cfg.stepBackBtn': {
+            en: 'Step back and recover last balance before set zero',
+            'zh-CN': '回退并恢复清零前的上次余额',
+            'zh-Hant': '回退並還原清零前的上次結餘'
+        },
+        'rewards.cfg.stepBackNone': {
+            en: 'No unreverted RESET ZERO safety log yet.',
+            'zh-CN': '尚无可回退的清零安全日志。',
+            'zh-Hant': '尚無可回退的清零安全日誌。'
+        },
+        'rewards.cfg.stepBackMeta': {
+            en: 'Last safety log: {when} · {source} · {accounts} accounts · {points} pts',
+            'zh-CN': '最近安全日志：{when} · {source} · {accounts} 账户 · {points} 分',
+            'zh-Hant': '最近安全日誌：{when} · {source} · {accounts} 帳戶 · {points} 分'
+        },
+        'rewards.cfg.stepBackConfirm': {
+            en: 'Recover balances from the last RESET ZERO safety log?',
+            'zh-CN': '要从最近一次清零安全日志恢复余额吗？',
+            'zh-Hant': '要從最近一次清零安全日誌還原結餘嗎？'
+        },
+        'rewards.cfg.stepBackDone': {
+            en: 'Restored {accounts} account(s), {points} points.',
+            'zh-CN': '已恢复 {accounts} 个账户，共 {points} 积分。',
+            'zh-Hant': '已還原 {accounts} 個帳戶，共 {points} 積分。'
+        },
+        'rewards.cfg.stepBackFailed': { en: 'Recover failed.', 'zh-CN': '恢复失败。', 'zh-Hant': '還原失敗。' },
+        'rewards.cfg.resetZeroBatchKept': {
+            en: 'Safety log saved. You can Step Back to recover.',
+            'zh-CN': '已保存安全日志，可用 Step Back 恢复。',
+            'zh-Hant': '已保存安全日誌，可用 Step Back 還原。'
+        },
+        'rewards.cfg.autoZeroRan': {
+            en: 'Auto reset cleared {accounts} account(s).',
+            'zh-CN': '自动清零已处理 {accounts} 个账户。',
+            'zh-Hant': '自動清零已處理 {accounts} 個帳戶。'
+        },
+        'rewards.cfg.resetZeroPickTitle': {
+            en: 'Select clinics to reset',
+            'zh-CN': '选择要清零的诊所',
+            'zh-Hant': '選擇要清零的診所'
+        },
+        'rewards.cfg.resetZeroPickHint': {
+            en: 'Choose All clinics or individual clinics, then confirm.',
+            'zh-CN': '可勾选全部诊所或个别诊所，然后确认。',
+            'zh-Hant': '可勾選全部診所或個別診所，然後確認。'
+        },
+        'rewards.cfg.resetZeroAll': { en: 'All clinics', 'zh-CN': '全部诊所', 'zh-Hant': '全部診所' },
+        'rewards.cfg.resetZeroConfirmBtn': {
+            en: 'Confirm set zero',
+            'zh-CN': '确认清零',
+            'zh-Hant': '確認清零'
+        },
+        'rewards.cfg.resetZeroNeedClinic': {
+            en: 'Select All or at least one clinic.',
+            'zh-CN': '请勾选全部或至少一个诊所。',
+            'zh-Hant': '請勾選全部或至少一個診所。'
+        },
+        'rewards.cfg.resetZeroTypeTitle': {
+            en: 'Type confirm to wipe points',
+            'zh-CN': '输入 confirm 以清零积分',
+            'zh-Hant': '輸入 confirm 以清零積分'
+        },
+        'rewards.cfg.resetZeroTypeHint': {
+            en: 'This permanently sets reward balances to 0 for: {scope}. Type the word confirm below.',
+            'zh-CN': '将永久把以下范围的积分余额设为 0：{scope}。请在下方输入单词 confirm。',
+            'zh-Hant': '將永久把以下範圍的積分結餘設為 0：{scope}。請在下方輸入單詞 confirm。'
+        },
+        'rewards.cfg.resetZeroTypeMismatch': {
+            en: 'Please type the word confirm exactly.',
+            'zh-CN': '请准确输入单词 confirm。',
+            'zh-Hant': '請準確輸入單詞 confirm。'
+        },
+        'rewards.cfg.resetZeroWipeBtn': {
+            en: 'Wipe points now',
+            'zh-CN': '立即清零',
+            'zh-Hant': '立即清零'
+        },
+        'rewards.cfg.resetZeroRunning': {
+            en: 'Resetting reward points…',
+            'zh-CN': '正在清零奖励积分…',
+            'zh-Hant': '正在清零獎勵積分…'
+        },
+        'rewards.cfg.resetZeroDoneTitle': { en: 'Reset complete', 'zh-CN': '清零完成', 'zh-Hant': '清零完成' },
+        'rewards.cfg.resetZeroDone': {
+            en: 'Cleared {accounts} account(s), {points} points.',
+            'zh-CN': '已清零 {accounts} 个账户，共 {points} 积分。',
+            'zh-Hant': '已清零 {accounts} 個帳戶，共 {points} 積分。'
+        },
+        'rewards.cfg.resetZeroFailed': { en: 'Reset failed.', 'zh-CN': '清零失败。', 'zh-Hant': '清零失敗。' },
+        'rewards.cfg.resetZeroErrVerify': {
+            en: 'Verification unavailable. Reload and try again.',
+            'zh-CN': '验证不可用，请刷新后重试。',
+            'zh-Hant': '驗證不可用，請重新整理後再試。'
+        },
+        'common.close': { en: 'Close', 'zh-CN': '关闭', 'zh-Hant': '關閉' },
+        'common.cancel': { en: 'Cancel', 'zh-CN': '取消', 'zh-Hant': '取消' },
         'rewards.err.load': { en: 'Failed to load rewards.', 'zh-CN': '无法加载积分。', 'zh-Hant': '無法載入積分。' },
         'rewards.err.needSql': {
             en: 'If tables are missing, run reward_points.sql in Supabase.',

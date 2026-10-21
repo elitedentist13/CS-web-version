@@ -2337,6 +2337,66 @@ if ($winTid -ne $curTid -and $winTid -ne $fgTid) { [RayWin]::AttachThreadInput($
     } catch {}
 }
 
+# Same minimized-bridge foreground lock as Rayscan: TW.exe / Patient.exe often
+# open minimized with a flashing taskbar button. Wait for the real CS Imaging
+# window, maximize it, and force-focus (AttachThreadInput + dummy Alt).
+function Start-RestoreCarestreamViewerWindow {
+    $helper = @'
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class CsWin {
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr extra);
+}
+"@
+$SW_SHOW = 5
+$SW_MAXIMIZE = 3
+$deadline = (Get-Date).AddSeconds(15)
+$hwnd = [IntPtr]::Zero
+while ((Get-Date) -lt $deadline) {
+    foreach ($n in @("TW", "Patient", "CS")) {
+        $p = Get-Process -Name $n -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
+            Select-Object -First 1
+        if ($p) { $hwnd = $p.MainWindowHandle; break }
+    }
+    if ($hwnd -ne [IntPtr]::Zero) { break }
+    Start-Sleep -Milliseconds 300
+}
+if ($hwnd -eq [IntPtr]::Zero) { exit 0 }
+[CsWin]::ShowWindow($hwnd, $SW_SHOW) | Out-Null
+[CsWin]::ShowWindow($hwnd, $SW_MAXIMIZE) | Out-Null
+$fg = [CsWin]::GetForegroundWindow()
+$dummy = [uint32]0
+$fgTid = [CsWin]::GetWindowThreadProcessId($fg, [ref]$dummy)
+$curTid = [CsWin]::GetCurrentThreadId()
+$dummy2 = [uint32]0
+$winTid = [CsWin]::GetWindowThreadProcessId($hwnd, [ref]$dummy2)
+if ($fgTid -ne $curTid) { [CsWin]::AttachThreadInput($curTid, $fgTid, $true) | Out-Null }
+if ($winTid -ne $curTid -and $winTid -ne $fgTid) { [CsWin]::AttachThreadInput($curTid, $winTid, $true) | Out-Null }
+[CsWin]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+[CsWin]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+[CsWin]::BringWindowToTop($hwnd) | Out-Null
+[CsWin]::SetForegroundWindow($hwnd) | Out-Null
+if ($fgTid -ne $curTid) { [CsWin]::AttachThreadInput($curTid, $fgTid, $false) | Out-Null }
+if ($winTid -ne $curTid -and $winTid -ne $fgTid) { [CsWin]::AttachThreadInput($curTid, $winTid, $false) | Out-Null }
+'@
+    try {
+        $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($helper))
+        Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $enc
+        ) | Out-Null
+    } catch {}
+}
+
 # CS Imaging -> TW.exe. Command shape traced 2026-09-27 / 2026-10-22 from
 # Clinic Solution on XRAY-MCP (existing chart + new "testing" chart).
 function Build-TrophyTwUiLabel($Patient) {
@@ -2480,7 +2540,9 @@ function Start-NativeCommandLine($Exe, $ArgumentLine, $WorkDir) {
     $psi.FileName = $Exe
     $psi.Arguments = [string]$ArgumentLine
     $psi.UseShellExecute = $true
-    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Normal
+    # Prefer Maximized; Start-RestoreCarestreamViewerWindow still force-focuses
+    # because the minimized bridge host often still starts TW minimized.
+    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Maximized
     if ($WorkDir -and (Test-PathSafe $WorkDir)) {
         $psi.WorkingDirectory = $WorkDir
     }
@@ -2504,6 +2566,7 @@ function Start-TrophyTwPatient($Resolved, $Patient) {
     $workDir = Split-Path -Parent $tw
     $argLine = Build-TrophyTwCommandLine $scanPath $uiLabel
     Start-NativeCommandLine $tw $argLine $workDir
+    Start-RestoreCarestreamViewerWindow
     return [ordered]@{
         bridge = $tw
         target = $tw
@@ -2689,7 +2752,8 @@ function Start-CarestreamPatientBrowserUi($Exe, $WorkDir) {
         Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
         Select-Object -First 1
     if ($existingUi) {
-        # Already open with a real window — helpers will focus/paste into it.
+        # Already open with a real window — maximize/focus then paste helpers.
+        Start-RestoreCarestreamViewerWindow
         return $true
     }
     $shortcut = First-Existing $Systems.carestream.shortcuts
@@ -2697,6 +2761,7 @@ function Start-CarestreamPatientBrowserUi($Exe, $WorkDir) {
         try {
             # Detached explorer launch avoids the bridge's hidden-host quirk.
             Start-Process -FilePath "explorer.exe" -ArgumentList @($shortcut) | Out-Null
+            Start-RestoreCarestreamViewerWindow
             return $true
         } catch {}
     }
@@ -2706,11 +2771,12 @@ function Start-CarestreamPatientBrowserUi($Exe, $WorkDir) {
             # direct child of the HTTP listener process.
             $safeExe = $Exe.Replace("'", "''")
             $safeWork = if ($WorkDir) { $WorkDir.Replace("'", "''") } else { "" }
-            $cmd = "Start-Process -FilePath '$safeExe' -WindowStyle Normal"
+            $cmd = "Start-Process -FilePath '$safeExe' -WindowStyle Maximized"
             if ($safeWork) { $cmd += " -WorkingDirectory '$safeWork'" }
             Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
                 "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $cmd
             ) | Out-Null
+            Start-RestoreCarestreamViewerWindow
             return $true
         } catch {}
     }
@@ -4261,6 +4327,9 @@ function Invoke-SelfTest {
 
     Write-Host "== Start-RestoreRayViewerWindow (helper exists; does not wait on SMARTDent) ==" -ForegroundColor Cyan
     Assert-Equal "helper is a function" $true ($null -ne (Get-Command Start-RestoreRayViewerWindow -ErrorAction SilentlyContinue))
+
+    Write-Host "== Start-RestoreCarestreamViewerWindow (helper exists; does not wait on TW) ==" -ForegroundColor Cyan
+    Assert-Equal "carestream restore helper is a function" $true ($null -ne (Get-Command Start-RestoreCarestreamViewerWindow -ErrorAction SilentlyContinue))
 
     Write-Host "== Start-RayBridgePatient (no real launch -- negative paths only) ==" -ForegroundColor Cyan
     $rayPatient = [ordered]@{ patient_no = "KT005455"; patient_name = "TANG PUI SHEUNG"; dob = "1966-09-15"; sex = "F" }

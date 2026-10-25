@@ -133,7 +133,12 @@ var DoctorAliases = (function () {
         {
             key: 'parco-poon',
             label: 'Dr Parco Poon',
-            aliases: ['DR PARCO POON', 'DR.PARCO POON', 'DR. POON', 'DR.POON', 'Parco Poon']
+            aliases: [
+                'DR PARCO POON', 'DR.PARCO POON', 'DR. POON', 'DR.POON', 'Parco Poon',
+                'DR. POON PAK HONG', 'DR POON PAK HONG', 'POON PAK HONG',
+                'Poon Pak Hong', 'Dr Poon Pak Hong',
+                '潘柏匡', '潘柏匡牙科醫生'
+            ]
         },
         {
             key: 'stephanie-lee',

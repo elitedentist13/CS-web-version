@@ -303,6 +303,39 @@ var REWARDS = (function () {
         return null;
     }
 
+    /** Saved before Pak Hong was folded into the parco-poon alias. */
+    var PARCO_POON_LEGACY_KEYS = {
+        'name:poon pak hong': true,
+        'name:潘柏匡': true,
+        'name:潘柏匡牙科醫生': true
+    };
+
+    /**
+     * Participation row for a doctor key. parco-poon also reads a legacy
+     * Pak Hong key (and the reverse) so both list lines share one join.
+     */
+    function rewardFlagsMatchKey(bucket, doctorKey, doctorId) {
+        bucket = bucket || {};
+        if (doctorKey && bucket[doctorKey]) return bucket[doctorKey];
+        var found = null;
+        if (doctorId) {
+            Object.keys(bucket).forEach(function (k) {
+                if (found) return;
+                var row = bucket[k];
+                if (row && row.doctor_id && String(row.doctor_id) === String(doctorId)) found = row;
+            });
+        }
+        if (found) return found;
+        if (doctorKey === 'parco-poon') {
+            Object.keys(PARCO_POON_LEGACY_KEYS).forEach(function (k) {
+                if (!found && bucket[k]) found = bucket[k];
+            });
+        } else if (PARCO_POON_LEGACY_KEYS[doctorKey] && bucket['parco-poon']) {
+            found = bucket['parco-poon'];
+        }
+        return found;
+    }
+
     function doctorJoinKeyFromDoctorRow(d) {
         if (!d) return '';
         if (typeof DoctorAliases !== 'undefined' && DoctorAliases &&
@@ -359,17 +392,12 @@ var REWARDS = (function () {
 
         var doc = resolveRewardDoctor(doctorInput);
         var matched = null;
-        if (isKnownRewardDoctor(doc) && bucket[doc.key]) matched = bucket[doc.key];
-        if (!matched && doctorInput && typeof doctorInput === 'object' && doctorInput.id) {
-            var idKey = 'id:' + String(doctorInput.id);
-            if (bucket[idKey]) matched = bucket[idKey];
-            Object.keys(bucket).forEach(function (k) {
-                if (matched) return;
-                var row = bucket[k];
-                if (row && row.doctor_id && String(row.doctor_id) === String(doctorInput.id)) {
-                    matched = row;
-                }
-            });
+        if (isKnownRewardDoctor(doc)) {
+            matched = rewardFlagsMatchKey(
+                bucket,
+                doc.key,
+                doctorInput && typeof doctorInput === 'object' ? doctorInput.id : null
+            );
         }
 
         function flagFrom(row, key, fallback) {
@@ -3821,12 +3849,18 @@ var REWARDS = (function () {
                 }
                 html += docRowHtml(ALL_DOCTORS_KEY,
                     tr('rewards.cfg.allDoctors', 'All Doctors'), '', allFlags, true);
+                var parcoLineAdded = false;
                 docs.forEach(function (d) {
                     var dKey = doctorJoinKeyFromDoctorRow(d);
                     if (!dKey) return;
                     var dLab = doctorJoinLabelFromDoctorRow(d) || dKey;
-                    var dFlags = bucket[dKey] || { join_gain: false, join_redeem: false };
+                    var dFlags = rewardFlagsMatchKey(bucket, dKey, d.id) ||
+                        { join_gain: false, join_redeem: false };
                     html += docRowHtml(dKey, dLab, d.id, dFlags, false);
+                    if (dKey === 'parco-poon' && !parcoLineAdded) {
+                        parcoLineAdded = true;
+                        html += docRowHtml('parco-poon', 'Dr Parco Poon', d.id, dFlags, false);
+                    }
                 });
                 html += '</div></div>';
             });
@@ -4092,10 +4126,19 @@ var REWARDS = (function () {
                         join_gain: joined,
                         join_redeem: joined
                     };
+                    function syncSameDoctorJoin(on) {
+                        pane.querySelectorAll('.rw-doc-row').forEach(function (other) {
+                            if (other.getAttribute('data-clinic-id') !== flags.clinicId) return;
+                            if (other.getAttribute('data-doctor-key') !== flags.doctorKey) return;
+                            var otherCb = other.querySelector('.rw-doc-join');
+                            if (otherCb) otherCb.checked = on;
+                        });
+                    }
+                    syncSameDoctorJoin(joined);
                     setDoctorJoinFlags(flags).then(function (res) {
                         if (!res.ok) {
                             alert(res.error || 'Save failed');
-                            if (!res.clinicOnly) cb.checked = !cb.checked;
+                            if (!res.clinicOnly) syncSameDoctorJoin(!joined);
                             return;
                         }
                         if (typeof toast === 'function') toast(tr('rewards.cfg.saved', 'Saved'));

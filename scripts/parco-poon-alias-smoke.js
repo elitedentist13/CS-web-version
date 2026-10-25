@@ -11,7 +11,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261025parcoBoth1';
+var BUILD = '20261025smsClinicZh1';
 var PAGE_PORT = 8826;
 var CDP_PORT = 9426;
 var CHROME = process.env.CHROME_PATH ||

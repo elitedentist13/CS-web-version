@@ -3,19 +3,19 @@
 
 update public.reward_program
 set sms_template_en =
-        '[Joyful Smile Dental Clinic] 積分更新 / Reward points update
+        '[Joyful Smile Dental Clinic 樂意牙科中心] 積分更新 / Reward points update
 變動/Change: {CHANGE} ({KIND})
 結餘/Balance: {BALANCE}
 診所/Clinic: {CLINIC}
 參考/Ref: {REF}',
     sms_template_zh_hant =
-        '[Joyful Smile Dental Clinic] 積分更新 / Reward points update
+        '[Joyful Smile Dental Clinic 樂意牙科中心] 積分更新 / Reward points update
 變動/Change: {CHANGE} ({KIND})
 結餘/Balance: {BALANCE}
 診所/Clinic: {CLINIC}
 參考/Ref: {REF}',
     sms_template_zh_cn =
-        '[Joyful Smile Dental Clinic] 積分更新 / Reward points update
+        '[Joyful Smile Dental Clinic 樂意牙科中心] 積分更新 / Reward points update
 變動/Change: {CHANGE} ({KIND})
 結餘/Balance: {BALANCE}
 診所/Clinic: {CLINIC}

@@ -124,9 +124,11 @@ var REWARDS = (function () {
     }
 
     var SMS_BRAND = 'Joyful Smile Dental Clinic';
+    var SMS_BRAND_ZH = '樂意牙科中心';
+    var SMS_HEADING_NAME = SMS_BRAND + ' ' + SMS_BRAND_ZH;
     /** Always bilingual (ZH-Hant + EN) — one SMS for every patient. */
     var SMS_FALLBACK_BILINGUAL =
-        '[' + SMS_BRAND + '] 積分更新 / Reward points update\n' +
+        '[' + SMS_HEADING_NAME + '] 積分更新 / Reward points update\n' +
         '變動/Change: {CHANGE} ({KIND})\n' +
         '結餘/Balance: {BALANCE}\n' +
         '診所/Clinic: {CLINIC}\n' +
@@ -1684,8 +1686,9 @@ var REWARDS = (function () {
         }
         if (!tpl) tpl = SMS_FALLBACK_BILINGUAL;
         tpl = tpl
-            .replace(/\[Banana\]/g, '[' + SMS_BRAND + ']')
-            .replace(/【Banana】/g, '[' + SMS_BRAND + ']');
+            .replace(/\[Banana\]/g, '[' + SMS_HEADING_NAME + ']')
+            .replace(/【Banana】/g, '[' + SMS_HEADING_NAME + ']')
+            .replace(/\[Joyful Smile Dental Clinic\]/g, '[' + SMS_HEADING_NAME + ']');
         return tpl
             .replace(/\{CHANGE\}/g, fmtSigned(info.points))
             .replace(/\{BALANCE\}/g, fmtPts(info.balance))

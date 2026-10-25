@@ -400,27 +400,22 @@ var REWARDS = (function () {
             );
         }
 
-        function flagFrom(row, key, fallback) {
-            if (!row) return fallback;
-            if (row[key] != null) return !!row[key];
-            return !!row.enabled;
+        // Participation is one switch: earning and redeeming turn on together.
+        function scopeJoined(row) {
+            if (!row) return false;
+            return !!(row.join_gain || row.join_redeem || row.enabled);
         }
 
         // No __all__ row yet → inherit clinic default for the All Doctors scope
         // (keeps PL joined for every doctor until reception narrows participation).
-        var allGain = all
-            ? flagFrom(all, 'join_gain', false)
-            : !!clinicFlags.join_gain;
-        var allRedeem = all
-            ? flagFrom(all, 'join_redeem', false)
-            : !!clinicFlags.join_redeem;
-
-        var gain = allGain || flagFrom(matched, 'join_gain', false);
-        var redeem = allRedeem || flagFrom(matched, 'join_redeem', false);
+        var allOn = all ? scopeJoined(all) : scopeJoined(clinicFlags);
+        var docOn = !!(matched && scopeJoined(matched));
+        var gain = allOn || docOn;
+        var redeem = gain;
         // Unknown doctor on bill: only All Doctors scope counts
         if (!isKnownRewardDoctor(doc) && !matched) {
-            gain = allGain;
-            redeem = allRedeem;
+            gain = allOn;
+            redeem = allOn;
         }
         return {
             enabled: gain || redeem,
@@ -3844,7 +3839,9 @@ var REWARDS = (function () {
                         '<span class="rw-doc-label">' + esc(doctorLabel) + '</span>' +
                         '<label class="rw-doc-toggle">' +
                         '<input type="checkbox" class="rw-doc-join"' + (joinedOn ? ' checked' : '') + '>' +
-                        '<span>' + esc(tr('rewards.cfg.join', 'Join')) + '</span></label>' +
+                        '<span>' + esc(tr('rewards.cfg.joinGain', 'Gain')) + '</span>' +
+                        '<span class="rw-doc-join-amp">&amp;</span>' +
+                        '<span>' + esc(tr('rewards.cfg.joinRedeem', 'Redeem')) + '</span></label>' +
                         '</div>';
                 }
                 html += docRowHtml(ALL_DOCTORS_KEY,
@@ -4218,6 +4215,7 @@ var REWARDS = (function () {
             '.rw-doc-label{flex:1;min-width:0;font-size:13px;font-weight:600;color:#14532d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
             '.rw-doc-row[data-doctor-key="__all__"] .rw-doc-label{color:#0f766e;}' +
             '.rw-doc-toggle{display:flex;gap:6px;align-items:center;font-size:12px;color:#334155;cursor:pointer;flex:0 0 auto;}' +
+            '.rw-doc-join-amp{color:#94a3b8;}' +
             '.rw-doc-toggle input{accent-color:#166534;}' +
             '#apRewardPanel{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;margin-bottom:14px;}' +
             '#apRewardPanel .rw-row{display:flex;justify-content:space-between;align-items:center;gap:8px;}' +

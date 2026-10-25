@@ -3211,15 +3211,15 @@
             'zh-Hant': '前台可為每間診所加入賺取／兌換。賺取記入該病歷號；兌換可從同一人多個病歷扣減。'
         },
         'rewards.cfg.clinicsHintDoctors': {
-            en: 'Default: PL · All Doctors joined. Pick a clinic tab, then Join / leave for All Doctors or an individual doctor.',
-            'zh-CN': '默认：宝林（PL）· 全部医生已加入。选择诊所分栏，再为「全部医生」或个别医生切换加入。',
-            'zh-Hant': '預設：寶琳（PL）· 全部醫生已加入。選擇診所分欄，再為「全部醫生」或個別醫生切換加入。'
+            en: 'Default: PL · All Doctors joined. One switch turns on both earning points and redeeming points for All Doctors or one doctor.',
+            'zh-CN': '默认：宝林（PL）· 全部医生已加入。一个开关同时开启赚取积分和兑换积分（全部医生或个别医生）。',
+            'zh-Hant': '預設：寶琳（PL）· 全部醫生已加入。一個開關同時開啟賺取積分和兌換積分（全部醫生或個別醫生）。'
         },
         'rewards.cfg.allDoctors': { en: 'All Doctors', 'zh-CN': '全部医生', 'zh-Hant': '全部醫生' },
         'rewards.cfg.joined': { en: 'joined', 'zh-CN': '已加入', 'zh-Hant': '已加入' },
         'rewards.cfg.join': { en: 'Join', 'zh-CN': '加入', 'zh-Hant': '加入' },
-        'rewards.cfg.joinGain': { en: 'Join Gain', 'zh-CN': '加入赚取', 'zh-Hant': '加入賺取' },
-        'rewards.cfg.joinRedeem': { en: 'Join Redeem', 'zh-CN': '加入兑换', 'zh-Hant': '加入兌換' },
+        'rewards.cfg.joinGain': { en: 'Gain', 'zh-CN': '赚取', 'zh-Hant': '賺取' },
+        'rewards.cfg.joinRedeem': { en: 'Redeem', 'zh-CN': '兑换', 'zh-Hant': '兌換' },
         'rewards.err.needDoctorJoinSql': {
             en: 'Run reward_points_patch_doctor_join.sql in Supabase for per-doctor participation.',
             'zh-CN': '请在 Supabase 执行 reward_points_patch_doctor_join.sql 以启用按医生参与。',

@@ -11,7 +11,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261025parcoPoon1';
+var BUILD = '20261025parcoBoth1';
 var PAGE_PORT = 8826;
 var CDP_PORT = 9426;
 var CHROME = process.env.CHROME_PATH ||
@@ -218,6 +218,14 @@ async function waitJs(cdp, expr, timeoutMs) {
         rewardsSrc.indexOf("'name:poon pak hong'") >= 0);
     pass('twin Join checkboxes stay in sync',
         rewardsSrc.indexOf('function syncSameDoctorJoin') >= 0);
+    pass('one switch writes gain and redeem together',
+        /join_gain: joined,\s*join_redeem: joined/.test(rewardsSrc));
+    pass('joined scope enables both gain and redeem',
+        rewardsSrc.indexOf('var redeem = gain;') >= 0 &&
+        rewardsSrc.indexOf('function scopeJoined') >= 0);
+    pass('list labels Gain and Redeem',
+        rewardsSrc.indexOf("tr('rewards.cfg.joinGain'") >= 0 &&
+        rewardsSrc.indexOf("tr('rewards.cfg.joinRedeem'") >= 0);
     pass('node --check aliases', child_process.spawnSync(process.execPath, ['--check', path.join(root, 'app-doctor-aliases.js')]).status === 0);
     pass('node --check rewards', child_process.spawnSync(process.execPath, ['--check', path.join(root, 'app-rewards.js')]).status === 0);
 
@@ -357,9 +365,13 @@ async function waitJs(cdp, expr, timeoutMs) {
   if (!panel) return { ok: false, reason: 'no PL panel', len: (pane.innerHTML || '').length };
   var rows = [];
   panel.querySelectorAll('.rw-doc-row').forEach(function (r) {
+    var cb = r.querySelector('.rw-doc-join');
+    var toggle = r.querySelector('.rw-doc-toggle');
     rows.push({
       key: r.getAttribute('data-doctor-key'),
-      label: r.getAttribute('data-doctor-label')
+      label: r.getAttribute('data-doctor-label'),
+      checked: !!(cb && cb.checked),
+      text: toggle ? String(toggle.textContent || '').replace(/\\s+/g, ' ').trim() : ''
     });
   });
   return { ok: true, rows: rows };
@@ -374,6 +386,14 @@ async function waitJs(cdp, expr, timeoutMs) {
             parcoRows.map(function (r) { return r.label; }).join(' | '));
         pass('live list shows Dr Parco Poon',
             parcoRows.some(function (r) { return r.label === 'Dr Parco Poon'; }));
+        pass('live Poon rows are joined for gain and redeem',
+            parcoRows.length === 2 && parcoRows.every(function (r) { return r.checked; }),
+            parcoRows.map(function (r) { return r.label + (r.checked ? ' on' : ' off'); }).join(' | '));
+        pass('live switch is labeled gain and redeem',
+            parcoRows.every(function (r) {
+                return /Gain|赚取|賺取/.test(r.text || '') && /Redeem|兑换|兌換/.test(r.text || '');
+            }),
+            parcoRows.map(function (r) { return r.text; }).join(' | '));
         try { ws.close(); } catch (e1) {}
     } catch (e) {
         pass('CDP live page', false, e && e.message);

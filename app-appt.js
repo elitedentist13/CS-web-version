@@ -20892,7 +20892,10 @@ function syncBillItemsToPendingList() {
             price: n.price,
             disc: roundBillDiscPct(n.disc || 0),
             others_remark: n.others_remark || '',
-            tooth_no: n.tooth_no || '-'
+            tooth_no: n.tooth_no || '-',
+            treatment_item_id: n.treatment_item_id || '',
+            item_code: n.item_code || '',
+            item_name: n.item_name || ''
         };
     });
 }
@@ -21130,7 +21133,10 @@ function normalizeBillItem(it) {
         price: priceNum,
         disc: roundBillDiscPct(raw.disc || 0),
         others_remark: othersRemark,
-        tooth_no: toothNo
+        tooth_no: toothNo,
+        treatment_item_id: raw.treatment_item_id || raw.treatmentItemId || '',
+        item_code: raw.item_code || raw.itemCode || '',
+        item_name: raw.item_name || ''
     };
 }
 
@@ -21139,9 +21145,12 @@ function billItemsForBillSave(items) {
         var n = normalizeBillItem(it);
         return {
             desc: billItemDisplayDesc(n),
+            item_name: n.desc || n.item_name || '',
             qty: n.qty,
             price: n.price,
-            disc: roundBillDiscPct(n.disc || 0)
+            disc: roundBillDiscPct(n.disc || 0),
+            treatment_item_id: n.treatment_item_id || '',
+            item_code: n.item_code || ''
         };
     });
 }
@@ -21298,11 +21307,20 @@ function renderBillItems() {
                             descCustom.focus();
                         }
                         billItems[idx].desc = '';
+                        billItems[idx].treatment_item_id = '';
+                        billItems[idx].item_code = '';
+                        billItems[idx].item_name = '';
                         billItems[idx].others_remark = '';
                         billItems[idx].tooth_no = '-';
                     } else {
                         // Use selected item
                         billItems[idx].desc = selectedValue;
+                        billItems[idx].item_name = selectedValue;
+                        var selectedOptId = this.options[this.selectedIndex];
+                        billItems[idx].treatment_item_id = selectedOptId
+                            ? (selectedOptId.getAttribute('data-item-id') || '') : '';
+                        billItems[idx].item_code = selectedOptId
+                            ? (selectedOptId.getAttribute('data-item-code') || '') : '';
                         if (billItemIsOthers(billItems[idx])) {
                             billItems[idx].tooth_no = '-';
                         } else {
@@ -21340,6 +21358,9 @@ function renderBillItems() {
             if (descCustom) {
                 descCustom.addEventListener('input', function() {
                     billItems[idx].desc = this.value;
+                    billItems[idx].item_name = '';
+                    billItems[idx].treatment_item_id = '';
+                    billItems[idx].item_code = '';
                     if (!billItemIsOthers(billItems[idx])) {
                         billItems[idx].others_remark = '';
                     } else {
@@ -21470,6 +21491,9 @@ function recalcBalance() {
     g('bBalance').style.color  =
         balance > 0 ? 'var(--danger)' : 'var(--success)';
     syncBillPayTypeForBalance(total, paid, balance);
+    if (typeof COUPONS !== 'undefined' && typeof COUPONS.paintCheckoutHint === 'function') {
+        COUPONS.paintCheckoutHint(total, paid, g('bType') ? g('bType').value : '');
+    }
 }
 
 function billPayAllAmount() {
@@ -21599,6 +21623,19 @@ function saveBill(doPrint) {
                     cashId = Array.isArray(pr.data) ? (pr.data[0] && pr.data[0].id) : pr.data.id;
                 }
                 var earnPatientId = billPatId || payload.patient_id || null;
+                if (bal <= 0.005 && earnPatientId && typeof COUPONS !== 'undefined' &&
+                        typeof COUPONS.onBillFullyPaid === 'function') {
+                    var nonCashPay = (typeof isBalanceTransferPayMethod === 'function' && isBalanceTransferPayMethod(payload.bill_type)) ||
+                        (typeof REWARDS !== 'undefined' && typeof REWARDS.isRewardPayMethod === 'function' &&
+                            REWARDS.isRewardPayMethod(payload.bill_type));
+                    COUPONS.onBillFullyPaid({
+                        patientId: earnPatientId,
+                        billId: savedBillId,
+                        cashAmount: nonCashPay ? 0 : paid,
+                        clinicCode: payRecord.clinic_code || payRecord.clinic_tag || '',
+                        clinicId: payRecord.clinic_id || null
+                    });
+                }
                 var skipEarn = !earnPatientId || !(paid > 0.005) ||
                     (typeof isBalanceTransferPayMethod === 'function' && isBalanceTransferPayMethod(payload.bill_type)) ||
                     (typeof REWARDS !== 'undefined' && typeof REWARDS.isRewardPayMethod === 'function' &&
@@ -21707,7 +21744,9 @@ function buildTreatmentItemOptions(selectedDesc) {
             label += ' (' + item.category + ')';
         }
         html += '<option value="' + esc(item.item_name) + '" ' +
-                'data-price="' + (item.unit_price || 0) + '"' + selected + '>' +
+                'data-price="' + (item.unit_price || 0) + '" ' +
+                'data-item-id="' + esc(item.id || '') + '" ' +
+                'data-item-code="' + esc(item.item_code || '') + '"' + selected + '>' +
                 esc(label) +
                 '</option>';
     });
@@ -22956,7 +22995,17 @@ function executeBillDelete() {
                 console.warn('Reward void-for-bill failed:', e && e.message ? e.message : e);
             });
         }
-        return rewardP;
+        var couponP = Promise.resolve({ ok: true, skipped: true });
+        if (typeof COUPONS !== 'undefined' && typeof COUPONS.onBillVoided === 'function') {
+            couponP = COUPONS.onBillVoided({
+                id: _voidTargetId,
+                patient_id: _voidPatientId,
+                coupon_id: bdDeleteTarget.coupon_id || null
+            }).catch(function (e) {
+                console.warn('Coupon restore on void failed:', e && e.message ? e.message : e);
+            });
+        }
+        return Promise.all([rewardP, couponP]);
     })
     .then(function(rewardRes) {
         if (rewardRes === null) return; // bill update failed
@@ -23105,7 +23154,8 @@ function applyBillDetailExtraDiscount(pct) {
     var paid = parseFloat(b.amount_paid) || 0;
     var subCents = billMoneyCents(sub);
     var discountCents = Math.round(subCents * pct / 100);
-    var totalCents = Math.max(0, subCents - discountCents);
+    var couponCents = billMoneyCents(parseFloat(b.coupon_amount) || 0);
+    var totalCents = Math.max(0, subCents - discountCents - couponCents);
     var paidCents = billMoneyCents(paid);
     var discountAmt = discountCents / 100;
     var total = totalCents / 100;
@@ -23131,6 +23181,9 @@ function applyBillDetailExtraDiscount(pct) {
         b.total = total;
         b.balance = balance;
         b.status = newStatus;
+        if (typeof COUPONS !== 'undefined' && typeof COUPONS.syncBillDetail === 'function') {
+            COUPONS.syncBillDetail(b);
+        }
 
         g('bdDiscount').textContent = fmtHKNeg(discountAmt);
         g('bdTotal').textContent = fmtHK(total);
@@ -23488,6 +23541,9 @@ function showBillDetail(b) {
 
     // Extra discount dropdown (post-creation % off the bill subtotal)
     syncBillDetailExtraDiscount(b);
+    if (typeof COUPONS !== 'undefined' && typeof COUPONS.syncBillDetail === 'function') {
+        COUPONS.syncBillDetail(b);
+    }
 
     // Outstanding banner + Add Payment button (hidden for voided bills)
     var voidedBill = billRecordIsVoid(b);
@@ -24049,6 +24105,16 @@ function executeAddPaymentSave(ctx) {
                 bdCurrentBill.balance     = newBalance;
                 bdCurrentBill.status      = newStatus;
                 bdCurrentBill.bill_type   = billType;
+            }
+            if (newBalance <= 0.005 && typeof COUPONS !== 'undefined' &&
+                    typeof COUPONS.onBillFullyPaid === 'function') {
+                COUPONS.onBillFullyPaid({
+                    patientId: patientId,
+                    billId: billId,
+                    cashAmount: cashAmount,
+                    clinicCode: clinicCode,
+                    clinicId: payRecord.clinic_id || null
+                });
             }
             if (typeof billHistoryCache !== 'undefined' && billHistoryCache && billHistoryCache.length) {
                 billHistoryCache.forEach(function (b) {

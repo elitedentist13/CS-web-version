@@ -19,6 +19,7 @@ var CFG = (function () {
         { key: 'templates', label: '📄 Templates'        },
         { key: 'print',     label: '🖨️ Print'            },
         { key: 'rewards',   label: '🎁 Reward Points'    },
+        { key: 'coupons',   label: '🎟️ Discount Coupons' },
         { key: 'data',      label: '💾 Data / Backup'    }
     ];
 
@@ -266,6 +267,7 @@ var CFG = (function () {
             templates: loadTemplates,
             print:     loadPrint,
             rewards:   loadRewards,
+            coupons:   loadCoupons,
             data:      loadData
         };
         if (loaders[key]) loaders[key]();
@@ -3671,6 +3673,16 @@ var CFG = (function () {
             });
             return clean;
         });
+    }
+
+    function loadCoupons() {
+        var pane = g('cfgPane-coupons');
+        if (!pane) return;
+        if (typeof COUPONS !== 'undefined' && typeof COUPONS.renderConfigPane === 'function') {
+            COUPONS.renderConfigPane(pane);
+            return;
+        }
+        pane.innerHTML = '<p style="color:#dc2626;">Discount coupon module is not loaded.</p>';
     }
 
     function loadRewards() {

@@ -3071,6 +3071,227 @@
         'cfg.nav.print': { en: '🖨️ Print', 'zh-CN': '🖨️ 打印', 'zh-Hant': '🖨️ 列印' },
         'cfg.nav.data': { en: '💾 Data & Backup', 'zh-CN': '💾 数据与备份', 'zh-Hant': '💾 資料與備份' },
         'cfg.nav.rewards': { en: '🎁 Reward Points', 'zh-CN': '🎁 奖励积分', 'zh-Hant': '🎁 獎勵積分' },
+        'cfg.nav.coupons': { en: '🎟️ Discount Coupons', 'zh-CN': '🎟️ 优惠券', 'zh-Hant': '🎟️ 優惠券' },
+        'coupons.cfg.title': { en: 'Discount Coupons', 'zh-CN': '优惠券', 'zh-Hant': '優惠券' },
+        'coupons.cfg.join': { en: 'Join', 'zh-CN': '加入', 'zh-Hant': '加入' },
+        'coupons.cfg.allDoctors': { en: 'All Doctors', 'zh-CN': '全部医生', 'zh-Hant': '全部醫生' },
+        'coupons.cfg.clinics': { en: 'Clinics in scheme', 'zh-CN': '参与诊所', 'zh-Hant': '參與診所' },
+        'coupons.cfg.campaigns': { en: 'Campaigns', 'zh-CN': '优惠活动', 'zh-Hant': '優惠活動' },
+        'coupons.cfg.spendTitle': { en: 'Expenditure coupons', 'zh-CN': '消费满额券', 'zh-Hant': '消費滿額券' },
+        'coupons.cfg.spendHint': {
+            en: 'Five combinations. The first three are filled in. The last two stay empty until you set the spend and the coupon. A row issues only when it is on and both amounts are filled. One bill can earn every row it reaches.',
+            'zh-CN': '五个组合。前三个已填好。后两个留空，由你填写消费额和优惠额。一行要开启并且两个金额都填了才会发出。一张账单达到多行时，每一行都会发出。',
+            'zh-Hant': '五個組合。前三個已填好。後兩個留空，由你填寫消費額和優惠額。一行要開啟並且兩個金額都填了才會發出。一張賬單達到多行時，每一行都會發出。'
+        },
+        'coupons.cfg.spend': { en: 'Spend HK$', 'zh-CN': '消费 HK$', 'zh-Hant': '消費 HK$' },
+        'coupons.cfg.hold': { en: 'Hold up to', 'zh-CN': '最多持有', 'zh-Hant': '最多持有' },
+        'coupons.bill.best': { en: 'Best', 'zh-CN': '最优', 'zh-Hant': '最優' },
+        'coupons.bill.picked': { en: 'Selected', 'zh-CN': '已选', 'zh-Hant': '已選' },
+        'coupons.bill.slotBill': { en: 'Whole bill', 'zh-CN': '全单券', 'zh-Hant': '全單券' },
+        'coupons.bill.slotItems': { en: 'Treatment', 'zh-CN': '治疗券', 'zh-Hant': '治療券' },
+        'coupons.bill.saving': { en: 'Saving', 'zh-CN': '节省', 'zh-Hant': '節省' },
+        'coupons.bill.rule': {
+            en: 'One whole-bill coupon (cash, spend, new chart, referral) and one treatment coupon can be used together. Tap a card to choose or unchoose it.',
+            'zh-CN': '每张账单可同时使用一张全单券（现金、满额、新客、介绍）及一张治疗券。点击卡片可选择或取消。',
+            'zh-Hant': '每張賬單可同時使用一張全單券（現金、滿額、新客、介紹）及一張治療券。點擊卡片可選擇或取消。'
+        },
+        'coupons.rules.title': { en: 'Coupon rules (tap to open)', 'zh-CN': '优惠券使用规则（点击展开）', 'zh-Hant': '優惠券使用規則（點擊展開）' },
+        'coupons.rules.r1': {
+            en: 'Per bill: one whole-bill coupon (cash, spend, new chart, referral) plus one treatment coupon. The treatment coupon comes off first; the whole-bill coupon takes off what is left.',
+            'zh-CN': '每张单：一张全单券（现金、满额、新客、介绍）＋一张治疗券。先扣治疗券，全单券再扣余下金额。',
+            'zh-Hant': '每張單：一張全單券（現金、滿額、新客、介紹）＋一張治療券。先扣治療券，全單券再扣餘下金額。'
+        },
+        'coupons.rules.r2': {
+            en: 'Treatment coupons only cover treatment-list items ticked for that coupon. A typed line counts only if its name is exactly the same as the treatment list.',
+            'zh-CN': '治疗券只适用于该券已勾选的治疗项目。手打项目须与治疗项目表名称完全相同才计算。',
+            'zh-Hant': '治療券只適用於該券已勾選的治療項目。手打項目須與治療項目表名稱完全相同才計算。'
+        },
+        'coupons.rules.r3': {
+            en: 'No change and no cash back: if a coupon is worth more than the bill, the rest is lost.',
+            'zh-CN': '不设找续、不退现金：券面值高于账单时，余额作废。',
+            'zh-Hant': '不設找續、不退現金：券面值高於賬單時，餘額作廢。'
+        },
+        'coupons.rules.r4': {
+            en: 'Spend coupons count all cash paid on the bill (not reward points, balance transfer or voided payments). A coupon earned on a bill can be used from the next bill.',
+            'zh-CN': '满额券按本单已付现金总额计算（不计积分、余额转移及已作废付款）。本单赚到的券由下一张单起可用。',
+            'zh-Hant': '滿額券按本單已付現金總額計算（不計積分、餘額轉移及已作廢付款）。本單賺到的券由下一張單起可用。'
+        },
+        'coupons.rules.r5': {
+            en: 'New-chart and referral coupons stay with the patient. Other coupons can be transferred to another chart no.',
+            'zh-CN': '新客券及介绍券只限本人，不可转让；其他券可转往另一病历号。',
+            'zh-Hant': '新客券及介紹券只限本人，不可轉讓；其他券可轉往另一病歷號。'
+        },
+        'coupons.rules.r6': {
+            en: 'Dr / reception / nurses can gift a cash coupon (HK$1–200) or a switched-on treatment coupon. Spend, new-chart and referral coupons are issued automatically only. Every gift and transfer is logged under your login.',
+            'zh-CN': '医生／前台／护士可赠现金券（HK$1–200）或已开启的治疗券入钱包。满额、新客、介绍券只会自动发出。所有赠送及转让均以你的登入记录。',
+            'zh-Hant': '醫生／前台／護士可贈現金券（HK$1–200）或已開啟的治療券入錢包。滿額、新客、介紹券只會自動發出。所有贈送及轉讓均以你的登入記錄。'
+        },
+        'coupons.rules.r7': {
+            en: 'Voiding a bill returns the coupons used on it and cancels coupons it issued. A refund after payment does not create a new coupon.',
+            'zh-CN': '作废账单会退回该单已用的券，并取消该单发出的券。付款后退款不会补发新券。',
+            'zh-Hant': '作廢賬單會退回該單已用的券，並取消該單發出的券。付款後退款不會補發新券。'
+        },
+        'coupons.rules.r8': {
+            en: 'Expired coupons cannot be used. Patients get an SMS 7 days before expiry.',
+            'zh-CN': '过期券不能使用。到期前 7 日会短信提醒病人。',
+            'zh-Hant': '過期券不能使用。到期前 7 日會短訊提醒病人。'
+        },
+        'coupons.rules.hold': {
+            en: 'Wallet holds up to 20 unused coupons. Per type:',
+            'zh-CN': '钱包最多 20 张未用券。每类上限：',
+            'zh-Hant': '錢包最多 20 張未用券。每類上限：'
+        },
+        'coupons.camp.cash': { en: 'Cash coupon', 'zh-CN': '现金券', 'zh-Hant': '現金券' },
+        'coupons.camp.spend_4': { en: 'Custom spend 1', 'zh-CN': '自订满额 1', 'zh-Hant': '自訂滿額 1' },
+        'coupons.camp.spend_5': { en: 'Custom spend 2', 'zh-CN': '自订满额 2', 'zh-Hant': '自訂滿額 2' },
+        'coupons.camp.new_chart': { en: 'New chart', 'zh-CN': '新客券', 'zh-Hant': '新客券' },
+        'coupons.camp.referral': { en: 'Refer a friend', 'zh-CN': '介绍新客', 'zh-Hant': '介紹新客' },
+        'coupons.camp.free_scaling': { en: 'Free scaling', 'zh-CN': '免费洗牙', 'zh-Hant': '免費洗牙' },
+        'coupons.camp.free_filling': { en: 'Free filling', 'zh-CN': '免费补牙', 'zh-Hant': '免費補牙' },
+        'coupons.camp.free_extraction': { en: 'Free extraction', 'zh-CN': '免费脱牙', 'zh-Hant': '免費脫牙' },
+        'coupons.camp.implant': { en: 'Implant discount', 'zh-CN': '植牙优惠', 'zh-Hant': '植牙優惠' },
+        'coupons.camp.ortho': { en: 'Orthodontic discount', 'zh-CN': '矫齿优惠', 'zh-Hant': '矯齒優惠' },
+        'coupons.camp.crown_bridge': { en: 'Crown and bridge', 'zh-CN': '牙套牙桥优惠', 'zh-Hant': '牙套牙橋優惠' },
+        'coupons.camp.root_canal': { en: 'Root canal', 'zh-CN': '根管优惠', 'zh-Hant': '根管優惠' },
+        'coupons.camp.whitening': { en: 'Whitening', 'zh-CN': '美白优惠', 'zh-Hant': '美白優惠' },
+        'coupons.chip.all': { en: 'All', 'zh-CN': '全部', 'zh-Hant': '全部' },
+        'coupons.chip.bill': { en: 'Whole bill', 'zh-CN': '全单券', 'zh-Hant': '全單券' },
+        'coupons.chip.free': { en: 'Free treatment', 'zh-CN': '免费治疗', 'zh-Hant': '免費治療' },
+        'coupons.chip.items': { en: 'Implant / ortho', 'zh-CN': '植牙／矫齿', 'zh-Hant': '植牙／矯齒' },
+        'coupons.cfg.blurb': {
+            en: 'Separate from reward points. KT is joined. Other clinics stay off until you tick them. Each bill can use one whole-bill coupon plus one treatment coupon. A treatment coupon applies only to the catalog items listed on it.',
+            'zh-CN': '与奖励积分分开。KT 已加入，其他诊所须勾选才开启。每张单可用一张全单券加一张治疗券。治疗券只适用于其列出的治疗项目。',
+            'zh-Hant': '與獎勵積分分開。KT 已加入，其他診所須勾選才開啟。每張單可用一張全單券加一張治療券。治療券只適用於其列出的治療項目。'
+        },
+        'coupons.cfg.expiry': { en: 'Days', 'zh-CN': '有效日数', 'zh-Hant': '有效日數' },
+        'coupons.cfg.campaignHint': {
+            en: 'Turn each offer on or off. A treatment coupon fits the items ticked in its list; the smart keyword filter ticks matching items for you.',
+            'zh-CN': '逐项开启或关闭优惠。治疗券适用于清单中已勾选的项目；智能关键字筛选会自动勾选相符项目。',
+            'zh-Hant': '逐項開啟或關閉優惠。治療券適用於清單中已勾選的項目；智能關鍵字篩選會自動勾選相符項目。'
+        },
+        'coupons.cfg.ceiling': { en: 'Ceiling', 'zh-CN': '上限', 'zh-Hant': '上限' },
+        'coupons.info.nonCash': {
+            en: 'Reward points and balance transfer do not count towards spend coupons.',
+            'zh-CN': '积分及余额转移不计入满额券。',
+            'zh-Hant': '積分及餘額轉移不計入滿額券。'
+        },
+        'coupons.info.needFull': { en: 'Issued once the bill is fully paid.', 'zh-CN': '账单全数付清后发出。', 'zh-Hant': '賬單全數付清後發出。' },
+        'coupons.pick.noCatalog': { en: 'Treatment list not loaded yet.', 'zh-CN': '治疗项目表尚未载入。', 'zh-Hant': '治療項目表尚未載入。' },
+        'coupons.pick.auto': { en: 'keyword', 'zh-CN': '关键字', 'zh-Hant': '關鍵字' },
+        'coupons.pick.excluded': { en: 'unticked', 'zh-CN': '已剔除', 'zh-Hant': '已剔除' },
+        'coupons.pick.gone': { en: 'not in list', 'zh-CN': '不在项目表', 'zh-Hant': '不在項目表' },
+        'coupons.pick.summary': { en: 'Treatment items', 'zh-CN': '适用治疗项目', 'zh-Hant': '適用治療項目' },
+        'coupons.pick.ticked': { en: 'ticked', 'zh-CN': '项已勾选', 'zh-Hant': '項已勾選' },
+        'coupons.pick.byKeyword': { en: 'by keyword', 'zh-CN': '项由关键字', 'zh-Hant': '項由關鍵字' },
+        'coupons.pick.smart': { en: 'Smart keyword filter', 'zh-CN': '智能关键字筛选', 'zh-Hant': '智能關鍵字篩選' },
+        'coupons.pick.keywords': { en: 'Keywords (comma separated)', 'zh-CN': '关键字（以逗号分隔）', 'zh-Hant': '關鍵字（以逗號分隔）' },
+        'coupons.pick.exclude': { en: 'Exclude words', 'zh-CN': '排除字词', 'zh-Hant': '排除字詞' },
+        'coupons.pick.search': { en: 'Search treatment…', 'zh-CN': '搜寻治疗项目…', 'zh-Hant': '搜尋治療項目…' },
+        'coupons.pick.hint': {
+            en: 'Ticked items always fit this coupon. With the smart filter on, items whose name has a keyword (and no exclude word) are ticked for you; untick one to leave it out.',
+            'zh-CN': '已勾选的项目一定适用此券。开启智能筛选后，名称含关键字（且不含排除字词）的项目会自动勾选；取消勾选即可剔除。',
+            'zh-Hant': '已勾選的項目一定適用此券。開啟智能篩選後，名稱含關鍵字（且不含排除字詞）的項目會自動勾選；取消勾選即可剔除。'
+        },
+        'coupons.log.chart': { en: 'Chart no.', 'zh-CN': '病历号', 'zh-Hant': '病歷號' },
+        'coupons.log.load': { en: 'Show', 'zh-CN': '显示', 'zh-Hant': '顯示' },
+        'coupons.log.auto': { en: 'Automatic', 'zh-CN': '自动', 'zh-Hant': '自動' },
+        'coupons.log.noDb': { en: 'Database not connected.', 'zh-CN': '未连接数据库。', 'zh-Hant': '未連接資料庫。' },
+        'coupons.log.empty': { en: 'No coupon activity in this period.', 'zh-CN': '此期间没有优惠券记录。', 'zh-Hant': '此期間沒有優惠券記錄。' },
+        'coupons.log.gift': { en: 'Gift', 'zh-CN': '赠送', 'zh-Hant': '贈送' },
+        'coupons.log.issue': { en: 'Issue', 'zh-CN': '发出', 'zh-Hant': '發出' },
+        'coupons.log.transfer': { en: 'Transfer', 'zh-CN': '转让', 'zh-Hant': '轉讓' },
+        'coupons.log.restore': { en: 'Restore', 'zh-CN': '退回', 'zh-Hant': '退回' },
+        'coupons.log.cancel': { en: 'Cancel', 'zh-CN': '取消', 'zh-Hant': '取消' },
+        'coupons.log.when': { en: 'When', 'zh-CN': '时间', 'zh-Hant': '時間' },
+        'coupons.log.what': { en: 'Action', 'zh-CN': '动作', 'zh-Hant': '動作' },
+        'coupons.log.who': { en: 'By', 'zh-CN': '经手人', 'zh-Hant': '經手人' },
+        'coupons.log.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'coupons.log.coupon': { en: 'Coupon', 'zh-CN': '优惠券', 'zh-Hant': '優惠券' },
+        'coupons.log.amount': { en: 'Amount', 'zh-CN': '金额', 'zh-Hant': '金額' },
+        'coupons.log.code': { en: 'Code', 'zh-CN': '编号', 'zh-Hant': '編號' },
+        'coupons.log.note': { en: 'Detail', 'zh-CN': '详情', 'zh-Hant': '詳情' },
+        'coupons.bill.applied': { en: 'Coupon applied', 'zh-CN': '已使用优惠券', 'zh-Hant': '已使用優惠券' },
+        'coupons.bill.none': { en: 'No coupon', 'zh-CN': '未使用优惠券', 'zh-Hant': '未使用優惠券' },
+        'coupons.bill.clinicOff': { en: 'This clinic is not in the coupon scheme.', 'zh-CN': '此诊所未加入优惠券计划。', 'zh-Hant': '此診所未加入優惠券計劃。' },
+        'coupons.bill.empty': { en: 'This patient has no unused coupons.', 'zh-CN': '此病人没有未用的优惠券。', 'zh-Hant': '此病人沒有未用的優惠券。' },
+        'coupons.bill.totalStays': { en: 'Total stays', 'zh-CN': '总额不变', 'zh-Hant': '總額不變' },
+        'coupons.xfer.to': { en: 'Transfer selected to chart no.', 'zh-CN': '将所选券转往病历号', 'zh-Hant': '將所選券轉往病歷號' },
+        'coupons.xfer.go': { en: 'Transfer', 'zh-CN': '转让', 'zh-Hant': '轉讓' },
+        'coupons.xfer.missing': { en: 'Chart not found', 'zh-CN': '找不到该病历', 'zh-Hant': '找不到該病歷' },
+        'coupons.xfer.onBill': { en: 'Take this coupon off the bill before transferring it', 'zh-CN': '请先从账单移除此券再转让', 'zh-Hant': '請先從賬單移除此券再轉讓' },
+        'coupons.xfer.pick': { en: 'Select a coupon first', 'zh-CN': '请先选择一张券', 'zh-Hant': '請先選擇一張券' },
+        'coupons.xfer.need': { en: 'Enter a chart number', 'zh-CN': '请输入病历号', 'zh-Hant': '請輸入病歷號' },
+        'coupons.notice.gifted': { en: 'added to the wallet. Logged under', 'zh-CN': '已存入钱包。记录经手人', 'zh-Hant': '已存入錢包。記錄經手人' },
+        'coupons.why.item': {
+            en: 'No treatment on this bill matches this coupon. Pick the item from the treatment list',
+            'zh-CN': '此账单没有符合此券的治疗项目，请从治疗项目表选择',
+            'zh-Hant': '此賬單沒有符合此券的治療項目，請從治療項目表選擇'
+        },
+        'coupons.why.noItems': { en: 'No treatments are ticked for this coupon in Configuration', 'zh-CN': '设定中此券未勾选任何治疗项目', 'zh-Hant': '設定中此券未勾選任何治療項目' },
+        'coupons.why.next': { en: 'Earned from this bill, so it can be used from the next bill', 'zh-CN': '此券由本单赚取，下一张单起可用', 'zh-Hant': '此券由本單賺取，下一張單起可用' },
+        'coupons.why.zero': { en: 'Nothing left on the bill for this coupon to take off', 'zh-CN': '账单已无余额可供此券扣减', 'zh-Hant': '賬單已無餘額可供此券扣減' },
+        'coupons.reason.item': { en: 'Add the matching treatment', 'zh-CN': '需加入相符治疗', 'zh-Hant': '需加入相符治療' },
+        'coupons.reason.short': { en: 'Short by', 'zh-CN': '还差', 'zh-Hant': '還差' },
+        'coupons.reason.expired': { en: 'Expired', 'zh-CN': '已过期', 'zh-Hant': '已過期' },
+        'coupons.reason.used': { en: 'Used', 'zh-CN': '已使用', 'zh-Hant': '已使用' },
+        'coupons.reason.next': { en: 'For a later bill', 'zh-CN': '下次账单可用', 'zh-Hant': '下次賬單可用' },
+        'coupons.grant.cashRange': { en: 'Type HK$1 to HK$200', 'zh-CN': '输入 HK$1 至 HK$200', 'zh-Hant': '輸入 HK$1 至 HK$200' },
+        'coupons.grant.ceiling': { en: 'ceiling', 'zh-CN': '上限', 'zh-Hant': '上限' },
+        'coupons.grant.amount': { en: 'Enter HK$1 to HK$200', 'zh-CN': '请输入 HK$1 至 HK$200', 'zh-Hant': '請輸入 HK$1 至 HK$200' },
+        'coupons.grant.full': { en: 'Wallet already holds 20 unused coupons', 'zh-CN': '钱包已有 20 张未用券', 'zh-Hant': '錢包已有 20 張未用券' },
+        'coupons.grant.holding': {
+            en: 'This patient already holds the most allowed of this coupon (see “Hold up to” in Configuration)',
+            'zh-CN': '此病人持有此券已达上限（见设定中的「最多持有」）',
+            'zh-Hant': '此病人持有此券已達上限（見設定中的「最多持有」）'
+        },
+        'coupons.grant.clinic': { en: 'This clinic is not in the coupon scheme', 'zh-CN': '此诊所未加入优惠券计划', 'zh-Hant': '此診所未加入優惠券計劃' },
+        'coupons.grant.patient': { en: 'Open a patient bill first', 'zh-CN': '请先打开病人账单', 'zh-Hant': '請先打開病人賬單' },
+        'coupons.grant.automatic': { en: 'This coupon is issued automatically', 'zh-CN': '此券只会自动发出', 'zh-Hant': '此券只會自動發出' },
+        'coupons.grant.off': { en: 'Turn this coupon on in Configuration', 'zh-CN': '请先在设定中开启此券', 'zh-Hant': '請先在設定中開啟此券' },
+        'coupons.grant.items': { en: 'Tick the treatments for this coupon in Configuration', 'zh-CN': '请在设定中为此券勾选治疗项目', 'zh-Hant': '請在設定中為此券勾選治療項目' },
+        'coupons.grant.role': { en: 'This login cannot gift coupons', 'zh-CN': '此登入不能赠送优惠券', 'zh-Hant': '此登入不能贈送優惠券' },
+        'coupons.grant.budget': { en: 'This coupon has reached its budget', 'zh-CN': '此券已达预算', 'zh-Hant': '此券已達預算' },
+        'coupons.grant.cap': { en: 'This coupon has reached its issue limit', 'zh-CN': '此券已达发放上限', 'zh-Hant': '此券已達發放上限' },
+        'coupons.grant.fail': { en: 'Could not gift the coupon', 'zh-CN': '未能赠送优惠券', 'zh-Hant': '未能贈送優惠券' },
+        'coupons.saved.title': { en: 'Saved on this bill', 'zh-CN': '本单共节省', 'zh-Hant': '本單共節省' },
+        'coupons.saved.lines': { en: 'Line discounts', 'zh-CN': '项目折扣', 'zh-Hant': '項目折扣' },
+        'coupons.saved.extra': { en: 'Extra discount', 'zh-CN': '额外折扣', 'zh-Hant': '額外折扣' },
+        'coupons.saved.coupon': { en: 'Coupons', 'zh-CN': '优惠券', 'zh-Hant': '優惠券' },
+        'coupons.info.earned': { en: 'Earned from this bill', 'zh-CN': '本单获得', 'zh-Hant': '本單獲得' },
+        'coupons.info.expires': { en: 'expires', 'zh-CN': '到期', 'zh-Hant': '到期' },
+        'coupons.info.willEarn': { en: 'Paid in full by cash, this bill earns', 'zh-CN': '以现金付清后，本单可获得', 'zh-Hant': '以現金付清後，本單可獲得' },
+        'coupons.info.short': { en: 'Spend', 'zh-CN': '再消费', 'zh-Hant': '再消費' },
+        'coupons.info.more': { en: 'more for', 'zh-CN': '即可获得', 'zh-Hant': '即可獲得' },
+        'coupons.notice.earned': { en: 'This bill earned', 'zh-CN': '本单获得', 'zh-Hant': '本單獲得' },
+        'coupons.notice.wallet': { en: 'added to the wallet for the next visit.', 'zh-CN': '已存入钱包，下次可用。', 'zh-Hant': '已存入錢包，下次可用。' },
+        'coupons.log.title': { en: 'Coupon log', 'zh-CN': '优惠券记录', 'zh-Hant': '優惠券記錄' },
+        'coupons.log.hint': {
+            en: 'Every coupon issued, gifted, transferred, given back on a void, or cancelled. Gifts show the login that gave them.',
+            'zh-CN': '所有发出、赠送、转让、作废退回或取消的优惠券。赠送会显示操作的登入用户。',
+            'zh-Hant': '所有發出、贈送、轉讓、作廢退回或取消的優惠券。贈送會顯示操作的登入用戶。'
+        },
+        'coupons.cfg.get': { en: 'Coupon HK$', 'zh-CN': '优惠 HK$', 'zh-Hant': '優惠 HK$' },
+        'coupons.bill.title': { en: 'Discount coupon', 'zh-CN': '优惠券', 'zh-Hant': '優惠券' },
+        'coupons.bill.apply': { en: 'Apply', 'zh-CN': '使用', 'zh-Hant': '使用' },
+        'coupons.bill.clear': { en: 'Do not use a coupon', 'zh-CN': '不使用优惠券', 'zh-Hant': '不使用優惠券' },
+        'coupons.bill.pick': { en: 'Choose', 'zh-CN': '选择', 'zh-Hant': '選擇' },
+        'coupons.grant.go': { en: 'Gift to wallet', 'zh-CN': '赠入钱包', 'zh-Hant': '贈入錢包' },
+        'coupons.grant.title': { en: 'Gift a coupon into this wallet', 'zh-CN': '把优惠券赠入这个钱包', 'zh-Hant': '把優惠券贈入這個錢包' },
+        'coupons.grant.hint': {
+            en: 'Cash and treatment coupons that are switched on. The coupon is stored unused and does not reduce this bill until someone chooses it later.',
+            'zh-CN': '已开启的现金券和治疗券。优惠券以未使用状态存入钱包，在之后选择使用之前，不会减少这张账单。',
+            'zh-Hant': '已開啟的現金券和治療券。優惠券以未使用狀態存入錢包，在之後選擇使用之前，不會減少這張賬單。'
+        },
+        'coupons.grant.none': {
+            en: 'Turn a cash or treatment coupon on in Configuration before gifting.',
+            'zh-CN': '请先在设定里开启现金券或治疗券，才可以赠入钱包。',
+            'zh-Hant': '請先在設定裡開啟現金券或治療券，才可以贈入錢包。'
+        },
+        'coupons.grant.paid': {
+            en: 'This bill is already paid. A gifted coupon stays in the wallet for a later bill.',
+            'zh-CN': '这张账单已付款。赠出的优惠券留在钱包，供之后的账单使用。',
+            'zh-Hant': '這張賬單已付款。贈出的優惠券留在錢包，供之後的賬單使用。'
+        },
 
         'bill.pay.rewardPoints': { en: 'Reward points', 'zh-CN': '奖励积分', 'zh-Hant': '獎勵積分' },
 

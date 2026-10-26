@@ -877,6 +877,9 @@ function submitAddPatient(e) {
                 }
             }
 
+            if (row && typeof COUPONS !== 'undefined' && typeof COUPONS.onPatientCreated === 'function') {
+                COUPONS.onPatientCreated(row, payload.referred_by);
+            }
             var linkedToday = row &&
                 typeof linkTodayApptAfterPatientRegistration === 'function' &&
                 linkTodayApptAfterPatientRegistration(row);

@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261025smsClinicZh1';
+  var BUILD = '20261026coupon10';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -6471,6 +6471,7 @@
       <button class="cfg-nav-item" data-tab="templates" data-i18n="cfg.nav.templates"></button>
       <button class="cfg-nav-item" data-tab="print" data-i18n="cfg.nav.print"></button>
       <button class="cfg-nav-item" data-tab="rewards" data-i18n="cfg.nav.rewards"></button>
+      <button class="cfg-nav-item" data-tab="coupons" data-i18n="cfg.nav.coupons"></button>
       <button class="cfg-nav-item" data-tab="data" data-i18n="cfg.nav.data"></button>
     </nav>
 
@@ -6485,6 +6486,7 @@
       <div id="cfgPane-templates" class="cfg-pane"></div>
       <div id="cfgPane-print" class="cfg-pane"></div>
       <div id="cfgPane-rewards" class="cfg-pane"></div>
+      <div id="cfgPane-coupons" class="cfg-pane"></div>
       <div id="cfgPane-data" class="cfg-pane"></div>
     </div><!-- /.cfg-content -->
   </div><!-- /.cfg-layout -->
@@ -6737,6 +6739,9 @@
             <span class="t-label" data-i18n="bill.labelBalanceDue"></span>
             <span class="t-val" id="bBalance">0.00</span>
           </div>
+          <div id="bSpendHint" hidden
+               style="margin-top:8px;padding:8px 10px;border-radius:8px;background:#ecfdf5;
+                      border:1px solid #a7f3d0;color:#065f46;font-size:12px;line-height:1.55;"></div>
         </div>
 
         <div class="fg" style="margin-top:10px;">
@@ -7324,10 +7329,35 @@
                    placeholder="%">
           </span>
         </div>
+        <div id="bdCouponRow" style="display:flex;justify-content:space-between;align-items:center;
+                    gap:8px;padding:6px 0;font-size:13px;border-bottom:1px solid #eee;">
+          <span style="color:#555;">
+            <span data-i18n="coupons.bill.title">優惠券</span>
+            <span id="bdCouponLabel" style="display:block;color:#64748b;font-size:11px;"></span>
+          </span>
+          <span style="display:flex;align-items:center;gap:8px;">
+            <strong id="bdCouponAmt" style="color:#0f766e;">0.00</strong>
+            <button type="button" id="bdCouponPick" onclick="COUPONS && COUPONS.openBillSheet()"
+                    style="padding:4px 10px;border:1px solid #0f766e;background:#fff;color:#0f766e;
+                           border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;"
+                    data-i18n="coupons.bill.pick">選擇</button>
+            <button type="button" id="bdCouponGrant" onclick="COUPONS && COUPONS.openGrantSheet()"
+                    data-i18n="coupons.grant.go">贈入錢包</button>
+          </span>
+        </div>
         <div style="display:flex;justify-content:space-between;padding:7px 0;
                     font-size:15px;font-weight:700;border-bottom:2px solid #1e3a5f;">
           <span data-i18n="bill.labelTotal"></span>
           <span id="bdTotal">0.00</span>
+        </div>
+        <div id="bdSavedRow" hidden
+             style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+                    padding:5px 0;font-size:13px;border-bottom:1px solid #eee;color:#0f766e;">
+          <span>
+            <span data-i18n="coupons.saved.title">本單共節省</span>
+            <span id="bdSavedDetail" style="display:block;color:#64748b;font-size:11px;"></span>
+          </span>
+          <strong id="bdSavedAmt">HK$0.00</strong>
         </div>
         <div style="display:flex;justify-content:space-between;padding:5px 0;
                     font-size:13px;border-bottom:1px solid #eee;">
@@ -7339,6 +7369,9 @@
           <span style="color:var(--danger);" data-i18n="bill.labelBalanceDue"></span>
           <span id="bdBalance" style="color:var(--danger);">0.00</span>
         </div>
+        <div id="bdCouponInfo" hidden
+             style="margin-top:8px;padding:8px 10px;border-radius:8px;background:#ecfdf5;
+                    border:1px solid #a7f3d0;color:#065f46;font-size:12px;line-height:1.55;"></div>
       </div>
 
     </div><!-- /grid -->
@@ -8231,7 +8264,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20261019reward11',
-    'app-i18n-extra.js?v=20261025parcoBoth1',
+    'app-i18n-extra.js?v=20261026coupon10',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20261019reward11',
@@ -8251,7 +8284,7 @@
     'app-patient-views.js?v=20261019reward12',
     'cal-doctor-colors.js',
     'app-public-holidays.js',
-    'app-appt.js?v=20261020rewardBannerVoid1',
+    'app-appt.js?v=20261026coupon10',
     'app-rsvp-recall.js',
     'app-patient-recall.js',
     'app-realtime-sync.js',
@@ -8290,7 +8323,8 @@
     'app-webbook.js',
     'app-webbook-roster.js',
     'app-mass-broadcast.js',
-    'app-rewards.js?v=20261025smsClinicZh1'
+    'app-rewards.js?v=20261025smsClinicZh1',
+    'app-coupons.js?v=20261026coupon10'
   ];
   /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {

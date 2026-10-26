@@ -953,7 +953,10 @@ function extractIifeHelpers(src) {
   };
   try {
     const joined = await REWARDS.isClinicJoined(null, 'PL');
-    out.plJoinedDefault = !!joined;
+    out.plJoinedAll = !!joined;
+    // PL may be per-doctor (All Doctors off); a joined PL doctor still counts.
+    out.plJoinedNg = !!(await REWARDS.isClinicJoined(null, 'PL', 'DR. NG PUI CHING'));
+    out.plJoinedDefault = out.plJoinedAll || out.plJoinedNg;
   } catch (e) {
     out.plJoinedDefault = null;
     out.plErr = String(e && e.message || e);
@@ -1006,7 +1009,7 @@ function extractIifeHelpers(src) {
 
         if (liveProbe && liveProbe.plJoinedDefault != null) {
             pass('live PL joined (API or default)', liveProbe.plJoinedDefault === true,
-                liveProbe.plErr || '');
+                liveProbe.plErr || ('allDoctors=' + liveProbe.plJoinedAll + ' drNg=' + liveProbe.plJoinedNg));
         } else {
             warn('live PL join probe skipped', liveProbe && liveProbe.plErr);
         }
@@ -1160,7 +1163,9 @@ function extractIifeHelpers(src) {
       window.bdCurrentBill = {
         id: 'smoke-bill',
         patient_id: pid,
-        balance: 100
+        balance: 100,
+        doctor_name: 'DR. NG PUI CHING',
+        doctor_tag: 'DR. NG PUI CHING'
       };
       await REWARDS.refreshAddPaymentRewardPanel();
       const panel = document.getElementById('apRewardPanel');
@@ -1319,6 +1324,79 @@ function extractIifeHelpers(src) {
                     xferLive && xferLive.payShows021713 === true,
                     xferLive && ('bal=' + xferLive.payBal + ' src=' +
                         String(xferLive.paySrcText || '').slice(0, 100)));
+            }
+
+            // Gain and redeem must give one answer per bill (no writes:
+            // applyRedeemForBill is probed with an amount above any balance,
+            // so it stops at the cap check before inserting a payment).
+            console.log('\n=== CDP live gain/redeem together (#001003 real bills) ===');
+            var joinPid = (xferPair && xferPair.pl_id) ||
+                (smokePat && smokePat.patient_no === '001003' ? smokePat.patient_id : null);
+            if (!joinPid) {
+                warn('live gain/redeem together skipped', 'no #001003 patient id');
+            } else {
+                var joinLive = await cdp.js(`(async () => {
+  const pid = ${JSON.stringify(joinPid)};
+  const out = { rows: [] };
+  try {
+    const r = await SB.from('bills')
+      .select('id,patient_id,clinic_id,clinic_tag,doctor_id,dentist_id,doctor_name,doctor_tag,dentist_name,balance,created_at')
+      .eq('patient_id', pid).order('created_at', { ascending: false }).limit(12);
+    if (r.error) throw r.error;
+    const bills = r.data || [];
+    out.billCount = bills.length;
+    const cl = await SB.from('clinics').select('id,clinic_code');
+    const codeById = {};
+    (cl.data || []).forEach(c => { codeById[c.id] = c.clinic_code; });
+    const notJoinedMsg = (typeof t === 'function') ? t('rewards.pay.doctorNotJoined') : '';
+    for (const b of bills) {
+      const code = String(b.clinic_tag || codeById[b.clinic_id] || '').trim();
+      const cid = b.clinic_id || null;
+      const doc = REWARDS.resolveRewardDoctor(b);
+      const again = REWARDS.resolveRewardDoctor(doc);
+      const gain = !!(await REWARDS.isClinicGainJoined(cid, code, b));
+      const redeemPanel = !!(await REWARDS.isClinicRedeemJoined(cid, code, b));
+      const redeemSave = !!(await REWARDS.isClinicRedeemJoined(cid, code, doc));
+      let saveErr = '';
+      if (REWARDS.isKnownRewardDoctor ? REWARDS.isKnownRewardDoctor(doc) : !!doc.label) {
+        const res = await REWARDS.applyRedeemForBill({
+          patientId: pid, points: 999999, billId: b.id, bill: b,
+          clinicId: cid, clinicCode: code
+        });
+        saveErr = String((res && res.error) || '');
+      }
+      out.rows.push({
+        bill: String(b.id).slice(0, 8), code, tag: b.doctor_tag || b.doctor_name || '',
+        key: doc.key, keyStable: doc.key === again.key, did: doc.doctor_id || null,
+        gain, redeemPanel, redeemSave,
+        saveSaysNotJoined: !!(notJoinedMsg && saveErr.indexOf(notJoinedMsg) >= 0),
+        saveErr: saveErr.slice(0, 60)
+      });
+    }
+    out.ok = true;
+  } catch (e) {
+    out.ok = false;
+    out.err = String(e && e.message || e);
+  }
+  return out;
+})()`, true, 60000);
+                pass('live #001003 bills loaded', joinLive && joinLive.ok && joinLive.billCount > 0,
+                    joinLive && (joinLive.err || ('bills=' + joinLive.billCount)));
+                (joinLive && joinLive.rows || []).forEach(function (row) {
+                    var label = '#001003 bill ' + row.bill + ' ' + row.code + ' ' + row.tag;
+                    console.log('      ' + label + '  key=' + row.key + ' doctor_id=' +
+                        (row.did ? row.did.slice(0, 8) : '—') + '  gain=' + row.gain +
+                        ' panel=' + row.redeemPanel + ' save=' + row.redeemSave +
+                        (row.saveErr ? '  saveMsg="' + row.saveErr + '"' : ''));
+                    pass('live gain = redeem (panel + save) ' + label,
+                        row.gain === row.redeemPanel && row.gain === row.redeemSave);
+                    pass('live doctor key stable on re-check ' + label, row.keyStable === true, row.key);
+                    if (row.saveErr) {
+                        pass('live redeem save agrees with join ' + label,
+                            row.saveSaysNotJoined === !row.redeemSave,
+                            'joined=' + row.redeemSave + ' msg=' + row.saveErr);
+                    }
+                });
             }
         }
 

@@ -394,11 +394,11 @@ var REWARDS = (function () {
 
         var doc = resolveRewardDoctor(doctorInput);
         var matched = null;
-        if (isKnownRewardDoctor(doc)) {
+        if (isKnownRewardDoctor(doc) || doc.doctor_id) {
             matched = rewardFlagsMatchKey(
                 bucket,
-                doc.key,
-                doctorInput && typeof doctorInput === 'object' ? doctorInput.id : null
+                isKnownRewardDoctor(doc) ? doc.key : '',
+                doc.doctor_id
             );
         }
 
@@ -459,6 +459,7 @@ var REWARDS = (function () {
         });
     }
 
+    /** One participation switch: gain and redeem must always give the same answer. */
     function isClinicJoined(clinicId, clinicCode, doctorInput) {
         return loadJoinMaps(false).then(function (maps) {
             return !!effectiveJoinFlags(maps.clinicMap, maps.doctorMap, clinicId, clinicCode, doctorInput).enabled;
@@ -466,15 +467,27 @@ var REWARDS = (function () {
     }
 
     function isClinicGainJoined(clinicId, clinicCode, doctorInput) {
-        return loadJoinMaps(false).then(function (maps) {
-            return !!effectiveJoinFlags(maps.clinicMap, maps.doctorMap, clinicId, clinicCode, doctorInput).join_gain;
-        });
+        return isClinicJoined(clinicId, clinicCode, doctorInput);
     }
 
     function isClinicRedeemJoined(clinicId, clinicCode, doctorInput) {
-        return loadJoinMaps(false).then(function (maps) {
-            return !!effectiveJoinFlags(maps.clinicMap, maps.doctorMap, clinicId, clinicCode, doctorInput).join_redeem;
-        });
+        return isClinicJoined(clinicId, clinicCode, doctorInput);
+    }
+
+    /** Treating doctor for a payment: the bill first (keeps doctor_id), then the passed name. */
+    function payDoctorFor(opts) {
+        opts = opts || {};
+        var billLike = opts.bill ||
+            ((typeof bdCurrentBill !== 'undefined' && bdCurrentBill) ? bdCurrentBill : null);
+        var doc = billLike ? resolveRewardDoctor(billLike) : null;
+        if (!isKnownRewardDoctor(doc) && opts.doctorName) {
+            var byName = resolveRewardDoctor(opts.doctorName);
+            if (isKnownRewardDoctor(byName)) {
+                byName.doctor_id = (doc && doc.doctor_id) || null;
+                doc = byName;
+            }
+        }
+        return doc || { key: '__unknown__', label: '', doctor_id: null };
     }
 
     function currentClinicJoined(doctorInput) {
@@ -701,7 +714,7 @@ var REWARDS = (function () {
         var ctx = clinicCtx();
         var clinicId = opts.clinicId != null ? opts.clinicId : ctx.clinic_id;
         var clinicCode = opts.clinicCode != null ? opts.clinicCode : ctx.clinic_code;
-        return isClinicGainJoined(clinicId, clinicCode, opts.doctorName).then(function (joined) {
+        return isClinicGainJoined(clinicId, clinicCode, opts.doctor || opts.doctorName).then(function (joined) {
             if (!joined) {
                 return {
                     ok: true,
@@ -1831,9 +1844,7 @@ var REWARDS = (function () {
         if (pts <= 0) {
             return Promise.resolve({ rewardAmount: 0, rewardPaymentId: null, redeemResult: null });
         }
-        var billLike = opts.bill ||
-            ((typeof bdCurrentBill !== 'undefined' && bdCurrentBill) ? bdCurrentBill : null);
-        var doc = resolveRewardDoctor(opts.doctorName || billLike);
+        var doc = payDoctorFor(opts);
         if (!isKnownRewardDoctor(doc)) {
             return Promise.resolve({
                 ok: false,
@@ -2124,9 +2135,10 @@ var REWARDS = (function () {
         opts = opts || {};
         var billLike = opts.bill ||
             ((typeof bdCurrentBill !== 'undefined' && bdCurrentBill) ? bdCurrentBill : null);
-        var doc = resolveRewardDoctor(opts.doctorName || billLike);
+        var doc = payDoctorFor(opts);
         var doctorName = isKnownRewardDoctor(doc) ? doc.label : (resolveBillDoctorName(billLike) || null);
         return earn({
+            doctor: doc,
             patientId: opts.patientId,
             eligibleAmount: opts.eligibleAmount,
             billId: opts.billId,
@@ -2206,14 +2218,15 @@ var REWARDS = (function () {
             _paySourceAccounts = [];
             return Promise.resolve();
         }
-        return currentClinicRedeemJoined().then(function (joined) {
+        var payDoc = payDoctorFor({ bill: bill });
+        return currentClinicRedeemJoined(payDoc).then(function (joined) {
             if (!joined) {
                 panel.style.display = 'none';
                 _paySourceAccounts = [];
                 return;
             }
             panel.style.display = '';
-            _payDoctor = resolveRewardDoctor(bill);
+            _payDoctor = payDoc;
             return Promise.all([
                 listPersonAccounts(bill.patient_id),
                 loadDoctorLedgerNets(bill.patient_id)
@@ -2387,6 +2400,30 @@ var REWARDS = (function () {
      * Prefer DoctorAliases group label (e.g. "Dr Ng Pui Ching").
      */
     function resolveRewardDoctor(input) {
+        // Already resolved { key, label } (applyRedeemForBill passes this back
+        // into the join check). Do not treat it as a bill: resolveFromBill
+        // would return __unknown__ and the fallback would rewrite
+        // "ng-pui-ching" into "name:ng pui ching", which misses the joined row.
+        if (input && typeof input === 'object' && input.key && input.label &&
+            input.key !== '__unknown__' &&
+            !input.doctor_name && !input.dentist_name && !input.doctor_tag &&
+            !input.doctor_code) {
+            return {
+                key: String(input.key),
+                label: String(input.label).trim(),
+                doctor_id: input.doctor_id ? String(input.doctor_id) : null
+            };
+        }
+        var doc = resolveRewardDoctorFromText(input);
+        // Bill doctor id lets the join check match the saved doctor row even
+        // when the bill's name text resolves to a different key.
+        var did = (input && typeof input === 'object')
+            ? (input.doctor_id || input.dentist_id || null) : null;
+        doc.doctor_id = did ? String(did) : null;
+        return doc;
+    }
+
+    function resolveRewardDoctorFromText(input) {
         var billLike = null;
         var raw = '';
         if (input && typeof input === 'object') {
@@ -2399,11 +2436,15 @@ var REWARDS = (function () {
         if (typeof DoctorAliases !== 'undefined' && DoctorAliases) {
             try {
                 var docs = (typeof billDoctorList !== 'undefined' && billDoctorList) ? billDoctorList : null;
-                var person = billLike && typeof DoctorAliases.resolveFromBill === 'function'
-                    ? DoctorAliases.resolveFromBill(billLike, docs)
-                    : (typeof DoctorAliases.resolveFromTexts === 'function'
-                        ? DoctorAliases.resolveFromTexts([raw])
-                        : null);
+                var person = null;
+                if (billLike && typeof DoctorAliases.resolveFromBill === 'function') {
+                    person = DoctorAliases.resolveFromBill(billLike, docs);
+                }
+                if ((!person || !person.key || person.key === '__unknown__' ||
+                        !String(person.label || '').trim() || person.label === '—') &&
+                    raw && typeof DoctorAliases.resolveFromTexts === 'function') {
+                    person = DoctorAliases.resolveFromTexts([raw]);
+                }
                 if (person && person.key && person.key !== '__unknown__') {
                     var lab = String(person.label || '').trim();
                     if (lab && lab !== '—') {
@@ -3556,9 +3597,10 @@ var REWARDS = (function () {
             if (row.join_gain) gain = true;
             if (row.join_redeem) redeem = true;
         });
+        var joined = gain || redeem;
         return setClinicJoinFlags(clinicId, clinicCode, {
-            join_gain: gain,
-            join_redeem: redeem
+            join_gain: joined,
+            join_redeem: joined
         });
     }
 

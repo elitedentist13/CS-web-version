@@ -21673,7 +21673,8 @@ function saveBill(doPrint) {
                         var afterP = (afterBal != null)
                             ? Promise.resolve(afterBal)
                             : REWARDS.getBalance(earnPatientId);
-                        return afterP.then(function (bal) {
+                        // Background: the SMS send must not hold the bill save.
+                        afterP.then(function (bal) {
                             if (typeof REWARDS.refreshBannerBalances === 'function') {
                                 REWARDS.refreshBannerBalances(earnPatientId, bal);
                             }
@@ -24212,7 +24213,9 @@ function executeAddPaymentSave(ctx) {
                     : (typeof REWARDS.getBalance === 'function'
                         ? REWARDS.getBalance(patientId)
                         : Promise.resolve(beforeRewardBal));
-                return afterP.then(function (afterBal) {
+                // Balance repaint + SMS run in the background so the Twilio send
+                // never holds the payment dialog open.
+                afterP.then(function (afterBal) {
                     if (typeof REWARDS.refreshBannerBalances === 'function') {
                         REWARDS.refreshBannerBalances(patientId, afterBal);
                     }
@@ -24220,9 +24223,7 @@ function executeAddPaymentSave(ctx) {
                         clinicCode: clinicCode,
                         ref: 'Bill ' + String(billId).slice(0, 8).toUpperCase()
                     });
-                }).catch(function () {}).then(function () {
-                    return finishBillUpdate(headerMethod);
-                });
+                }).catch(function () {});
             }
             return finishBillUpdate(headerMethod);
         }).catch(function () {

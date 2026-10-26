@@ -450,13 +450,22 @@ var REWARDS = (function () {
         };
     }
 
+    var _joinMapsInflight = null;
+
     function loadJoinMaps(force) {
-        return Promise.all([
+        if (!force && _joinMapsInflight) return _joinMapsInflight;
+        var p = Promise.all([
             loadClinicJoinMap(force),
             loadDoctorJoinMap(force)
         ]).then(function (parts) {
             return { clinicMap: parts[0] || {}, doctorMap: parts[1] || {} };
         });
+        if (!force) {
+            _joinMapsInflight = p;
+            var clear = function () { if (_joinMapsInflight === p) _joinMapsInflight = null; };
+            p.then(clear, clear);
+        }
+        return p;
     }
 
     /** One participation switch: gain and redeem must always give the same answer. */
@@ -517,9 +526,54 @@ var REWARDS = (function () {
         return String(raw || '').replace(/[^0-9]/g, '');
     }
 
+    // Each Supabase round trip costs ~0.4–0.8 s, so one payment opening the
+    // panel, saving, earning and repainting the banner read the same person
+    // up to four times. Share in-flight + recent reads per patient; every
+    // reward RPC clears the cache so balances after a write are always fresh.
+    var PERSON_CACHE_MS = 30000;
+    // Linked charts only change when an HKID / phone is edited, never by a reward write.
+    var RELATED_CACHE_MS = 10 * 60 * 1000;
+    var _personMemo = {};
+
+    function personMemo(kind, patientId, fn, ttlMs) {
+        var k = kind + ':' + String(patientId);
+        var hit = _personMemo[k];
+        if (hit && (Date.now() - hit.at) < (ttlMs || PERSON_CACHE_MS)) return hit.p;
+        var p = Promise.resolve().then(fn);
+        _personMemo[k] = { at: Date.now(), p: p };
+        p.then(null, function () {
+            if (_personMemo[k] && _personMemo[k].p === p) delete _personMemo[k];
+        });
+        return p;
+    }
+
+    /** Drop cached balances / ledger nets; keep linked-chart lookups. */
+    function invalidatePersonCache() {
+        Object.keys(_personMemo).forEach(function (k) {
+            if (k.indexOf('related:') !== 0) delete _personMemo[k];
+        });
+    }
+
+    /** Reward RPCs all write balances or ledger rows; drop cached person reads after each. */
+    function rewardRpc(fn, args) {
+        return Promise.resolve(SB.rpc(fn, args)).then(function (r) {
+            invalidatePersonCache();
+            return r;
+        }, function (e) {
+            invalidatePersonCache();
+            throw e;
+        });
+    }
+
     /** Same person may have multiple charts (universal + clinic-prefixed legacy). */
     function findRelatedPatientIds(patientId) {
         if (!patientId) return Promise.resolve([]);
+        return personMemo('related', patientId, function () {
+            return findRelatedPatientIdsFresh(patientId);
+        }, RELATED_CACHE_MS);
+    }
+
+    function findRelatedPatientIdsFresh(patientId) {
         return SB.from('patients')
             .select('id,hkid,phone_number,mobile_phone,patient_no')
             .eq('id', patientId)
@@ -571,14 +625,23 @@ var REWARDS = (function () {
     /** All chart ledgers for this person (creates missing account rows lazily via ensure on earn). */
     function listPersonAccounts(patientId) {
         if (!patientId) return Promise.resolve([]);
+        return personMemo('accounts', patientId, function () {
+            return listPersonAccountsFresh(patientId);
+        });
+    }
+
+    function listPersonAccountsFresh(patientId) {
         return findRelatedPatientIds(patientId).then(function (ids) {
             if (!ids.length) return [];
+            var accountsQ = Promise.resolve(
+                SB.from('reward_accounts').select('*').in('patient_id', ids));
+            accountsQ.catch(function () { /* handled by the chain below */ });
             return SB.from('patients')
                 .select('id,patient_no,clinic_tag,full_name,chinese_name')
                 .in('id', ids)
                 .then(function (pr) {
                     var patients = pr.data || [];
-                    return SB.from('reward_accounts').select('*').in('patient_id', ids)
+                    return accountsQ
                         .then(function (ar) {
                             var byPid = {};
                             (ar.data || []).forEach(function (a) {
@@ -723,7 +786,7 @@ var REWARDS = (function () {
                     points: 0
                 };
             }
-            return SB.rpc('reward_earn', {
+            return rewardRpc('reward_earn', {
                 p_patient_id: opts.patientId,
                 p_eligible_amount: round2(opts.eligibleAmount),
                 p_bill_id: opts.billId || null,
@@ -745,7 +808,7 @@ var REWARDS = (function () {
         if (sourceIds && sourceIds.length) {
             return redeemMulti(opts);
         }
-        return SB.rpc('reward_redeem', {
+        return rewardRpc('reward_redeem', {
             p_patient_id: opts.patientId,
             p_points: round2(opts.points),
             p_bill_id: opts.billId || null,
@@ -766,7 +829,7 @@ var REWARDS = (function () {
         if (!ids.length) {
             return Promise.resolve({ ok: false, error: 'select at least one chart source' });
         }
-        return SB.rpc('reward_redeem_multi', {
+        return rewardRpc('reward_redeem_multi', {
             p_anchor_patient_id: opts.patientId,
             p_points: round2(opts.points),
             p_source_account_ids: ids,
@@ -814,7 +877,7 @@ var REWARDS = (function () {
                 };
             }
             var step = alloc.plan[0];
-            return SB.rpc('reward_redeem', {
+            return rewardRpc('reward_redeem', {
                 p_patient_id: step.patient_id,
                 p_points: step.take,
                 p_bill_id: opts.billId || null,
@@ -835,7 +898,7 @@ var REWARDS = (function () {
         if (opts.sourceAccountIds && opts.sourceAccountIds.length) {
             return transferMulti(opts);
         }
-        return SB.rpc('reward_transfer', {
+        return rewardRpc('reward_transfer', {
             p_from_patient_id: opts.fromPatientId,
             p_to_patient_id: opts.toPatientId,
             p_points: round2(opts.points),
@@ -855,7 +918,7 @@ var REWARDS = (function () {
         if (!ids.length) {
             return Promise.resolve({ ok: false, error: 'select at least one source chart' });
         }
-        return SB.rpc('reward_transfer_multi', {
+        return rewardRpc('reward_transfer_multi', {
             p_to_patient_id: opts.toPatientId,
             p_points: round2(opts.points),
             p_source_account_ids: ids,
@@ -892,7 +955,7 @@ var REWARDS = (function () {
 
     function voidForPayment(billPaymentId, note, preferredPatientId) {
         if (!billPaymentId) return Promise.resolve({ ok: true, skipped: true });
-        return SB.rpc('reward_void_for_payment', {
+        return rewardRpc('reward_void_for_payment', {
             p_bill_payment_id: billPaymentId,
             p_created_by: actorName(),
             p_note: note || 'Void payment'
@@ -917,7 +980,7 @@ var REWARDS = (function () {
      */
     function voidForBill(billId, note, preferredPatientId) {
         if (!billId) return Promise.resolve({ ok: true, skipped: true });
-        return SB.rpc('reward_void_for_bill', {
+        return rewardRpc('reward_void_for_bill', {
             p_bill_id: billId,
             p_created_by: actorName(),
             p_note: note || 'Void bill: reverse earn + redeem'
@@ -938,7 +1001,7 @@ var REWARDS = (function () {
         opts = opts || {};
         if (!isAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
         var ctx = clinicCtx();
-        return SB.rpc('reward_adjust', {
+        return rewardRpc('reward_adjust', {
             p_patient_id: opts.patientId,
             p_points_delta: round2(opts.pointsDelta),
             p_clinic_id: opts.clinicId != null ? opts.clinicId : ctx.clinic_id,
@@ -1006,7 +1069,7 @@ var REWARDS = (function () {
     function revertLastZeroBatch(opts) {
         opts = opts || {};
         if (!isAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
-        return SB.rpc('reward_revert_zero_batch', {
+        return rewardRpc('reward_revert_zero_batch', {
             p_batch_id: opts.batchId || null,
             p_created_by: opts.createdBy || actorName(),
             p_note: opts.note || 'Step back — recover last balance before set zero'
@@ -1070,7 +1133,7 @@ var REWARDS = (function () {
         }
 
         function viaRpc() {
-            return SB.rpc('reward_zero_clinics', {
+            return rewardRpc('reward_zero_clinics', {
                 p_all: all,
                 p_clinic_ids: all ? null : (clinicIds.length ? clinicIds : null),
                 p_clinic_codes: all ? null : (clinicCodes.length ? clinicCodes : null),
@@ -1237,7 +1300,7 @@ var REWARDS = (function () {
             if (lastRun && (Date.now() - lastRun) < dayMs) {
                 return Promise.resolve({ ok: true, skipped: true, reason: 'ran_today' });
             }
-            return SB.rpc('reward_expire_lifespan', {
+            return rewardRpc('reward_expire_lifespan', {
                 p_months: norm.lifespan_months,
                 p_created_by: actorName() || 'system',
                 p_note: 'Auto lifespan expiry ' + norm.lifespan_months + ' months'
@@ -1858,8 +1921,12 @@ var REWARDS = (function () {
         var clinicId = opts.clinicId != null ? opts.clinicId : ctx.clinic_id;
         var clinicCode = opts.clinicCode != null ? opts.clinicCode : ctx.clinic_code;
 
-        return isClinicRedeemJoined(clinicId, clinicCode, doc).then(function (joined) {
-            if (!joined) {
+        return Promise.all([
+            isClinicRedeemJoined(clinicId, clinicCode, doc),
+            listPersonAccounts(opts.patientId),
+            loadDoctorLedgerNets(opts.patientId)
+        ]).then(function (parts) {
+            if (!parts[0]) {
                 return {
                     ok: false,
                     error: tr('rewards.pay.doctorNotJoined',
@@ -1867,12 +1934,7 @@ var REWARDS = (function () {
                     rewardAmount: 0
                 };
             }
-            return Promise.all([
-                listPersonAccounts(opts.patientId),
-                loadDoctorLedgerNets(opts.patientId)
-            ]);
-        }).then(function (parts) {
-            if (parts && parts.ok === false) return parts;
+            parts = parts.slice(1);
             var capped = accountsCappedForDoctor(parts[0], parts[1], doc.key);
             var avail = sumPersonBalance(capped);
             if (pts > avail + 0.005) {
@@ -2219,6 +2281,11 @@ var REWARDS = (function () {
             return Promise.resolve();
         }
         var payDoc = payDoctorFor({ bill: bill });
+        var readsP = Promise.all([
+            listPersonAccounts(bill.patient_id),
+            loadDoctorLedgerNets(bill.patient_id)
+        ]);
+        readsP.catch(function () { /* handled below */ });
         return currentClinicRedeemJoined(payDoc).then(function (joined) {
             if (!joined) {
                 panel.style.display = 'none';
@@ -2227,10 +2294,7 @@ var REWARDS = (function () {
             }
             panel.style.display = '';
             _payDoctor = payDoc;
-            return Promise.all([
-                listPersonAccounts(bill.patient_id),
-                loadDoctorLedgerNets(bill.patient_id)
-            ]).then(function (parts) {
+            return readsP.then(function (parts) {
                 _payDoctorNets = parts[1];
                 var allAccs = parts[0] || [];
                 if (isKnownRewardDoctor(_payDoctor)) {
@@ -2390,9 +2454,11 @@ var REWARDS = (function () {
         if (res.from && res.from.ledger_id) ids.push(res.from.ledger_id);
         if (res.to && res.to.ledger_id) ids.push(res.to.ledger_id);
         if (!ids.length) return Promise.resolve(res);
-        return SB.from('reward_ledger').update({ doctor_name: name }).in('id', ids)
-            .then(function () { return res; })
-            .catch(function () { return res; });
+        // Do not hold the payment save on this label write; ledger rows without
+        // doctor_name fall back to the bill's doctor until it lands.
+        Promise.resolve(SB.from('reward_ledger').update({ doctor_name: name }).in('id', ids))
+            .then(invalidatePersonCache, invalidatePersonCache);
+        return Promise.resolve(res);
     }
 
     /**
@@ -2623,6 +2689,12 @@ var REWARDS = (function () {
         if (!patientId) {
             return Promise.resolve({ byAccount: {}, byDoctor: {}, rows: [] });
         }
+        return personMemo('nets', patientId, function () {
+            return loadDoctorLedgerNetsFresh(patientId);
+        });
+    }
+
+    function loadDoctorLedgerNetsFresh(patientId) {
         return findRelatedPatientIds(patientId).then(function (ids) {
             if (!ids.length) ids = [patientId];
             return SB.from('reward_ledger')
@@ -3473,6 +3545,8 @@ var REWARDS = (function () {
             paintBannerBalance(patientId, instant);
             return Promise.resolve(instant);
         }
+        // Warm the same-doctor ledger the Add Payment panel needs next.
+        loadDoctorLedgerNets(patientId).catch(function () {});
         return getBalance(patientId).then(function (bal) {
             paintBannerBalance(patientId, bal);
             return bal;

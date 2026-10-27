@@ -1,9 +1,8 @@
 -- Patient coupon wallet on the phone (browse only).
 -- The clinic shows a QR code; the phone opens wallet.html?t=<token> and sees that patient's coupons.
--- Tokens are random 128-bit values. The table is closed to the app key; only the two functions below touch it.
--- Run once in Supabase → SQL Editor (after discount_coupons.sql).
-
-create extension if not exists pgcrypto;
+-- Tokens are 32 hex characters from gen_random_uuid() (built into Postgres 13+, no extension or schema path needed).
+-- The table is closed to the app key; only the two functions below touch it.
+-- Run in Supabase → SQL Editor (after discount_coupons.sql). Safe to run again.
 
 create table if not exists public.discount_coupon_wallet_links (
     token           text primary key,
@@ -52,7 +51,7 @@ begin
     end if;
     if v_row.token is null then
         insert into public.discount_coupon_wallet_links (token, patient_id, created_by)
-        values (encode(gen_random_bytes(16), 'hex'), p_patient_id, left(coalesce(p_by, ''), 80))
+        values (replace(gen_random_uuid()::text, '-', ''), p_patient_id, left(coalesce(p_by, ''), 80))
         returning * into v_row;
     end if;
     return jsonb_build_object('ok', true, 'token', v_row.token, 'expires_at', v_row.expires_at);
@@ -146,3 +145,6 @@ revoke all on function public.dc_wallet_link(uuid, text, boolean) from public;
 revoke all on function public.dc_wallet_view(text) from public;
 grant execute on function public.dc_wallet_link(uuid, text, boolean) to anon, authenticated, service_role;
 grant execute on function public.dc_wallet_view(text) to anon, authenticated, service_role;
+
+-- Let the API see the new functions straight away.
+notify pgrst, 'reload schema';

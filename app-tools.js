@@ -953,7 +953,80 @@
                 document.body.appendChild(a); a.click(); a.remove();
             });
         }
-        return { open: open };
+
+        /** Centre label box for draw(); colours and text come from opts, never from the Tools form. */
+        function paintLabel(canvas, label, bg, color) {
+            var text = String(label || '').trim().slice(0, 28);
+            if (!text) return;
+            var ctx = canvas.getContext('2d');
+            var size = canvas.width;
+            var fontSize = Math.max(8, Math.round(size * (text.length > 10 ? 0.042 : 0.05)));
+            ctx.font = '700 ' + fontSize + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            var pad = Math.max(4, Math.round(fontSize * 0.3));
+            var boxW = Math.min(Math.round(size * 0.34), ctx.measureText(text).width + pad * 2);
+            var boxH = fontSize + pad * 2;
+            ctx.fillStyle = bg;
+            ctx.fillRect(Math.round((size - boxW) / 2), Math.round((size - boxH) / 2), boxW, boxH);
+            ctx.fillStyle = color;
+            ctx.fillText(text, size / 2, size / 2, boxW - pad);
+        }
+
+        /**
+         * Shared QR drawer for other modules (e.g. the coupon wallet QR).
+         * opts: { size, fg, bg, label, labelColor }. A label switches to high error correction.
+         * Resolves { ok, canvas, dataUrl } and puts the canvas into container (when given).
+         */
+        function draw(container, text, opts) {
+            opts = opts || {};
+            var payload = String(text || '');
+            if (!payload) return Promise.resolve({ ok: false, reason: 'empty' });
+            var size = Math.max(96, Math.min(1024, Math.round(num(opts.size) || 220)));
+            var fg = opts.fg || '#0f172a';
+            var bg = opts.bg || '#ffffff';
+            var label = String(opts.label || '').trim();
+            return ensureQRCode().then(function (QRCode) {
+                var off = document.createElement('div');
+                off.setAttribute('aria-hidden', 'true');
+                off.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;pointer-events:none;';
+                document.body.appendChild(off);
+                new QRCode(off, {
+                    text: payload, width: size, height: size, colorDark: fg, colorLight: bg,
+                    correctLevel: label ? QRCode.CorrectLevel.H : QRCode.CorrectLevel.M
+                });
+                return waitForQrCanvas(off, 20).then(function (src) {
+                    if (off.parentNode) off.parentNode.removeChild(off);
+                    if (!src) return { ok: false, reason: 'draw' };
+                    var canvas = document.createElement('canvas');
+                    canvas.width = src.width;
+                    canvas.height = src.height;
+                    canvas.getContext('2d').drawImage(src, 0, 0);
+                    try { paintLabel(canvas, label, bg, opts.labelColor || fg); } catch (e) { /* plain QR still scans */ }
+                    canvas.setAttribute('role', 'img');
+                    if (opts.alt) canvas.setAttribute('aria-label', String(opts.alt));
+                    if (container) { container.innerHTML = ''; container.appendChild(canvas); }
+                    var dataUrl = '';
+                    try { dataUrl = canvas.toDataURL('image/png'); } catch (e) { dataUrl = ''; }
+                    return { ok: true, canvas: canvas, dataUrl: dataUrl };
+                });
+            }, function () { return { ok: false, reason: 'lib' }; });
+        }
+
+        /** Open the Tools QR generator with text (and an optional centre label) already filled in. */
+        function openWith(opts) {
+            opts = opts || {};
+            TYPE = 'text';
+            if (opts.label != null) _centreLabel = String(opts.label).slice(0, 28);
+            open();
+            var box = gg('qr_text');
+            if (box) {
+                box.value = String(opts.text || '');
+                refreshPreview({ force: true });
+            }
+        }
+
+        return { open: open, draw: draw, openWith: openWith };
     })();
 
     // ════════════════════════════════════════════════════════════════

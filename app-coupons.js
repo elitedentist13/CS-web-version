@@ -2268,13 +2268,63 @@ var COUPONS = (function () {
         return _qrLoad;
     }
 
+    /** Pure: a failed dc_wallet_link call. Only a missing dc_wallet_link is "not set up"; anything else keeps the database message. */
+    function walletLinkError(err) {
+        var msg = String((err && (err.message || err.details || err.hint)) || (typeof err === 'string' ? err : '') || '').trim();
+        var missing = /dc_wallet_link/i.test(msg) && /schema cache|does not exist|could not find/i.test(msg);
+        return { ok: false, reason: missing ? 'no_sql' : 'db', detail: msg };
+    }
+
     function walletLinkToken(patientId, reset) {
         if (typeof SB === 'undefined' || !SB || typeof SB.rpc !== 'function') return Promise.resolve({ ok: false, reason: 'no_db' });
-        return SB.rpc('dc_wallet_link', { p_patient_id: patientId, p_by: actorName() || null, p_reset: !!reset })
+        return Promise.resolve(SB.rpc('dc_wallet_link', { p_patient_id: patientId, p_by: actorName() || null, p_reset: !!reset }))
             .then(function (r) {
-                if (r && r.error) return { ok: false, reason: /dc_wallet_link|function/i.test(String(r.error.message || '')) ? 'no_sql' : 'db' };
-                return (r && r.data) || { ok: false, reason: 'db' };
-            }, function () { return { ok: false, reason: 'db' }; });
+                if (r && r.error) return walletLinkError(r.error);
+                var d = r && r.data;
+                if (d && d.ok === false) return { ok: false, reason: d.reason === 'no_patient' ? 'no_patient' : 'db', detail: String(d.reason || '') };
+                return d || { ok: false, reason: 'db', detail: 'empty reply' };
+            }, function (e) { return { ok: false, reason: 'offline', detail: String((e && e.message) || e || '') }; });
+    }
+
+    /** Draw through the Tools QR generator; the module's own loader is only a fallback. */
+    function drawWalletQr(codeEl, url, label) {
+        var alt = ct('coupons.wqr.title', 'Coupon wallet on the phone');
+        if (typeof QRTOOL !== 'undefined' && QRTOOL && typeof QRTOOL.draw === 'function') {
+            return QRTOOL.draw(codeEl, url, { size: 220, fg: '#0f172a', bg: '#ffffff', label: label, labelColor: '#166534', alt: alt });
+        }
+        return loadQrLib().then(function (QR) {
+            codeEl.innerHTML = '';
+            new QR(codeEl, { text: url, width: 220, height: 220, colorDark: '#0f172a', colorLight: '#ffffff', correctLevel: QR.CorrectLevel.M });
+            var c = codeEl.querySelector('canvas');
+            var dataUrl = '';
+            try { dataUrl = c ? c.toDataURL('image/png') : ''; } catch (e) { dataUrl = ''; }
+            return { ok: true, canvas: c, dataUrl: dataUrl };
+        }, function () { return { ok: false, reason: 'lib' }; });
+    }
+
+    /** Pure: printable slip for the patient (QR, masked name, clinic). */
+    function walletSlipHtml(dataUrl, info) {
+        info = info || {};
+        return '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(ct('coupons.wqr.title', 'Coupon wallet on the phone')) + '</title>' +
+            '<style>body{font-family:"Segoe UI","Microsoft JhengHei","PingFang TC",sans-serif;margin:24px;color:#0f172a;}' +
+            '.slip{width:300px;margin:0 auto;padding:18px;border:2px dashed #86efac;border-radius:14px;text-align:center;}' +
+            '.slip h1{font-size:14px;margin:0 0 4px;}.slip h2{font-size:17px;margin:0 0 12px;color:#166534;}' +
+            '.slip img{width:220px;height:220px;display:block;margin:0 auto 10px;}' +
+            '.who{font-size:15px;font-weight:700;margin:0 0 4px;}.tip{font-size:12px;color:#475569;margin:6px 0 0;line-height:1.45;}' +
+            '@media print{body{margin:0;}.slip{border-color:#94a3b8;}}</style></head><body><div class="slip">' +
+            '<h1>' + esc(SMS_HEADING.replace(/^\[|\]$/g, '')) + '</h1>' +
+            '<h2>📱 ' + esc(ct('coupons.wqr.slipTitle', '我的優惠券 My coupons')) + '</h2>' +
+            '<img src="' + esc(dataUrl) + '" alt="QR">' +
+            (info.who ? '<p class="who">' + esc(info.who) + '</p>' : '') +
+            '<p class="tip">' + esc(ct('coupons.wqr.slipTip', '用手機相機掃描，即可查看你的優惠券。 Scan with the phone camera to see your coupons.')) + '</p>' +
+            '<p class="tip">' + esc(ct('coupons.wqr.slipKeep', '請勿轉發此二維碼。 Please do not share this QR code.')) + '</p>' +
+            '</div></body></html>';
+    }
+
+    function loadWalletPatient(patientId) {
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve(null);
+        return Promise.resolve(SB.from('patients').select('patient_no,chinese_name,full_name').eq('id', patientId).maybeSingle())
+            .then(function (r) { return (r && !r.error && r.data) || null; }, function () { return null; });
     }
 
     /** QR over the sheet: the patient scans it to browse their own coupons on the phone. */
@@ -2294,14 +2344,20 @@ var COUPONS = (function () {
             '<p class="dc-hint">' + esc(ct('coupons.wqr.hint',
                 'Ask the patient to scan this with the phone camera. They can browse their coupons only — nothing can be used, added or removed from the phone.')) + '</p>' +
             '<div class="dc-wqr-code" id="dcWqrCode" aria-live="polite"><span class="dc-hint">' + esc(ct('coupons.wqr.making', 'Making the QR code…')) + '</span></div>' +
-            '<p class="dc-err" id="dcWqrErr" hidden></p>' +
+            '<p class="dc-wqr-who" id="dcWqrWho" hidden></p>' +
+            '<div class="dc-err" id="dcWqrErr" hidden></div>' +
             '<p class="dc-banner dc-banner-warn dc-wqr-local" id="dcWqrLocal" hidden>' + esc(ct('coupons.wqr.local',
                 'This address only works on this computer. Set the public address in Phone scan first, or the phone cannot open it.')) + '</p>' +
             '<label class="dc-authp-field"><span>' + esc(ct('coupons.wqr.link', 'Wallet link')) + '</span>' +
             '<input type="text" id="dcWqrLink" readonly spellcheck="false"></label>' +
+            '<div class="dc-actions dc-wqr-tools">' +
+            '<button type="button" class="dc-clear" data-act="copy" id="dcWqrCopy" disabled>📋 ' + esc(ct('coupons.wqr.copy', 'Copy link')) + '</button>' +
+            '<button type="button" class="dc-clear" data-act="png" id="dcWqrPng" disabled>⬇ ' + esc(ct('coupons.wqr.png', 'Download PNG')) + '</button>' +
+            '<button type="button" class="dc-clear" data-act="print" id="dcWqrPrint" disabled>🖨 ' + esc(ct('coupons.wqr.print', 'Print slip')) + '</button>' +
+            '<button type="button" class="dc-clear" data-act="tool" id="dcWqrTool" disabled>🔳 ' + esc(ct('coupons.wqr.openTool', 'Open in QR generator')) + '</button>' +
+            '</div>' +
             '<div class="dc-actions dc-wqr-actions">' +
             '<button type="button" class="dc-clear" data-act="reset" id="dcWqrReset">' + esc(ct('coupons.wqr.reset', 'New QR code')) + '</button>' +
-            '<button type="button" class="dc-clear" data-act="copy" id="dcWqrCopy">' + esc(ct('coupons.wqr.copy', 'Copy link')) + '</button>' +
             '<button type="button" class="dc-apply" data-act="close">' + esc(ct('common.close', 'Close')) + '</button>' +
             '</div>' +
             '<p class="dc-hint dc-wqr-note">' + esc(ct('coupons.wqr.resetNote', 'New QR code stops the old one from working (for example if the patient lost the phone).')) + '</p>' +
@@ -2312,6 +2368,25 @@ var COUPONS = (function () {
         var errEl = wrap.querySelector('#dcWqrErr');
         var resetBtn = wrap.querySelector('#dcWqrReset');
         var copyBtn = wrap.querySelector('#dcWqrCopy');
+        var pngBtn = wrap.querySelector('#dcWqrPng');
+        var printBtn = wrap.querySelector('#dcWqrPrint');
+        var toolBtn = wrap.querySelector('#dcWqrTool');
+        var whoEl = wrap.querySelector('#dcWqrWho');
+        var drawn = null;
+        var who = '';
+        var clinic = clinicCodeNow();
+        loadWalletPatient(patientId).then(function (p) {
+            if (closed || !p) return;
+            who = [maskName(p), clinic].filter(Boolean).join(' · ');
+            whoEl.textContent = who;
+            whoEl.hidden = !who;
+        });
+        function setReady(urlReady, imageReady) {
+            copyBtn.disabled = !urlReady;
+            toolBtn.disabled = !urlReady || typeof QRTOOL === 'undefined' || !QRTOOL || typeof QRTOOL.openWith !== 'function';
+            pngBtn.disabled = !imageReady;
+            printBtn.disabled = !imageReady;
+        }
         var closed = false;
         function close() {
             if (closed) return;
@@ -2320,35 +2395,73 @@ var COUPONS = (function () {
             if (back && document.body.contains(back)) { try { back.focus({ preventScroll: true }); } catch (e) {} }
         }
         wrap.__dcCancel = close;
-        function fail(reason) {
+        function fail(res) {
+            var reason = res && res.reason;
             codeEl.innerHTML = '';
             errEl.hidden = false;
-            errEl.textContent = reason === 'no_sql'
+            var msg = reason === 'no_sql'
                 ? ct('coupons.wqr.noSql', 'The phone wallet is not set up yet. Run discount_coupon_wallet.sql in Supabase first.')
                 : reason === 'no_db' ? grantReason('no_db')
+                : reason === 'no_patient' ? ct('coupons.wqr.noPatient', 'This chart could not be found. Save the patient first, then try again.')
+                : reason === 'offline' ? ct('coupons.wqr.offline', 'No connection to the database. Check the internet and try again.')
                 : ct('coupons.wqr.fail', 'Could not make the wallet link. Try again.');
+            var detail = res && res.detail && reason !== 'no_patient' ? String(res.detail) : '';
+            errEl.innerHTML = esc(msg) + (detail ? '<small class="dc-wqr-detail">' + esc(ct('coupons.wqr.detail', 'Database says')) + ': ' + esc(detail) + '</small>' : '');
         }
         function show(reset) {
             errEl.hidden = true;
             resetBtn.disabled = true;
+            drawn = null;
+            linkEl.value = '';
+            setReady(false, false);
+            codeEl.removeAttribute('data-url');
             codeEl.innerHTML = '<span class="dc-hint">' + esc(ct('coupons.wqr.making', 'Making the QR code…')) + '</span>';
             return walletLinkToken(patientId, reset).then(function (res) {
                 resetBtn.disabled = false;
                 if (closed) return;
-                if (!res || !res.ok || !res.token) { fail(res && res.reason); return; }
+                if (!res || !res.ok || !res.token) { fail(res); return; }
                 var url = walletUrl(res.token);
                 linkEl.value = url;
                 wrap.querySelector('#dcWqrLocal').hidden = !isLocalAddress(url);
                 codeEl.setAttribute('data-url', url);
-                return loadQrLib().then(function (QR) {
+                setReady(true, false);
+                return drawWalletQr(codeEl, url, ct('coupons.wqr.centre', '優惠券')).then(function (d) {
                     if (closed) return;
-                    codeEl.innerHTML = '';
-                    new QR(codeEl, { text: url, width: 220, height: 220, colorDark: '#0f172a', colorLight: '#ffffff', correctLevel: QR.CorrectLevel.M });
-                }).catch(function () {
-                    codeEl.innerHTML = '<span class="dc-hint">' + esc(ct('coupons.wqr.qrFail', 'The QR code could not be drawn. Copy the link instead.')) + '</span>';
+                    if (!d || !d.ok) {
+                        codeEl.innerHTML = '<span class="dc-hint">' + esc(ct('coupons.wqr.qrFail', 'The QR code could not be drawn. Copy the link instead.')) + '</span>';
+                        return;
+                    }
+                    drawn = d;
+                    setReady(true, !!d.dataUrl);
                 });
             });
         }
+        pngBtn.onclick = function () {
+            if (!drawn || !drawn.dataUrl) return;
+            var a = document.createElement('a');
+            a.href = drawn.dataUrl;
+            a.download = 'coupon-wallet-qr.png';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        };
+        printBtn.onclick = function () {
+            if (!drawn || !drawn.dataUrl) return;
+            var w = window.open('', '_blank', 'width=420,height=560');
+            if (!w) return;
+            w.document.write(walletSlipHtml(drawn.dataUrl, { who: who }));
+            w.document.close();
+            w.focus();
+            setTimeout(function () { try { w.print(); } catch (e) {} }, 350);
+        };
+        toolBtn.onclick = function () {
+            var url = linkEl.value;
+            if (!url || typeof QRTOOL === 'undefined' || !QRTOOL || typeof QRTOOL.openWith !== 'function') return;
+            var label = ct('coupons.wqr.centre', '優惠券');
+            close();
+            closeSheet();
+            QRTOOL.openWith({ text: url, label: label });
+        };
         wrap.querySelector('[data-act="close"]').onclick = close;
         resetBtn.onclick = function () {
             if (!window.confirm(ct('coupons.wqr.resetAsk', 'Make a new QR code? The old one will stop working.'))) return;
@@ -4665,6 +4778,8 @@ var COUPONS = (function () {
         cashCapCents: cashCapCents,
         openWalletQr: openWalletQr,
         walletPageBase: walletPageBase,
+        walletLinkError: walletLinkError,
+        walletSlipHtml: walletSlipHtml,
         walletUrl: walletUrl,
         isLocalAddress: isLocalAddress,
         cashRules: cashRules,

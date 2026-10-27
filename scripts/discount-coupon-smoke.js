@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261028ledgerui1';
+var BUILD = '20261028walletqr1';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -1343,8 +1343,24 @@ function loadCoupons() {
     var wSql = read('discount_coupon_wallet.sql');
     pass('wallet SQL: token table closed to the app key', /enable row level security/.test(wSql) &&
         /revoke all on public\.discount_coupon_wallet_links from anon, authenticated/.test(wSql) && !/create policy/i.test(wSql));
-    pass('wallet SQL: random 128-bit token, both functions security definer',
-        /gen_random_bytes\(16\)/.test(wSql) && (wSql.match(/security definer/g) || []).length === 2 && /\^\[0-9a-f\]\{32\}\$/.test(wSql));
+    pass('wallet SQL: random token from gen_random_uuid (no pgcrypto / schema path), both functions security definer',
+        /replace\(gen_random_uuid\(\)::text, '-', ''\)/.test(wSql) && !/gen_random_bytes/.test(wSql) &&
+        (wSql.match(/security definer/g) || []).length === 2 && /\^\[0-9a-f\]\{32\}\$/.test(wSql));
+    pass('wallet SQL: tells the API to reload so the functions are found at once', /notify pgrst, 'reload schema'/.test(wSql));
+    var wle1 = C.walletLinkError({ message: 'Could not find the function public.dc_wallet_link(p_by, p_patient_id, p_reset) in the schema cache' });
+    var wle2 = C.walletLinkError({ message: 'function gen_random_bytes(integer) does not exist' });
+    var wle3 = C.walletLinkError({ message: 'invalid input syntax for type uuid: "p"' });
+    pass('wallet QR: only a missing dc_wallet_link reads as "not set up"', wle1.reason === 'no_sql' && wle2.reason === 'db' && wle3.reason === 'db');
+    pass('wallet QR: other database errors keep their message', wle2.detail === 'function gen_random_bytes(integer) does not exist' && /uuid/.test(wle3.detail));
+    var slip = C.walletSlipHtml('data:image/png;base64,AAAA', { who: '陳** · KT' });
+    pass('wallet QR slip: QR image, masked name, clinic heading, do-not-share note', slip.indexOf('<img src="data:image/png;base64,AAAA"') > 0 &&
+        slip.indexOf('陳** · KT') > 0 && slip.indexOf('Joyful Smile Dental Clinic 樂意牙科中心') > 0 && /do not share/.test(slip));
+    pass('wallet QR slip escapes text', C.walletSlipHtml('x"><script>', { who: '<b>x</b>' }).indexOf('<script>') < 0 &&
+        C.walletSlipHtml('', { who: '<b>x</b>' }).indexOf('<b>x</b>') < 0);
+    pass('wallet QR draws through the Tools QR generator', /QRTOOL\.draw\(codeEl, url/.test(src) && /QRTOOL\.openWith\(\{ text: url/.test(src));
+    var toolsSrc = read('app-tools.js');
+    pass('Tools QR generator offers draw() and openWith() to other modules', /return \{ open: open, draw: draw, openWith: openWith \}/.test(toolsSrc) &&
+        /function draw\(container, text, opts\)/.test(toolsSrc));
     pass('wallet SQL: view returns no ids, bills or phones', (function () {
         var view = wSql.slice(wSql.indexOf('function public.dc_wallet_view'));
         var built = view.slice(view.indexOf("jsonb_agg(jsonb_build_object("), view.indexOf('into v_coupons'));
@@ -1706,6 +1722,12 @@ function loadCoupons() {
     out.resetLink = document.getElementById('dcWqrLink').value;
     out.calls = calls;
     out.localWarn = !document.getElementById('dcWqrLocal').hidden;
+    await wait(function () { return !document.getElementById('dcWqrPng').disabled; }, 8000);
+    var qc = host.querySelector('#dcWqrCode canvas');
+    out.viaTool = !!qc && qc.getAttribute('role') === 'img' && qc.width === 220;
+    out.toolsReady = ['dcWqrCopy', 'dcWqrPng', 'dcWqrPrint', 'dcWqrTool'].every(function (id) { return !document.getElementById(id).disabled; });
+    var direct = await QRTOOL.draw(null, 'https://example.com/wallet.html?t=0123', { size: 160, label: 'TEST' });
+    out.direct = !!(direct && direct.ok && direct.canvas && direct.canvas.width === 160 && String(direct.dataUrl).indexOf('data:image/png') === 0);
   } finally {
     SB.rpc = realRpc;
     window.confirm = realConfirm;
@@ -1721,6 +1743,10 @@ function loadCoupons() {
         pass('CDP New QR code asks for a fresh token', !!(wqr && /t=f{32}$/.test(wqr.resetLink) && wqr.calls.length === 2 &&
             wqr.calls[0].reset === false && wqr.calls[1].reset === true && wqr.calls[0].name === 'dc_wallet_link'));
         pass('CDP local address warning shows on 127.0.0.1', !!(wqr && wqr.localWarn));
+        pass('CDP wallet QR is drawn by the Tools QR generator', !!(wqr && wqr.viaTool));
+        pass('CDP Copy / Download / Print / Open in QR generator turn on once drawn', !!(wqr && wqr.toolsReady));
+        pass('CDP QRTOOL.draw works on its own (size, label, PNG data)', !!(wqr && wqr.direct));
+        pass('CDP a real database error shows its message', !!(wqr && /Database says: /.test(wqr.realErr)), wqr && wqr.realErr);
         var wpage = await cdp.js(`(async function () {
   var f = document.createElement('iframe');
   f.style.cssText = 'position:fixed;left:-2000px;top:0;width:390px;height:800px';

@@ -3349,6 +3349,24 @@
         },
         'coupons.wqr.fail': { en: 'Could not make the wallet link. Try again.', 'zh-CN': '无法生成钱包链接，请再试。', 'zh-Hant': '無法產生錢包連結，請再試。' },
         'coupons.wqr.qrFail': { en: 'The QR code could not be drawn. Copy the link instead.', 'zh-CN': '无法生成二维码，请复制链接。', 'zh-Hant': '無法產生 QR 碼，請複製連結。' },
+        'coupons.wqr.png': { en: 'Download PNG', 'zh-CN': '下载 PNG', 'zh-Hant': '下載 PNG' },
+        'coupons.wqr.print': { en: 'Print slip', 'zh-CN': '打印小卡', 'zh-Hant': '列印小卡' },
+        'coupons.wqr.openTool': { en: 'Open in QR generator', 'zh-CN': '在二维码生成器打开', 'zh-Hant': '在 QR 碼產生器開啟' },
+        'coupons.wqr.noPatient': { en: 'This chart could not be found. Save the patient first, then try again.', 'zh-CN': '找不到此病历，请先保存病人资料再试。', 'zh-Hant': '找不到此病歷，請先儲存病人資料再試。' },
+        'coupons.wqr.offline': { en: 'No connection to the database. Check the internet and try again.', 'zh-CN': '无法连接数据库，请检查网络后再试。', 'zh-Hant': '無法連接資料庫，請檢查網絡後再試。' },
+        'coupons.wqr.detail': { en: 'Database says', 'zh-CN': '数据库信息', 'zh-Hant': '資料庫訊息' },
+        'coupons.wqr.centre': { en: '優惠券', 'zh-CN': '優惠券', 'zh-Hant': '優惠券' },
+        'coupons.wqr.slipTitle': { en: '我的優惠券 My coupons', 'zh-CN': '我的優惠券 My coupons', 'zh-Hant': '我的優惠券 My coupons' },
+        'coupons.wqr.slipTip': {
+            en: '用手機相機掃描，即可查看你的優惠券。 Scan with the phone camera to see your coupons.',
+            'zh-CN': '用手機相機掃描，即可查看你的優惠券。 Scan with the phone camera to see your coupons.',
+            'zh-Hant': '用手機相機掃描，即可查看你的優惠券。 Scan with the phone camera to see your coupons.'
+        },
+        'coupons.wqr.slipKeep': {
+            en: '請勿轉發此二維碼。 Please do not share this QR code.',
+            'zh-CN': '請勿轉發此二維碼。 Please do not share this QR code.',
+            'zh-Hant': '請勿轉發此二維碼。 Please do not share this QR code.'
+        },
         'coupons.cash.pctLabel': { en: 'Max % of the bill', 'zh-CN': '最多扣账单百分比', 'zh-Hant': '最多扣賬單百分比' },
         'coupons.cash.amtLabel': { en: 'Max HK$ per bill', 'zh-CN': '每张单最多扣（HK$）', 'zh-Hant': '每張單最多扣（HK$）' },
         'coupons.cash.hint': {

@@ -1955,6 +1955,99 @@ var REWARDS = (function () {
         });
     }
 
+    // ── Per-bill ceiling on points used (same idea as the coupon cash limit) ──
+    var REDEEM_CAP_KEY = 'reward_redeem_cap';
+    var REDEEM_CAP_DEFAULTS = { maxPercent: 0, maxAmount: 3000 };
+    var _redeemCap = null;
+    var _redeemCapAt = 0;
+
+    /** Pure: 0 / blank = no limit for that box; percent is capped at 100. */
+    function normalizeRedeemCap(raw) {
+        var o = raw || {};
+        function num(v, dflt) {
+            var n = parseFloat(v);
+            if (v == null || v === '' || !isFinite(n)) return dflt;
+            return Math.max(0, n);
+        }
+        return {
+            maxPercent: round2(Math.min(100, num(o.maxPercent, REDEEM_CAP_DEFAULTS.maxPercent))),
+            maxAmount: round2(num(o.maxAmount, REDEEM_CAP_DEFAULTS.maxAmount))
+        };
+    }
+
+    /** Pure: points still usable on a bill worth billTotal after usedOnBill points. Both limits apply; the smaller wins. */
+    function redeemCapLeft(billTotal, usedOnBill, cap) {
+        cap = normalizeRedeemCap(cap);
+        var limit = Infinity;
+        if (cap.maxPercent > 0) limit = Math.floor(Math.max(0, Number(billTotal) || 0) * cap.maxPercent) / 100;
+        if (cap.maxAmount > 0) limit = Math.min(limit, cap.maxAmount);
+        if (limit === Infinity) return { limit: Infinity, used: round2(usedOnBill), left: Infinity };
+        limit = round2(limit);
+        return { limit: limit, used: round2(usedOnBill), left: round2(Math.max(0, limit - Math.max(0, Number(usedOnBill) || 0))) };
+    }
+
+    /** Pure: net points already used on one bill (redeem rows are negative, void_redeem gives them back). */
+    function pointsUsedOnBill(rows) {
+        var net = 0;
+        (rows || []).forEach(function (r) {
+            if (r && (r.kind === 'redeem' || r.kind === 'void_redeem')) net += Number(r.points) || 0;
+        });
+        return round2(Math.max(0, -net));
+    }
+
+    function redeemCapText(cap) {
+        cap = normalizeRedeemCap(cap);
+        var parts = [];
+        if (cap.maxPercent > 0) parts.push(cap.maxPercent + '% ' + tr('rewards.cap.ofBill', 'of the bill'));
+        if (cap.maxAmount > 0) {
+            parts.push((parts.length ? tr('rewards.cap.upTo', 'up to') + ' ' : '') + 'HK$' + Number(cap.maxAmount).toLocaleString('en-US'));
+        }
+        return parts.join(' ');
+    }
+
+    function redeemCapSummary(cap) {
+        var t = redeemCapText(cap);
+        return t ? tr('rewards.cap.sumMax', 'At most') + ' ' + t + ' ' + tr('rewards.cap.sumPer', 'in points per bill')
+            : tr('rewards.cap.noLimit', 'No limit on points per bill');
+    }
+
+    function loadRedeemCap(force) {
+        if (!force && _redeemCap && (Date.now() - _redeemCapAt) < 30000) return Promise.resolve(_redeemCap);
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve(normalizeRedeemCap(REDEEM_CAP_DEFAULTS));
+        return Promise.resolve(SB.from('program_settings').select('setting_value').eq('setting_key', REDEEM_CAP_KEY))
+            .then(function (r) {
+                var raw = r && r.data && r.data[0] && r.data[0].setting_value;
+                var parsed = REDEEM_CAP_DEFAULTS;
+                if (raw) { try { parsed = JSON.parse(raw); } catch (e) { parsed = REDEEM_CAP_DEFAULTS; } }
+                _redeemCap = normalizeRedeemCap(parsed);
+                _redeemCapAt = Date.now();
+                return _redeemCap;
+            }, function () { return normalizeRedeemCap(REDEEM_CAP_DEFAULTS); });
+    }
+
+    function saveRedeemCap(patch) {
+        if (!isAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
+        return loadRedeemCap(true).then(function (cur) {
+            var next = normalizeRedeemCap(Object.assign({}, cur, patch || {}));
+            var row = { setting_key: REDEEM_CAP_KEY, setting_value: JSON.stringify(next) };
+            var p = typeof persistProgramSettingRow === 'function'
+                ? persistProgramSettingRow(row)
+                : SB.from('program_settings').insert([row]);
+            return Promise.resolve(p).then(function (r) {
+                if (r && r.error) return { ok: false, error: r.error.message };
+                _redeemCap = next;
+                _redeemCapAt = Date.now();
+                return { ok: true, config: next };
+            });
+        });
+    }
+
+    function loadBillPointsUsed(billId) {
+        if (!billId || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve(0);
+        return Promise.resolve(SB.from('reward_ledger').select('kind,points').eq('bill_id', billId).in('kind', ['redeem', 'void_redeem']))
+            .then(function (r) { return r && !r.error ? pointsUsedOnBill(r.data || []) : 0; }, function () { return 0; });
+    }
+
     /** Pure: is the points branch usable here? cfg from loadReferralConfig, joined = clinic + doctor in the points scheme. */
     function referralPointsGate(cfg, joined) {
         if (!cfg || !cfg.enabled || !(Number(cfg.points) > 0)) return { ok: false, reason: 'points_off' };
@@ -2368,6 +2461,24 @@ var REWARDS = (function () {
         return readSelectedPaySourceAccountIds();
     }
 
+    var _payCap = null;
+
+    function paintPayCapNote() {
+        var el = document.getElementById('apRewardCapNote');
+        if (!el) return;
+        if (!_payCap || _payCap.limit === Infinity) { el.hidden = true; el.textContent = ''; return; }
+        el.textContent = trRepl('rewards.cap.payNote', {
+            LIMIT: fmtPts(_payCap.limit), USED: fmtPts(_payCap.used), LEFT: fmtPts(_payCap.left)
+        }, 'Per-bill limit HK$' + fmtPts(_payCap.limit) + ' · already used on this bill ' + fmtPts(_payCap.used) +
+            ' · can use now ' + fmtPts(_payCap.left));
+        el.hidden = false;
+    }
+
+    /** Points still allowed on the open bill by the per-bill limit (Infinity = no limit or not loaded). */
+    function payRedeemCapLeft() {
+        return _payCap ? _payCap.left : Infinity;
+    }
+
     function syncRewardAmountMax() {
         var amtEl = document.getElementById('apRewardAmount');
         var billBal = 0;
@@ -2381,6 +2492,8 @@ var REWARDS = (function () {
             }));
         }
         var max = Math.min(avail, billBal);
+        if (_payCap && _payCap.left !== Infinity) max = round2(Math.min(max, _payCap.left));
+        paintPayCapNote();
         if (amtEl) {
             amtEl.max = String(max);
             if (!amtEl.value || round2(amtEl.value) > max) amtEl.value = max > 0 ? fmtPts(max) : '';
@@ -2420,6 +2533,16 @@ var REWARDS = (function () {
             return Promise.resolve();
         }
         var payDoc = payDoctorFor({ bill: bill });
+        _payCap = null;
+        var capBillId = bill.id;
+        Promise.all([loadRedeemCap(false), loadBillPointsUsed(bill.id)]).then(function (cp) {
+            var cur = (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null;
+            if (!cur || String(cur.id) !== String(capBillId)) return;
+            _payCap = redeemCapLeft(parseFloat(cur.total) || 0, cp[1], cp[0]);
+            var use = document.getElementById('apRewardUse');
+            if (use && use.checked) syncRewardAmountMax();
+            else paintPayCapNote();
+        });
         var readsP = Promise.all([
             listPersonAccounts(bill.patient_id),
             loadDoctorLedgerNets(bill.patient_id)
@@ -4089,7 +4212,8 @@ var REWARDS = (function () {
             loadClinicJoinMap(true),
             loadDoctorJoinMap(true),
             loadLedger(null, 80),
-            loadReferralConfig(true)
+            loadReferralConfig(true),
+            loadRedeemCap(true)
         ]).then(function (parts) {
             var program = parts[0];
             var clinics = (parts[1].data || parts[1]) || [];
@@ -4098,7 +4222,7 @@ var REWARDS = (function () {
             var docMap = parts[3] || {};
             var ledgerRaw = parts[4] || [];
             return enrichLedgerMeta(ledgerRaw, clinics).then(function (ledger) {
-                return { program: program, clinics: clinics, map: map, docMap: docMap, ledger: ledger, referral: parts[5] };
+                return { program: program, clinics: clinics, map: map, docMap: docMap, ledger: ledger, referral: parts[5], cap: parts[6] };
             });
         }).then(function (ctx) {
             var program = ctx.program;
@@ -4169,6 +4293,30 @@ var REWARDS = (function () {
                     ? esc(fmtPts(refCfg.points) + ' ' + tr('rewards.cfg.refPoints', 'Points') + ' · ' +
                         tr('rewards.cfg.refMin', 'Min first-visit HK$') + ' ' + (refCfg.minFirstSpend > 0 ? fmtPts(refCfg.minFirstSpend) : '—'))
                     : esc(tr('common.off', 'Off'))) + '</div>';
+            }
+            html += '</div>';
+
+            var cap = normalizeRedeemCap(ctx.cap);
+            var capInput = 'width:90px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;';
+            html += '<div class="rw-cfg-card" id="rwCfgCap">';
+            html += '<div class="rw-cfg-card-title">' + esc(tr('rewards.cap.title', 'Using points on one bill')) + '</div>';
+            if (admin) {
+                html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+                    '<span style="font-size:13px;font-weight:600;">' + esc(tr('rewards.cap.maxOff', 'Max points used per bill')) + '</span>' +
+                    '<input type="number" id="rwCfgCapPct" min="0" max="100" step="1" value="' + (cap.maxPercent > 0 ? esc(String(cap.maxPercent)) : '') +
+                    '" placeholder="—" aria-label="' + esc(tr('rewards.cap.pctLabel', 'Max % of the bill')) + '" style="' + capInput + '">' +
+                    '<span>% ' + esc(tr('rewards.cap.ofBill', 'of the bill')) + '</span>' +
+                    '<span>' + esc(tr('rewards.cap.upTo', 'up to')) + ' HK$</span>' +
+                    '<input type="number" id="rwCfgCapAmt" min="0" step="100" value="' + (cap.maxAmount > 0 ? esc(String(cap.maxAmount)) : '') +
+                    '" placeholder="—" aria-label="' + esc(tr('rewards.cap.amtLabel', 'Max HK$ per bill')) + '" style="' + capInput + '">' +
+                    '<button type="button" id="rwCfgCapSave" class="btn btn--primary" style="padding:8px 14px;">' + esc(tr('common.save', 'Save')) + '</button></div>';
+            }
+            html += '<p id="rwCfgCapSum" style="margin:8px 0 0;font-size:13px;font-weight:700;color:#166534;">' + esc(redeemCapSummary(cap)) + '</p>';
+            html += '<p style="margin:6px 0 0;font-size:12px;color:#64748b;">' + esc(tr('rewards.cap.hint',
+                'Counts every payment on the same bill. Default: up to HK$3,000 per bill. Both limits apply and the smaller one wins; leave a box blank to drop that limit. The percentage is of the bill total.')) + '</p>';
+            if (!admin) {
+                html += '<div style="font-size:12px;color:#94a3b8;margin-top:4px;">' +
+                    esc(tr('rewards.cfg.adminOnly', 'Only Admin can change this setting.')) + '</div>';
             }
             html += '</div>';
 
@@ -4388,6 +4536,26 @@ var REWARDS = (function () {
                         }).then(function (res) {
                             if (!res.ok) alert(res.error || 'Save failed');
                             else if (typeof toast === 'function') toast(tr('rewards.cfg.saved', 'Saved'));
+                            else alert(tr('rewards.cfg.saved', 'Saved'));
+                        });
+                    });
+                }
+                var capSave = document.getElementById('rwCfgCapSave');
+                if (capSave) {
+                    capSave.addEventListener('click', function () {
+                        var pctEl = document.getElementById('rwCfgCapPct');
+                        var amtEl = document.getElementById('rwCfgCapAmt');
+                        saveRedeemCap({
+                            maxPercent: parseFloat(pctEl && pctEl.value) || 0,
+                            maxAmount: parseFloat(amtEl && amtEl.value) || 0
+                        }).then(function (res) {
+                            if (!res.ok) { alert(res.error || 'Save failed'); return; }
+                            var c = res.config;
+                            if (pctEl) pctEl.value = c.maxPercent > 0 ? String(c.maxPercent) : '';
+                            if (amtEl) amtEl.value = c.maxAmount > 0 ? String(c.maxAmount) : '';
+                            var sumEl = document.getElementById('rwCfgCapSum');
+                            if (sumEl) sumEl.textContent = redeemCapSummary(c);
+                            if (typeof toast === 'function') toast(tr('rewards.cfg.saved', 'Saved'));
                             else alert(tr('rewards.cfg.saved', 'Saved'));
                         });
                     });
@@ -4858,6 +5026,13 @@ var REWARDS = (function () {
         openPatientPanel: openPatientPanel,
         closePatientPanel: closePatientPanel,
         openPhoneQr: openPhoneQr,
+        normalizeRedeemCap: normalizeRedeemCap,
+        redeemCapLeft: redeemCapLeft,
+        pointsUsedOnBill: pointsUsedOnBill,
+        redeemCapSummary: redeemCapSummary,
+        loadRedeemCap: loadRedeemCap,
+        saveRedeemCap: saveRedeemCap,
+        payRedeemCapLeft: payRedeemCapLeft,
         phoneQrConfig: phoneQrConfig,
         pointsWhatsAppText: pointsWhatsAppText,
         openLedgerFinder: openLedgerFinder,

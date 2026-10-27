@@ -577,6 +577,21 @@ function extractIifeHelpers(src) {
     pass('coupon QR box is shared: openPhoneQr exported, coupon set-up unchanged',
         /function openPhoneQr\(sheet, patientId, cfg\)/.test(couponSrc) && /openPhoneQr: openPhoneQr/.test(couponSrc) &&
         /rpc: 'dc_wallet_link',\s+page: 'wallet\.html'/.test(couponSrc) && /walletLinkToken\(patientId, reset, cfg\.rpc\)/.test(couponSrc));
+    pass('points cap: saved as reward_redeem_cap in program_settings (admin only)',
+        /var REDEEM_CAP_KEY = 'reward_redeem_cap';/.test(rewardsSrc) && /function saveRedeemCap\(patch\) \{\s+if \(!isAdmin\(\)\)/.test(rewardsSrc) &&
+        /setting_key: REDEEM_CAP_KEY/.test(rewardsSrc));
+    pass('points cap: Config card with % and HK$ boxes + Save',
+        /id="rwCfgCap"/.test(rewardsSrc) && /id="rwCfgCapPct"/.test(rewardsSrc) && /id="rwCfgCapAmt"/.test(rewardsSrc) &&
+        /id="rwCfgCapSave"/.test(rewardsSrc) && /loadRedeemCap\(true\)\s*\]\)\.then/.test(rewardsSrc));
+    pass('points cap: payment box max also clamped by the per-bill limit',
+        /if \(_payCap && _payCap\.left !== Infinity\) max = round2\(Math\.min\(max, _payCap\.left\)\);/.test(rewardsSrc) &&
+        /loadBillPointsUsed\(bill\.id\)/.test(rewardsSrc) && /id="apRewardCapNote"/.test(idxSrc));
+    pass('points cap: Save payment refuses points over the limit',
+        /REWARDS\.payRedeemCapLeft\(\)/.test(apptSrc) && /trRepl\('rewards\.cap\.errOver'/.test(apptSrc));
+    ['rewards.cap.title', 'rewards.cap.hint', 'rewards.cap.payNote', 'rewards.cap.errOver', 'rewards.cap.noLimit'].forEach(function (k) {
+        var m = new RegExp("'" + k.replace(/\./g, '\\.') + "':\\s*\\{([\\s\\S]*?)\\}(,|\\s*$)", 'm').exec(i18nExtra);
+        pass('i18n ' + k + ' in en / zh-CN / zh-Hant', !!m && /en:/.test(m[1]) && /'zh-CN':/.test(m[1]) && /'zh-Hant':/.test(m[1]));
+    });
     ['rewards.pqr.btn', 'rewards.pqr.title', 'rewards.pqr.hint', 'rewards.pqr.link', 'rewards.pqr.noSql', 'rewards.pqr.fail'].forEach(function (k) {
         var m = new RegExp("'" + k.replace(/\./g, '\\.') + "':\\s*\\{([\\s\\S]*?)\\}").exec(i18nExtra);
         pass('i18n ' + k + ' in en / zh-CN / zh-Hant', !!m && /en:/.test(m[1]) && /'zh-CN':/.test(m[1]) && /'zh-Hant':/.test(m[1]));
@@ -612,9 +627,19 @@ function extractIifeHelpers(src) {
             /data-kind="adjust"[\s\S]*?Adjusted by the clinic/.test(ph));
         pass('points page: signs and HK date (20:00Z -> next day)', ph.indexOf('+12.50') > 0 && ph.indexOf('−10') > 0 &&
             P.hkDate('2026-10-27T20:00:00Z') === '2026-10-28');
-        pass('points page: one clinic -> no chips; year-end note in Chinese', (function () {
-            var h = P.renderHtml({ ok: true, balance: 50, charts: 1, clinics: [{ clinic: 'PL', balance: 50 }], zero_policy: 'year_end', rows: [] }, 'zh-Hant', false);
-            return h.indexOf('wl-pts-chip"') < 0 && h.indexOf('未使用的積分會於每年年底清零。') > 0 && h.indexOf('過去 12 個月沒有積分紀錄。') > 0;
+        pass('points page: one clinic -> no chips; SMS year-end reminder in Chinese', (function () {
+            var h = P.renderHtml({ ok: true, today: '2026-10-28', balance: 50, charts: 1, clinics: [{ clinic: 'PL', balance: 50 }], zero_policy: 'year_end', rows: [] }, 'zh-Hant', false);
+            return h.indexOf('wl-pts-chip"') < 0 && h.indexOf('<div class="wl-remind" role="note"><p>⏰ 所有積分將於今年2026年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。</p>') > 0 &&
+                h.indexOf('<p>💳 每張賬單最高使用額為 HK$3,000，另有註明除外。</p></div>') > 0 &&
+                h.indexOf('過去 12 個月沒有積分紀錄。') > 0;
+        })());
+        pass('points page: English / Simplified reminder; none when the balance is zero', (function () {
+            var d = { ok: true, today: '2027-01-05', balance: 10, rows: [] };
+            return P.renderHtml(d, 'en').indexOf('All reward points expire on 31 Dec 2027 23:59 this year. Please make good use of them, and you are welcome to invite others to use them.') > 0 &&
+                P.renderHtml(d, 'zh-CN').indexOf('所有积分将于今年2027年12月31日 23:59到期，请好好善用；欢迎邀请亲友使用。') > 0 &&
+                P.renderHtml(d, 'en').indexOf('<p>💳 Maximum usage per bill is HK$3,000, unless otherwise specified.</p>') > 0 &&
+                P.renderHtml(d, 'zh-CN').indexOf('每张账单最高使用额为 HK$3,000，另有注明除外。') > 0 &&
+                P.renderHtml(Object.assign({}, d, { balance: 0 }), 'en').indexOf('wl-remind') < 0;
         })());
         pass('points page: bad / expired / offline links explained', /not valid any more/.test(P.renderHtml({ ok: false, reason: 'bad_link' }, 'en')) &&
             /has expired/.test(P.renderHtml({ ok: false, reason: 'expired' }, 'en')) && /Check the connection/.test(P.renderHtml({ ok: false, reason: 'offline' }, 'en')));
@@ -650,6 +675,28 @@ function extractIifeHelpers(src) {
             var pcfg = R.phoneQrConfig();
             pass('points QR set-up: rpc, page, PNG name, centre label', pcfg.rpc === 'rw_wallet_link' && pcfg.page === 'points.html' &&
                 pcfg.pngName === 'reward-points-qr.png' && pcfg.centre === '積分' && pcfg.scheme === 'rewards');
+
+            var nc = R.normalizeRedeemCap;
+            pass('points cap: default HK$3,000, no %', JSON.stringify(nc(null)) === '{"maxPercent":0,"maxAmount":3000}');
+            pass('points cap: blank / junk keep default, negatives -> 0, % max 100',
+                nc({ maxPercent: '', maxAmount: 'x' }).maxAmount === 3000 && nc({ maxPercent: -5, maxAmount: -1 }).maxPercent === 0 &&
+                nc({ maxAmount: -1 }).maxAmount === 0 && nc({ maxPercent: 250 }).maxPercent === 100);
+            var c1 = R.redeemCapLeft(10000, 0, { maxPercent: 0, maxAmount: 3000 });
+            pass('points cap: HK$3,000 only -> 3000 left on a 10,000 bill', c1.limit === 3000 && c1.left === 3000);
+            var c2 = R.redeemCapLeft(4000, 500, { maxPercent: 50, maxAmount: 3000 });
+            pass('points cap: smaller limit wins (50% of 4,000 = 2,000), minus 500 used = 1,500', c2.limit === 2000 && c2.used === 500 && c2.left === 1500,
+                JSON.stringify(c2));
+            pass('points cap: never below 0 once used up', R.redeemCapLeft(10000, 3500, {}).left === 0);
+            pass('points cap: both blank -> no limit', R.redeemCapLeft(10000, 0, { maxPercent: 0, maxAmount: 0 }).left === Infinity);
+            pass('points cap: % rounds down to the cent', R.redeemCapLeft(333.33, 0, { maxPercent: 10, maxAmount: 0 }).limit === 33.33);
+            pass('points cap: used on bill = net of redeem / void_redeem only',
+                R.pointsUsedOnBill([{ kind: 'redeem', points: -800 }, { kind: 'void_redeem', points: 300 }, { kind: 'earn', points: 50 }, { kind: 'redeem', points: -200 }]) === 700 &&
+                R.pointsUsedOnBill([]) === 0);
+            pass('points cap: summary text', R.redeemCapSummary({ maxPercent: 0, maxAmount: 3000 }) === 'At most HK$3,000 in points per bill' &&
+                R.redeemCapSummary({ maxPercent: 50, maxAmount: 3000 }) === 'At most 50% of the bill up to HK$3,000 in points per bill' &&
+                R.redeemCapSummary({ maxPercent: 0, maxAmount: 0 }) === 'No limit on points per bill',
+                R.redeemCapSummary({ maxPercent: 0, maxAmount: 3000 }));
+            pass('points cap: nothing loaded -> payRedeemCapLeft is Infinity', R.payRedeemCapLeft() === Infinity);
         }
     } catch (e) {
         pass('REWARDS loads in vm', false, e && e.message);
@@ -1161,6 +1208,11 @@ function extractIifeHelpers(src) {
       hasClinicTabs: html.indexOf('rw-clinic-tab') >= 0,
       hasDocJoin: html.indexOf('rw-doc-join') >= 0,
       hasError: html.indexOf('color:#dc2626') >= 0,
+      capSum: (document.getElementById('rwCfgCapSum') || {}).textContent || '',
+      capBeforeZero: (function () {
+        var c = document.getElementById('rwCfgCap'), z = pane.querySelector('.rw-cfg-card--danger');
+        return !!c && (!z || !!(c.compareDocumentPosition(z) & 4));
+      })(),
       len: html.length
     };
   } catch (e) {
@@ -1183,6 +1235,49 @@ function extractIifeHelpers(src) {
             pass('live config clinic subtabs + Join toggle',
                 !!(cfgPaint.hasClinicTabs && cfgPaint.hasDocJoin),
                 'tabs=' + cfgPaint.hasClinicTabs + ' join=' + cfgPaint.hasDocJoin);
+            pass('live config: points-per-bill card shows its limit', cfgPaint.capBeforeZero && /HK\$|limit|上限/.test(cfgPaint.capSum), cfgPaint.capSum);
+        }
+
+        // Admin view of the cap card; the save is stubbed so no setting is written.
+        var capAdm = await cdp.js(`(async () => {
+  const pane = document.getElementById('cfgPane-rewards');
+  if (!pane) return { ok: false, reason: 'no pane' };
+  const oldRole = typeof currentRole !== 'undefined' ? currentRole : '';
+  const oldPersist = window.persistProgramSettingRow;
+  const oldAlert = window.alert;
+  let wrote = null, alerted = '';
+  try {
+    window.alert = function (m) { alerted = String(m); };
+    currentRole = 'admin';
+    window.persistProgramSettingRow = function (row) { wrote = row; return Promise.resolve({ error: null }); };
+    REWARDS.renderConfigPane(pane);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 12000 && !document.getElementById('rwCfgCapSave')) await new Promise(r => setTimeout(r, 200));
+    const pct = document.getElementById('rwCfgCapPct'), amt = document.getElementById('rwCfgCapAmt');
+    const btn = document.getElementById('rwCfgCapSave');
+    if (!pct || !amt || !btn) return { ok: false, reason: 'no inputs' };
+    const before = { pct: pct.value, amt: amt.value };
+    pct.value = '40'; amt.value = '2500';
+    btn.click();
+    const t1 = Date.now();
+    while (Date.now() - t1 < 8000 && !wrote) await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 100));
+    return { ok: true, before, wrote, alerted, sum: (document.getElementById('rwCfgCapSum') || {}).textContent || '' };
+  } catch (e) {
+    return { ok: false, reason: String(e && e.message || e) };
+  } finally {
+    currentRole = oldRole;
+    window.persistProgramSettingRow = oldPersist;
+    window.alert = oldAlert;
+    REWARDS.loadRedeemCap(true).catch(function () {});
+  }
+})()`, true, 60000);
+        pass('live config (admin): cap card has % and HK$ boxes', capAdm && capAdm.ok, capAdm && (capAdm.reason || JSON.stringify(capAdm.before)));
+        if (capAdm && capAdm.ok) {
+            pass('live config (admin): Save writes reward_redeem_cap {40%, 2500}',
+                !!capAdm.wrote && capAdm.wrote.setting_key === 'reward_redeem_cap' &&
+                capAdm.wrote.setting_value === '{"maxPercent":40,"maxAmount":2500}', JSON.stringify(capAdm.wrote));
+            pass('live config (admin): summary updates after Save', /40%/.test(capAdm.sum) && /2,500/.test(capAdm.sum), capAdm.sum);
         }
 
         // ── Points on the phone QR (rw_wallet_link stubbed: no token is written) ──

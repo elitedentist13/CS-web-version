@@ -3580,6 +3580,30 @@
             'zh-Hant': '各診所結餘：{DETAIL}'
         },
         'rewards.panel.started': { en: 'Started', 'zh-CN': '开始日期', 'zh-Hant': '開始日期' },
+        'rewards.cap.title': { en: 'Using points on one bill', 'zh-CN': '单张账单使用积分上限', 'zh-Hant': '單張賬單使用積分上限' },
+        'rewards.cap.maxOff': { en: 'Max points used per bill', 'zh-CN': '每张账单最多使用积分', 'zh-Hant': '每張賬單最多使用積分' },
+        'rewards.cap.pctLabel': { en: 'Max % of the bill', 'zh-CN': '账单最高百分比', 'zh-Hant': '賬單最高百分比' },
+        'rewards.cap.amtLabel': { en: 'Max HK$ per bill', 'zh-CN': '每张账单最高港元', 'zh-Hant': '每張賬單最高港元' },
+        'rewards.cap.ofBill': { en: 'of the bill', 'zh-CN': '账单金额', 'zh-Hant': '賬單金額' },
+        'rewards.cap.upTo': { en: 'up to', 'zh-CN': '最多', 'zh-Hant': '最多' },
+        'rewards.cap.sumMax': { en: 'At most', 'zh-CN': '最多', 'zh-Hant': '最多' },
+        'rewards.cap.sumPer': { en: 'in points per bill', 'zh-CN': '积分／每张账单', 'zh-Hant': '積分／每張賬單' },
+        'rewards.cap.noLimit': { en: 'No limit on points per bill', 'zh-CN': '每张账单使用积分不设上限', 'zh-Hant': '每張賬單使用積分不設上限' },
+        'rewards.cap.hint': {
+            en: 'Counts every payment on the same bill. Default: up to HK$3,000 per bill. Both limits apply and the smaller one wins; leave a box blank to drop that limit. The percentage is of the bill total.',
+            'zh-CN': '同一张账单的每次付款合并计算。默认：每张账单最多 HK$3,000。两个上限同时适用，以较小者为准；留空即取消该上限。百分比以账单总额计算。',
+            'zh-Hant': '同一張賬單的每次付款合併計算。預設：每張賬單最多 HK$3,000。兩個上限同時適用，以較小者為準；留空即取消該上限。百分比以賬單總額計算。'
+        },
+        'rewards.cap.payNote': {
+            en: 'Per-bill limit HK${LIMIT} · already used on this bill {USED} · can use now {LEFT}',
+            'zh-CN': '每张账单上限 HK${LIMIT} · 此账单已使用 {USED} · 现可使用 {LEFT}',
+            'zh-Hant': '每張賬單上限 HK${LIMIT} · 此賬單已使用 {USED} · 現可使用 {LEFT}'
+        },
+        'rewards.cap.errOver': {
+            en: 'Over the per-bill points limit. At most {LEFT} more points can be used on this bill.',
+            'zh-CN': '超过每张账单积分上限。此账单最多只可再使用 {LEFT} 积分。',
+            'zh-Hant': '超過每張賬單積分上限。此賬單最多只可再使用 {LEFT} 積分。'
+        },
         'rewards.pqr.btn': { en: 'Points on the phone', 'zh-CN': '手机查看积分', 'zh-Hant': '手機查看積分' },
         'rewards.pqr.btnTitle': {
             en: 'Show a QR code the patient scans to see their points on the phone',

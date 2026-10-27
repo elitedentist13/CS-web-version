@@ -18,6 +18,16 @@
         past: { en: 'Used or expired', 'zh-Hant': '已使用或已過期', 'zh-CN': '已使用或已过期' },
         showPast: { en: 'Show used and expired coupons', 'zh-Hant': '顯示已使用及已過期的券', 'zh-CN': '显示已使用及已过期的券' },
         hidePast: { en: 'Hide used and expired coupons', 'zh-Hant': '隱藏已使用及已過期的券', 'zh-CN': '隐藏已使用及已过期的券' },
+        yearEnd: {
+            en: 'All discount coupons expire on 31 Dec {YEAR} 23:59 this year. Please make good use of them, and you are welcome to invite others to use them.',
+            'zh-Hant': '所有優惠券將於今年{YEAR}年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。',
+            'zh-CN': '所有优惠券将于今年{YEAR}年12月31日 23:59到期，请好好善用；欢迎邀请亲友使用。'
+        },
+        perBill: {
+            en: 'Maximum usage per bill is HK$3,000, unless otherwise specified.',
+            'zh-Hant': '每張賬單最高使用額為 HK$3,000，另有註明除外。',
+            'zh-CN': '每张账单最高使用额为 HK$3,000，另有注明除外。'
+        },
         none: { en: 'You have no coupons ready to use right now.', 'zh-Hant': '您暫時沒有可使用的優惠券。', 'zh-CN': '您暂时没有可使用的优惠券。' },
         sumCount: { en: 'coupons', 'zh-Hant': '張優惠券', 'zh-CN': '张优惠券' },
         sumValue: { en: 'cash value', 'zh-Hant': '現金價值', 'zh-CN': '现金价值' },
@@ -224,6 +234,8 @@
             if (value > 0) html += '<div class="wl-sum-item"><b>' + esc(hk(value)) + '</b>' + esc(tr('sumValue', lang)) + '</div>';
             if (next) html += '<div class="wl-sum-item"><b>' + esc(next.slice(5)) + '</b>' + esc(tr('sumNext', lang)) + '</div>';
             html += '</div>';
+            html += '<div class="wl-remind" role="note"><p>⏰ ' + esc(tr('yearEnd', lang).split('{YEAR}').join(String(parts.today).slice(0, 4))) + '</p>' +
+                '<p>💳 ' + esc(tr('perBill', lang)) + '</p></div>';
             html += '<h2 class="wl-sec-title">' + esc(tr('ready', lang)) + '</h2>';
             parts.live.forEach(function (c) { html += ticketHtml(c, d, lang, false); });
         } else {

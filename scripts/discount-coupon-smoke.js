@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261028pointsqr1';
+var BUILD = '20261028ptscap1';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -1335,6 +1335,15 @@ function loadCoupons() {
         W.renderHtml({ ok: false, reason: 'expired' }, 'zh-CN').indexOf('已过期') >= 0 &&
         W.renderHtml({ ok: false, reason: 'offline' }, 'en').indexOf('connection') >= 0);
     pass('wallet with no coupons says so', W.renderHtml({ ok: true, today: '2026-10-27', coupons: [] }, 'en').indexOf('no coupons ready') >= 0);
+    pass('wallet shows the SMS year-end reminder (31 Dec 23:59) in the chosen language',
+        wHtml.indexOf('<div class="wl-remind" role="note"><p>⏰ All discount coupons expire on 31 Dec 2026 23:59 this year. Please make good use of them, and you are welcome to invite others to use them.</p>') > 0 &&
+        wPast.indexOf('所有優惠券將於今年2026年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。') > 0 &&
+        W.renderHtml(wData, 'zh-CN', false).indexOf('所有优惠券将于今年2026年12月31日 23:59到期，请好好善用；欢迎邀请亲友使用。') > 0 &&
+        W.renderHtml({ ok: true, today: '2026-10-27', coupons: [] }, 'en').indexOf('wl-remind') < 0, wHtml.slice(0, 0));
+    pass('wallet shows the HK$3,000 per-bill limit in the chosen language',
+        wHtml.indexOf('<p>💳 Maximum usage per bill is HK$3,000, unless otherwise specified.</p></div>') > 0 &&
+        wPast.indexOf('<p>💳 每張賬單最高使用額為 HK$3,000，另有註明除外。</p>') > 0 &&
+        W.renderHtml(wData, 'zh-CN', false).indexOf('<p>💳 每张账单最高使用额为 HK$3,000，另有注明除外。</p>') > 0);
     pass('wallet page address follows the phone-scan public address',
         C.walletPageBase({ href: 'http://127.0.0.1:8080/index.html?x=1' }, 'https://clinic.example.com/app/scan.html') === 'https://clinic.example.com/app/wallet.html' &&
         C.walletPageBase({ href: 'https://cs.example.com/app/index.html#p' }, '') === 'https://cs.example.com/app/wallet.html');

@@ -25,9 +25,14 @@
             'zh-CN': '每次付款可赚取付款额 {RATE}% 的积分。'
         },
         yearEnd: {
-            en: 'Unused points are cleared at the end of each year.',
-            'zh-Hant': '未使用的積分會於每年年底清零。',
-            'zh-CN': '未使用的积分会于每年年底清零。'
+            en: 'All reward points expire on 31 Dec {YEAR} 23:59 this year. Please make good use of them, and you are welcome to invite others to use them.',
+            'zh-Hant': '所有積分將於今年{YEAR}年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。',
+            'zh-CN': '所有积分将于今年{YEAR}年12月31日 23:59到期，请好好善用；欢迎邀请亲友使用。'
+        },
+        perBill: {
+            en: 'Maximum usage per bill is HK$3,000, unless otherwise specified.',
+            'zh-Hant': '每張賬單最高使用額為 HK$3,000，另有註明除外。',
+            'zh-CN': '每张账单最高使用额为 HK$3,000，另有注明除外。'
         },
         lifespan: {
             en: 'Points are cleared after {N} months with no new points.',
@@ -136,10 +141,14 @@
         }
         if (data.started_at) html += '<div class="wl-pts-since">' + esc(tr('since', lang)) + ' ' + esc(hkDate(data.started_at)) + '</div>';
         html += '</section>';
+        if (num(data.balance) > 0.005) {
+            var year = String(data.today || hkDate(new Date().toISOString())).slice(0, 4);
+            html += '<div class="wl-remind" role="note"><p>⏰ ' + esc(tr('yearEnd', lang).split('{YEAR}').join(year)) + '</p>' +
+                '<p>💳 ' + esc(tr('perBill', lang)) + '</p></div>';
+        }
         var notes = [];
         if (num(data.earn_rate) > 0) notes.push(tr('earnRate', lang).replace('{RATE}', String(Math.round(num(data.earn_rate) * 100) / 100)));
-        if (data.zero_policy === 'year_end') notes.push(tr('yearEnd', lang));
-        else if (data.zero_policy === 'lifespan' && num(data.lifespan_months) > 0) notes.push(tr('lifespan', lang).replace('{N}', String(Math.round(num(data.lifespan_months)))));
+        if (data.zero_policy === 'lifespan' && num(data.lifespan_months) > 0) notes.push(tr('lifespan', lang).replace('{N}', String(Math.round(num(data.lifespan_months)))));
         if (notes.length) html += '<ul class="wl-pts-notes">' + notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>';
         var rows = data.rows || [];
         html += '<h2 class="wl-sec-title">' + esc(tr('recent', lang)) + '</h2>';

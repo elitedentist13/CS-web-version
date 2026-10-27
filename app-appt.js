@@ -24327,6 +24327,16 @@ function confirmAddPayment() {
         if (errEl) { errEl.textContent = tr('bill.addPayment.errInvalidAmount'); errEl.style.display = ''; }
         return;
     }
+    if (rewardPts > 0.005 && typeof REWARDS !== 'undefined' && typeof REWARDS.payRedeemCapLeft === 'function') {
+        var capLeft = REWARDS.payRedeemCapLeft();
+        if (capLeft !== Infinity && rewardPts > capLeft + 0.005) {
+            if (errEl) {
+                errEl.textContent = trRepl('rewards.cap.errOver', { LEFT: fmt2(capLeft) });
+                errEl.style.display = '';
+            }
+            return;
+        }
+    }
     var bal = billRound2(bdCurrentBill.balance);
     if (billRound2(amount + rewardPts) > bal + 0.005) {
         if (errEl) {

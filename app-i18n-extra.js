@@ -3091,15 +3091,15 @@
         'coupons.bill.slotItems': { en: 'Treatment', 'zh-CN': '治疗券', 'zh-Hant': '治療券' },
         'coupons.bill.saving': { en: 'Saving', 'zh-CN': '节省', 'zh-Hant': '節省' },
         'coupons.bill.rule': {
-            en: 'One whole-bill coupon (cash, spend, new chart, referral) and one treatment coupon can be used together. Tap a card to choose or unchoose it.',
-            'zh-CN': '每张账单可同时使用一张全单券（现金、满额、新客、介绍）及一张治疗券。点击卡片可选择或取消。',
-            'zh-Hant': '每張賬單可同時使用一張全單券（現金、滿額、新客、介紹）及一張治療券。點擊卡片可選擇或取消。'
+            en: 'One treatment coupon plus either one whole-bill coupon (spend, new chart, referral) or several cash coupons can be used together. Tap a card to choose or unchoose it.',
+            'zh-CN': '每张账单可同时使用一张治疗券，加一张全单券（满额、新客、介绍）或多张现金券。点击卡片可选择或取消。',
+            'zh-Hant': '每張賬單可同時使用一張治療券，加一張全單券（滿額、新客、介紹）或多張現金券。點擊卡片可選擇或取消。'
         },
         'coupons.rules.title': { en: 'Coupon rules (tap to open)', 'zh-CN': '优惠券使用规则（点击展开）', 'zh-Hant': '優惠券使用規則（點擊展開）' },
         'coupons.rules.r1': {
-            en: 'Per bill: one whole-bill coupon (cash, spend, new chart, referral) plus one treatment coupon. The treatment coupon comes off first; the whole-bill coupon takes off what is left.',
-            'zh-CN': '每张单：一张全单券（现金、满额、新客、介绍）＋一张治疗券。先扣治疗券，全单券再扣余下金额。',
-            'zh-Hant': '每張單：一張全單券（現金、滿額、新客、介紹）＋一張治療券。先扣治療券，全單券再扣餘下金額。'
+            en: 'Per bill: one treatment coupon plus either one whole-bill coupon (spend, new chart, referral) or any number of cash coupons (by default 50% of the bill up to HK$3,000; change it in Configuration). The treatment coupon comes off first; the rest comes off what is left.',
+            'zh-CN': '每张单：一张治疗券＋一张全单券（满额、新客、介绍）或多张现金券（预设最多扣账单的50%，上限HK$3,000，可在设定更改）。先扣治疗券，其余再扣余下金额。',
+            'zh-Hant': '每張單：一張治療券＋一張全單券（滿額、新客、介紹）或多張現金券（預設最多扣賬單的50%，上限HK$3,000，可在設定更改）。先扣治療券，其餘再扣餘下金額。'
         },
         'coupons.rules.r2': {
             en: 'Treatment coupons only cover treatment-list items ticked for that coupon. A typed line counts only if its name is exactly the same as the treatment list.',
@@ -3229,6 +3229,69 @@
         },
         'coupons.xfer.same': { en: 'That is the same chart', 'zh-CN': '这是同一个病历', 'zh-Hant': '這是同一個病歷' },
         'coupons.xfer.notUnused': { en: 'Only an unused coupon can be transferred', 'zh-CN': '只可转让未使用的券', 'zh-Hant': '只可轉讓未使用的券' },
+        'coupons.cash.title': { en: 'Using cash coupons on one bill', 'zh-CN': '同一张单使用现金券', 'zh-Hant': '同一張單使用現金券' },
+        'coupons.cash.count': { en: 'Cash coupons per bill', 'zh-CN': '每张单现金券数量', 'zh-Hant': '每張單現金券數量' },
+        'coupons.cash.maxOff': { en: 'Max cash off per bill', 'zh-CN': '每张单现金券扣减上限', 'zh-Hant': '每張單現金券扣減上限' },
+        'coupons.cash.ofBill': { en: 'of the bill', 'zh-CN': '账单金额', 'zh-Hant': '賬單金額' },
+        'coupons.cash.sumCount': { en: 'Up to', 'zh-CN': '最多', 'zh-Hant': '最多' },
+        'coupons.cash.sumPer': { en: 'cash coupons per bill', 'zh-CN': '张现金券／每张单', 'zh-Hant': '張現金券／每張單' },
+        'coupons.cash.sumMax': { en: 'at most', 'zh-CN': '最多扣', 'zh-Hant': '最多扣' },
+        'coupons.cash.noLimit': { en: 'no amount limit', 'zh-CN': '不设金额上限', 'zh-Hant': '不設金額上限' },
+        'coupons.cash.sumAny': { en: 'Any number of cash coupons per bill', 'zh-CN': '每张单现金券数量不限', 'zh-Hant': '每張單現金券數量不限' },
+        'coupons.cash.anyCount': { en: 'No limit', 'zh-CN': '不限', 'zh-Hant': '不限' },
+        'coupons.cash.upTo': { en: 'up to', 'zh-CN': '上限', 'zh-Hant': '上限' },
+        'coupons.wqr.btn': { en: 'Wallet QR', 'zh-CN': '钱包二维码', 'zh-Hant': '錢包 QR 碼' },
+        'coupons.wqr.title': { en: 'Coupon wallet on the phone', 'zh-CN': '手机查看优惠券钱包', 'zh-Hant': '手機查看優惠券錢包' },
+        'coupons.wqr.hint': {
+            en: 'Ask the patient to scan this with the phone camera. They can browse their coupons only — nothing can be used, added or removed from the phone.',
+            'zh-CN': '请病人用手机相机扫描。病人只可浏览自己的优惠券，不能在手机上使用、新增或删除。',
+            'zh-Hant': '請病人用手機相機掃描。病人只可瀏覽自己的優惠券，不能在手機上使用、新增或刪除。'
+        },
+        'coupons.wqr.making': { en: 'Making the QR code…', 'zh-CN': '正在生成二维码…', 'zh-Hant': '正在產生 QR 碼…' },
+        'coupons.wqr.local': {
+            en: 'This address only works on this computer. Set the public address in Phone scan first, or the phone cannot open it.',
+            'zh-CN': '此地址只在本机有效。请先在手机扫描设定公开地址，否则手机无法打开。',
+            'zh-Hant': '此地址只在本機有效。請先在手機掃描設定公開地址，否則手機無法開啟。'
+        },
+        'coupons.wqr.link': { en: 'Wallet link', 'zh-CN': '钱包链接', 'zh-Hant': '錢包連結' },
+        'coupons.wqr.reset': { en: 'New QR code', 'zh-CN': '重新生成二维码', 'zh-Hant': '重新產生 QR 碼' },
+        'coupons.wqr.copy': { en: 'Copy link', 'zh-CN': '复制链接', 'zh-Hant': '複製連結' },
+        'coupons.wqr.copied': { en: 'Copied', 'zh-CN': '已复制', 'zh-Hant': '已複製' },
+        'coupons.wqr.resetNote': {
+            en: 'New QR code stops the old one from working (for example if the patient lost the phone).',
+            'zh-CN': '重新生成后，旧二维码即失效（例如病人遗失手机时）。',
+            'zh-Hant': '重新產生後，舊 QR 碼即失效（例如病人遺失手機時）。'
+        },
+        'coupons.wqr.resetAsk': { en: 'Make a new QR code? The old one will stop working.', 'zh-CN': '重新生成二维码？旧的将会失效。', 'zh-Hant': '重新產生 QR 碼？舊的將會失效。' },
+        'coupons.wqr.noSql': {
+            en: 'The phone wallet is not set up yet. Run discount_coupon_wallet.sql in Supabase first.',
+            'zh-CN': '手机钱包尚未设定，请先在 Supabase 执行 discount_coupon_wallet.sql。',
+            'zh-Hant': '手機錢包尚未設定，請先在 Supabase 執行 discount_coupon_wallet.sql。'
+        },
+        'coupons.wqr.fail': { en: 'Could not make the wallet link. Try again.', 'zh-CN': '无法生成钱包链接，请再试。', 'zh-Hant': '無法產生錢包連結，請再試。' },
+        'coupons.wqr.qrFail': { en: 'The QR code could not be drawn. Copy the link instead.', 'zh-CN': '无法生成二维码，请复制链接。', 'zh-Hant': '無法產生 QR 碼，請複製連結。' },
+        'coupons.cash.pctLabel': { en: 'Max % of the bill', 'zh-CN': '最多扣账单百分比', 'zh-Hant': '最多扣賬單百分比' },
+        'coupons.cash.amtLabel': { en: 'Max HK$ per bill', 'zh-CN': '每张单最多扣（HK$）', 'zh-Hant': '每張單最多扣（HK$）' },
+        'coupons.cash.hint': {
+            en: 'Only cash coupons stack. Spend, new-chart and referral coupons stay one per bill and are not combined with cash. Default: any number of cash coupons, 50% of the bill up to HK$3,000 — both limits apply and the smaller one wins. Leave a box blank to drop that limit. The percentage is of the whole bill before coupons.',
+            'zh-CN': '只有现金券可叠加使用。满额、新客及介绍券每张单限用一张，且不与现金券同用。预设：现金券数量不限，最多扣账单金额的50%，上限HK$3,000——两个上限同时生效，以较低者为准。留空即取消该项上限；百分比按使用优惠券前的整张账单金额计算。',
+            'zh-Hant': '只有現金券可疊加使用。滿額、新客及介紹券每張單限用一張，且不與現金券同用。預設：現金券數量不限，最多扣賬單金額的50%，上限HK$3,000——兩個上限同時生效，以較低者為準。留空即取消該項上限；百分比按使用優惠券前的整張賬單金額計算。'
+        },
+        'coupons.cash.tooMany': { en: 'Cash coupons per bill', 'zh-CN': '每张单现金券数量上限', 'zh-Hant': '每張單現金券數量上限' },
+        'coupons.cash.untickOne': { en: 'Untick one to use this one instead.', 'zh-CN': '请先取消一张再选这张。', 'zh-Hant': '請先取消一張再選這張。' },
+        'coupons.cash.capReached': { en: 'Cash limit reached', 'zh-CN': '已达现金券扣减上限', 'zh-Hant': '已達現金券扣減上限' },
+        'coupons.cash.covered': {
+            en: 'The bill is already covered, so this coupon is not needed.',
+            'zh-CN': '账单已全数扣减，毋须再用这张券。',
+            'zh-Hant': '賬單已全數扣減，毋須再用這張券。'
+        },
+        'coupons.cash.lostShort': { en: 'HK$', 'zh-CN': 'HK$', 'zh-Hant': 'HK$' },
+        'coupons.cash.lost': { en: 'lost', 'zh-CN': '作废', 'zh-Hant': '作廢' },
+        'coupons.cash.lostLong': {
+            en: 'of coupon value is lost (no change given)',
+            'zh-CN': '券值作废（不设找赎）',
+            'zh-Hant': '券值作廢（不設找贖）'
+        },
         'coupons.auth.giftTitle': { en: 'Confirm gift', 'zh-CN': '确认赠送', 'zh-Hant': '確認贈送' },
         'coupons.auth.xferTitle': { en: 'Confirm transfer', 'zh-CN': '确认转让', 'zh-Hant': '確認轉讓' },
         'coupons.auth.confirm': { en: 'Confirm', 'zh-CN': '确认', 'zh-Hant': '確認' },

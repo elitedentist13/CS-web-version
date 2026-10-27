@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261027couponauth1';
+var BUILD = '20261027couponsms1';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -312,6 +312,49 @@ function loadCoupons() {
     pass('issue SMS uses the clinic heading', issuedSms.indexOf('樂意牙科中心') >= 0 && issuedSms.indexOf('滿額回贈') >= 0);
     var exp = C.smsExpiring({ status: 'unused', nameZh: '介紹新客', expires_on: '2026-11-02' }, '2026-10-26');
     pass('expiry SMS is 7 days before', exp.indexOf('7日內到期') >= 0 && exp.indexOf('2026-11-02') >= 0);
+    var smsWallet = [
+        { code: 'DC-A1', campaign_key: 'cash', discount_mode: 'amount', face_value: 100, status: 'unused', expires_on: '2026-12-01' },
+        { code: 'DC-A2', campaign_key: 'free_scaling', discount_mode: 'free_line', face_value: 0, status: 'unused', expires_on: '2026-11-20' },
+        { code: 'DC-A3', campaign_key: 'ortho', discount_mode: 'percent', percent: 10, max_discount: 3000, status: 'unused', expires_on: '2027-01-01' },
+        { code: 'DC-OLD', campaign_key: 'cash', discount_mode: 'amount', face_value: 50, status: 'used', expires_on: '2026-12-01' },
+        { code: 'DC-GONE', campaign_key: 'cash', discount_mode: 'amount', face_value: 70, status: 'unused', expires_on: '2026-10-01' }
+    ];
+    var full = C.smsIssued({ code: 'DC-A1', campaign_key: 'cash', discount_mode: 'amount', face_value: 100, expires_on: '2026-12-01' },
+        smsWallet, { today: '2026-10-27', clinic: 'KT' });
+    var fullLines = full.split('\n');
+    var rewardSms = '[Joyful Smile Dental Clinic 樂意牙科中心] 積分更新 / Reward points update\n變動/Change: +10 (x)\n結餘/Balance: 20\n診所/Clinic: KT\n參考/Ref: R1';
+    var shape = function (s) {
+        return s.split('\n').filter(function (l) { return /^(\[|變動\/Change|結餘\/Balance|診所\/Clinic|參考\/Ref)/.test(l); })
+            .map(function (l) { return l.replace(/^\[[^\]]+\].*$/, 'HEAD').replace(/:.*$/, ''); }).join('|');
+    };
+    pass('coupon SMS follows the reward points layout', shape(full) === shape(rewardSms) &&
+        fullLines[0] === '[Joyful Smile Dental Clinic 樂意牙科中心] 優惠券更新 / Discount coupon update', full);
+    pass('coupon SMS change line names the new coupon', fullLines[1] === '變動/Change: +1 現金券 Cash coupon HK$100.00 (發出/Issued)', fullLines[1]);
+    pass('coupon SMS balance counts usable coupons only', fullLines[2] === '結餘/Balance: 3張 / 3 coupons', fullLines[2]);
+    pass('coupon SMS lists every usable coupon, soonest expiry first',
+        fullLines[3] === '可用優惠券/Available coupons:' &&
+        fullLines[4] === '1. 免費洗牙 Free scaling 免費/Free (DC-A2)' &&
+        fullLines[5] === '2. 現金券 Cash coupon HK$100.00 (DC-A1)' &&
+        fullLines[6] === '3. 矯齒優惠 Orthodontic discount 10% (最多/up to HK$3000.00) (DC-A3)' &&
+        full.indexOf('DC-OLD') < 0 && full.indexOf('DC-GONE') < 0, fullLines.slice(3, 7).join(' | '));
+    pass('coupon SMS clinic and ref lines', fullLines[7] === '診所/Clinic: KT' && fullLines[8] === '參考/Ref: DC-A1');
+    pass('coupon SMS ends with the year-end note', fullLines.length === 10 &&
+        fullLines[9].indexOf('備註/Note: 所有優惠券將於今年2026年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。') === 0 &&
+        fullLines[9].indexOf('All discount coupons expire on 31 Dec 2026 23:59 this year') >= 0 &&
+        /invite others/.test(fullLines[9]), fullLines[9]);
+    var lone = C.smsIssued({ code: 'DC-N1', campaign_key: 'referral', discount_mode: 'amount', face_value: 100 }, [], { today: '2026-10-27' });
+    pass('coupon SMS adds the new coupon when the wallet has not caught up', /結餘\/Balance: 1張 \/ 1 coupon\n/.test(lone) && lone.indexOf('1. 介紹新客 Refer a friend HK$100.00 (DC-N1)') >= 0);
+    var bigWallet = [];
+    for (var bw = 0; bw < 13; bw++) bigWallet.push({ code: 'B' + bw, campaign_key: 'cash', discount_mode: 'amount', face_value: 10, status: 'unused', expires_on: '2027-01-01' });
+    var bigSms = C.smsIssued({ code: 'B0', campaign_key: 'cash', discount_mode: 'amount', face_value: 10 }, bigWallet, { today: '2026-10-27' });
+    pass('coupon SMS keeps a long list short', bigSms.indexOf('10. ') >= 0 && bigSms.indexOf('11. ') < 0 && bigSms.indexOf('…另有3張 / and 3 more') >= 0);
+    var remind = C.smsExpiring({ code: 'DC-A2', campaign_key: 'free_scaling', discount_mode: 'free_line', status: 'unused', expires_on: '2026-10-30' },
+        '2026-10-27', smsWallet, { clinic: 'KT' });
+    pass('expiry SMS uses the same layout and lists the wallet', shape(remind) === shape(rewardSms) &&
+        remind.indexOf('變動/Change: 免費洗牙 Free scaling 免費/Free 3日內到期 (2026-10-30) / expires in 3 days') >= 0 &&
+        remind.indexOf('(DC-A1)') >= 0 && remind.indexOf('備註/Note:') >= 0, remind);
+    pass('coupon SMS reads the wallet at send time', /sendCouponSms\(row\.patient_id, function \(wallet\)/.test(src) &&
+        /typeof body === 'function' \? loadWallet\(patientId\)/.test(src));
     pass('no expiry SMS on other days', C.smsExpiring({ status: 'unused', expires_on: '2026-11-03' }, '2026-10-26') === '');
 
     console.log('=== 9b gift / transfer login ===');
@@ -620,6 +663,100 @@ function loadCoupons() {
     pass('treatment + bill coupon work together', both.rows.length === 2 && both.save === 660, JSON.stringify({ n: both.rows.length, s: both.save }));
     var twoBill = C.combineCoupons(Object.assign({ coupons: [cCash100, cCash50] }, comboOpts));
     pass('only one bill-wide coupon per bill', twoBill.rows.length === 1 && twoBill.save === 100);
+    var kA = { id: 'ca', campaign_key: 'cash', scope: 'bill', mode: 'amount', face: 100, status: 'unused', patient_id: 'p', expires_on: '2027-01-01' };
+    var kB = { id: 'cb', campaign_key: 'cash', scope: 'bill', mode: 'amount', face: 50, status: 'unused', patient_id: 'p', expires_on: '2026-12-01' };
+    var kC = { id: 'cc', campaign_key: 'cash', scope: 'bill', mode: 'amount', face: 200, status: 'unused', patient_id: 'p', expires_on: '2026-11-15' };
+    var kS = { id: 'cs', campaign_key: 'spend_1', scope: 'bill', mode: 'amount', face: 100, status: 'unused', patient_id: 'p', expires_on: '2026-11-01' };
+    function cashOpts(rules, eligible) {
+        return { lines: comboLines, catalog: catalog, eligibleCents: eligible == null ? 8560 : eligible, patientId: 'p', billId: 'bx',
+            cashRules: Object.assign({ maxPercent: 0, maxAmount: 0 }, rules) };
+    }
+    var stack3 = C.combineCoupons(Object.assign({ coupons: [kA, kB, kC] }, cashOpts({ maxCount: 3 })));
+    pass('cash coupons stack on one bill', stack3.rows.length === 3 && stack3.save === 350, JSON.stringify({ n: stack3.rows.length, s: stack3.save }));
+    var stack2 = C.combineCoupons(Object.assign({ coupons: [kA, kB, kC] }, cashOpts({ maxCount: 2 })));
+    pass('cash coupons stop at the per-bill number', stack2.rows.length === 2 && stack2.skipped.some(function (s) {
+        return s.coupon.id === 'cc' && s.reason === 'cash_count';
+    }));
+    var capAmt = C.combineCoupons(Object.assign({ coupons: [kA, kB] }, cashOpts({ maxCount: 3, maxAmount: 120 })));
+    pass('max cash off per bill as HK$', capAmt.save === 120 && capAmt.capHit && capAmt.lost === 30, JSON.stringify({ s: capAmt.save, lost: capAmt.lost }));
+    var capPct = C.combineCoupons(Object.assign({ coupons: [kC] }, cashOpts({ maxCount: 3, maxPercent: 10 }, 1000)));
+    pass('max cash off per bill as % of the bill', capPct.save === 100 && capPct.capCents === 10000 && capPct.lost === 100,
+        JSON.stringify({ s: capPct.save, cap: capPct.capCents }));
+    var capFull = C.combineCoupons(Object.assign({ coupons: [kA, kB] }, cashOpts({ maxCount: 3, maxAmount: 100 })));
+    pass('a cash coupon past the limit is not used', capFull.rows.length === 1 && capFull.skipped.some(function (s) {
+        return s.coupon.id === 'cb' && s.reason === 'cash_cap';
+    }));
+    var spendFirst = C.combineCoupons(Object.assign({ coupons: [kS, kA] }, cashOpts({ maxCount: 3 })));
+    var cashFirst = C.combineCoupons(Object.assign({ coupons: [kA, kS, kB] }, cashOpts({ maxCount: 3 })));
+    pass('spend coupons do not stack with cash', spendFirst.rows.length === 1 && spendFirst.rows[0].coupon.id === 'cs' &&
+        cashFirst.rows.length === 2 && cashFirst.rows.every(function (r) { return r.coupon.campaign_key === 'cash'; }));
+    var covered = C.combineCoupons(Object.assign({ coupons: [kA, kB, kC] }, cashOpts({ maxCount: 3 }, 120)));
+    pass('no extra cash coupon once the bill is covered', covered.save === 120 && covered.rows.length === 2 &&
+        covered.skipped.some(function (s) { return s.coupon.id === 'cc' && s.reason === 'covered'; }), JSON.stringify(covered.skipped));
+    var withTreat = C.combineCoupons(Object.assign({ coupons: [cScale, kA, kB] }, cashOpts({ maxCount: 3 })));
+    pass('treatment coupon plus stacked cash', withTreat.rows.length === 3 && withTreat.save === 710, String(withTreat.save));
+    var bestCash = C.bestCombination([kS, kA, kB, kC], cashOpts({ maxCount: 3 }));
+    pass('best combination stacks cash when it saves more', bestCash.save === 350 && bestCash.cashCount === 3, JSON.stringify({ s: bestCash.save }));
+    var bestNoWaste = C.bestCombination([kA, kB, kC], cashOpts({ maxCount: 3 }, 150));
+    pass('best cash stack wastes the least', bestNoWaste.save === 150 && bestNoWaste.lost === 0 &&
+        bestNoWaste.rows.map(function (r) { return r.coupon.id; }).sort().join(',') === 'ca,cb',
+        JSON.stringify(bestNoWaste.rows.map(function (r) { return r.coupon.id; })));
+    var bestOne = C.bestCombination([kA, kB, kC], cashOpts({ maxCount: 1 }));
+    pass('per-bill number 1 means one cash coupon', bestOne.cashCount === 1 && bestOne.save === 200);
+    var nr = C.normalizeCashRules({ maxCount: 50, maxPercent: 140, maxAmount: -5 });
+    pass('cash rules are kept in range', nr.maxCount === 10 && nr.maxPercent === 100 && nr.maxAmount === 0 &&
+        C.normalizeCashRules({ maxCount: 0 }).maxCount === 0 && C.normalizeCashRules({ maxCount: -4 }).maxCount === 0 &&
+        C.normalizeCashRules({ maxPercent: 0 }).maxPercent === 0 && C.normalizeCashRules({ maxPercent: 0 }).maxAmount === 3000);
+    var dflt = C.normalizeCashRules({});
+    pass('cash rules default to any number, 50% of the bill up to HK$3,000',
+        dflt.maxCount === 0 && dflt.maxPercent === 50 && dflt.maxAmount === 3000, JSON.stringify(dflt));
+    var legacy = C.normalizeCashRules({ maxCount: 2, limitMode: 'percent', limitValue: 30 });
+    pass('older single-limit cash rules are read', legacy.maxPercent === 30 && legacy.maxAmount === 0, JSON.stringify(legacy));
+    pass('cash cap is 50% of a small bill', C.cashCapCents(4000, {}) === 200000);
+    pass('cash cap stops at HK$3,000 on a big bill', C.cashCapCents(10000, {}) === 300000 && C.cashCapCents(6000, {}) === 300000);
+    pass('cash cap with only one limit set', C.cashCapCents(10000, { maxAmount: 0 }) === 500000 && C.cashCapCents(10000, { maxPercent: 0 }) === 300000);
+    var many = [];
+    for (var mi = 0; mi < 14; mi++) {
+        many.push({ id: 'm' + mi, campaign_key: 'cash', scope: 'bill', mode: 'amount', face: 100, status: 'unused', patient_id: 'p', expires_on: '2027-01-' + String(10 + mi) });
+    }
+    var manyAll = C.combineCoupons(Object.assign({ coupons: many }, cashOpts({ maxCount: 0 })));
+    pass('any number of cash coupons can stack', manyAll.cashCount === 14 && manyAll.save === 1400, JSON.stringify({ n: manyAll.cashCount, s: manyAll.save }));
+    var halfOpts = { lines: comboLines, catalog: catalog, eligibleCents: 1000, patientId: 'p', billId: 'bx', cashRules: {} };
+    var half = C.combineCoupons(Object.assign({ coupons: [kC, kC, kC].map(function (k, i) { return Object.assign({}, k, { id: 'h' + i }); }) }, halfOpts));
+    pass('default limit stops cash at 50% of the whole bill', half.save === 500 && half.capHit && half.capCents === 50000 && half.lost === 100,
+        JSON.stringify({ s: half.save, cap: half.capCents, lost: half.lost }));
+    var halfBest = C.bestCombination(many, halfOpts);
+    pass('best pick at the 50% limit uses just enough coupons', halfBest.save === 500 && halfBest.cashCount === 5 && halfBest.lost === 0 &&
+        halfBest.rows.map(function (r) { return r.coupon.id; }).join(',') === 'm0,m1,m2,m3,m4',
+        JSON.stringify(halfBest.rows.map(function (r) { return r.coupon.id; })));
+    var mixed = [];
+    for (var xi = 0; xi < 40; xi++) {
+        mixed.push({ id: 'x' + xi, campaign_key: 'cash', scope: 'bill', mode: 'amount', face: 10 + xi * 7, status: 'unused', patient_id: 'p', expires_on: '2027-02-01' });
+    }
+    var t0 = Date.now();
+    var mixedBest = C.bestCombination(mixed, Object.assign({}, halfOpts, { eligibleCents: 100000 }));
+    var tookMs = Date.now() - t0;
+    pass('big bill: cash stops at HK$3,000 and the pick stays quick', tookMs < 3000 && mixedBest.save === 3000 && mixedBest.capCents === 300000,
+        JSON.stringify({ ms: tookMs, s: mixedBest.save, lost: mixedBest.lost, n: mixedBest.cashCount }));
+    var t2 = Date.now();
+    var mixedAll = C.bestCombination(mixed, Object.assign({}, halfOpts, { eligibleCents: 100000, cashRules: { maxPercent: 0, maxAmount: 0 } }));
+    var tookAllMs = Date.now() - t2;
+    pass('with both limits blank a big wallet is used in full', tookAllMs < 3000 && mixedAll.save === 5860 && mixedAll.cashCount === 40,
+        JSON.stringify({ ms: tookAllMs, s: mixedAll.save }));
+    var t1 = Date.now();
+    var mixedCap = C.bestCombination(mixed, Object.assign({}, halfOpts, { eligibleCents: 2000 }));
+    var tookCapMs = Date.now() - t1;
+    pass('big wallet at the 50% limit fills the limit quickly', tookCapMs < 3000 && mixedCap.save === 1000 && mixedCap.lost < 300,
+        JSON.stringify({ ms: tookCapMs, s: mixedCap.save, lost: mixedCap.lost, n: mixedCap.cashCount }));
+    pass('no limit when blank', C.cashCapCents(1000, { maxPercent: 0, maxAmount: 0 }) === Infinity &&
+        C.cashCapCents(1000, { maxPercent: 15, maxAmount: 0 }) === 15000);
+    pass('bill label counts stacked cash', C.couponLabelFor([{ coupon: kA }, { coupon: kB }, { coupon: cScale }]).indexOf('×2') > 0);
+    C.mergeSaved({ cashRules: { maxCount: 2, maxPercent: 20, maxAmount: 800 } });
+    var snapRules = C.snapshot().cashRules;
+    pass('cash rules are saved with the scheme', snapRules.maxCount === 2 && snapRules.maxPercent === 20 && snapRules.maxAmount === 800);
+    C.mergeSaved(null);
+    pass('cash rules start at any number, 50% up to HK$3,000',
+        C.cashRules().maxCount === 0 && C.cashRules().maxPercent === 50 && C.cashRules().maxAmount === 3000);
     var bestCombo = C.bestCombination([cCash50, cScale, cCash100], comboOpts);
     pass('best combination picks scaling + the larger cash',
         bestCombo.rows.length === 2 && bestCombo.save === 660 &&
@@ -674,6 +811,70 @@ function loadCoupons() {
     pass('extra % discount refreshes the coupon box', /applyBillDetailExtraDiscount[\s\S]{0,4000}COUPONS\.syncBillDetail\(/.test(read('app-appt.js')));
     pass('bill saved line and coupon info box', html.indexOf('id="bdSavedRow"') >= 0 && html.indexOf('id="bdCouponInfo"') >= 0);
     pass('coupon log card in config', src.indexOf('dcLogCard') >= 0 && src.indexOf('loadCouponLog') >= 0);
+
+    console.log('=== 13 phone wallet (QR, browse only) ===');
+    pass('node --check wallet.js', child_process.spawnSync(process.execPath, ['--check', path.join(root, 'wallet.js')]).status === 0);
+    var wCtx = { console: console, navigator: { language: 'en-GB' }, localStorage: null };
+    wCtx.window = wCtx;
+    vm.createContext(wCtx);
+    vm.runInContext(read('wallet.js'), wCtx, { filename: 'wallet.js' });
+    var W = wCtx.CSWallet;
+    var tok = '0123456789abcdef0123456789abcdef';
+    pass('wallet reads the token from the link', W.tokenFrom({ search: '?t=' + tok, hash: '' }) === tok &&
+        W.tokenFrom({ search: '?t=abc', hash: '' }) === '' && W.tokenFrom({ search: '', hash: '#t=' + tok.toUpperCase() }) === tok);
+    pass('wallet language follows the link, then the phone', W.pickLang({ search: '?g=zh-CN' }) === 'zh-CN' && W.pickLang({ search: '' }) === 'en');
+    var wData = {
+        ok: true, name: 'C.T.M.', today: '2026-10-27',
+        campaigns: [{ key: 'spend_4', trigger: 'target_spend', target: 2000, face: 150, name: 'Custom spend 1' }],
+        coupons: [
+            { code: 'DC-A1', campaign_key: 'cash', discount_mode: 'amount', face_value: 100, status: 'unused', expires_on: '2026-11-02' },
+            { code: 'DC-A2', campaign_key: 'spend_4', discount_mode: 'amount', face_value: 150, status: 'unused', expires_on: '2027-03-01' },
+            { code: 'DC-A3', campaign_key: 'free_scaling', discount_mode: 'free_line', face_value: 0, status: 'unused', expires_on: '2027-01-01', item_names: ['SCALING & POLISHING'] },
+            { code: 'DC-A4', campaign_key: 'ortho', discount_mode: 'percent', percent: 10, max_discount: 3000, status: 'unused', expires_on: '2027-01-01' },
+            { code: 'DC-OLD', campaign_key: 'cash', discount_mode: 'amount', face_value: 50, status: 'used', redeemed_at: '2026-09-01T03:00:00Z', redeemed_amount: 50 },
+            { code: 'DC-EXP', campaign_key: 'cash', discount_mode: 'amount', face_value: 80, status: 'unused', expires_on: '2026-10-01' },
+            { code: '<img src=x onerror=alert(1)>', campaign_key: '<b>x</b>', discount_mode: 'amount', face_value: 1, status: 'unused', expires_on: '2027-01-01' }
+        ]
+    };
+    var wSplit = W.split(wData);
+    pass('wallet splits ready and past coupons', wSplit.live.length === 5 && wSplit.past.length === 2 && wSplit.live[0].code === 'DC-A1',
+        JSON.stringify({ live: wSplit.live.length, past: wSplit.past.length }));
+    var wHtml = W.renderHtml(wData, 'en', false);
+    pass('wallet shows ready coupons with value, codes and expiry', wHtml.indexOf('DC-A1') >= 0 && wHtml.indexOf('HK$251') >= 0 &&
+        wHtml.indexOf('6 days left') >= 0 && wHtml.indexOf('FREE') >= 0 && wHtml.indexOf('up to HK$3,000') >= 0);
+    pass('wallet names a custom spend coupon from the scheme', wHtml.indexOf('Spend $2000 get $150') >= 0);
+    pass('wallet hides used / expired until asked', wHtml.indexOf('DC-OLD') < 0 && wHtml.indexOf('wlPastToggle') >= 0);
+    var wPast = W.renderHtml(wData, 'zh-Hant', true);
+    pass('wallet history shows used and expired', wPast.indexOf('DC-OLD') >= 0 && wPast.indexOf('已使用') >= 0 && wPast.indexOf('已過期') >= 0 &&
+        wPast.indexOf('已節省 HK$50') >= 0);
+    pass('wallet escapes text from the database', wHtml.indexOf('<img src=x') < 0 && wHtml.indexOf('<b>x</b>') < 0);
+    pass('wallet is browse only (no use / add / remove controls)', !/<input|<form|<select|data-act=/.test(wHtml + wPast) &&
+        (wPast.match(/<button/g) || []).length === 1);
+    pass('wallet explains a bad or expired link', W.renderHtml({ ok: false, reason: 'bad_link' }, 'en').indexOf('not valid') >= 0 &&
+        W.renderHtml({ ok: false, reason: 'expired' }, 'zh-CN').indexOf('已过期') >= 0 &&
+        W.renderHtml({ ok: false, reason: 'offline' }, 'en').indexOf('connection') >= 0);
+    pass('wallet with no coupons says so', W.renderHtml({ ok: true, today: '2026-10-27', coupons: [] }, 'en').indexOf('no coupons ready') >= 0);
+    pass('wallet page address follows the phone-scan public address',
+        C.walletPageBase({ href: 'http://127.0.0.1:8080/index.html?x=1' }, 'https://clinic.example.com/app/scan.html') === 'https://clinic.example.com/app/wallet.html' &&
+        C.walletPageBase({ href: 'https://cs.example.com/app/index.html#p' }, '') === 'https://cs.example.com/app/wallet.html');
+    pass('wallet QR link carries only the token', C.walletUrl(tok, 'https://a.example/wallet.html') === 'https://a.example/wallet.html?t=' + tok);
+    pass('local addresses are flagged for the QR', C.isLocalAddress('http://127.0.0.1:8080/wallet.html') && !C.isLocalAddress('https://a.example/wallet.html'));
+    var wSql = read('discount_coupon_wallet.sql');
+    pass('wallet SQL: token table closed to the app key', /enable row level security/.test(wSql) &&
+        /revoke all on public\.discount_coupon_wallet_links from anon, authenticated/.test(wSql) && !/create policy/i.test(wSql));
+    pass('wallet SQL: random 128-bit token, both functions security definer',
+        /gen_random_bytes\(16\)/.test(wSql) && (wSql.match(/security definer/g) || []).length === 2 && /\^\[0-9a-f\]\{32\}\$/.test(wSql));
+    pass('wallet SQL: view returns no ids, bills or phones', (function () {
+        var view = wSql.slice(wSql.indexOf('function public.dc_wallet_view'));
+        var built = view.slice(view.indexOf("jsonb_agg(jsonb_build_object("), view.indexOf('into v_coupons'));
+        return built.indexOf("'id'") < 0 && built.indexOf('bill_id') < 0 && built.indexOf('patient_id') < 0 && view.indexOf('phone') < 0;
+    })());
+    pass('wallet SQL: void and transferred coupons are hidden', /status not in \('void', 'transferred'\)/.test(wSql));
+    pass('wallet SQL: new QR revokes the old link', /p_reset[\s\S]{0,200}set revoked_at = now\(\)/.test(wSql));
+    var wPage = read('wallet.html');
+    pass('wallet.html loads wallet.js, no referrer, not indexed', wPage.indexOf('wallet.js?v=') >= 0 &&
+        wPage.indexOf('no-referrer') >= 0 && wPage.indexOf('noindex') >= 0 && !/<form|<input/.test(wPage));
+    pass('sheet has a Wallet QR button', src.indexOf('id="dcWalletQrBtn"') >= 0 && src.indexOf("SB.rpc('dc_wallet_link'") >= 0);
 
     console.log('\n=== HTML spot ===');
     var server = null;
@@ -760,7 +961,10 @@ function loadCoupons() {
     save: scaling.save,
     line: scaling.lineName,
     typed: typed,
-    sms: COUPONS.smsIssued({ nameZh: '現金券', mode: 'amount', face: 100, expires_on: '2027-01-01' }).indexOf('樂意牙科中心') >= 0
+    sms: (function (s) {
+      return s.indexOf('樂意牙科中心] 優惠券更新 / Discount coupon update') >= 0 && s.indexOf('結餘/Balance: 1張') >= 0 &&
+        s.indexOf('可用優惠券/Available coupons:') >= 0 && s.indexOf('備註/Note: 所有優惠券將於今年') >= 0;
+    })(COUPONS.smsIssued({ code: 'DC-LIVE', campaign_key: 'cash', discount_mode: 'amount', face_value: 100, expires_on: '2027-01-01' }, [], {}))
   };
 })()`, false, 10000);
         pass('CDP 16 coupon rows, KT on, PL off', live && live.n === 16 && live.kt === true && live.pl === false, JSON.stringify(live));
@@ -795,6 +999,9 @@ function loadCoupons() {
   return {
     ok: !!pane.querySelector('.dc-clinic-join'), boxes: boxes, campsOn: campsOn, spends: spends, bill: !!bill,
     log: !!pane.querySelector('#dcLogCard') && !!pane.querySelector('#dcLogFrom') && !!pane.querySelector('#dcLogChart'),
+    cashRules: !!pane.querySelector('#dcCashRules select[data-cash-prop="maxCount"] option[value="0"]') &&
+      !!pane.querySelector('#dcCashRules input[data-cash-prop="maxPercent"]') &&
+      !!pane.querySelector('#dcCashRules input[data-cash-prop="maxAmount"]'),
     holds: holds,
     rules: !!pane.querySelector('details.dc-rules'),
     pickers: pane.querySelectorAll('details.dc-pick').length,
@@ -818,6 +1025,7 @@ function loadCoupons() {
         pass('live five expenditure rows', spendOk, JSON.stringify(paint && paint.spends));
         pass('live bill coupon row', !!(paint && paint.bill));
         pass('live coupon log panel', !!(paint && paint.log));
+        pass('live cash-per-bill settings with % and HK$ limits', !!(paint && paint.cashRules));
         pass('live rules note in config', !!(paint && paint.rules));
         pass('live treatment checklist on all 8 treatment coupons', paint && paint.pickers === 8 && paint.smart === 8 && paint.pickRows > 8,
             JSON.stringify({ pickers: paint && paint.pickers, rows: paint && paint.pickRows, smart: paint && paint.smart }));
@@ -859,7 +1067,7 @@ function loadCoupons() {
   r.whyShown = !!(why && !why.hidden && why.textContent.length > 0);
   r.focusW4 = card('w4').classList.contains('is-focus');
   card('w3').click();
-  card('w2').click();
+  card('w1').click();
   r.none = picked();
   r.applyOff = !!(apply && apply.disabled);
   card('w1').click();
@@ -869,7 +1077,7 @@ function loadCoupons() {
   if (host) { host.innerHTML = ''; host.setAttribute('hidden', ''); }
   return r;
 })()`, false, 10000);
-        pass('CDP picker starts on cash + scaling', pick && pick.start === 'w1,w3' && pick.bestOnW1, JSON.stringify(pick));
+        pass('CDP picker starts on both cash coupons + scaling', pick && pick.start === 'w1,w2,w3' && pick.bestOnW1, JSON.stringify(pick));
         pass('CDP rules note is collapsed with 9 rules and live hold limits', pick && pick.rules === true);
         var hint = await cdp.js(`(function () {
   var host = document.getElementById('bSpendHint');
@@ -905,6 +1113,84 @@ function loadCoupons() {
         pass('CDP checkout hint says it issues on full payment', hint && /fully paid/.test(hint.partial));
         pass('CDP checkout hint below $1000 shows how much more', hint && /700\.00 more for Spend \$1000 get \$100/.test(hint.small));
         pass('CDP checkout hint hidden at a clinic not in the scheme', hint && hint.plHidden === true);
+        var wqr = await cdp.js(`(async function () {
+  var bill = { id: 'bill-wqr', patient_id: 'p', clinic_tag: 'KT', subtotal: 560, discount: 0, items: '[]' };
+  COUPONS._paintSheet(bill, [], 'KT', {});
+  var host = document.getElementById('dcSheetHost');
+  var out = {};
+  var btn = document.getElementById('dcWalletQrBtn');
+  out.btn = !!btn;
+  function wait(test, ms) {
+    return new Promise(function (resolve) {
+      var t0 = Date.now();
+      (function tick() { if (test() || Date.now() - t0 > ms) resolve(test()); else setTimeout(tick, 100); })();
+    });
+  }
+  btn.click();
+  out.overlay = !!host.querySelector('.dc-wqr #dcWqrCode');
+  await wait(function () { var e = document.getElementById('dcWqrErr'); return e && !e.hidden; }, 8000);
+  var err = document.getElementById('dcWqrErr');
+  out.realErr = err && !err.hidden ? err.textContent : '';
+  host.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  out.escClosesQrOnly = !host.querySelector('.dc-wqr') && !host.hasAttribute('hidden');
+  var realRpc = SB.rpc;
+  var calls = [];
+  SB.rpc = function (name, args) {
+    calls.push({ name: name, reset: args && args.p_reset });
+    return Promise.resolve({ data: { ok: true, token: args && args.p_reset ? 'ffffffffffffffffffffffffffffffff' : '0123456789abcdef0123456789abcdef' }, error: null });
+  };
+  var realConfirm = window.confirm;
+  window.confirm = function () { return true; };
+  try {
+    document.getElementById('dcWalletQrBtn').click();
+    await wait(function () { return !!host.querySelector('#dcWqrCode img, #dcWqrCode canvas') || /could not be drawn/.test((host.querySelector('#dcWqrCode') || {}).textContent || ''); }, 10000);
+    out.link = document.getElementById('dcWqrLink').value;
+    out.qr = !!host.querySelector('#dcWqrCode img, #dcWqrCode canvas');
+    out.qrUrl = host.querySelector('#dcWqrCode').getAttribute('data-url');
+    document.getElementById('dcWqrReset').click();
+    await wait(function () { return /ffff/.test(document.getElementById('dcWqrLink').value); }, 5000);
+    out.resetLink = document.getElementById('dcWqrLink').value;
+    out.calls = calls;
+    out.localWarn = !document.getElementById('dcWqrLocal').hidden;
+  } finally {
+    SB.rpc = realRpc;
+    window.confirm = realConfirm;
+  }
+  host.innerHTML = ''; host.setAttribute('hidden', '');
+  return out;
+})()`, true, 30000);
+        pass('CDP sheet shows the Wallet QR button', !!(wqr && wqr.btn && wqr.overlay), JSON.stringify(wqr));
+        pass('CDP Wallet QR explains when the link cannot be made', !!(wqr && /discount_coupon_wallet\.sql|Could not make/.test(wqr.realErr)), wqr && wqr.realErr);
+        pass('CDP Esc closes the QR and keeps the sheet', !!(wqr && wqr.escClosesQrOnly));
+        pass('CDP Wallet QR draws the wallet link', !!(wqr && wqr.qr && /\/wallet\.html\?t=0123456789abcdef0123456789abcdef$/.test(wqr.link) && wqr.qrUrl === wqr.link),
+            wqr && wqr.link);
+        pass('CDP New QR code asks for a fresh token', !!(wqr && /t=f{32}$/.test(wqr.resetLink) && wqr.calls.length === 2 &&
+            wqr.calls[0].reset === false && wqr.calls[1].reset === true && wqr.calls[0].name === 'dc_wallet_link'));
+        pass('CDP local address warning shows on 127.0.0.1', !!(wqr && wqr.localWarn));
+        var wpage = await cdp.js(`(async function () {
+  var f = document.createElement('iframe');
+  f.style.cssText = 'position:fixed;left:-2000px;top:0;width:390px;height:800px';
+  f.src = 'wallet.html?t=00000000000000000000000000000000&g=en';
+  document.body.appendChild(f);
+  var t0 = Date.now();
+  while (Date.now() - t0 < 12000) {
+    await new Promise(function (r) { setTimeout(r, 200); });
+    var d = f.contentDocument;
+    var m = d && d.getElementById('wlMain');
+    if (m && !m.querySelector('.wl-loading')) break;
+  }
+  var doc = f.contentDocument;
+  var out = {
+    title: doc.getElementById('wlTitle').textContent,
+    text: doc.getElementById('wlMain').textContent,
+    error: !!doc.querySelector('.wl-error'),
+    controls: doc.querySelectorAll('input, select, form, textarea').length
+  };
+  f.remove();
+  return out;
+})()`, true, 20000);
+        pass('CDP wallet.html opens and refuses an unknown link', !!(wpage && wpage.title === 'My coupons' && wpage.error && wpage.controls === 0),
+            JSON.stringify(wpage));
         var langs = await cdp.js(`(function () {
   var before = appUiLang;
   treatmentItemsCache = ${JSON.stringify(catalog)};
@@ -945,7 +1231,7 @@ function loadCoupons() {
             JSON.stringify(langs && langs['zh-Hant']));
         pass('CDP free scaling accepts a saved scaling line without catalog id',
             langs && langs.en.scalingOk && langs.en.scalingPicked);
-        pass('CDP picked mark moves to the other cash coupon', pick && pick.afterW2 === 'w2,w3' && pick.bestStays);
+        pass('CDP tapping a stacked cash coupon takes only that one off', pick && pick.afterW2 === 'w1,w3' && pick.bestStays);
         pass('CDP blocked card explains why and is not applied', pick && pick.blockedPicked === false && pick.whyShown && pick.focusW4);
         pass('CDP Apply is off with nothing chosen and back on after a choice', pick && pick.none === '' && pick.applyOff && pick.applyOn);
         var gift = await cdp.js(`(async () => {

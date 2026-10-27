@@ -122,6 +122,10 @@ var COUPONS = (function () {
     var _doctors = {};
     var _campaigns = null;
     var _loaded = false;
+    /** Cash coupons that can stack on one bill. Both limits apply together (the smaller wins); 0 = no such limit. */
+    var DEFAULT_CASH_RULES = { maxCount: 0, maxPercent: 50, maxAmount: 3000 };
+    var CASH_STACK_MAX = 10;
+    var _cashRules = clone(DEFAULT_CASH_RULES);
 
     function cents(n) {
         var x = parseFloat(n);
@@ -437,15 +441,87 @@ var COUPONS = (function () {
         return scope === 'items' ? 'items' : 'bill';
     }
 
-    /** Treatment coupon first on its line, then one bill-wide coupon on what is left. */
+    /** Cash coupons (campaign "cash", including gifted ones) are the only kind that can stack on one bill. */
+    function isCashCoupon(c) {
+        return !!c && String(c.campaign_key || c.key || '') === 'cash' && couponSlot(c) === 'bill';
+    }
+
+    /** Pure: tidy saved cash rules. 0 = no limit for that field; missing fields take the defaults. */
+    function normalizeCashRules(raw) {
+        raw = raw || {};
+        function num(v, dflt) {
+            var n = parseFloat(v);
+            if (v == null || v === '' || !isFinite(n)) return dflt;
+            return Math.max(0, n);
+        }
+        var count = parseInt(raw.maxCount, 10);
+        if (!isFinite(count)) count = DEFAULT_CASH_RULES.maxCount;
+        count = count <= 0 ? 0 : Math.min(count, CASH_STACK_MAX);
+        var pct = raw.maxPercent;
+        var amt = raw.maxAmount;
+        if (pct == null && amt == null && raw.limitMode) {
+            pct = raw.limitMode === 'percent' ? raw.limitValue : 0;
+            amt = raw.limitMode === 'amount' ? raw.limitValue : 0;
+        }
+        return {
+            maxCount: count,
+            maxPercent: round2(Math.min(100, num(pct, DEFAULT_CASH_RULES.maxPercent))),
+            maxAmount: round2(num(amt, DEFAULT_CASH_RULES.maxAmount))
+        };
+    }
+
+    function cashRules() { return normalizeCashRules(_cashRules); }
+
+    function cashCountFull(n, rules) { return rules.maxCount > 0 && n >= rules.maxCount; }
+
+    /** Pure: most cash off one bill, in cents, for a bill worth eligibleCents: the smaller of the % and HK$ limits. Infinity = no limit. */
+    function cashCapCents(eligibleCents, rules) {
+        rules = normalizeCashRules(rules || _cashRules);
+        var cap = Infinity;
+        if (rules.maxPercent > 0) cap = Math.floor(cents(eligibleCents) * rules.maxPercent / 100);
+        if (rules.maxAmount > 0) cap = Math.min(cap, cents(rules.maxAmount));
+        return cap;
+    }
+
+    function cashLimitText(rules) {
+        rules = normalizeCashRules(rules || _cashRules);
+        var parts = [];
+        if (rules.maxPercent > 0) parts.push(rules.maxPercent + '% ' + ct('coupons.cash.ofBill', 'of the bill'));
+        if (rules.maxAmount > 0) {
+            parts.push((parts.length ? ct('coupons.cash.upTo', 'up to') + ' ' : '') + 'HK$' + Number(rules.maxAmount).toLocaleString('en-US'));
+        }
+        return parts.join(' ');
+    }
+
+    /**
+     * Treatment coupon first on its line, then the bill-wide part on what is left:
+     * either one non-cash bill coupon (spend, new chart, referral), or a stack of cash coupons (maxCount, 0 = any)
+     * within the per-bill cash limit. Whichever bill-wide kind is picked first wins.
+     */
     function combineCoupons(opts) {
         opts = opts || {};
+        var rules = normalizeCashRules(opts.cashRules || _cashRules);
         var picks = (opts.coupons || []).filter(Boolean);
         var item = null;
         var whole = null;
+        var cash = [];
+        var skipped = [];
         picks.forEach(function (c) {
-            if (couponSlot(c) === 'items') { if (!item) item = c; }
-            else if (!whole) whole = c;
+            if (couponSlot(c) === 'items') {
+                if (!item) item = c;
+                else skipped.push({ coupon: c, reason: 'slot_taken' });
+                return;
+            }
+            var firstWide = whole || cash.length;
+            if (isCashCoupon(c)) {
+                if (whole) { skipped.push({ coupon: c, reason: 'slot_taken' }); return; }
+                if (cashCountFull(cash.length, rules)) { skipped.push({ coupon: c, reason: 'cash_count' }); return; }
+                cash.push(c);
+            } else if (!firstWide) {
+                whole = c;
+            } else {
+                skipped.push({ coupon: c, reason: 'slot_taken' });
+            }
         });
         var base = {
             lines: opts.lines, catalog: opts.catalog, billId: opts.billId,
@@ -454,6 +530,7 @@ var COUPONS = (function () {
         var eligibleCents = cents(opts.eligibleCents || 0);
         var rows = [];
         var saveCents = 0;
+        var lostCents = 0;
         if (item) {
             var a1 = assessCoupon(Object.assign({ coupon: item, eligibleCents: money(eligibleCents) }, base));
             if (a1.ok) { rows.push({ coupon: item, assess: a1 }); saveCents += a1.saveCents; }
@@ -463,7 +540,95 @@ var COUPONS = (function () {
             var a2 = assessCoupon(Object.assign({ coupon: whole, eligibleCents: money(left) }, base));
             if (a2.ok) { rows.push({ coupon: whole, assess: a2 }); saveCents += a2.saveCents; }
         }
-        return { rows: rows, saveCents: saveCents, save: money(saveCents) };
+        var capCents = cashCapCents(money(eligibleCents), rules);
+        var capLeft = capCents;
+        var capHit = false;
+        cash.forEach(function (c) {
+            var room = Math.max(0, eligibleCents - saveCents);
+            if (room <= 0) { skipped.push({ coupon: c, reason: 'covered' }); return; }
+            var a = assessCoupon(Object.assign({ coupon: c, eligibleCents: money(room) }, base));
+            if (!a.ok) {
+                skipped.push({ coupon: c, reason: room <= 0 ? 'covered' : (a.reason || 'zero') });
+                return;
+            }
+            var face = cents(c.face != null ? c.face : c.face_value);
+            var take = Math.min(a.saveCents, capLeft);
+            if (take < a.saveCents) capHit = true;
+            if (take <= 0) { skipped.push({ coupon: c, reason: 'cash_cap' }); return; }
+            var lost = Math.max(0, face - take);
+            lostCents += lost;
+            rows.push({
+                coupon: c,
+                assess: Object.assign({}, a, { save: money(take), saveCents: take, lostCents: lost, trimmed: lost > 0 })
+            });
+            saveCents += take;
+            if (capLeft !== Infinity) capLeft -= take;
+        });
+        return {
+            rows: rows, saveCents: saveCents, save: money(saveCents),
+            lostCents: lostCents, lost: money(lostCents), skipped: skipped,
+            cashCount: rows.filter(function (r) { return isCashCoupon(r.coupon); }).length,
+            capCents: capCents === Infinity ? null : capCents, capHit: capHit, rules: rules
+        };
+    }
+
+    /** Pure: best set of cash coupons for what is left — most saved, then least lost, then earliest expiry. */
+    function bestCashStack(cashList, opts, prefix) {
+        var rules = normalizeCashRules(opts.cashRules || _cashRules);
+        var byFace = {};
+        cashList.forEach(function (c) {
+            var f = String(cents(c.face != null ? c.face : c.face_value));
+            (byFace[f] = byFace[f] || []).push(c);
+        });
+        var faces = Object.keys(byFace).sort(function (a, b) { return Number(b) - Number(a); });
+        faces.forEach(function (f) {
+            byFace[f].sort(function (a, b) {
+                return String(a.expires_on || '9999-12-31').localeCompare(String(b.expires_on || '9999-12-31'));
+            });
+        });
+        var best = null;
+        var budget = 4000;
+        function expiryScore(list) {
+            return list.map(function (c) { return String(c.expires_on || '9999-12-31'); }).sort().join('|');
+        }
+        function consider(list) {
+            if (!list.length) return true;
+            budget--;
+            var r = combineCoupons(Object.assign({}, opts, { coupons: prefix.concat(list) }));
+            if (r.cashCount !== list.length) return false;
+            var full = r.capHit || r.lostCents > 0 || (r.capCents != null && r.saveCents - prefixSave >= r.capCents);
+            var score = { save: r.saveCents, lost: r.lostCents, n: list.length, exp: expiryScore(list) };
+            if (!best || score.save > best.score.save ||
+                    (score.save === best.score.save && (score.lost < best.score.lost ||
+                    (score.lost === best.score.lost && (score.n < best.score.n ||
+                    (score.n === best.score.n && score.exp < best.score.exp)))))) {
+                best = { list: list.slice(), score: score };
+            }
+            return !full;
+        }
+        var prefixSave = prefix.length ? combineCoupons(Object.assign({}, opts, { coupons: prefix })).saveCents : 0;
+        function walk(i, list) {
+            if (budget <= 0 || i >= faces.length) return;
+            var pool = byFace[faces[i]];
+            var top = pool.length;
+            if (rules.maxCount > 0) top = Math.min(top, rules.maxCount - list.length);
+            for (var k = top; k >= 1 && budget > 0; k--) {
+                var next = list.concat(pool.slice(0, k));
+                if (consider(next) && !cashCountFull(next.length, rules)) walk(i + 1, next);
+            }
+            walk(i + 1, list);
+        }
+        var greedy = [];
+        faces.forEach(function (f) {
+            byFace[f].forEach(function (c) {
+                if (cashCountFull(greedy.length, rules)) return;
+                var r = combineCoupons(Object.assign({}, opts, { coupons: prefix.concat(greedy, [c]) }));
+                if (r.cashCount === greedy.length + 1 && r.lostCents === 0) greedy.push(c);
+            });
+        });
+        consider(greedy);
+        walk(0, []);
+        return best ? best.list : [];
     }
 
     function bestCombination(coupons, opts) {
@@ -472,7 +637,8 @@ var COUPONS = (function () {
             return String(a.expires_on || '9999-12-31') < String(b.expires_on || '9999-12-31');
         }
         var items = (coupons || []).filter(function (c) { return couponSlot(c) === 'items'; });
-        var wholes = (coupons || []).filter(function (c) { return couponSlot(c) === 'bill'; });
+        var cashList = (coupons || []).filter(isCashCoupon);
+        var wholes = (coupons || []).filter(function (c) { return couponSlot(c) === 'bill' && !isCashCoupon(c); });
         var bestItem = null;
         var bestItemSave = 0;
         items.forEach(function (c) {
@@ -494,6 +660,13 @@ var COUPONS = (function () {
                 bestWholeSave = save;
             }
         });
+        var prefix = bestItem ? [bestItem] : [];
+        var stack = cashList.length ? bestCashStack(cashList, opts, prefix) : [];
+        if (stack.length) {
+            var withCash = combineCoupons(Object.assign({}, opts, { coupons: prefix.concat(stack) }));
+            var cashSave = withCash.saveCents - bestItemSave;
+            if (!bestWhole || cashSave > bestWholeSave) return withCash;
+        }
         return combineCoupons(Object.assign({}, opts, { coupons: [bestItem, bestWhole] }));
     }
 
@@ -710,36 +883,117 @@ var COUPONS = (function () {
         return { ok: true, campaignKey: key };
     }
 
-    function smsIssued(coupon) {
-        var name = (coupon && (coupon.nameZh || coupon.name)) || '優惠券';
-        var amount = coupon && coupon.mode === 'free_line'
-            ? name
-            : ('HK$' + round2(coupon.face || coupon.face_value || 0).toFixed(2));
-        var exp = (coupon && coupon.expires_on) || '';
-        return SMS_HEADING + ' 優惠券 / Discount coupon\n' +
-            '內容/Offer: ' + name + '\n' +
-            '金額/Amount: ' + amount + '\n' +
-            '到期/Expires: ' + exp;
+    var SMS_LIST_MAX = 10;
+
+    /** "現金券 Cash coupon" — both languages, like the reward points SMS. */
+    function smsCouponName(c) {
+        c = c || {};
+        var key = c.campaign_key || c.key || '';
+        var camp = campaignByKey(key) || {};
+        if (camp.trigger === 'target_spend' && (parseFloat(camp.target) || 0) > 0 && (parseFloat(camp.face) || 0) > 0) {
+            var t = round2(camp.target);
+            var f = round2(camp.face);
+            return '滿$' + t + '送$' + f + ' Spend $' + t + ' get $' + f;
+        }
+        var zh = c.nameZh || camp.nameZh || '';
+        var en = c.name || camp.name || '';
+        if (zh && en && zh !== en) return zh + ' ' + en;
+        return zh || en || key || '優惠券 Coupon';
+    }
+
+    function smsCouponValue(c) {
+        c = c || {};
+        var mode = c.mode || c.discount_mode;
+        if (mode === 'free_line') return '免費/Free';
+        if (mode === 'percent') {
+            var cap = parseFloat(c.maxDiscount != null ? c.maxDiscount : c.max_discount) || 0;
+            return round2(parseFloat(c.percent) || 0) + '%' + (cap > 0 ? ' (最多/up to HK$' + round2(cap).toFixed(2) + ')' : '');
+        }
+        return 'HK$' + round2(parseFloat(c.face != null ? c.face : c.face_value) || 0).toFixed(2);
+    }
+
+    function smsYearEnd(today) {
+        var y = String(today || todayIso()).slice(0, 4);
+        return { zh: y + '年12月31日 23:59', en: '31 Dec ' + y + ' 23:59' };
+    }
+
+    /**
+     * Pure: coupon SMS in the reward points layout —
+     * heading, 變動/Change, 結餘/Balance, the list of usable coupons, 診所/Clinic, 參考/Ref, then the year-end note.
+     */
+    function couponSmsBody(opts) {
+        opts = opts || {};
+        var today = opts.today || todayIso();
+        var live = (opts.wallet || []).filter(function (c) { return isLive(c, today); });
+        live.sort(function (a, b) {
+            return String(a.expires_on || '9999-12-31').localeCompare(String(b.expires_on || '9999-12-31'));
+        });
+        var lines = [
+            SMS_HEADING + ' 優惠券更新 / Discount coupon update',
+            '變動/Change: ' + opts.change,
+            '結餘/Balance: ' + live.length + '張 / ' + live.length + (live.length === 1 ? ' coupon' : ' coupons')
+        ];
+        if (live.length) {
+            lines.push('可用優惠券/Available coupons:');
+            live.slice(0, SMS_LIST_MAX).forEach(function (c, i) {
+                lines.push((i + 1) + '. ' + smsCouponName(c) + ' ' + smsCouponValue(c) + (c.code ? ' (' + c.code + ')' : ''));
+            });
+            if (live.length > SMS_LIST_MAX) {
+                var more = live.length - SMS_LIST_MAX;
+                lines.push('…另有' + more + '張 / and ' + more + ' more');
+            }
+        }
+        var end = smsYearEnd(today);
+        lines.push('診所/Clinic: ' + (opts.clinic || ''));
+        lines.push('參考/Ref: ' + (opts.ref || '—'));
+        lines.push('備註/Note: 所有優惠券將於今年' + end.zh + '到期，請好好善用；歡迎邀請親友使用。' +
+            'All discount coupons expire on ' + end.en + ' this year. Please make good use of them, and you are welcome to invite others to use them.');
+        return lines.join('\n');
+    }
+
+    /** Issue text. wallet = the patient's coupons after this one was added (the new one is added if missing). */
+    function smsIssued(coupon, wallet, opts) {
+        coupon = coupon || {};
+        opts = opts || {};
+        var list = (wallet || []).slice();
+        var mine = coupon.code && list.some(function (c) { return c.code === coupon.code; });
+        if (!mine) list.push(Object.assign({ status: 'unused' }, coupon));
+        return couponSmsBody({
+            today: opts.today,
+            wallet: list,
+            change: '+1 ' + smsCouponName(coupon) + ' ' + smsCouponValue(coupon) + ' (發出/Issued)',
+            clinic: opts.clinic || coupon.clinic_code || '',
+            ref: coupon.code || ''
+        });
     }
 
     /** Reminder text for a coupon 1–7 days from expiry (late runs still remind once). */
-    function smsExpiring(coupon, today) {
+    function smsExpiring(coupon, today, wallet, opts) {
         if (!coupon || coupon.status !== 'unused' || !coupon.expires_on || !today) return '';
         var exp = new Date(coupon.expires_on + 'T00:00:00');
         var now = new Date(today + 'T00:00:00');
         var days = Math.round((exp.getTime() - now.getTime()) / 86400000);
         if (days < 1 || days > EXPIRY_SMS_DAYS) return '';
         if (coupon.issued_on === today) return '';
-        return SMS_HEADING + ' 優惠券即將到期 / Coupon expiring\n' +
-            '內容/Offer: ' + (coupon.nameZh || coupon.name || '') + '\n' +
-            '到期/Expires: ' + coupon.expires_on + '\n' +
-            days + '日內到期 / Expires in ' + days + (days === 1 ? ' day' : ' days');
+        opts = opts || {};
+        var list = (wallet || []).slice();
+        var mine = coupon.code && list.some(function (c) { return c.code === coupon.code; });
+        if (!mine) list.push(coupon);
+        return couponSmsBody({
+            today: today,
+            wallet: list,
+            change: smsCouponName(coupon) + ' ' + smsCouponValue(coupon) + ' ' + days + '日內到期 (' + coupon.expires_on + ') / expires in ' +
+                days + (days === 1 ? ' day' : ' days'),
+            clinic: opts.clinic || coupon.clinic_code || '',
+            ref: coupon.code || ''
+        });
     }
 
     function mergeSaved(raw) {
         var saved = raw || {};
         _clinics = saved.clinics || {};
         _doctors = saved.doctors || {};
+        _cashRules = normalizeCashRules(saved.cashRules);
         var base = defaultCampaigns();
         var byKey = {};
         (saved.campaigns || []).forEach(function (c) { if (c && c.key) byKey[c.key] = c; });
@@ -763,7 +1017,7 @@ var COUPONS = (function () {
     }
 
     function snapshot() {
-        return { clinics: _clinics, doctors: _doctors, campaigns: campaigns() };
+        return { clinics: _clinics, doctors: _doctors, campaigns: campaigns(), cashRules: cashRules() };
     }
 
     function loadState() {
@@ -845,6 +1099,13 @@ var COUPONS = (function () {
     function setDoctorJoined(code, doctorKey, joined) {
         var c = String(code || '').trim().toUpperCase();
         _doctors[c + '|' + doctorKey] = { joined: !!joined };
+        return persist();
+    }
+
+    function setCashRules(patch) {
+        var next = cashRules();
+        Object.keys(patch || {}).forEach(function (k) { next[k] = patch[k]; });
+        _cashRules = normalizeCashRules(next);
         return persist();
     }
 
@@ -1007,6 +1268,45 @@ var COUPONS = (function () {
         return html;
     }
 
+    function cashRulesSummary(rules) {
+        rules = normalizeCashRules(rules || _cashRules);
+        var text = rules.maxCount > 0
+            ? ct('coupons.cash.sumCount', 'Up to') + ' ' + rules.maxCount + ' ' + ct('coupons.cash.sumPer', 'cash coupons per bill')
+            : ct('coupons.cash.sumAny', 'Any number of cash coupons per bill');
+        if (rules.maxPercent > 0 || rules.maxAmount > 0) {
+            text += ' · ' + ct('coupons.cash.sumMax', 'at most') + ' ' + cashLimitText(rules);
+        } else {
+            text += ' · ' + ct('coupons.cash.noLimit', 'no amount limit');
+        }
+        return text;
+    }
+
+    function cashRulesHtml() {
+        var r = cashRules();
+        var opts = '<option value="0"' + (r.maxCount === 0 ? ' selected' : '') + '>' + esc(ct('coupons.cash.anyCount', 'No limit')) + '</option>';
+        for (var n = 1; n <= CASH_STACK_MAX; n++) {
+            opts += '<option value="' + n + '"' + (n === r.maxCount ? ' selected' : '') + '>' + n + '</option>';
+        }
+        return '<div class="dc-cash-rules" id="dcCashRules">' +
+            '<div class="dc-cash-rules-title">' + esc(ct('coupons.cash.title', 'Using cash coupons on one bill')) + '</div>' +
+            '<div class="dc-camp-grid">' +
+            '<label class="dc-field"><span>' + esc(ct('coupons.cash.count', 'Cash coupons per bill')) + '</span>' +
+            '<select class="dc-cash-rule" data-cash-prop="maxCount">' + opts + '</select></label>' +
+            '<label class="dc-field"><span>' + esc(ct('coupons.cash.maxOff', 'Max cash off per bill')) + '</span>' +
+            '<span class="dc-cash-limit">' +
+            '<input type="number" class="dc-cash-rule" data-cash-prop="maxPercent" min="0" max="100" step="1" value="' +
+                (r.maxPercent > 0 ? esc(r.maxPercent) : '') + '" placeholder="—" aria-label="' + esc(ct('coupons.cash.pctLabel', 'Max % of the bill')) + '">' +
+            '<span class="dc-cash-unit">% ' + esc(ct('coupons.cash.ofBill', 'of the bill')) + '</span>' +
+            '<span class="dc-cash-unit">' + esc(ct('coupons.cash.upTo', 'up to')) + ' HK$</span>' +
+            '<input type="number" class="dc-cash-rule" data-cash-prop="maxAmount" min="0" step="100" value="' +
+                (r.maxAmount > 0 ? esc(r.maxAmount) : '') + '" placeholder="—" aria-label="' + esc(ct('coupons.cash.amtLabel', 'Max HK$ per bill')) + '">' +
+            '</span></label></div>' +
+            '<p class="dc-hint dc-cash-sum" id="dcCashSum">' + esc(cashRulesSummary(r)) + '</p>' +
+            '<p class="dc-hint">' + esc(ct('coupons.cash.hint',
+                'Only cash coupons stack. Spend, new-chart and referral coupons stay one per bill and are not combined with cash. Default: any number of cash coupons, 50% of the bill up to HK$3,000 — both limits apply and the smaller one wins. Leave a box blank to drop that limit. The percentage is of the whole bill before coupons.')) + '</p>' +
+            '</div>';
+    }
+
     function clinicBannerHtml(clinics) {
         var off = (clinics || configClinics()).map(function (c) { return String(c.clinic_code || '').toUpperCase(); })
             .filter(function (code) { return code && !clinicJoined(code); });
@@ -1110,6 +1410,7 @@ var COUPONS = (function () {
             html += field(c.key, 'holdLimit', ct('coupons.cfg.hold', 'Hold up to'), holdLimitFor(c));
             html += limitFields(c);
             html += '</div>' + usageLine(c);
+            if (c.key === 'cash') html += cashRulesHtml();
             if (c.scope === 'items') html += itemPickerHtml(c);
             html += '</div>';
         });
@@ -1462,6 +1763,18 @@ var COUPONS = (function () {
                 setDoctorJoined(box.getAttribute('data-code'), box.getAttribute('data-doctor'), box.checked);
             });
         });
+        pane.querySelectorAll('.dc-cash-rule').forEach(function (el) {
+            el.addEventListener('change', function () {
+                var prop = el.getAttribute('data-cash-prop');
+                var patch = {};
+                patch[prop] = parseFloat(el.value) || 0;
+                setCashRules(patch);
+                var r = cashRules();
+                if (prop !== 'maxCount') el.value = r[prop] > 0 ? String(r[prop]) : '';
+                var sum = pane.querySelector('#dcCashSum');
+                if (sum) sum.textContent = cashRulesSummary(r);
+            });
+        });
         pane.querySelectorAll('.dc-camp-on').forEach(function (box) {
             box.addEventListener('change', function () {
                 setCampaignPatch(box.getAttribute('data-key'), { enabled: box.checked });
@@ -1669,7 +1982,7 @@ var COUPONS = (function () {
                 var used = (res[0] && res[0].data) || [];
                 var earned = ((res[1] && res[1].data) || []).filter(function (c) { return c.status !== 'void'; });
                 if (used.length && !bill.coupon_label) {
-                    bill.coupon_label = used.map(function (c) { return campLabel(c); }).join(' + ');
+                    bill.coupon_label = couponLabelFor(used.map(function (c) { return { coupon: c }; }));
                     var label = document.getElementById('bdCouponLabel');
                     if (label) label.textContent = bill.coupon_label;
                 }
@@ -1872,6 +2185,147 @@ var COUPONS = (function () {
         });
     }
 
+    var WALLET_QR_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    var PHONE_BASE_KEY = 'csPhoneScanBase';
+    var _qrLoad = null;
+
+    /** Pure: phone wallet page address. Uses the phone-scan public address when one is saved, else this app's folder. */
+    function walletPageBase(loc, savedBase) {
+        var saved = String(savedBase || '').trim();
+        if (saved && /scan\.html/i.test(saved)) return saved.replace(/scan\.html.*$/i, 'wallet.html');
+        var href = String((loc && loc.href) || '').split('#')[0].split('?')[0];
+        var i = href.lastIndexOf('/');
+        return (i >= 0 ? href.slice(0, i + 1) : href + '/') + 'wallet.html';
+    }
+
+    function walletUrl(token, base) {
+        var b = base || walletPageBase(typeof location !== 'undefined' ? location : null, savedPhoneBase());
+        return b + (b.indexOf('?') >= 0 ? '&' : '?') + 't=' + encodeURIComponent(token);
+    }
+
+    function savedPhoneBase() {
+        try { return (window.localStorage && localStorage.getItem(PHONE_BASE_KEY)) || ''; } catch (e) { return ''; }
+    }
+
+    function isLocalAddress(url) {
+        var m = /^(https?:)\/\/([^\/:?#]+)/i.exec(String(url || ''));
+        if (!m) return true;
+        var h = m[2].toLowerCase();
+        return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '0.0.0.0' || /\.local$/.test(h) || /\.test$/.test(h);
+    }
+
+    function loadQrLib() {
+        if (window.QRCode) return Promise.resolve(window.QRCode);
+        if (_qrLoad) return _qrLoad;
+        _qrLoad = new Promise(function (resolve, reject) {
+            var s = document.createElement('script');
+            s.src = WALLET_QR_CDN;
+            s.async = true;
+            s.onload = function () { resolve(window.QRCode); };
+            s.onerror = function () { _qrLoad = null; reject(new Error('qr load failed')); };
+            document.head.appendChild(s);
+        });
+        return _qrLoad;
+    }
+
+    function walletLinkToken(patientId, reset) {
+        if (typeof SB === 'undefined' || !SB || typeof SB.rpc !== 'function') return Promise.resolve({ ok: false, reason: 'no_db' });
+        return SB.rpc('dc_wallet_link', { p_patient_id: patientId, p_by: actorName() || null, p_reset: !!reset })
+            .then(function (r) {
+                if (r && r.error) return { ok: false, reason: /dc_wallet_link|function/i.test(String(r.error.message || '')) ? 'no_sql' : 'db' };
+                return (r && r.data) || { ok: false, reason: 'db' };
+            }, function () { return { ok: false, reason: 'db' }; });
+    }
+
+    /** QR over the sheet: the patient scans it to browse their own coupons on the phone. */
+    function openWalletQr(host, patientId) {
+        var sheet = host && host.querySelector('.dc-sheet');
+        if (!sheet || !patientId) return;
+        var old = sheet.querySelector('.dc-authp');
+        if (old && old.__dcCancel) old.__dcCancel();
+        var back = document.activeElement;
+        var wrap = document.createElement('div');
+        wrap.className = 'dc-authp dc-wqr';
+        wrap.setAttribute('role', 'dialog');
+        wrap.setAttribute('aria-modal', 'true');
+        wrap.setAttribute('aria-labelledby', 'dcWqrTitle');
+        wrap.innerHTML = '<div class="dc-authp-card dc-wqr-card" id="dcWqrBox">' +
+            '<h4 id="dcWqrTitle">📱 ' + esc(ct('coupons.wqr.title', 'Coupon wallet on the phone')) + '</h4>' +
+            '<p class="dc-hint">' + esc(ct('coupons.wqr.hint',
+                'Ask the patient to scan this with the phone camera. They can browse their coupons only — nothing can be used, added or removed from the phone.')) + '</p>' +
+            '<div class="dc-wqr-code" id="dcWqrCode" aria-live="polite"><span class="dc-hint">' + esc(ct('coupons.wqr.making', 'Making the QR code…')) + '</span></div>' +
+            '<p class="dc-err" id="dcWqrErr" hidden></p>' +
+            '<p class="dc-banner dc-banner-warn dc-wqr-local" id="dcWqrLocal" hidden>' + esc(ct('coupons.wqr.local',
+                'This address only works on this computer. Set the public address in Phone scan first, or the phone cannot open it.')) + '</p>' +
+            '<label class="dc-authp-field"><span>' + esc(ct('coupons.wqr.link', 'Wallet link')) + '</span>' +
+            '<input type="text" id="dcWqrLink" readonly spellcheck="false"></label>' +
+            '<div class="dc-actions dc-wqr-actions">' +
+            '<button type="button" class="dc-clear" data-act="reset" id="dcWqrReset">' + esc(ct('coupons.wqr.reset', 'New QR code')) + '</button>' +
+            '<button type="button" class="dc-clear" data-act="copy" id="dcWqrCopy">' + esc(ct('coupons.wqr.copy', 'Copy link')) + '</button>' +
+            '<button type="button" class="dc-apply" data-act="close">' + esc(ct('common.close', 'Close')) + '</button>' +
+            '</div>' +
+            '<p class="dc-hint dc-wqr-note">' + esc(ct('coupons.wqr.resetNote', 'New QR code stops the old one from working (for example if the patient lost the phone).')) + '</p>' +
+            '</div>';
+        sheet.appendChild(wrap);
+        var codeEl = wrap.querySelector('#dcWqrCode');
+        var linkEl = wrap.querySelector('#dcWqrLink');
+        var errEl = wrap.querySelector('#dcWqrErr');
+        var resetBtn = wrap.querySelector('#dcWqrReset');
+        var copyBtn = wrap.querySelector('#dcWqrCopy');
+        var closed = false;
+        function close() {
+            if (closed) return;
+            closed = true;
+            if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+            if (back && document.body.contains(back)) { try { back.focus({ preventScroll: true }); } catch (e) {} }
+        }
+        wrap.__dcCancel = close;
+        function fail(reason) {
+            codeEl.innerHTML = '';
+            errEl.hidden = false;
+            errEl.textContent = reason === 'no_sql'
+                ? ct('coupons.wqr.noSql', 'The phone wallet is not set up yet. Run discount_coupon_wallet.sql in Supabase first.')
+                : reason === 'no_db' ? grantReason('no_db')
+                : ct('coupons.wqr.fail', 'Could not make the wallet link. Try again.');
+        }
+        function show(reset) {
+            errEl.hidden = true;
+            resetBtn.disabled = true;
+            codeEl.innerHTML = '<span class="dc-hint">' + esc(ct('coupons.wqr.making', 'Making the QR code…')) + '</span>';
+            return walletLinkToken(patientId, reset).then(function (res) {
+                resetBtn.disabled = false;
+                if (closed) return;
+                if (!res || !res.ok || !res.token) { fail(res && res.reason); return; }
+                var url = walletUrl(res.token);
+                linkEl.value = url;
+                wrap.querySelector('#dcWqrLocal').hidden = !isLocalAddress(url);
+                codeEl.setAttribute('data-url', url);
+                return loadQrLib().then(function (QR) {
+                    if (closed) return;
+                    codeEl.innerHTML = '';
+                    new QR(codeEl, { text: url, width: 220, height: 220, colorDark: '#0f172a', colorLight: '#ffffff', correctLevel: QR.CorrectLevel.M });
+                }).catch(function () {
+                    codeEl.innerHTML = '<span class="dc-hint">' + esc(ct('coupons.wqr.qrFail', 'The QR code could not be drawn. Copy the link instead.')) + '</span>';
+                });
+            });
+        }
+        wrap.querySelector('[data-act="close"]').onclick = close;
+        resetBtn.onclick = function () {
+            if (!window.confirm(ct('coupons.wqr.resetAsk', 'Make a new QR code? The old one will stop working.'))) return;
+            show(true);
+        };
+        copyBtn.onclick = function () {
+            var v = linkEl.value;
+            if (!v) return;
+            var done = function () { copyBtn.textContent = ct('coupons.wqr.copied', 'Copied'); };
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(v).then(done, function () { linkEl.select(); });
+            else { linkEl.select(); try { document.execCommand('copy'); done(); } catch (e) {} }
+        };
+        try { wrap.querySelector('[data-act="close"]').focus({ preventScroll: true }); } catch (e) {}
+        wrap.__dcShown = show(false);
+        return wrap;
+    }
+
     var _lastSheet = null;
 
     function paintSheet(bill, wallet, clinicCode, opts) {
@@ -1909,14 +2363,23 @@ var COUPONS = (function () {
         var best = bestCombination(usable.map(function (r) { return r.coupon; }), ctxOpts);
         var bestIds = {};
         best.rows.forEach(function (r) { bestIds[String(r.coupon.id)] = true; });
-        var picked = { items: '', bill: '' };
+        var rulesNow = cashRules();
+        var picked = { items: '', bill: '', cash: [] };
         var startFrom = onThisBill.length ? onThisBill : Object.keys(bestIds);
         startFrom.forEach(function (id) {
             usable.forEach(function (r) {
-                if (String(r.coupon.id) === String(id)) picked[couponSlot(r.coupon)] = String(id);
+                if (String(r.coupon.id) !== String(id)) return;
+                if (isCashCoupon(r.coupon)) {
+                    if (!picked.bill && !cashCountFull(picked.cash.length, rulesNow)) picked.cash.push(String(id));
+                } else if (couponSlot(r.coupon) === 'items') {
+                    picked.items = String(id);
+                } else if (!picked.cash.length) {
+                    picked.bill = String(id);
+                }
             });
         });
-        var focusId = picked.bill || picked.items || (blocked[0] ? String(blocked[0].coupon.id) : '');
+        var focusId = picked.bill || picked.cash[0] || picked.items || (blocked[0] ? String(blocked[0].coupon.id) : '');
+        var pickNotice = '';
         var transferable = usable.concat(blocked).filter(function (r) {
             var c = r.coupon;
             return onThisBill.indexOf(String(c.id)) < 0 && isLive(c, today) && !LOCKED_TRANSFER_KEYS[c.campaign_key];
@@ -1929,7 +2392,9 @@ var COUPONS = (function () {
         html += '<div class="dc-sheet-head">' +
             '<h3 id="dcSheetTitle">' + esc(ct('coupons.bill.title', '優惠券')) + '</h3>' +
             '<button type="button" class="dc-x" id="dcSheetClose" aria-label="' + esc(ct('common.close', 'Close')) + '">×</button>' +
-            walletSummaryHtml(wallet, today) +
+            '<div class="dc-wsum-row">' + walletSummaryHtml(wallet, today) +
+            (bill.patient_id ? '<button type="button" class="dc-wqr-btn" id="dcWalletQrBtn" data-no-click-guard="1">📱 ' +
+                esc(ct('coupons.wqr.btn', 'Wallet QR')) + '</button>' : '') + '</div>' +
             '<div class="dc-stabs" role="tablist">';
         [
             ['use', ct('coupons.tab.use', 'Use'), usable.length],
@@ -2050,6 +2515,8 @@ var COUPONS = (function () {
             var el = name === 'gift' ? document.getElementById('dcGiftKind') : name === 'transfer' ? document.getElementById('dcXferTo') : null;
             if (el && !el.disabled) { try { el.focus({ preventScroll: true }); } catch (e) {} }
         }
+        var qrBtn = host.querySelector('#dcWalletQrBtn');
+        if (qrBtn) qrBtn.addEventListener('click', function () { openWalletQr(host, bill.patient_id); });
         host.querySelectorAll('.dc-stab').forEach(function (b) {
             b.addEventListener('click', function (e) {
                 var name = b.getAttribute('data-tab');
@@ -2071,23 +2538,31 @@ var COUPONS = (function () {
             usable.concat(blocked).forEach(function (r) { if (String(r.coupon.id) === String(id)) found = r; });
             return found;
         }
-        function currentCombo() {
+        function comboFor(p) {
             var list = [];
-            if (picked.items) list.push(rowById(picked.items).coupon);
-            if (picked.bill) list.push(rowById(picked.bill).coupon);
+            if (p.items) list.push(rowById(p.items).coupon);
+            if (p.bill) list.push(rowById(p.bill).coupon);
+            p.cash.forEach(function (id) { list.push(rowById(id).coupon); });
             return combineCoupons(Object.assign({}, ctxOpts, { coupons: list }));
+        }
+        function currentCombo() { return comboFor(picked); }
+        function isPicked(id) {
+            return id === picked.items || id === picked.bill || picked.cash.indexOf(id) >= 0;
         }
         function refreshPreview() {
             var combo = currentCombo();
             host.querySelectorAll('.dc-card').forEach(function (el) {
                 var id = el.getAttribute('data-id');
-                var on = id === picked.items || id === picked.bill;
+                var on = isPicked(id);
                 el.classList.toggle('is-picked', on);
                 el.classList.toggle('is-focus', id === focusId);
                 el.setAttribute('aria-pressed', on ? 'true' : 'false');
                 var save = el.querySelector('.dc-save');
                 combo.rows.forEach(function (r) {
-                    if (save && String(r.coupon.id) === id) save.textContent = '−' + r.assess.save.toFixed(2);
+                    if (!save || String(r.coupon.id) !== id) return;
+                    save.textContent = '−' + r.assess.save.toFixed(2) +
+                        (r.assess.lostCents > 0 ? ' · ' + ct('coupons.cash.lostShort', 'HK$') + money(r.assess.lostCents).toFixed(0) + ' ' +
+                            ct('coupons.cash.lost', 'lost') : '');
                 });
             });
             var el = document.getElementById('dcPreview');
@@ -2099,6 +2574,12 @@ var COUPONS = (function () {
                     var parts = combo.rows.map(function (r) {
                         return '− ' + r.assess.save.toFixed(2) + ' (' + campLabel(r.coupon) + ')';
                     });
+                    if (combo.capHit && combo.capCents != null) {
+                        parts.push('· ' + ct('coupons.cash.capReached', 'Cash limit reached') + ' HK$' + money(combo.capCents).toFixed(2));
+                    }
+                    if (combo.lostCents > 0) {
+                        parts.push('· HK$' + combo.lost.toFixed(2) + ' ' + ct('coupons.cash.lostLong', 'of coupon value is lost (no change given)'));
+                    }
                     var next = Math.max(0, round2(eligible - combo.save));
                     el.innerHTML = '<span class="dc-pv-line"><s class="dc-pv-from">' + eligible.toFixed(2) + '</s>' +
                         '<span class="dc-pv-arrow" aria-hidden="true">→</span>' +
@@ -2110,7 +2591,10 @@ var COUPONS = (function () {
             var why = document.getElementById('dcWhy');
             var focusRow = rowById(focusId);
             if (why) {
-                if (focusRow && !focusRow.assess.ok) {
+                if (pickNotice) {
+                    why.hidden = false;
+                    why.textContent = pickNotice;
+                } else if (focusRow && !focusRow.assess.ok) {
                     why.hidden = false;
                     why.textContent = campLabel(focusRow.coupon) + ': ' + reasonLong(focusRow.assess, focusRow.coupon);
                 } else {
@@ -2125,9 +2609,30 @@ var COUPONS = (function () {
             card.addEventListener('click', function () {
                 var id = card.getAttribute('data-id');
                 focusId = id;
-                if (card.getAttribute('data-ok') === '1') {
-                    var slot = card.getAttribute('data-slot') === 'items' ? 'items' : 'bill';
-                    picked[slot] = picked[slot] === id ? '' : id;
+                pickNotice = '';
+                var row = rowById(id);
+                if (card.getAttribute('data-ok') === '1' && row) {
+                    if (isCashCoupon(row.coupon)) {
+                        var at = picked.cash.indexOf(id);
+                        if (at >= 0) {
+                            picked.cash.splice(at, 1);
+                        } else {
+                            var trial = { items: picked.items, bill: '', cash: picked.cash.concat([id]) };
+                            var tc = comboFor(trial);
+                            var skip = tc.skipped.filter(function (s) { return String(s.coupon.id) === id; })[0];
+                            if (skip) {
+                                pickNotice = cashSkipText(skip.reason, tc.rules);
+                            } else {
+                                picked.bill = '';
+                                picked.cash = trial.cash;
+                            }
+                        }
+                    } else if (card.getAttribute('data-slot') === 'items') {
+                        picked.items = picked.items === id ? '' : id;
+                    } else {
+                        picked.bill = picked.bill === id ? '' : id;
+                        if (picked.bill) picked.cash = [];
+                    }
                 }
                 refreshPreview();
             });
@@ -2395,7 +2900,7 @@ var COUPONS = (function () {
 
     function rulesNoteHtml() {
         var rules = [
-            ['r1', 'Per bill: one whole-bill coupon (cash, spend, new chart, referral) plus one treatment coupon. The treatment coupon comes off first; the whole-bill coupon takes off what is left.'],
+            ['r1', 'Per bill: one treatment coupon plus either one whole-bill coupon (spend, new chart, referral) or any number of cash coupons (by default 50% of the bill up to HK$3,000; change it in Configuration). The treatment coupon comes off first; the rest comes off what is left.'],
             ['r2', 'Treatment coupons only cover treatment-list items ticked for that coupon. A typed line counts only if its name is exactly the same as the treatment list.'],
             ['r3', 'No change and no cash back: if a coupon is worth more than the bill, the rest is lost.'],
             ['r4', 'Spend coupons count all cash paid on the bill (not reward points, balance transfer or voided payments). A coupon earned on a bill can be used from the next bill.'],
@@ -2429,6 +2934,31 @@ var COUPONS = (function () {
         if (a.reason === 'next_bill') return ct('coupons.why.next', 'Earned from this bill, so it can be used from the next bill');
         if (a.reason === 'zero') return ct('coupons.why.zero', 'Nothing left on the bill for this coupon to take off');
         return reasonText(a);
+    }
+
+    function cashSkipText(reason, rules) {
+        rules = normalizeCashRules(rules || _cashRules);
+        if (reason === 'cash_count') {
+            return ct('coupons.cash.tooMany', 'Cash coupons per bill') + ': ' + rules.maxCount + '. ' +
+                ct('coupons.cash.untickOne', 'Untick one to use this one instead.');
+        }
+        if (reason === 'cash_cap') {
+            return ct('coupons.cash.capReached', 'Cash limit reached') + ' (' + cashLimitText(rules) + ').';
+        }
+        if (reason === 'covered') return ct('coupons.cash.covered', 'The bill is already covered, so this coupon is not needed.');
+        return reasonText({ ok: false, reason: reason });
+    }
+
+    /** Bill label such as "Cash coupon ×2 + Free scaling". */
+    function couponLabelFor(rows) {
+        var order = [];
+        var count = {};
+        (rows || []).forEach(function (r) {
+            var label = campLabel(r.coupon);
+            if (!count[label]) { count[label] = 0; order.push(label); }
+            count[label]++;
+        });
+        return order.map(function (l) { return count[l] > 1 ? l + ' ×' + count[l] : l; }).join(' + ');
     }
 
     function reasonText(a) {
@@ -2488,7 +3018,7 @@ var COUPONS = (function () {
         var lead = rows.filter(function (r) { return couponSlot(r.coupon) === 'bill'; })[0] || rows[0];
         bill.coupon_id = lead ? lead.coupon.id : null;
         bill.coupon_amount = save;
-        bill.coupon_label = rows.map(function (r) { return campLabel(r.coupon); }).join(' + ');
+        bill.coupon_label = couponLabelFor(rows);
         bill.total = total;
         bill.balance = balance;
         bill.status = status;
@@ -2591,26 +3121,33 @@ var COUPONS = (function () {
         return SB.from('discount_coupons').insert([row]).select('id,code').then(function (r) {
             if (r.error) return { ok: false, error: r.error.message, row: row };
             var saved = (r.data && r.data[0]) || {};
-            if (sms && row.patient_id) sendCouponSms(row.patient_id, smsIssued({
-                nameZh: (campaignByKey(row.campaign_key) || {}).nameZh,
-                mode: row.discount_mode,
-                face: row.face_value,
-                expires_on: row.expires_on
-            }));
+            if (sms && row.patient_id) {
+                var issued = Object.assign({}, row, { code: saved.code || row.code });
+                sendCouponSms(row.patient_id, function (wallet) {
+                    return smsIssued(issued, wallet, { clinic: row.clinic_code || clinicCodeNow() });
+                });
+            }
             return { ok: true, id: saved.id, code: saved.code || row.code };
         }, function (e) {
             return { ok: false, error: String(e && e.message || e), row: row };
         });
     }
 
+    /** body is the text, or a function(wallet) that builds it from the patient's coupons at send time. */
     function sendCouponSms(patientId, body) {
         if (!body || !patientId || typeof SB === 'undefined' || !SB) return Promise.resolve({ ok: false, reason: 'no_db' });
-        return SB.from('patients').select('phone_number,mobile_phone,full_name,chinese_name,patient_no')
-            .eq('id', patientId).maybeSingle()
-            .then(function (r) {
+        var walletP = typeof body === 'function' ? loadWallet(patientId) : Promise.resolve(null);
+        return Promise.all([
+            SB.from('patients').select('phone_number,mobile_phone,full_name,chinese_name,patient_no').eq('id', patientId).maybeSingle(),
+            walletP
+        ])
+            .then(function (both) {
+                var r = both[0];
                 var p = r && r.data;
                 var phone = p ? String(p.phone_number || p.mobile_phone || '').trim() : '';
                 if (!phone) return { ok: false, reason: 'no_phone' };
+                var text = typeof body === 'function' ? body(both[1] || []) : body;
+                if (!text) return { ok: false, reason: 'no_text' };
                 if (typeof AIHELPER === 'undefined' || typeof AIHELPER.sendTwilioOutreach !== 'function') {
                     return { ok: false, reason: 'no_sms' };
                 }
@@ -2618,7 +3155,7 @@ var COUPONS = (function () {
                     channel: 'sms',
                     to: phone,
                     name: p.full_name || p.chinese_name || p.patient_no || 'Patient',
-                    body: body
+                    body: text
                 });
             })
             .catch(function (e) { return { ok: false, error: String(e && e.message || e) }; });
@@ -2642,7 +3179,7 @@ var COUPONS = (function () {
         var today = todayIso();
         return loadState().then(function () {
             return SB.from('discount_coupons')
-                .select('id,campaign_key,patient_id,expires_on,status,issued_at,clinic_code')
+                .select('id,code,campaign_key,patient_id,expires_on,status,issued_at,clinic_code,discount_mode,face_value,percent,max_discount')
                 .eq('status', 'unused')
                 .is('expiry_sms_at', null)
                 .gt('expires_on', today)
@@ -2656,15 +3193,9 @@ var COUPONS = (function () {
             var seq = Promise.resolve();
             rows.forEach(function (c) {
                 seq = seq.then(function () {
-                    var camp = campaignByKey(c.campaign_key) || {};
-                    var body = smsExpiring({
-                        status: c.status,
-                        expires_on: c.expires_on,
-                        issued_on: String(c.issued_at || '').slice(0, 10),
-                        nameZh: camp.nameZh || c.campaign_key,
-                        name: camp.name
-                    }, today);
-                    if (!body) return null;
+                    var due = Object.assign({}, c, { issued_on: String(c.issued_at || '').slice(0, 10) });
+                    if (!smsExpiring(due, today)) return null;
+                    var body = function (wallet) { return smsExpiring(due, today, wallet, { clinic: c.clinic_code || clinicCodeNow() }); };
                     return SB.from('discount_coupons').update({ expiry_sms_at: new Date().toISOString() })
                         .eq('id', c.id).is('expiry_sms_at', null).select('id')
                         .then(function (u) {
@@ -3214,6 +3745,7 @@ var COUPONS = (function () {
         billTotalCents: billTotalCents,
         refundEffect: refundEffect,
         smsIssued: smsIssued,
+        couponSmsBody: couponSmsBody,
         smsExpiring: smsExpiring,
         renderConfigPane: renderConfigPane,
         syncBillDetail: syncBillDetail,
@@ -3234,6 +3766,15 @@ var COUPONS = (function () {
         buildCouponLog: buildCouponLog,
         loadCouponLog: loadCouponLog,
         couponLogCsv: couponLogCsv,
+        isCashCoupon: isCashCoupon,
+        normalizeCashRules: normalizeCashRules,
+        cashCapCents: cashCapCents,
+        openWalletQr: openWalletQr,
+        walletPageBase: walletPageBase,
+        walletUrl: walletUrl,
+        isLocalAddress: isLocalAddress,
+        cashRules: cashRules,
+        couponLabelFor: couponLabelFor,
         transferDetail: transferDetail,
         logCoupon: logCoupon,
         campStatus: campStatus,

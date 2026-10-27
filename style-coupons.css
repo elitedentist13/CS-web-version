@@ -29,6 +29,15 @@
 .dc-items { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .dc-item { font-size: 12px; color: #334155; }
 
+/* Cash coupons per bill */
+.dc-cash-rules { margin: 8px 0 4px; padding: 10px 12px; border: 1px solid #bbf7d0; border-radius: 10px; background: #f0fdf4; }
+.dc-cash-rules-title { font-weight: 800; font-size: 13px; color: #166534; }
+.dc-cash-rules select, .dc-cash-limit input { padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
+.dc-cash-limit { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.dc-cash-limit input { width: 88px; }
+.dc-cash-unit { font-size: 12px; color: #475569; white-space: nowrap; }
+.dc-cash-sum { margin: 0 0 4px; font-weight: 700; color: #166534; }
+
 /* Switch-styled checkboxes */
 .dc-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .dc-switch input[type="checkbox"] {
@@ -275,6 +284,23 @@ button.dc-card.is-blocked .dc-check { display: none; }
 .dc-authp-field input:focus { outline: 2px solid #0f766e; outline-offset: 0; border-color: #0f766e; }
 .dc-authp-log { margin: 6px 0 10px; font-size: 11px; }
 .dc-authp .dc-err { margin: 0 0 6px; }
+
+/* Wallet QR for the patient's phone */
+.dc-wsum-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 10px; }
+.dc-wsum-row .dc-wsum { flex: 1 1 auto; }
+.dc-wqr-btn {
+  flex: 0 0 auto; padding: 4px 12px; border: 1px solid #86efac; border-radius: 999px; background: #f0fdf4;
+  color: #166534; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer;
+}
+.dc-wqr-btn:hover { background: #dcfce7; }
+.dc-wqr-btn:focus-visible { outline: 2px solid #15803d; outline-offset: 2px; }
+.dc-wqr-card { border-color: #bbf7d0; width: min(360px, 100%); }
+.dc-wqr-code { display: flex; align-items: center; justify-content: center; min-height: 236px; margin: 6px 0 10px; padding: 8px; border-radius: 12px; background: #fff; border: 1px dashed #bbf7d0; }
+.dc-wqr-code img, .dc-wqr-code canvas { display: block; }
+.dc-wqr-local { margin: 0 0 8px; font-size: 12px; }
+.dc-wqr-card .dc-authp-field input { font-size: 12px; color: #334155; background: #f8fafc; }
+.dc-wqr-actions { flex-wrap: wrap; }
+.dc-wqr-note { margin: 8px 0 0; font-size: 11px; }
 
 /* Narrow screens: bottom sheet */
 @media (max-width: 640px) {

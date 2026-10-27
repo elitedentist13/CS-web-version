@@ -1,0 +1,67 @@
+/* Patient coupon wallet — phone, browse only */
+
+:root {
+  --wl-bg: #f0fdf4;
+  --wl-card: #ffffff;
+  --wl-text: #0f172a;
+  --wl-muted: #64748b;
+  --wl-green: #15803d;
+  --wl-border: #e2e8f0;
+  --wl-red: #dc2626;
+  --wl-amber: #b45309;
+  --wl-font: 'Segoe UI', system-ui, -apple-system, 'PingFang HK', 'Microsoft JhengHei', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { min-height: 100%; background: var(--wl-bg); color: var(--wl-text); font-family: var(--wl-font); -webkit-font-smoothing: antialiased; }
+
+body { padding: 16px 14px calc(32px + env(safe-area-inset-bottom)); }
+
+.wl-wrap { max-width: 520px; margin: 0 auto; }
+
+.wl-lang { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px; }
+.wl-lang-btn { border: 1px solid #bbf7d0; background: #fff; color: var(--wl-green); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.wl-lang-btn.is-on { background: var(--wl-green); color: #fff; border-color: var(--wl-green); }
+
+.wl-head { text-align: center; padding: 6px 0 14px; }
+.wl-logo { font-size: 34px; }
+.wl-head h1 { font-size: 22px; font-weight: 800; margin-top: 2px; }
+.wl-clinic { color: var(--wl-muted); font-size: 13px; margin-top: 2px; }
+.wl-who { color: var(--wl-green); font-weight: 700; font-size: 14px; margin-top: 6px; min-height: 1em; }
+
+.wl-sum { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 14px; }
+.wl-sum-item { background: #fff; border: 1px solid #bbf7d0; border-radius: 12px; padding: 8px 12px; font-size: 13px; color: var(--wl-muted); text-align: center; min-width: 96px; }
+.wl-sum-item b { display: block; font-size: 20px; color: var(--wl-green); }
+
+.wl-sec-title { font-size: 14px; font-weight: 800; color: var(--wl-muted); margin: 16px 2px 8px; text-transform: uppercase; letter-spacing: .04em; }
+
+.wl-ticket { display: flex; background: var(--wl-card); border-radius: 14px; box-shadow: 0 4px 16px rgba(15, 23, 42, .07); margin-bottom: 10px; overflow: hidden; border: 1px solid var(--wl-border); }
+.wl-stub { flex: 0 0 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px 6px; color: #fff; background: linear-gradient(160deg, #16a34a, #15803d); border-right: 2px dashed rgba(255, 255, 255, .7); text-align: center; }
+.wl-ticket[data-kind="spend"] .wl-stub { background: linear-gradient(160deg, #2563eb, #1d4ed8); }
+.wl-ticket[data-kind="welcome"] .wl-stub, .wl-ticket[data-kind="referral"] .wl-stub { background: linear-gradient(160deg, #db2777, #be185d); }
+.wl-ticket[data-kind="free"] .wl-stub { background: linear-gradient(160deg, #0891b2, #0e7490); }
+.wl-ticket[data-kind="treat"] .wl-stub { background: linear-gradient(160deg, #7c3aed, #6d28d9); }
+.wl-face { font-size: 22px; font-weight: 900; line-height: 1.1; white-space: nowrap; }
+.wl-face.is-long { font-size: 18px; }
+.wl-face.is-xl { font-size: 15px; }
+.wl-face-sub { font-size: 11px; opacity: .9; margin-top: 2px; }
+.wl-kind { font-size: 11px; font-weight: 700; margin-top: 4px; opacity: .95; }
+.wl-body { flex: 1; padding: 10px 12px; min-width: 0; }
+.wl-name { font-weight: 800; font-size: 15px; }
+.wl-line { font-size: 12px; color: var(--wl-muted); margin-top: 3px; }
+.wl-code { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; letter-spacing: .05em; color: var(--wl-text); }
+.wl-exp { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #f1f5f9; color: #334155; }
+.wl-exp.is-amber { background: #fef3c7; color: var(--wl-amber); }
+.wl-exp.is-red { background: #fee2e2; color: var(--wl-red); }
+
+.wl-ticket.is-past { opacity: .62; box-shadow: none; }
+.wl-ticket.is-past .wl-stub { background: #94a3b8 !important; }
+.wl-badge { display: inline-block; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 999px; background: #e2e8f0; color: #475569; margin-left: 6px; vertical-align: middle; }
+
+.wl-empty, .wl-loading, .wl-error { text-align: center; padding: 28px 12px; color: var(--wl-muted); background: #fff; border-radius: 14px; border: 1px dashed #bbf7d0; }
+.wl-error { color: var(--wl-red); border-color: #fecaca; }
+
+.wl-more { display: block; width: 100%; margin-top: 4px; padding: 10px; border: 1px solid var(--wl-border); background: #fff; border-radius: 12px; font: inherit; font-weight: 700; color: var(--wl-muted); cursor: pointer; }
+
+.wl-foot { margin-top: 18px; text-align: center; font-size: 12px; color: var(--wl-muted); }

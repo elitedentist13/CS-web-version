@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261026coupon10';
+var BUILD = '20261027couponauth1';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -313,6 +313,158 @@ function loadCoupons() {
     var exp = C.smsExpiring({ status: 'unused', nameZh: '介紹新客', expires_on: '2026-11-02' }, '2026-10-26');
     pass('expiry SMS is 7 days before', exp.indexOf('7日內到期') >= 0 && exp.indexOf('2026-11-02') >= 0);
     pass('no expiry SMS on other days', C.smsExpiring({ status: 'unused', expires_on: '2026-11-03' }, '2026-10-26') === '');
+
+    console.log('=== 9b gift / transfer login ===');
+    var authUsers = [
+        { user_id: 'amy', password: 'pw1', role: 'nurse', display_name: 'Amy Nurse', is_active: true },
+        { user_id: 'nurse', password: 'nurse', role: 'nurse', display_name: 'Nurse', is_active: true },
+        { user_id: 'old', password: 'pw2', role: 'staff', display_name: 'Old', is_active: false }
+    ];
+    function authCoupons() {
+        var ctx = { console: console };
+        ctx.SB = {
+            from: function () {
+                var f = {};
+                var q = {
+                    select: function () { return q; },
+                    eq: function (k, v) { f[k] = v; return q; },
+                    limit: function () { return q; },
+                    then: function (ok) {
+                        return Promise.resolve({ error: null, data: authUsers.filter(function (u) {
+                            return Object.keys(f).every(function (k) { return u[k] === f[k]; });
+                        }) }).then(ok);
+                    }
+                };
+                return q;
+            }
+        };
+        vm.createContext(ctx);
+        vm.runInContext(src, ctx);
+        return ctx.COUPONS;
+    }
+    var CA = authCoupons();
+    var realNurse = await CA.verifyGrantor('amy', 'pw1');
+    pass('real nurse login can authorize', realNurse.ok && realNurse.user.user_id === 'amy');
+    pass('shared Nurse login is refused', (await CA.verifyGrantor('nurse', 'nurse')).reason === 'shared_login');
+    pass('shared Nurse login is refused in any case', (await CA.verifyGrantor(' NURSE ', 'nurse')).reason === 'shared_login');
+    pass('wrong password is refused', (await CA.verifyGrantor('amy', 'nope')).reason === 'creds');
+    pass('inactive login is refused', (await CA.verifyGrantor('old', 'pw2')).reason === 'creds');
+    pass('blank password is refused', (await CA.verifyGrantor('amy', '')).reason === 'auth_missing');
+    pass('gift box asks for login + password', src.indexOf('id="dcAuthUser"') >= 0 && src.indexOf('id="dcAuthPw"') >= 0);
+    pass('gift and transfer both pop the login prompt',
+        src.indexOf("promptGrantor(host, ct('coupons.auth.giftTitle'") >= 0 && src.indexOf("promptGrantor(host, ct('coupons.auth.xferTitle'") >= 0);
+    var logged = [];
+    var logCtx = {
+        console: console, AUDIT_TRAIL_TABLE: 'audit_trail', _auditLoggingEnabled: false,
+        SB: { from: function (t) { return { insert: function (rows) { logged.push({ table: t, row: rows[0] }); return Promise.resolve({ error: null }); } }; } }
+    };
+    vm.createContext(logCtx);
+    vm.runInContext(src, logCtx);
+    var CL = logCtx.COUPONS;
+    var savedLog = await CL.logCoupon('TRANSFER', 'Coupon X1 · from 001 to 002', '002', 'c1',
+        { user_id: 'amy', display_name: 'Amy Nurse' });
+    pass('coupon log is written even with the audit switch off', savedLog === true && logged.length === 1 &&
+        logged[0].table === 'audit_trail' && logged[0].row.table_name === 'discount_coupons', JSON.stringify(logged));
+    pass('coupon log row carries the verified login', logged[0] && logged[0].row.user_id === 'amy' && logged[0].row.user_name === 'Amy Nurse');
+    var failCtx = { console: console, SB: { from: function () { return { insert: function () { return Promise.resolve({ error: { message: 'rls' } }); } }; } } };
+    vm.createContext(failCtx);
+    vm.runInContext(src, failCtx);
+    pass('a failed log write is reported', (await failCtx.COUPONS.logCoupon('GRANT', 'x', '1', 'c', { user_id: 'amy' })) === false);
+    var xd = C.transferDetail({ code: 'DC-AB12', campaign_key: 'cash', discount_mode: 'amount', face_value: 100 }, '001', { patient_no: '002' });
+    pass('transfer log names the coupon, amount and both charts', /DC-AB12/.test(xd) && /HK\$100\.00/.test(xd) && /from 001 to 002/.test(xd), xd);
+    var richLog = C.buildCouponLog(
+        [{ id: 'g1', issued_at: '2026-10-05T02:00:00Z', note: 'Gifted into wallet', issued_by: 'Amy Nurse', campaign_key: 'cash',
+            discount_mode: 'amount', patient_id: 'p2', face_value: 80, code: 'G1' }],
+        [
+            { created_at: '2026-10-06T02:00:00Z', operation: 'TRANSFER', user_name: 'Dr B', patient_no: '002', record_id: 'old1', changes_detail: xd },
+            { created_at: '2026-10-05T02:00:00Z', operation: 'GRANT', user_name: 'Amy Nurse', patient_no: '001', record_id: 'g1' }
+        ],
+        { p2: { patient_no: '002' } },
+        { old1: { id: 'old1', campaign_key: 'cash', discount_mode: 'amount', face_value: 100, code: 'DC-AB12' } }
+    );
+    var xRow = richLog.filter(function (r) { return r.op === 'TRANSFER'; })[0] || {};
+    var gRow = richLog.filter(function (r) { return r.op === 'GIFT'; })[0] || {};
+    pass('transfer log row shows coupon, amount and code', xRow.code === 'DC-AB12' && xRow.amount === 'HK$100.00' && !!xRow.coupon, JSON.stringify(xRow));
+    pass('gift log row keeps the chart it was gifted to', gRow.chart === '001' && gRow.who === 'Amy Nurse' && richLog.length === 2,
+        JSON.stringify(richLog));
+
+    console.log('=== 9c expired, caps, doctor opt-out, reminders ===');
+    var cashCamp = C.defaultCampaigns().filter(function (c) { return c.key === 'cash'; })[0];
+    cashCamp.enabled = true;
+    var staleWallet = [];
+    for (var sw = 0; sw < 5; sw++) {
+        staleWallet.push({ status: 'unused', campaign_key: 'cash', expires_on: '2020-01-01' });
+    }
+    pass('expired coupon is not live', C.isLive({ status: 'unused', expires_on: '2020-01-01' }, '2026-10-27') === false);
+    pass('coupon on its last day is live', C.isLive({ status: 'unused', expires_on: '2026-10-27' }, '2026-10-27') === true);
+    pass('expired coupons do not fill the wallet', C.unusedCount(staleWallet) === 0);
+    pass('expired coupons do not block a new gift', C.canIssue(staleWallet, cashCamp).ok === true);
+    pass('expired coupon cannot be transferred', C.planTransfer({
+        coupon: { status: 'unused', campaign_key: 'cash', patient_id: 'a', expires_on: '2020-01-01' },
+        toPatientId: 'b', toWallet: []
+    }).reason === 'expired');
+    var capped = JSON.parse(JSON.stringify(cashCamp));
+    capped.issueCap = 3; capped.issuedCount = 3;
+    pass('issue cap blocks once reached', C.canIssue([], capped).reason === 'issue_cap');
+    capped.issueCap = 0; capped.budget = 500; capped.budgetUsed = 450;
+    pass('budget blocks a coupon that would go over', C.canIssue([], capped).reason === 'budget');
+    capped.issueCap = 10; capped.issuedCount = 4; capped.budgetUsed = 400;
+    pass('usage line shows issued and budget', /4 \/ 10/.test(C.usageText(capped)) && /HK\$400 \/ HK\$500/.test(C.usageText(capped)),
+        C.usageText(capped));
+    var spendCamps = C.defaultCampaigns();
+    spendCamps.forEach(function (c) { if (c.key === 'spend_1') c.enabled = true; });
+    var spendCtx = {
+        clinicCode: 'KT', clinics: { KT: { joined: true } },
+        doctors: { 'KT|__all__': { joined: true }, 'KT|doc-out': { joined: false } },
+        campaigns: spendCamps, wallet: [], cashAmount: 1200, patientId: 'p', billId: 'b'
+    };
+    pass('spend coupon issues for a joined doctor', !!(C.planTargetSpend(Object.assign({}, spendCtx, { doctorKey: 'doc-in' })) || {}).ok);
+    pass('spend coupon skips an opted-out doctor', C.planTargetSpend(Object.assign({}, spendCtx, { doctorKey: 'doc-out' })) === null);
+    pass('onBillFullyPaid looks up the bill doctor', src.indexOf('billDoctorKey(info.billId, info.doctorKey)') >= 0);
+    var late = C.smsExpiring({ status: 'unused', nameZh: '現金券', expires_on: '2026-10-30' }, '2026-10-27');
+    pass('late run still reminds within 7 days', late.indexOf('3日內到期') >= 0 && late.indexOf('3 days') >= 0, late);
+    pass('no reminder on the day it was issued',
+        C.smsExpiring({ status: 'unused', expires_on: '2026-10-30', issued_on: '2026-10-27' }, '2026-10-27') === '');
+    pass('coupon SMS goes out on the SMS channel', src.indexOf("channel: 'sms'") >= 0);
+    pass('expiry SMS patch file exists', read('discount_coupons_expiry_sms.sql').indexOf('expiry_sms_at') >= 0);
+
+    console.log('=== 9d visual helpers ===');
+    function giftCampLike(key) {
+        return JSON.parse(JSON.stringify(C.defaultCampaigns().filter(function (c) { return c.key === key; })[0]));
+    }
+    pass('cash coupon is a cash ticket', C.kindOf({ campaign_key: 'cash' }) === 'cash');
+    pass('spend coupon is a spend ticket', C.kindOf({ campaign_key: 'spend_2' }) === 'spend');
+    pass('free scaling is a free ticket', C.kindOf({ campaign_key: 'free_scaling', mode: 'free_line' }) === 'free');
+    pass('days until counts calendar days', C.daysUntil('2026-11-03', '2026-10-27') === 7);
+    pass('expiry chip turns red inside 7 days', /dc-exp-red/.test(C.expiryChipHtml('2026-11-02', '2026-10-27')));
+    pass('expiry chip turns amber inside 14 days', /dc-exp-amber/.test(C.expiryChipHtml('2026-11-08', '2026-10-27')));
+    pass('expiry chip is plain after 14 days', !/dc-exp-(red|amber)/.test(C.expiryChipHtml('2026-12-31', '2026-10-27')));
+    var sumHtml = C.walletSummaryHtml([
+        { status: 'unused', discount_mode: 'amount', face_value: 100, expires_on: '2026-12-01' },
+        { status: 'unused', discount_mode: 'amount', face_value: 200, expires_on: '2026-11-05' },
+        { status: 'unused', discount_mode: 'free_line', face_value: 0, expires_on: '2027-01-01' },
+        { status: 'unused', discount_mode: 'amount', face_value: 500, expires_on: '2020-01-01' },
+        { status: 'used', discount_mode: 'amount', face_value: 50, expires_on: '2027-01-01' }
+    ], '2026-10-27');
+    pass('wallet summary counts live coupons and cash value', /<b>3<\/b>/.test(sumHtml) && /HK\$300/.test(sumHtml), sumHtml);
+    pass('wallet summary shows the nearest expiry', /title="2026-11-05"/.test(sumHtml));
+    var offCamp = giftCampLike('cash'); offCamp.enabled = false;
+    pass('campaign off badge', C.campStatus(offCamp) === 'off');
+    var blankSpend = giftCampLike('spend_4'); blankSpend.enabled = true;
+    pass('blank spend row needs setup', C.campStatus(blankSpend) === 'setup');
+    var fullCash = giftCampLike('cash'); fullCash.enabled = true; fullCash.issueCap = 2; fullCash.issuedCount = 2;
+    pass('capped campaign shows limit reached', C.campStatus(fullCash) === 'full');
+    var csv = C.couponLogCsv([{ at: '2026-10-27T09:30:00', op: 'GIFT', who: 'Amy, RN', clinic: 'KT', chart: '123',
+        coupon: '現金券', amount: 'HK$100.00', code: 'X1', status: 'unused', note: 'say "hi"' }]);
+    pass('log CSV starts with a BOM', csv.charCodeAt(0) === 0xFEFF);
+    pass('log CSV quotes commas and quotes', csv.indexOf('"Amy, RN"') >= 0 && csv.indexOf('"say ""hi"""') >= 0, csv);
+    var bar = C.spendBarHtml(1200, C.spendProgress(1200, [
+        { key: 'spend_1', trigger: 'target_spend', enabled: true, target: 1000, face: 100 },
+        { key: 'spend_2', trigger: 'target_spend', enabled: true, target: 5000, face: 500 }
+    ]));
+    pass('spend bar fills to 24% of the next tier', /width:24\.0%/.test(bar) && /dc-prog-tick/.test(bar), bar);
+    pass('coupon CSS lives in style-coupons.css', read('style-coupons.css').indexOf('.dc-ticket') >= 0 &&
+        read('index.html').indexOf("'style-coupons.css'") >= 0 && src.indexOf("style.textContent = [") < 0);
 
     console.log('=== 10 money rules ===');
     pass('void before payment restores the coupon', C.refundEffect('void_unpaid') === 'restore');

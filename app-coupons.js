@@ -13,8 +13,12 @@ var COUPONS = (function () {
         spend_1: 1, spend_2: 1, spend_3: 1, spend_4: 1, spend_5: 1
     };
     var GRANT_ROLES = { doctor: 1, dentist: 1, nurse: 1, receptionist: 1, reception: 1, staff: 1, admin: 1 };
+    /** Shared logins that cannot authorize a gift or transfer (the anonymous Nurse desk login). */
+    var SHARED_LOGIN_IDS = { nurse: 1 };
     var SETTING_KEY = 'discount_coupon_scheme';
     var SMS_HEADING = '[Joyful Smile Dental Clinic 樂意牙科中心]';
+    var EXPIRY_SMS_DAYS = 7;
+    var EXPIRY_RUN_KEY = 'dc_expiry_sms_run';
 
     var ITEM_GROUPS = {
         free_scaling: ['SCALING & POLISHING - 洗牙'],
@@ -515,13 +519,21 @@ var COUPONS = (function () {
         return best;
     }
 
-    function unusedCount(wallet) {
-        return (wallet || []).filter(function (c) { return c.status === 'unused'; }).length;
+    function todayIso() { return new Date().toISOString().slice(0, 10); }
+
+    /** Unused and not past expiry. Expired coupons keep status 'unused' in the table. */
+    function isLive(c, today) {
+        if (!c || c.status !== 'unused') return false;
+        return !c.expires_on || String(c.expires_on) >= (today || todayIso());
     }
 
-    function unusedOfCampaign(wallet, key) {
+    function unusedCount(wallet, today) {
+        return (wallet || []).filter(function (c) { return isLive(c, today); }).length;
+    }
+
+    function unusedOfCampaign(wallet, key, today) {
         return (wallet || []).filter(function (c) {
-            return c.status === 'unused' && (c.campaign_key === key || c.key === key);
+            return isLive(c, today) && (c.campaign_key === key || c.key === key);
         }).length;
     }
 
@@ -687,6 +699,7 @@ var COUPONS = (function () {
         var c = opts.coupon || {};
         var key = c.campaign_key || c.key || '';
         if (c.status !== 'unused') return { ok: false, reason: 'not_unused' };
+        if (!isLive(c, opts.today)) return { ok: false, reason: 'expired' };
         if (LOCKED_TRANSFER_KEYS[key]) return { ok: false, reason: 'locked' };
         if (!opts.toPatientId || String(opts.toPatientId) === String(c.patient_id || opts.fromPatientId || '')) {
             return { ok: false, reason: 'same_patient' };
@@ -709,17 +722,18 @@ var COUPONS = (function () {
             '到期/Expires: ' + exp;
     }
 
+    /** Reminder text for a coupon 1–7 days from expiry (late runs still remind once). */
     function smsExpiring(coupon, today) {
         if (!coupon || coupon.status !== 'unused' || !coupon.expires_on || !today) return '';
         var exp = new Date(coupon.expires_on + 'T00:00:00');
         var now = new Date(today + 'T00:00:00');
         var days = Math.round((exp.getTime() - now.getTime()) / 86400000);
-        if (days !== 7) return '';
-        if (coupon.expiryDays != null && coupon.expiryDays <= 7 && coupon.issued_on === today) return '';
+        if (days < 1 || days > EXPIRY_SMS_DAYS) return '';
+        if (coupon.issued_on === today) return '';
         return SMS_HEADING + ' 優惠券即將到期 / Coupon expiring\n' +
             '內容/Offer: ' + (coupon.nameZh || coupon.name || '') + '\n' +
             '到期/Expires: ' + coupon.expires_on + '\n' +
-            '7日內到期 / Expires in 7 days';
+            days + '日內到期 / Expires in ' + days + (days === 1 ? ' day' : ' days');
     }
 
     function mergeSaved(raw) {
@@ -735,7 +749,7 @@ var COUPONS = (function () {
             if (!o) return c;
             var next = clone(c);
             ['enabled', 'face', 'percent', 'minSpend', 'target', 'expiryDays', 'maxDiscount',
-                'issueCap', 'budget', 'issuedCount', 'budgetUsed', 'sms', 'mode', 'name', 'nameZh', 'holdLimit'].forEach(function (k) {
+                'issueCap', 'budget', 'sms', 'mode', 'name', 'nameZh', 'holdLimit'].forEach(function (k) {
                 if (o[k] != null) next[k] = o[k];
             });
             if (Array.isArray(o.itemNames)) next.itemNames = o.itemNames.slice();
@@ -768,6 +782,41 @@ var COUPONS = (function () {
                 mergeSaved(null);
                 return snapshot();
             });
+    }
+
+    /** Fill issuedCount / budgetUsed from the coupon table for campaigns that have a cap or budget. */
+    function loadUsage() {
+        var list = campaigns().filter(function (c) {
+            return c && ((parseFloat(c.issueCap) || 0) > 0 || (parseFloat(c.budget) || 0) > 0);
+        });
+        if (!list.length || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            return Promise.resolve();
+        }
+        return Promise.all(list.map(function (c) {
+            return SB.from('discount_coupons').select('face_value')
+                .eq('campaign_key', c.key).neq('status', 'void').limit(10000)
+                .then(function (r) {
+                    if (!r || r.error) return;
+                    var rows = r.data || [];
+                    var sum = 0;
+                    rows.forEach(function (x) { sum += cents(x.face_value); });
+                    c.issuedCount = rows.length;
+                    c.budgetUsed = money(sum);
+                }, function () {});
+        })).then(function () {});
+    }
+
+    function usageText(c) {
+        if (!c) return '';
+        var parts = [];
+        var cap = parseFloat(c.issueCap) || 0;
+        var budget = parseFloat(c.budget) || 0;
+        if (cap > 0) parts.push(ct('coupons.cfg.issued', 'Issued') + ' ' + (c.issuedCount || 0) + ' / ' + cap);
+        if (budget > 0) {
+            parts.push(ct('coupons.cfg.budgetUsed', 'Budget used') + ' HK$' + round2(c.budgetUsed || 0).toFixed(0) +
+                ' / HK$' + round2(budget).toFixed(0));
+        }
+        return parts.join(' · ');
     }
 
     function persist() {
@@ -809,7 +858,7 @@ var COUPONS = (function () {
     function renderConfigPane(pane) {
         if (!pane) return;
         pane.innerHTML = '<p style="color:#64748b;">' + esc(ct('common.loadingEllipsis', 'Loading…')) + '</p>';
-        Promise.all([loadState(), ensureCatalog()]).then(function () { paintConfig(pane); });
+        Promise.all([loadState().then(loadUsage), ensureCatalog()]).then(function () { paintConfig(pane); });
     }
 
     function catalogNames() {
@@ -884,7 +933,7 @@ var COUPONS = (function () {
         return html + '</div>';
     }
 
-    function paintConfig(pane) {
+    function configClinics() {
         var clinics = (typeof APP_CLINICS !== 'undefined' && APP_CLINICS) ? APP_CLINICS.slice() : [];
         if (!clinics.length) {
             clinics = [
@@ -892,6 +941,83 @@ var COUPONS = (function () {
                 { clinic_code: 'PL', english_name: 'Po Lam' }
             ];
         }
+        return clinics;
+    }
+
+    /** Pure-ish: on | off | setup | full for a campaign card badge. */
+    function campStatus(c) {
+        if (!c || !c.enabled) return 'off';
+        if (c.trigger === 'target_spend') {
+            if (!((parseFloat(c.target) || 0) > 0 && (parseFloat(c.face) || 0) > 0)) return 'setup';
+        } else if (c.scope === 'items') {
+            var on = itemPickerRows(c, catalogNames()).filter(function (r) { return r.on; });
+            if (!on.length) return 'setup';
+        } else if ((c.mode || 'amount') === 'amount' && !((parseFloat(c.face) || 0) > 0)) {
+            return 'setup';
+        }
+        var cap = parseFloat(c.issueCap) || 0;
+        var budget = parseFloat(c.budget) || 0;
+        if ((cap > 0 && (c.issuedCount || 0) >= cap) || (budget > 0 && (c.budgetUsed || 0) >= budget)) return 'full';
+        return 'on';
+    }
+
+    function statusBadgeHtml(c) {
+        var st = campStatus(c);
+        var text = {
+            on: ct('coupons.badge.on', 'On'),
+            off: ct('coupons.badge.off', 'Off'),
+            setup: ct('coupons.badge.setup', 'Needs setup'),
+            full: ct('coupons.badge.full', 'Limit reached')
+        }[st];
+        return '<span class="dc-badge dc-badge-' + st + '" data-badge="' + esc(c.key) + '">' + esc(text) + '</span>';
+    }
+
+    function previewTicketHtml(c) {
+        var days = parseInt(c.expiryDays, 10) || 0;
+        var slot = couponSlot(c);
+        return '<div class="dc-ticket dc-ticket-mini' + (c.enabled ? '' : ' is-off') + '" data-kind="' + kindOf(c) +
+            '" data-preview="' + esc(c.key) + '" aria-hidden="true">' + stubHtml(c) +
+            '<span class="dc-body"><b class="dc-tk-name">' + esc(campLabel(c)) + '</b>' +
+            '<small>' + esc(slot === 'items' ? ct('coupons.bill.slotItems', '治療券') : ct('coupons.bill.slotBill', '全單券')) + '</small>' +
+            (days ? '<span class="dc-meta"><span class="dc-exp">' + esc(ct('coupons.exp.valid', 'Valid') + ' ' + days + ' ' +
+                ct('coupons.exp.days', 'days')) + '</span></span>' : '') +
+            '</span></div>';
+    }
+
+    function ladderHtml() {
+        var rows = campaigns().filter(function (c) { return c && c.trigger === 'target_spend'; });
+        var ready = rows.filter(function (c) { return (parseFloat(c.target) || 0) > 0 && (parseFloat(c.face) || 0) > 0; })
+            .sort(function (a, b) { return (parseFloat(a.target) || 0) - (parseFloat(b.target) || 0); });
+        if (!ready.length) {
+            return '<p class="dc-hint dc-ladder-empty">' + esc(ct('coupons.ladder.empty', 'No spend tiers filled in yet.')) + '</p>';
+        }
+        var top = parseFloat(ready[ready.length - 1].target) || 1;
+        var html = '<ol class="dc-ladder" aria-label="' + esc(ct('coupons.ladder.title', 'Spend ladder')) + '">';
+        ready.forEach(function (c) {
+            var h = 46 + Math.round(58 * (parseFloat(c.target) || 0) / top);
+            html += '<li class="dc-rung' + (c.enabled ? ' is-on' : ' is-off') + '" style="height:' + h + 'px">' +
+                '<span class="dc-rung-get">+HK$' + round2(c.face).toFixed(0) + '</span>' +
+                '<span class="dc-rung-spend">HK$' + round2(c.target).toFixed(0) + '</span></li>';
+        });
+        html += '</ol>';
+        var empty = rows.length - ready.length;
+        if (empty) {
+            html += '<p class="dc-hint">' + empty + ' ' + esc(ct('coupons.ladder.blank', 'more rows left blank.')) + '</p>';
+        }
+        return html;
+    }
+
+    function clinicBannerHtml(clinics) {
+        var off = (clinics || configClinics()).map(function (c) { return String(c.clinic_code || '').toUpperCase(); })
+            .filter(function (code) { return code && !clinicJoined(code); });
+        if (!off.length) return '';
+        return '<p class="dc-banner dc-banner-warn" role="status"><b>' + esc(ct('coupons.banner.off', 'Coupons are switched off at')) +
+            ' ' + esc(off.join(', ')) + '.</b> ' +
+            esc(ct('coupons.banner.offHint', 'Bills at these clinics do not use or earn coupons.')) + '</p>';
+    }
+
+    function paintConfig(pane) {
+        var clinics = configClinics();
         var open = 0;
         clinics.forEach(function (c, i) {
             if (String(c.clinic_code || '').toUpperCase() === DEFAULT_JOIN_CODE) open = i;
@@ -900,6 +1026,7 @@ var COUPONS = (function () {
         html += '<h2 class="dc-title">' + esc(ct('coupons.cfg.title', 'Discount Coupons')) + '</h2>';
         html += '<p class="dc-blurb">' + esc(ct('coupons.cfg.blurb',
             'Separate from reward points. KT is joined. Other clinics stay off until you tick them. Each bill can use one whole-bill coupon plus one treatment coupon. A treatment coupon applies only to the catalog items listed on it.')) + '</p>';
+        html += '<div id="dcCfgBanner">' + clinicBannerHtml(clinics) + '</div>';
         html += rulesNoteHtml();
 
         html += '<div class="dc-card"><div class="dc-card-title">' + esc(ct('coupons.cfg.clinics', 'Clinics in scheme')) + '</div>';
@@ -920,12 +1047,12 @@ var COUPONS = (function () {
             }
             html += '<div class="dc-panel' + (i === open ? ' is-active' : '') + '" data-dc-panel="' + esc(code) + '"' +
                 (i === open ? '' : ' hidden') + '>';
-            html += '<div class="dc-row"><span>' + esc(code) + ' · ' + esc(c.english_name || c.chinese_name || '') + '</span>' +
-                '<label class="dc-join"><input type="checkbox" class="dc-clinic-join" data-code="' + esc(code) +
+            html += '<div class="dc-row dc-clinic-row"><span>' + esc(code) + ' · ' + esc(c.english_name || c.chinese_name || '') + '</span>' +
+                '<label class="dc-join dc-switch"><input type="checkbox" class="dc-clinic-join" data-code="' + esc(code) +
                 '" data-id="' + esc(c.id || '') + '"' + (on ? ' checked' : '') + '> ' +
                 esc(ct('coupons.cfg.join', 'Join')) + '</label></div>';
             html += '<div class="dc-row dc-doc"><span>' + esc(ct('coupons.cfg.allDoctors', 'All Doctors')) + '</span>' +
-                '<label class="dc-join"><input type="checkbox" class="dc-doc-join" data-code="' + esc(code) +
+                '<label class="dc-join dc-switch"><input type="checkbox" class="dc-doc-join" data-code="' + esc(code) +
                 '" data-doctor="__all__"' + (doctorJoined(code, '__all__') ? ' checked' : '') + '> ' +
                 esc(ct('coupons.cfg.join', 'Join')) + '</label></div>';
             docs.forEach(function (d) {
@@ -933,7 +1060,7 @@ var COUPONS = (function () {
                 var label = d.english_name || d.chinese_name || d.doctor_code || d.id;
                 var key = String(d.id || d.doctor_code || label);
                 html += '<div class="dc-row dc-doc"><span>' + esc(label) + '</span>' +
-                    '<label class="dc-join"><input type="checkbox" class="dc-doc-join" data-code="' + esc(code) +
+                    '<label class="dc-join dc-switch"><input type="checkbox" class="dc-doc-join" data-code="' + esc(code) +
                     '" data-doctor="' + esc(key) + '"' + (doctorJoined(code, key) ? ' checked' : '') + '> ' +
                     esc(ct('coupons.cfg.join', 'Join')) + '</label></div>';
             });
@@ -944,41 +1071,49 @@ var COUPONS = (function () {
         html += '<div class="dc-card"><div class="dc-card-title">' + esc(ct('coupons.cfg.spendTitle', 'Expenditure coupons')) + '</div>';
         html += '<p class="dc-hint">' + esc(ct('coupons.cfg.spendHint',
             'Five combinations. The first three are filled in. The last two stay empty until you set the spend and the coupon. A row issues only when it is on and both amounts are filled. One bill can earn every row it reaches.')) + '</p>';
+        html += '<div class="dc-ladder-wrap" id="dcLadder">' + ladderHtml() + '</div>';
         campaigns().forEach(function (c) {
             if (!c || c.trigger !== 'target_spend') return;
-            var ready = (parseFloat(c.target) || 0) > 0 && (parseFloat(c.face) || 0) > 0;
             var title = campLabel(c);
             html += '<div class="dc-spend" data-camp="' + esc(c.key) + '">';
-            html += '<label class="dc-camp-head"><input type="checkbox" class="dc-camp-on" data-key="' + esc(c.key) + '"' +
-                (c.enabled ? ' checked' : '') + '><strong class="dc-spend-label">' + esc(title) + '</strong></label>';
+            html += '<div class="dc-camp-top"><label class="dc-camp-head dc-switch"><input type="checkbox" class="dc-camp-on" data-key="' + esc(c.key) + '"' +
+                (c.enabled ? ' checked' : '') + '><strong class="dc-spend-label">' + esc(title) + '</strong></label>' +
+                statusBadgeHtml(c) + '</div>';
             html += '<div class="dc-camp-grid">';
             html += field(c.key, 'target', ct('coupons.cfg.spend', 'Spend HK$'), c.target, true);
             html += field(c.key, 'face', ct('coupons.cfg.get', 'Coupon HK$'), c.face, true);
             html += field(c.key, 'expiryDays', ct('coupons.cfg.expiry', 'Days'), c.expiryDays);
             html += field(c.key, 'holdLimit', ct('coupons.cfg.hold', 'Hold up to'), holdLimitFor(c));
-            html += '</div></div>';
+            html += limitFields(c);
+            html += '</div>' + usageLine(c) + '</div>';
         });
+        html += '<p class="dc-hint">' + esc(ct('coupons.cfg.capHint',
+            'Issue cap and budget are optional. Leave them blank for no limit. Voided coupons do not count.')) + '</p>';
         html += '</div>';
 
         html += '<div class="dc-card"><div class="dc-card-title">' + esc(ct('coupons.cfg.campaigns', 'Campaigns')) + '</div>';
         html += '<p class="dc-hint">' + esc(ct('coupons.cfg.campaignHint',
             'Turn each offer on or off. A treatment coupon fits the items ticked in its list; the smart keyword filter ticks matching items for you.')) + '</p>';
+        html += '<div class="dc-camp-list">';
         campaigns().forEach(function (c) {
             if (!c || c.trigger === 'target_spend') return;
-            html += '<div class="dc-camp" data-camp="' + esc(c.key) + '">';
-            html += '<label class="dc-camp-head"><input type="checkbox" class="dc-camp-on" data-key="' + esc(c.key) + '"' +
-                (c.enabled ? ' checked' : '') + '><strong>' + esc(campLabel(c)) + '</strong></label>';
+            html += '<div class="dc-camp" data-camp="' + esc(c.key) + '" data-kind="' + kindOf(c) + '">';
+            html += '<div class="dc-camp-top"><label class="dc-camp-head dc-switch"><input type="checkbox" class="dc-camp-on" data-key="' + esc(c.key) + '"' +
+                (c.enabled ? ' checked' : '') + '><strong>' + esc(campLabel(c)) + '</strong></label>' +
+                statusBadgeHtml(c) + '</div>';
+            html += previewTicketHtml(c);
             html += '<div class="dc-camp-grid">';
             html += field(c.key, 'face', 'HK$', c.face);
             if (c.mode === 'percent') html += field(c.key, 'percent', '%', c.percent);
             html += field(c.key, 'expiryDays', ct('coupons.cfg.expiry', 'Days'), c.expiryDays);
             html += field(c.key, 'maxDiscount', ct('coupons.cfg.ceiling', 'Ceiling'), c.maxDiscount);
             html += field(c.key, 'holdLimit', ct('coupons.cfg.hold', 'Hold up to'), holdLimitFor(c));
-            html += '</div>';
+            html += limitFields(c);
+            html += '</div>' + usageLine(c);
             if (c.scope === 'items') html += itemPickerHtml(c);
             html += '</div>';
         });
-        html += '</div>';
+        html += '</div></div>';
         var today = new Date();
         var from = new Date(today.getTime() - 30 * 86400000);
         html += '<div class="dc-card" id="dcLogCard"><div class="dc-card-title">' + esc(ct('coupons.log.title', 'Coupon log')) + '</div>' +
@@ -989,7 +1124,9 @@ var COUPONS = (function () {
             '<span>→</span>' +
             '<input type="date" id="dcLogTo" value="' + today.toISOString().slice(0, 10) + '">' +
             '<input type="text" id="dcLogChart" placeholder="' + esc(ct('coupons.log.chart', 'Chart no.')) + '">' +
-            '<button type="button" id="dcLogGo">' + esc(ct('coupons.log.load', 'Show')) + '</button></div>' +
+            '<button type="button" id="dcLogGo">' + esc(ct('coupons.log.load', 'Show')) + '</button>' +
+            '<button type="button" id="dcLogCsv" class="dc-log-csv" disabled>' + esc(ct('coupons.log.csv', 'Export CSV')) + '</button></div>' +
+            '<div class="dc-log-chips" id="dcLogChips" role="group"></div>' +
             '<div class="dc-log-wrap" id="dcLogBody"></div></div>';
         html += '</div>';
         pane.innerHTML = html;
@@ -997,6 +1134,8 @@ var COUPONS = (function () {
         wireConfig(pane);
         var go = document.getElementById('dcLogGo');
         if (go) go.onclick = function () { loadCouponLog(); };
+        var csv = document.getElementById('dcLogCsv');
+        if (csv) csv.onclick = downloadCouponLog;
         loadCouponLog();
     }
 
@@ -1011,21 +1150,41 @@ var COUPONS = (function () {
     }
 
     /** Pure: merge issued coupon rows and audit rows into one newest-first list. */
-    function buildCouponLog(coupons, audits, patients) {
+    function couponAmountText(c) {
+        var camp = campaignByKey(c && c.campaign_key) || {};
+        var mode = (c && c.discount_mode) || camp.mode;
+        if (mode === 'free_line') return '';
+        if (mode === 'percent') return round2(parseFloat(c.percent) || 0) + '%';
+        return 'HK$' + round2(c && c.face_value).toFixed(2);
+    }
+
+    /**
+     * Pure: merge issued coupon rows and audit rows into one newest-first list.
+     * couponById (optional) fills coupon / amount / code on audit rows whose coupon was issued outside the period.
+     */
+    function buildCouponLog(coupons, audits, patients, couponById) {
         patients = patients || {};
+        var byId = {};
+        Object.keys(couponById || {}).forEach(function (k) { byId[k] = couponById[k]; });
+        (coupons || []).forEach(function (c) { if (c && c.id != null) byId[String(c.id)] = c; });
+        var grants = {};
+        (audits || []).forEach(function (a) {
+            if (String(a.operation || '').toUpperCase() === 'GRANT' && a.record_id) grants[String(a.record_id)] = a;
+        });
         var out = [];
         (coupons || []).forEach(function (c) {
             var camp = campaignByKey(c.campaign_key) || {};
             var p = patients[String(c.patient_id)] || {};
-            var gifted = /gift/i.test(String(c.note || ''));
+            var grant = c.id != null ? grants[String(c.id)] : null;
+            var gifted = !!grant || /gift/i.test(String(c.note || ''));
             out.push({
                 at: c.issued_at || '',
                 op: gifted ? 'GIFT' : 'ISSUE',
-                who: c.issued_by || (gifted ? '' : ct('coupons.log.auto', 'Automatic')),
-                clinic: c.clinic_code || '',
-                chart: p.patient_no || '',
+                who: (grant && (grant.user_name || grant.user_id)) || c.issued_by || (gifted ? '' : ct('coupons.log.auto', 'Automatic')),
+                clinic: c.clinic_code || (grant && grant.clinic_tag) || '',
+                chart: (grant && grant.patient_no) || p.patient_no || '',
                 coupon: campLabel(camp.key ? camp : c),
-                amount: camp.mode === 'free_line' ? '' : ('HK$' + round2(c.face_value).toFixed(2)),
+                amount: couponAmountText(c),
                 code: c.code || '',
                 status: c.status || '',
                 note: c.note || ''
@@ -1034,15 +1193,17 @@ var COUPONS = (function () {
         (audits || []).forEach(function (a) {
             var op = String(a.operation || '').toUpperCase();
             if (op === 'GRANT') return;
+            var c = a.record_id ? byId[String(a.record_id)] : null;
+            var camp = c ? (campaignByKey(c.campaign_key) || {}) : {};
             out.push({
                 at: a.created_at || '',
                 op: op,
                 who: a.user_name || a.user_id || '',
                 clinic: a.clinic_tag || '',
                 chart: a.patient_no || '',
-                coupon: '',
-                amount: '',
-                code: '',
+                coupon: c ? campLabel(camp.key ? camp : c) : '',
+                amount: c ? couponAmountText(c) : '',
+                code: c ? (c.code || '') : '',
                 status: '',
                 note: a.changes_detail || ''
             });
@@ -1073,10 +1234,14 @@ var COUPONS = (function () {
             var cq = SB.from('discount_coupons').select('*').gte('issued_at', start).lte('issued_at', end)
                 .order('issued_at', { ascending: false }).limit(500);
             if (patient) cq = cq.eq('patient_id', patient.id);
-            var aq = SB.from('audit_trail').select('*').eq('table_name', 'discount_coupons')
+            var auditTable = (typeof AUDIT_TRAIL_TABLE !== 'undefined' && AUDIT_TRAIL_TABLE) ? AUDIT_TRAIL_TABLE : 'audit_trail';
+            var aq = SB.from(auditTable).select('*').eq('table_name', 'discount_coupons')
                 .gte('created_at', start).lte('created_at', end)
                 .order('created_at', { ascending: false }).limit(500);
-            if (patient && patient.patient_no) aq = aq.eq('patient_no', patient.patient_no);
+            if (patient && patient.patient_no) {
+                var no = String(patient.patient_no).replace(/[^A-Za-z0-9_\-]/g, '');
+                aq = aq.or('patient_no.eq.' + no + ',changes_detail.ilike."*from ' + no + ' to*"');
+            }
             return Promise.all([cq, aq.then(function (r) { return r; }, function () { return { data: [] }; })])
                 .then(function (res) {
                     if (res[0] && res[0].error) {
@@ -1087,25 +1252,120 @@ var COUPONS = (function () {
                     var audits = (res[1] && !res[1].error && res[1].data) || [];
                     var ids = {};
                     coupons.forEach(function (c) { if (c.patient_id) ids[String(c.patient_id)] = true; });
-                    return patientNoMap(Object.keys(ids)).then(function (pmap) {
-                        paintCouponLog(body, buildCouponLog(coupons, audits, pmap));
+                    var have = {};
+                    coupons.forEach(function (c) { have[String(c.id)] = true; });
+                    var missing = [];
+                    audits.forEach(function (a) {
+                        var id = a.record_id ? String(a.record_id) : '';
+                        if (id && !have[id] && missing.indexOf(id) < 0 && /^[0-9a-f-]{36}$/i.test(id)) missing.push(id);
+                    });
+                    var extraP = missing.length
+                        ? SB.from('discount_coupons').select('*').in('id', missing.slice(0, 300)).then(function (r) {
+                            var map = {};
+                            ((r && r.data) || []).forEach(function (c) { map[String(c.id)] = c; });
+                            return map;
+                        }, function () { return {}; })
+                        : Promise.resolve({});
+                    return Promise.all([patientNoMap(Object.keys(ids)), extraP]).then(function (both) {
+                        paintCouponLog(body, buildCouponLog(coupons, audits, both[0], both[1]));
                     });
                 });
         });
     }
 
-    function paintCouponLog(body, rows) {
-        if (!rows.length) {
-            body.innerHTML = '<p class="dc-hint" style="padding:8px;">' + esc(ct('coupons.log.empty', 'No coupon activity in this period.')) + '</p>';
-            return;
-        }
-        var opName = {
+    var _logRows = [];
+    var _logFilter = 'all';
+    var LOG_OPS = ['ISSUE', 'GIFT', 'TRANSFER', 'RESTORE', 'CANCEL'];
+
+    function logOpNames() {
+        return {
             GIFT: ct('coupons.log.gift', '贈送 Gift'),
             ISSUE: ct('coupons.log.issue', '發出 Issue'),
             TRANSFER: ct('coupons.log.transfer', '轉讓 Transfer'),
             RESTORE: ct('coupons.log.restore', '退回 Restore'),
             CANCEL: ct('coupons.log.cancel', '取消 Cancel')
         };
+    }
+
+    function paintLogChips(rows) {
+        var host = document.getElementById('dcLogChips');
+        if (!host) return;
+        if (!rows.length) { host.innerHTML = ''; return; }
+        var counts = {};
+        rows.forEach(function (r) { counts[r.op] = (counts[r.op] || 0) + 1; });
+        var ops = LOG_OPS.slice();
+        Object.keys(counts).forEach(function (op) { if (ops.indexOf(op) < 0) ops.push(op); });
+        var names = logOpNames();
+        var html = '<button type="button" class="dc-chip' + (_logFilter === 'all' ? ' is-on' : '') + '" data-log-op="all" aria-pressed="' +
+            (_logFilter === 'all') + '">' + esc(ct('coupons.chip.all', 'All')) + ' <span class="dc-chip-n">' + rows.length + '</span></button>';
+        ops.forEach(function (op) {
+            if (!counts[op]) return;
+            html += '<button type="button" class="dc-chip dc-chip-op' + (_logFilter === op ? ' is-on' : '') + '" data-log-op="' + esc(op) +
+                '" data-op="' + esc(op) + '" aria-pressed="' + (_logFilter === op) + '">' + esc(names[op] || op) +
+                ' <span class="dc-chip-n">' + counts[op] + '</span></button>';
+        });
+        host.innerHTML = html;
+        host.querySelectorAll('[data-log-op]').forEach(function (b) {
+            b.onclick = function () {
+                _logFilter = b.getAttribute('data-log-op');
+                var body = document.getElementById('dcLogBody');
+                if (body) paintCouponLog(body, _logRows);
+            };
+        });
+    }
+
+    function filteredLogRows() {
+        return _logFilter === 'all' ? _logRows : _logRows.filter(function (r) { return r.op === _logFilter; });
+    }
+
+    /** Pure: CSV text (with a BOM so Excel reads Chinese) for log rows. */
+    function couponLogCsv(rows) {
+        var names = logOpNames();
+        function cell(v) {
+            var s = String(v == null ? '' : v);
+            return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+        }
+        var head = ['When', 'Action', 'By', 'Clinic', 'Chart no.', 'Coupon', 'Amount', 'Code', 'Status', 'Detail'];
+        var out = [head.join(',')];
+        (rows || []).forEach(function (r) {
+            out.push([
+                r.at ? String(r.at).replace('T', ' ').slice(0, 19) : '', names[r.op] || r.op, r.who, r.clinic, r.chart,
+                r.coupon, r.amount, r.code, r.status, r.note
+            ].map(cell).join(','));
+        });
+        return '\uFEFF' + out.join('\r\n');
+    }
+
+    function downloadCouponLog() {
+        var rows = filteredLogRows();
+        if (!rows.length || typeof Blob === 'undefined') return;
+        var from = (document.getElementById('dcLogFrom') || {}).value || '';
+        var to = (document.getElementById('dcLogTo') || {}).value || '';
+        var blob = new Blob([couponLogCsv(rows)], { type: 'text/csv;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'coupon-log_' + (from || 'all') + '_' + (to || 'now') + (_logFilter === 'all' ? '' : '_' + _logFilter.toLowerCase()) + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 1000);
+    }
+
+    function paintCouponLog(body, rows) {
+        if (rows !== _logRows) {
+            _logRows = rows || [];
+            var known = _logRows.some(function (r) { return r.op === _logFilter; });
+            if (!known) _logFilter = 'all';
+        }
+        paintLogChips(_logRows);
+        var csvBtn = document.getElementById('dcLogCsv');
+        if (csvBtn) csvBtn.disabled = !_logRows.length;
+        rows = filteredLogRows();
+        if (!rows.length) {
+            body.innerHTML = '<p class="dc-hint" style="padding:8px;">' + esc(ct('coupons.log.empty', 'No coupon activity in this period.')) + '</p>';
+            return;
+        }
+        var opName = logOpNames();
         var html = '<table class="dc-log"><thead><tr>' +
             '<th>' + esc(ct('coupons.log.when', 'When')) + '</th>' +
             '<th>' + esc(ct('coupons.log.what', 'Action')) + '</th>' +
@@ -1120,7 +1380,7 @@ var COUPONS = (function () {
         rows.forEach(function (r) {
             var when = r.at ? String(r.at).replace('T', ' ').slice(0, 16) : '';
             html += '<tr><td>' + esc(when) + '</td>' +
-                '<td class="dc-op">' + esc(opName[r.op] || r.op) + '</td>' +
+                '<td class="dc-op"><span class="dc-op-badge" data-op="' + esc(r.op) + '">' + esc(opName[r.op] || r.op) + '</span></td>' +
                 '<td>' + esc(r.who) + '</td>' +
                 '<td>' + esc(r.clinic) + '</td>' +
                 '<td>' + esc(r.chart) + '</td>' +
@@ -1133,6 +1393,16 @@ var COUPONS = (function () {
         body.innerHTML = html;
     }
 
+    function limitFields(c) {
+        return field(c.key, 'issueCap', ct('coupons.cfg.cap', 'Issue cap'), c.issueCap, true) +
+            field(c.key, 'budget', ct('coupons.cfg.budget', 'Budget HK$'), c.budget, true);
+    }
+
+    function usageLine(c) {
+        var text = usageText(c);
+        return '<p class="dc-usage" data-usage="' + esc(c.key) + '"' + (text ? '' : ' hidden') + '>' + esc(text) + '</p>';
+    }
+
     function field(key, prop, label, value, blankZero) {
         var empty = !!blankZero && !((parseFloat(value) || 0) > 0);
         var shown = empty ? '' : value;
@@ -1143,6 +1413,32 @@ var COUPONS = (function () {
     }
 
     function wireConfig(pane) {
+        function swap(el, html) {
+            if (!el) return;
+            var tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            if (tmp.firstChild) el.parentNode.replaceChild(tmp.firstChild, el);
+        }
+        function refreshCamp(key) {
+            var camp = campaignByKey(key);
+            if (!camp) return;
+            swap(pane.querySelector('.dc-badge[data-badge="' + key + '"]'), statusBadgeHtml(camp));
+            swap(pane.querySelector('.dc-ticket[data-preview="' + key + '"]'), previewTicketHtml(camp));
+            if (camp.trigger === 'target_spend') {
+                var ladder = pane.querySelector('#dcLadder');
+                if (ladder) ladder.innerHTML = ladderHtml();
+            }
+        }
+        function refreshClinics() {
+            var banner = pane.querySelector('#dcCfgBanner');
+            if (banner) banner.innerHTML = clinicBannerHtml();
+            pane.querySelectorAll('.dc-tab').forEach(function (b) {
+                var code = b.getAttribute('data-dc-tab');
+                var dot = b.querySelector('.dc-dot');
+                if (clinicJoined(code) && !dot) b.insertAdjacentHTML('beforeend', '<span class="dc-dot"></span>');
+                else if (!clinicJoined(code) && dot) dot.parentNode.removeChild(dot);
+            });
+        }
         pane.querySelectorAll('.dc-tab').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var code = btn.getAttribute('data-dc-tab');
@@ -1158,6 +1454,7 @@ var COUPONS = (function () {
         pane.querySelectorAll('.dc-clinic-join').forEach(function (box) {
             box.addEventListener('change', function () {
                 setClinicJoined(box.getAttribute('data-code'), box.getAttribute('data-id'), box.checked);
+                refreshClinics();
             });
         });
         pane.querySelectorAll('.dc-doc-join').forEach(function (box) {
@@ -1168,6 +1465,7 @@ var COUPONS = (function () {
         pane.querySelectorAll('.dc-camp-on').forEach(function (box) {
             box.addEventListener('change', function () {
                 setCampaignPatch(box.getAttribute('data-key'), { enabled: box.checked });
+                refreshCamp(box.getAttribute('data-key'));
             });
         });
         pane.querySelectorAll('.dc-num').forEach(function (input) {
@@ -1189,6 +1487,18 @@ var COUPONS = (function () {
                     }
                 }
                 setCampaignPatch(key, patch);
+                refreshCamp(key);
+                if (prop === 'issueCap' || prop === 'budget') {
+                    loadUsage().then(function () {
+                        refreshCamp(key);
+                        var line = pane.querySelector('.dc-usage[data-usage="' + key + '"]');
+                        if (!line) return;
+                        var text = usageText(campaignByKey(key));
+                        line.textContent = text;
+                        if (text) line.removeAttribute('hidden');
+                        else line.setAttribute('hidden', '');
+                    });
+                }
             });
         });
         function repaintPicker(key) {
@@ -1200,6 +1510,7 @@ var COUPONS = (function () {
             if (sum) sum.textContent = pickSummaryText(camp);
             var q = pane.querySelector('.dc-pick-q[data-key="' + key + '"]');
             if (q && q.value) filterPicker(key, q.value);
+            refreshCamp(key);
         }
         function filterPicker(key, text) {
             var q = String(text || '').trim().toLowerCase();
@@ -1363,6 +1674,7 @@ var COUPONS = (function () {
                     if (label) label.textContent = bill.coupon_label;
                 }
                 var lines = [];
+                var bar = '';
                 if (earned.length) {
                     lines.push('🎟️ ' + ct('coupons.info.earned', 'Earned from this bill') + ': ' + earned.map(function (c) {
                         return campLabel(c) + ' HK$' + round2(c.face_value).toFixed(0) +
@@ -1371,7 +1683,8 @@ var COUPONS = (function () {
                 }
                 var voided = !!bill.voided_at;
                 var due = parseFloat(bill.total) || 0;
-                if (!voided && !earned.length) {
+                var doctorIn = doctorJoined(clinicCode, bill.doctor_id ? String(bill.doctor_id) : '');
+                if (!voided && !earned.length && doctorIn) {
                     var prog = spendProgress(due);
                     if (prog.reached.length) {
                         lines.push('✅ ' + ct('coupons.info.willEarn', 'Paid in full by cash, this bill earns') + ': ' +
@@ -1381,9 +1694,10 @@ var COUPONS = (function () {
                         lines.push('➕ ' + ct('coupons.info.short', 'Spend') + ' HK$' + prog.shortBy.toFixed(2) + ' ' +
                             ct('coupons.info.more', 'more for') + ' ' + campLabel(prog.next));
                     }
+                    bar = spendBarHtml(due, prog);
                 }
                 info.hidden = !lines.length;
-                info.innerHTML = lines.map(function (t) { return '<div>' + esc(t) + '</div>'; }).join('');
+                info.innerHTML = lines.map(function (t) { return '<div>' + esc(t) + '</div>'; }).join('') + bar;
             });
         }).catch(function () { info.hidden = true; });
     }
@@ -1412,7 +1726,7 @@ var COUPONS = (function () {
                 return;
             }
             loadWallet(bill.patient_id).then(function (wallet) {
-                paintSheet(bill, wallet, clinicCode, { allowApply: !paid, focusGift: !!opts.gift });
+                paintSheet(bill, wallet, clinicCode, { allowApply: !paid, focusGift: !!opts.gift, tab: opts.tab || '' });
             });
         });
     }
@@ -1425,12 +1739,14 @@ var COUPONS = (function () {
 
     function paintSheetMessage(msg) {
         var host = ensureSheet();
-        host.innerHTML = '<div class="dc-sheet"><button type="button" class="dc-x" id="dcSheetClose">×</button>' +
-            '<h3>' + esc(ct('coupons.bill.title', '優惠券')) + '</h3><p>' + esc(msg) + '</p></div>';
-        host.removeAttribute('hidden');
-        var x = document.getElementById('dcSheetClose');
-        if (x) x.onclick = closeSheet;
+        host.innerHTML = '<div class="dc-sheet dc-sheet-msg" role="dialog" aria-modal="true" aria-labelledby="dcSheetTitle">' +
+            '<div class="dc-sheet-head"><h3 id="dcSheetTitle">' + esc(ct('coupons.bill.title', '優惠券')) + '</h3>' +
+            '<button type="button" class="dc-x" id="dcSheetClose" aria-label="' + esc(ct('common.close', 'Close')) + '">×</button></div>' +
+            '<div class="dc-sheet-body"><p class="dc-banner dc-banner-warn">' + esc(msg) + '</p></div></div>';
+        showSheet(host);
     }
+
+    var _sheetOpener = null;
 
     function ensureSheet() {
         var host = document.getElementById('dcSheetHost');
@@ -1438,14 +1754,122 @@ var COUPONS = (function () {
             host = document.createElement('div');
             host.id = 'dcSheetHost';
             host.setAttribute('hidden', '');
+            host.addEventListener('mousedown', function (ev) { if (ev.target === host) closeSheet(); });
+            host.addEventListener('keydown', function (ev) {
+                var prompt = host.querySelector('.dc-authp');
+                if (ev.key === 'Escape') {
+                    ev.preventDefault();
+                    if (prompt && prompt.__dcCancel) prompt.__dcCancel();
+                    else closeSheet();
+                    return;
+                }
+                if (ev.key !== 'Tab') return;
+                var items = Array.prototype.filter.call(
+                    (prompt || host).querySelectorAll('button,input,select,textarea,summary,[tabindex]:not([tabindex="-1"])'),
+                    function (el) { return !el.disabled && el.offsetParent !== null; });
+                if (!items.length) return;
+                var first = items[0];
+                var last = items[items.length - 1];
+                if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+                else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+            });
             document.body.appendChild(host);
         }
         return host;
     }
 
+    function showSheet(host) {
+        var wasHidden = host.hasAttribute('hidden');
+        if (wasHidden && document.activeElement && document.activeElement !== document.body) {
+            _sheetOpener = document.activeElement;
+        }
+        host.removeAttribute('hidden');
+        var x = document.getElementById('dcSheetClose');
+        if (x) {
+            x.onclick = closeSheet;
+            if (wasHidden) { try { x.focus({ preventScroll: true }); } catch (e) {} }
+        }
+    }
+
     function closeSheet() {
         var host = document.getElementById('dcSheetHost');
+        var prompt = host && host.querySelector('.dc-authp');
+        if (prompt && prompt.__dcCancel) prompt.__dcCancel();
         if (host) host.setAttribute('hidden', '');
+        var back = _sheetOpener;
+        _sheetOpener = null;
+        if (back && document.body.contains(back)) { try { back.focus({ preventScroll: true }); } catch (e) {} }
+    }
+
+    /**
+     * Ask for a staff login + password on top of the sheet before a gift or transfer.
+     * Resolves with the verified app_users row, or null when cancelled.
+     */
+    function promptGrantor(host, title, summary) {
+        return new Promise(function (resolve) {
+            var sheet = host && host.querySelector('.dc-sheet');
+            if (!sheet) { resolve(null); return; }
+            var old = sheet.querySelector('.dc-authp');
+            if (old && old.__dcCancel) old.__dcCancel();
+            var screenUid = String((typeof currentUserId !== 'undefined' && currentUserId) || '').trim();
+            var prefill = SHARED_LOGIN_IDS[screenUid.toLowerCase()] ? '' : screenUid;
+            var back = document.activeElement;
+            var wrap = document.createElement('div');
+            wrap.className = 'dc-authp';
+            wrap.setAttribute('role', 'alertdialog');
+            wrap.setAttribute('aria-modal', 'true');
+            wrap.setAttribute('aria-labelledby', 'dcAuthTitle');
+            wrap.innerHTML = '<form class="dc-authp-card dc-auth" id="dcAuthBox" autocomplete="off">' +
+                '<h4 id="dcAuthTitle">🔒 ' + esc(title) + '</h4>' +
+                '<p class="dc-authp-what">' + esc(summary) + '</p>' +
+                '<p class="dc-hint">' + esc(ct('coupons.auth.hint',
+                    'Gifting or transferring a coupon needs your own login and password. The shared Nurse login cannot be used.')) + '</p>' +
+                '<label class="dc-authp-field"><span>' + esc(ct('coupons.auth.user', 'Login ID')) + '</span>' +
+                '<input type="text" id="dcAuthUser" autocomplete="off" spellcheck="false" value="' + esc(prefill) + '"></label>' +
+                '<label class="dc-authp-field"><span>' + esc(ct('coupons.auth.pw', 'Password')) + '</span>' +
+                '<input type="password" id="dcAuthPw" autocomplete="new-password"></label>' +
+                '<p class="dc-err" id="dcAuthErr" hidden></p>' +
+                '<p class="dc-hint dc-authp-log">' + esc(ct('coupons.auth.logged', 'This will be recorded in the coupon log under your login.')) + '</p>' +
+                '<div class="dc-actions">' +
+                '<button type="button" class="dc-clear" data-act="cancel">' + esc(ct('common.cancel', 'Cancel')) + '</button>' +
+                '<button type="submit" class="dc-apply" id="dcAuthGo">' + esc(ct('coupons.auth.confirm', 'Confirm')) + '</button>' +
+                '</div></form>';
+            sheet.appendChild(wrap);
+            var form = wrap.querySelector('form');
+            var u = wrap.querySelector('#dcAuthUser');
+            var p = wrap.querySelector('#dcAuthPw');
+            var err = wrap.querySelector('#dcAuthErr');
+            var go = wrap.querySelector('#dcAuthGo');
+            var done = false;
+            function finish(user) {
+                if (done) return;
+                done = true;
+                p.value = '';
+                if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+                if (back && document.body.contains(back)) { try { back.focus({ preventScroll: true }); } catch (e) {} }
+                resolve(user);
+            }
+            wrap.__dcCancel = function () { finish(null); };
+            wrap.querySelector('[data-act="cancel"]').onclick = function () { finish(null); };
+            form.addEventListener('submit', function (ev) {
+                ev.preventDefault();
+                if (done) return;
+                err.hidden = true;
+                go.disabled = true;
+                var pw = p.value;
+                p.value = '';
+                verifyGrantor(u.value, pw).then(function (auth) {
+                    if (done) return;
+                    go.disabled = false;
+                    if (auth && auth.ok) { finish(auth.user); return; }
+                    err.hidden = false;
+                    err.textContent = grantReason(auth && auth.reason);
+                    try { p.focus(); } catch (e) {}
+                });
+            });
+            var first = String(u.value || '').trim() ? p : u;
+            try { first.focus({ preventScroll: true }); } catch (e) {}
+        });
     }
 
     var _lastSheet = null;
@@ -1457,7 +1881,7 @@ var COUPONS = (function () {
         var catalog = (typeof treatmentItemsCache !== 'undefined' && treatmentItemsCache) ? treatmentItemsCache : [];
         var lines = parseItems(bill);
         var eligible = eligibleBeforeCoupon(bill);
-        var today = new Date().toISOString().slice(0, 10);
+        var today = todayIso();
         var usable = [];
         var blocked = [];
         var onThisBill = [];
@@ -1493,40 +1917,61 @@ var COUPONS = (function () {
             });
         });
         var focusId = picked.bill || picked.items || (blocked[0] ? String(blocked[0].coupon.id) : '');
+        var transferable = usable.concat(blocked).filter(function (r) {
+            var c = r.coupon;
+            return onThisBill.indexOf(String(c.id)) < 0 && isLive(c, today) && !LOCKED_TRANSFER_KEYS[c.campaign_key];
+        });
+        var tab = opts.tab || (opts.focusGift ? 'gift' : 'use');
+        if (tab !== 'gift' && tab !== 'transfer') tab = 'use';
+        function hiddenUnless(on) { return on ? '' : ' hidden'; }
         var host = ensureSheet();
-        var html = '<div class="dc-sheet" role="dialog">';
-        html += '<button type="button" class="dc-x" id="dcSheetClose">×</button>';
-        html += '<h3>' + esc(ct('coupons.bill.title', '優惠券')) + '</h3>';
+        var html = '<div class="dc-sheet" role="dialog" aria-modal="true" aria-labelledby="dcSheetTitle">';
+        html += '<div class="dc-sheet-head">' +
+            '<h3 id="dcSheetTitle">' + esc(ct('coupons.bill.title', '優惠券')) + '</h3>' +
+            '<button type="button" class="dc-x" id="dcSheetClose" aria-label="' + esc(ct('common.close', 'Close')) + '">×</button>' +
+            walletSummaryHtml(wallet, today) +
+            '<div class="dc-stabs" role="tablist">';
+        [
+            ['use', ct('coupons.tab.use', 'Use'), usable.length],
+            ['gift', ct('coupons.tab.gift', 'Gift'), null],
+            ['transfer', ct('coupons.tab.transfer', 'Transfer'), null]
+        ].forEach(function (t) {
+            html += '<button type="button" role="tab" class="dc-stab' + (t[0] === tab ? ' is-on' : '') + '" data-tab="' + t[0] +
+                '" id="dcTab-' + t[0] + '" aria-controls="dcPanel-' + t[0] + '" aria-selected="' + (t[0] === tab) + '">' +
+                esc(t[1]) + (t[2] != null ? ' <span class="dc-stab-n">' + t[2] + '</span>' : '') + '</button>';
+        });
+        html += '</div></div>';
+        html += '<div class="dc-sheet-body">';
+
+        html += '<section class="dc-spanel" id="dcPanel-use" role="tabpanel" aria-labelledby="dcTab-use" data-panel="use"' +
+            hiddenUnless(tab === 'use') + '>';
         html += '<div class="dc-chips"><button type="button" class="dc-chip is-on" data-filter="all">' +
             esc(ct('coupons.chip.all', 'All')) + '</button>' +
             '<button type="button" class="dc-chip" data-filter="bill">' + esc(ct('coupons.chip.bill', 'Whole bill')) + '</button>' +
             '<button type="button" class="dc-chip" data-filter="free_line">' + esc(ct('coupons.chip.free', 'Free treatment')) + '</button>' +
             '<button type="button" class="dc-chip" data-filter="items">' + esc(ct('coupons.chip.items', 'Implant / ortho')) + '</button></div>';
+        html += '<p class="dc-hint">' + esc(ct('coupons.bill.rule',
+            'One bill-wide coupon (cash, spend, new chart, referral) and one treatment coupon can be used together. Tap a card to choose or unchoose it.')) + '</p>';
+        html += rulesNoteHtml();
         html += '<div class="dc-cards">';
         if (!usable.length && !blocked.length) {
             html += '<p class="dc-empty">' + esc(ct('coupons.bill.empty', 'This patient has no unused coupons.')) + '</p>';
         }
-        html += '<p class="dc-hint">' + esc(ct('coupons.bill.rule',
-            'One bill-wide coupon (cash, spend, new chart, referral) and one treatment coupon can be used together. Tap a card to choose or unchoose it.')) + '</p>';
-        html += rulesNoteHtml();
         usable.forEach(function (row) {
-            html += cardHtml(row, !!bestIds[String(row.coupon.id)], false);
+            html += cardHtml(row, !!bestIds[String(row.coupon.id)], false, today);
         });
-        blocked.forEach(function (row) { html += cardHtml(row, false, true); });
+        blocked.forEach(function (row) { html += cardHtml(row, false, true, today); });
         html += '</div>';
-        html += '<div class="dc-preview" id="dcPreview"></div>';
         html += '<p class="dc-why" id="dcWhy" hidden></p>';
-        if (allowApply) {
-            html += '<div class="dc-actions"><button type="button" id="dcApply" class="dc-apply">' +
-                esc(ct('coupons.bill.apply', 'Apply')) + '</button>' +
-                '<button type="button" id="dcClear" class="dc-clear">' +
-                esc(ct('coupons.bill.clear', '不使用優惠券')) + '</button></div>';
-        } else {
-            html += '<p class="dc-hint">' + esc(ct('coupons.grant.paid', 'This bill is already paid. A gifted coupon stays in the wallet for a later bill.')) + '</p>';
-        }
+        html += '</section>';
+
         var giftChoices = campaigns().filter(function (c) {
             return c && c.trigger === 'manual' && c.enabled && !AUTO_GRANT_KEYS[c.key];
         });
+        var lockNote = '<p class="dc-lock-note">🔒 ' + esc(ct('coupons.auth.needed',
+            'Asks for your own login and password, then records it in the coupon log.')) + '</p>';
+        html += '<section class="dc-spanel" id="dcPanel-gift" role="tabpanel" aria-labelledby="dcTab-gift" data-panel="gift"' +
+            hiddenUnless(tab === 'gift') + '>';
         html += '<div class="dc-gift" id="dcGiftBox">' +
             '<label>' + esc(ct('coupons.grant.title', 'Gift a coupon into this wallet')) + '</label>' +
             '<p class="dc-hint">' + esc(ct('coupons.grant.hint', 'Cash and treatment coupons that are switched on. The coupon is stored unused and does not reduce this bill until someone chooses it later.')) + '</p>';
@@ -1538,18 +1983,89 @@ var COUPONS = (function () {
                 html += '<option value="' + esc(c.key) + '">' + esc(campLabel(c)) + '</option>';
             });
             html += '</select><input type="number" id="dcGiftAmount" min="1" max="200" step="1" value="100">' +
-                '<button type="button" id="dcGiftGo">' + esc(ct('coupons.grant.go', 'Gift to wallet')) + '</button></div>' +
+                '<button type="button" id="dcGiftGo">🔒 ' + esc(ct('coupons.grant.go', 'Gift to wallet')) + '</button></div>' +
                 '<p id="dcGiftOffer" class="dc-hint"></p>';
         }
-        html += '<p id="dcGiftErr" class="dc-err" hidden></p></div>';
-        html += '<div class="dc-transfer"><label>' + esc(ct('coupons.xfer.to', 'Transfer selected to chart no.')) + '</label>' +
-            '<input type="text" id="dcXferTo" autocomplete="off">' +
-            '<button type="button" id="dcXferGo">' + esc(ct('coupons.xfer.go', 'Transfer')) + '</button>' +
-            '<p id="dcXferErr" class="dc-err" hidden></p></div>';
+        html += '<p id="dcGiftErr" class="dc-err" hidden></p>' + lockNote + '</div>';
+        html += '</section>';
+
+        var xferDefault = '';
+        transferable.forEach(function (r) { if (String(r.coupon.id) === focusId) xferDefault = focusId; });
+        if (!xferDefault && transferable[0]) xferDefault = String(transferable[0].coupon.id);
+        html += '<section class="dc-spanel" id="dcPanel-transfer" role="tabpanel" aria-labelledby="dcTab-transfer" data-panel="transfer"' +
+            hiddenUnless(tab === 'transfer') + '>';
+        html += '<div class="dc-transfer">' +
+            '<label for="dcXferPick">' + esc(ct('coupons.xfer.which', 'Coupon to transfer')) + '</label>';
+        if (!transferable.length) {
+            html += '<p class="dc-hint">' + esc(ct('coupons.xfer.noneMovable',
+                'No coupon here can be transferred. Coupons on this bill, expired coupons, and new-chart or referral coupons stay with this patient.')) + '</p>';
+        }
+        html += '<select id="dcXferPick"' + (transferable.length ? '' : ' disabled') + '>';
+        transferable.forEach(function (r) {
+            var c = r.coupon;
+            var id = String(c.id);
+            html += '<option value="' + esc(id) + '"' + (id === xferDefault ? ' selected' : '') + '>' +
+                esc(campLabel(c) + ' · ' + faceText(c) + (c.expires_on ? ' · ' + c.expires_on : '')) + '</option>';
+        });
+        html += '</select>' +
+            '<label for="dcXferTo">' + esc(ct('coupons.xfer.toChart', 'To chart no.')) + '</label>' +
+            '<div class="dc-xfer-row"><input type="text" id="dcXferTo" autocomplete="off">' +
+            '<button type="button" id="dcXferGo"' + (transferable.length ? '' : ' disabled') + '>🔒 ' +
+            esc(ct('coupons.xfer.go', 'Transfer')) + '</button></div>' +
+            '<p id="dcXferErr" class="dc-err" hidden></p>' + lockNote + '</div>';
+        html += '</section>';
         html += '</div>';
+
+        html += '<div class="dc-sheet-foot" data-panel="use"' + hiddenUnless(tab === 'use') + '>' +
+            '<div class="dc-preview" id="dcPreview" aria-live="polite"></div>';
+        if (allowApply) {
+            html += '<div class="dc-actions">' +
+                '<button type="button" id="dcClear" class="dc-clear">' + esc(ct('coupons.bill.clear', '不使用優惠券')) + '</button>' +
+                '<button type="button" id="dcApply" class="dc-apply">' + esc(ct('coupons.bill.apply', 'Apply')) + '</button></div>';
+        } else {
+            html += '<p class="dc-hint">' + esc(ct('coupons.grant.paid', 'This bill is already paid. A gifted coupon stays in the wallet for a later bill.')) + '</p>';
+        }
+        html += '</div></div>';
         host.innerHTML = html;
-        host.removeAttribute('hidden');
-        document.getElementById('dcSheetClose').onclick = closeSheet;
+        showSheet(host);
+        function setTab(name) {
+            tab = name;
+            opts.tab = name;
+            var pick = document.getElementById('dcXferPick');
+            if (name === 'transfer' && pick && focusId) {
+                Array.prototype.forEach.call(pick.options, function (o) { if (o.value === String(focusId)) pick.value = o.value; });
+            }
+            host.querySelectorAll('.dc-stab').forEach(function (b) {
+                var on = b.getAttribute('data-tab') === name;
+                b.classList.toggle('is-on', on);
+                b.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+            host.querySelectorAll('[data-panel]').forEach(function (p) {
+                var key = p.getAttribute('data-panel');
+                if (key === name) p.removeAttribute('hidden');
+                else p.setAttribute('hidden', '');
+            });
+        }
+        function focusTab(name) {
+            var el = name === 'gift' ? document.getElementById('dcGiftKind') : name === 'transfer' ? document.getElementById('dcXferTo') : null;
+            if (el && !el.disabled) { try { el.focus({ preventScroll: true }); } catch (e) {} }
+        }
+        host.querySelectorAll('.dc-stab').forEach(function (b) {
+            b.addEventListener('click', function (e) {
+                var name = b.getAttribute('data-tab');
+                setTab(name);
+                if (e.detail > 0) focusTab(name);
+            });
+            b.addEventListener('keydown', function (e) {
+                if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+                var tabs = Array.prototype.slice.call(host.querySelectorAll('.dc-stab'));
+                var i = tabs.indexOf(b) + (e.key === 'ArrowRight' ? 1 : -1);
+                var nextTab = tabs[(i + tabs.length) % tabs.length];
+                e.preventDefault();
+                nextTab.focus();
+                setTab(nextTab.getAttribute('data-tab'));
+            });
+        });
         function rowById(id) {
             var found = null;
             usable.concat(blocked).forEach(function (r) { if (String(r.coupon.id) === String(id)) found = r; });
@@ -1565,8 +2081,10 @@ var COUPONS = (function () {
             var combo = currentCombo();
             host.querySelectorAll('.dc-card').forEach(function (el) {
                 var id = el.getAttribute('data-id');
-                el.classList.toggle('is-picked', id === picked.items || id === picked.bill);
+                var on = id === picked.items || id === picked.bill;
+                el.classList.toggle('is-picked', on);
                 el.classList.toggle('is-focus', id === focusId);
+                el.setAttribute('aria-pressed', on ? 'true' : 'false');
                 var save = el.querySelector('.dc-save');
                 combo.rows.forEach(function (r) {
                     if (save && String(r.coupon.id) === id) save.textContent = '−' + r.assess.save.toFixed(2);
@@ -1575,14 +2093,18 @@ var COUPONS = (function () {
             var el = document.getElementById('dcPreview');
             if (el) {
                 if (!combo.rows.length) {
-                    el.textContent = ct('coupons.bill.totalStays', 'Total stays') + ' ' + eligible.toFixed(2);
+                    el.innerHTML = '<span class="dc-pv-label">' + esc(ct('coupons.bill.totalStays', 'Total stays')) + '</span> ' +
+                        '<strong class="dc-pv-total">' + eligible.toFixed(2) + '</strong>';
                 } else {
                     var parts = combo.rows.map(function (r) {
                         return '− ' + r.assess.save.toFixed(2) + ' (' + campLabel(r.coupon) + ')';
                     });
                     var next = Math.max(0, round2(eligible - combo.save));
-                    el.textContent = eligible.toFixed(2) + ' ' + parts.join(' ') + ' → ' + next.toFixed(2) +
-                        '  ·  ' + ct('coupons.bill.saving', 'Saving') + ' HK$' + combo.save.toFixed(2);
+                    el.innerHTML = '<span class="dc-pv-line"><s class="dc-pv-from">' + eligible.toFixed(2) + '</s>' +
+                        '<span class="dc-pv-arrow" aria-hidden="true">→</span>' +
+                        '<strong class="dc-pv-total">' + next.toFixed(2) + '</strong>' +
+                        '<span class="dc-pv-save">' + esc(ct('coupons.bill.saving', 'Saving')) + ' HK$' + combo.save.toFixed(2) + '</span></span>' +
+                        '<small class="dc-pv-parts">' + esc(parts.join('  ')) + '</small>';
                 }
             }
             var why = document.getElementById('dcWhy');
@@ -1647,11 +2169,35 @@ var COUPONS = (function () {
         }
         if (giftKind) giftKind.onchange = syncGiftOffer;
         syncGiftOffer();
+        var patientLabel = bill.patient_no || ct('coupons.auth.thisPatient', 'this patient');
+        function loggedText(grantor, logged) {
+            if (logged === false) return ' ⚠️ ' + ct('coupons.notice.logFail', 'The coupon log entry could not be saved — tell the admin.');
+            return ' ' + ct('coupons.notice.loggedUnder', 'Logged under') + ' ' + (grantorName(grantor) || '—') + '.';
+        }
         if (giftGo) giftGo.onclick = function () {
             var err = document.getElementById('dcGiftErr');
+            if (err) { err.hidden = true; err.textContent = ''; }
             var kind = giftKind ? giftKind.value : '';
             var amt = (document.getElementById('dcGiftAmount') || {}).value;
-            grantToWallet(bill.patient_id, kind, amt, bill.patient_no).then(function (res) {
+            var camp = campaignByKey(kind) || {};
+            var isCash = camp.key === 'cash';
+            if (isCash && !((parseFloat(amt) || 0) >= 1 && (parseFloat(amt) || 0) <= CASH_GRANT_MAX)) {
+                if (err) { err.hidden = false; err.textContent = grantReason('amount'); }
+                return;
+            }
+            var what = (campLabel(camp.key ? camp : null) || kind) + (isCash ? ' HK$' + round2(amt).toFixed(0) : '') +
+                ' → ' + patientLabel;
+            var grantor = null;
+            giftGo.disabled = true;
+            promptGrantor(host, ct('coupons.auth.giftTitle', 'Confirm gift'), what).then(function (user) {
+                if (!user) return null;
+                grantor = user;
+                return grantToWallet(bill.patient_id, kind, amt, bill.patient_no, grantor);
+            }).catch(function (e) {
+                return { ok: false, error: String(e && e.message || e) };
+            }).then(function (res) {
+                giftGo.disabled = false;
+                if (res === null) return;
                 if (!res || !res.ok) {
                     if (err) {
                         err.hidden = false;
@@ -1659,17 +2205,16 @@ var COUPONS = (function () {
                     }
                     return;
                 }
-                var camp = campaignByKey(kind) || {};
-                couponNotice('🎁 ' + (campLabel(camp.key ? camp : null) || kind) + ' ' +
-                    ct('coupons.notice.gifted', 'added to the wallet. Logged under') + ' ' + (actorName() || '—'));
+                couponNotice('🎁 ' + what + ' — ' + ct('coupons.notice.giftedOk', 'added to the wallet.') + loggedText(grantor, res.logged));
                 openBillSheet(bill, { gift: true });
             });
         };
-        if (opts.focusGift && giftKind) giftKind.focus();
+        if (tab !== 'use') focusTab(tab);
         document.getElementById('dcXferGo').onclick = function () {
             var err = document.getElementById('dcXferErr');
-            var focusRow = rowById(focusId);
-            var chosen = focusRow ? focusRow.coupon : null;
+            var pickEl = document.getElementById('dcXferPick');
+            var pickRow = pickEl && pickEl.value ? rowById(pickEl.value) : null;
+            var chosen = pickRow ? pickRow.coupon : null;
             if (chosen && onThisBill.indexOf(String(chosen.id)) >= 0) {
                 if (err) {
                     err.hidden = false;
@@ -1685,15 +2230,34 @@ var COUPONS = (function () {
             if (!chosen) { showErr(ct('coupons.xfer.pick', 'Select a coupon first')); return; }
             var chart = String((document.getElementById('dcXferTo') || {}).value || '').trim();
             if (!chart) { showErr(ct('coupons.xfer.need', 'Enter a chart number')); return; }
+            if (err) { err.hidden = true; err.textContent = ''; }
+            var xferBtn = document.getElementById('dcXferGo');
+            if (xferBtn) xferBtn.disabled = true;
+            function done(msg) {
+                if (xferBtn) xferBtn.disabled = false;
+                if (msg) showErr(msg);
+            }
             resolveReferrer(chart).then(function (to) {
-                if (!to) { showErr(ct('coupons.xfer.missing', 'Chart not found')); return; }
-                var raw = (wallet || []).filter(function (c) { return String(c.id) === String(chosen.id); })[0] || chosen;
-                transferSelected(raw, to, bill.patient_no).then(function (res) {
-                    if (!res || !res.ok) { showErr((res && (res.reason || res.error)) || 'Transfer failed'); return; }
-                    closeSheet();
-                    openBillSheet(bill);
+                if (!to) { done(ct('coupons.xfer.missing', 'Chart not found')); return null; }
+                if (String(to.id) === String(bill.patient_id)) { done(grantReason('same_patient')); return null; }
+                var what = campLabel(chosen) + ' ' + faceText(chosen) + (chosen.code ? ' (' + chosen.code + ')' : '') +
+                    ' · ' + patientLabel + ' → ' + (to.patient_no || chart);
+                return promptGrantor(host, ct('coupons.auth.xferTitle', 'Confirm transfer'), what).then(function (user) {
+                    if (!user) { done(''); return null; }
+                    var raw = (wallet || []).filter(function (c) { return String(c.id) === String(chosen.id); })[0] || chosen;
+                    return transferSelected(raw, to, bill.patient_no, user).then(function (res) {
+                        if (!res || !res.ok) {
+                            done(res && res.reason ? grantReason(res.reason) : ((res && res.error) || 'Transfer failed'));
+                            return null;
+                        }
+                        done('');
+                        closeSheet();
+                        couponNotice('↔ ' + what + loggedText(user, res.logged));
+                        openBillSheet(bill, { gift: (parseFloat(bill.amount_paid) || 0) > 0.005, tab: 'transfer' });
+                        return null;
+                    });
                 });
-            });
+            }).catch(function (e) { done(String(e && e.message || e)); });
         };
         refreshPreview();
     }
@@ -1720,20 +2284,113 @@ var COUPONS = (function () {
         };
     }
 
-    function cardHtml(row, best, blocked) {
+    var KIND_LABELS = {
+        cash: ['coupons.kind.cash', 'Cash'],
+        spend: ['coupons.kind.spend', 'Spend reward'],
+        welcome: ['coupons.kind.welcome', 'Welcome'],
+        referral: ['coupons.kind.referral', 'Referral'],
+        free: ['coupons.kind.free', 'Free treatment'],
+        treat: ['coupons.kind.treat', 'Treatment']
+    };
+
+    function kindOf(c) {
+        var key = String((c && (c.campaign_key || c.key)) || '');
+        if (key === 'cash') return 'cash';
+        if (key === 'new_chart') return 'welcome';
+        if (key === 'referral') return 'referral';
+        if (key.indexOf('spend') === 0 || (c && c.trigger === 'target_spend')) return 'spend';
+        if (c && (c.mode || c.discount_mode) === 'free_line') return 'free';
+        return 'treat';
+    }
+
+    function kindLabel(kind) {
+        var k = KIND_LABELS[kind] || KIND_LABELS.treat;
+        return ct(k[0], k[1]);
+    }
+
+    function faceText(c) {
+        var mode = c.mode || c.discount_mode;
+        if (mode === 'free_line') return ct('coupons.face.free', 'FREE');
+        if (mode === 'percent') return round2(parseFloat(c.percent) || 0) + '%';
+        var face = c.face != null ? c.face : c.face_value;
+        return 'HK$' + round2(parseFloat(face) || 0).toFixed(0);
+    }
+
+    function faceSub(c) {
+        var mode = c.mode || c.discount_mode;
+        var cap = parseFloat(c.maxDiscount != null ? c.maxDiscount : c.max_discount) || 0;
+        if (mode === 'percent' && cap > 0) return ct('coupons.face.max', 'up to') + ' HK$' + round2(cap).toFixed(0);
+        return '';
+    }
+
+    function daysUntil(iso, today) {
+        var a = Date.parse(String(today || todayIso()) + 'T00:00:00Z');
+        var b = Date.parse(String(iso).slice(0, 10) + 'T00:00:00Z');
+        if (isNaN(a) || isNaN(b)) return null;
+        return Math.round((b - a) / 86400000);
+    }
+
+    function expiryChipHtml(iso, today) {
+        if (!iso) return '';
+        var d = daysUntil(iso, today);
+        if (d == null) return '';
+        var cls = 'dc-exp';
+        var text;
+        if (d < 0) { cls += ' dc-exp-gone'; text = ct('coupons.reason.expired', '已過期'); }
+        else if (d === 0) { cls += ' dc-exp-red'; text = ct('coupons.exp.today', 'Last day today'); }
+        else if (d <= 7) { cls += ' dc-exp-red'; text = d + ' ' + ct('coupons.exp.daysLeft', 'days left'); }
+        else if (d <= 14) { cls += ' dc-exp-amber'; text = d + ' ' + ct('coupons.exp.daysLeft', 'days left'); }
+        else { text = ct('coupons.exp.until', 'Valid until') + ' ' + String(iso).slice(0, 10); }
+        return '<span class="' + cls + '" title="' + esc(String(iso).slice(0, 10)) + '">' + esc(text) + '</span>';
+    }
+
+    function stubHtml(c) {
+        var sub = faceSub(c);
+        var face = faceText(c);
+        return '<span class="dc-stub"><span class="dc-stub-face' + (face.length > 6 ? ' is-long' : '') + '">' + esc(face) + '</span>' +
+            (sub ? '<span class="dc-stub-sub">' + esc(sub) + '</span>' : '') +
+            '<span class="dc-stub-kind">' + esc(kindLabel(kindOf(c))) + '</span></span>';
+    }
+
+    function walletSummaryHtml(wallet, today) {
+        var live = (wallet || []).filter(function (c) { return isLive(c, today); });
+        if (!live.length) {
+            return '<div class="dc-wsum is-empty">' + esc(ct('coupons.sum.none', 'No unused coupons in this wallet')) + '</div>';
+        }
+        var value = 0;
+        var next = '';
+        live.forEach(function (c) {
+            if ((c.discount_mode || 'amount') === 'amount') value += cents(c.face_value);
+            if (c.expires_on && (!next || String(c.expires_on) < next)) next = String(c.expires_on).slice(0, 10);
+        });
+        var html = '<div class="dc-wsum"><span class="dc-wsum-item"><b>' + live.length + '</b> ' +
+            esc(ct('coupons.sum.coupons', 'coupons')) + '</span>';
+        if (value > 0) {
+            html += '<span class="dc-wsum-item"><b>HK$' + money(value).toFixed(0) + '</b> ' +
+                esc(ct('coupons.sum.value', 'cash value')) + '</span>';
+        }
+        if (next) html += '<span class="dc-wsum-item">' + esc(ct('coupons.sum.next', 'next expiry')) + ' ' + expiryChipHtml(next, today) + '</span>';
+        return html + '</div>';
+    }
+
+    function cardHtml(row, best, blocked, today) {
         var c = row.coupon;
         var reason = reasonText(row.assess);
         var slot = couponSlot(c);
-        return '<button type="button" data-no-click-guard="1" class="dc-card' + (blocked ? ' is-blocked' : '') +
-            '" data-id="' + esc(c.id) + '" data-ok="' + (row.assess.ok ? '1' : '0') +
-            '" data-slot="' + slot + '" data-mode="' + esc(c.mode) + '" data-scope="' + esc(c.scope) + '">' +
-            '<i class="dc-check" aria-hidden="true">✓</i>' +
+        return '<button type="button" data-no-click-guard="1" class="dc-card dc-ticket' + (blocked ? ' is-blocked' : '') +
+            '" data-kind="' + kindOf(c) + '" data-id="' + esc(c.id) + '" data-ok="' + (row.assess.ok ? '1' : '0') +
+            '" data-slot="' + slot + '" data-mode="' + esc(c.mode) + '" data-scope="' + esc(c.scope) + '" aria-pressed="false">' +
+            stubHtml(c) +
+            '<span class="dc-body">' +
             '<strong>' + esc(campLabel(c)) + '</strong>' +
-            '<span class="dc-save">' + (row.assess.ok ? ('−' + row.assess.save.toFixed(2)) : esc(reason)) + '</span>' +
-            (best ? '<em class="dc-best">' + esc(ct('coupons.bill.best', '最優')) + '</em>' : '') +
-            '<b class="dc-picked">' + esc(ct('coupons.bill.picked', '已選')) + '</b>' +
             '<small>' + esc(slot === 'items' ? ct('coupons.bill.slotItems', '治療券') : ct('coupons.bill.slotBill', '全單券')) +
-            ' · ' + esc(c.expires_on || '') + '</small></button>';
+            (c.code ? ' · ' + esc(c.code) : '') + '</small>' +
+            '<span class="dc-meta">' + expiryChipHtml(c.expires_on, today) +
+            (best ? '<em class="dc-best">' + esc(ct('coupons.bill.best', '最優')) + '</em>' : '') +
+            '<b class="dc-picked">' + esc(ct('coupons.bill.picked', '已選')) + '</b></span>' +
+            '</span>' +
+            '<span class="dc-save">' + (row.assess.ok ? ('−' + row.assess.save.toFixed(2)) : esc(reason)) + '</span>' +
+            '<i class="dc-check" aria-hidden="true">✓</i></button>';
     }
 
     function rulesNoteHtml() {
@@ -1947,23 +2604,133 @@ var COUPONS = (function () {
     }
 
     function sendCouponSms(patientId, body) {
-        if (!body || typeof SB === 'undefined' || !SB) return;
-        SB.from('patients').select('mobile_phone,phone,full_name').eq('id', patientId).maybeSingle()
+        if (!body || !patientId || typeof SB === 'undefined' || !SB) return Promise.resolve({ ok: false, reason: 'no_db' });
+        return SB.from('patients').select('phone_number,mobile_phone,full_name,chinese_name,patient_no')
+            .eq('id', patientId).maybeSingle()
             .then(function (r) {
                 var p = r && r.data;
-                var phone = p && (p.mobile_phone || p.phone);
-                if (!phone || typeof AIHELPER === 'undefined' || typeof AIHELPER.sendTwilioOutreach !== 'function') return;
-                AIHELPER.sendTwilioOutreach({ to: phone, body: body });
+                var phone = p ? String(p.phone_number || p.mobile_phone || '').trim() : '';
+                if (!phone) return { ok: false, reason: 'no_phone' };
+                if (typeof AIHELPER === 'undefined' || typeof AIHELPER.sendTwilioOutreach !== 'function') {
+                    return { ok: false, reason: 'no_sms' };
+                }
+                return AIHELPER.sendTwilioOutreach({
+                    channel: 'sms',
+                    to: phone,
+                    name: p.full_name || p.chinese_name || p.patient_no || 'Patient',
+                    body: body
+                });
+            })
+            .catch(function (e) { return { ok: false, error: String(e && e.message || e) }; });
+    }
+
+    function addDaysIso(iso, n) {
+        var d = new Date(iso + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+    }
+
+    /**
+     * Text every unused coupon that expires within 7 days and has not been reminded.
+     * Each coupon is claimed (expiry_sms_at) before sending, so two stations never both text.
+     * Without the expiry_sms_at column (discount_coupons_expiry_sms.sql) nothing is sent.
+     */
+    function sendExpiryReminders() {
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            return Promise.resolve({ ok: false, reason: 'no_db' });
+        }
+        var today = todayIso();
+        return loadState().then(function () {
+            return SB.from('discount_coupons')
+                .select('id,campaign_key,patient_id,expires_on,status,issued_at,clinic_code')
+                .eq('status', 'unused')
+                .is('expiry_sms_at', null)
+                .gt('expires_on', today)
+                .lte('expires_on', addDaysIso(today, EXPIRY_SMS_DAYS))
+                .order('expires_on', { ascending: true })
+                .limit(50);
+        }).then(function (r) {
+            if (!r || r.error) return { ok: false, reason: 'query', error: r && r.error && r.error.message };
+            var rows = (r.data || []).filter(function (c) { return !c.clinic_code || clinicJoined(c.clinic_code); });
+            var sent = 0;
+            var seq = Promise.resolve();
+            rows.forEach(function (c) {
+                seq = seq.then(function () {
+                    var camp = campaignByKey(c.campaign_key) || {};
+                    var body = smsExpiring({
+                        status: c.status,
+                        expires_on: c.expires_on,
+                        issued_on: String(c.issued_at || '').slice(0, 10),
+                        nameZh: camp.nameZh || c.campaign_key,
+                        name: camp.name
+                    }, today);
+                    if (!body) return null;
+                    return SB.from('discount_coupons').update({ expiry_sms_at: new Date().toISOString() })
+                        .eq('id', c.id).is('expiry_sms_at', null).select('id')
+                        .then(function (u) {
+                            if (!u || u.error || !u.data || !u.data.length) return null;
+                            return sendCouponSms(c.patient_id, body).then(function (res) {
+                                if (res && res.ok) { sent++; return null; }
+                                if (res && (res.reason === 'no_phone')) return null;
+                                return SB.from('discount_coupons').update({ expiry_sms_at: null }).eq('id', c.id);
+                            });
+                        });
+                });
             });
+            return seq.then(function () { return { ok: true, checked: rows.length, sent: sent }; });
+        }).catch(function (e) { return { ok: false, error: String(e && e.message || e) }; });
+    }
+
+    /** Any logged-in station runs the reminder pass once a day. */
+    function scheduleExpiryReminders() {
+        if (typeof window === 'undefined' || typeof window.setInterval !== 'function') return;
+        var busy = false;
+        function tick() {
+            if (busy) return;
+            if (typeof currentUserId === 'undefined' || !currentUserId) return;
+            var today = todayIso();
+            try { if (window.localStorage && localStorage.getItem(EXPIRY_RUN_KEY) === today) return; } catch (e) {}
+            busy = true;
+            sendExpiryReminders().then(function (res) {
+                busy = false;
+                if (res && res.ok) {
+                    try { if (window.localStorage) localStorage.setItem(EXPIRY_RUN_KEY, today); } catch (e) {}
+                }
+            });
+        }
+        setTimeout(tick, 60000);
+        setInterval(tick, 30 * 60000);
+    }
+
+    /** Logged-in doctor, when the login is a doctor; otherwise the clinic's All Doctors switch decides. */
+    function loginDoctorKey() {
+        if (typeof getActiveDoctorContext !== 'function') return '';
+        try {
+            var ctx = getActiveDoctorContext();
+            return ctx && ctx.shouldTag && ctx.id ? String(ctx.id) : '';
+        } catch (e) { return ''; }
+    }
+
+    function billDoctorKey(billId, known) {
+        if (known) return Promise.resolve(String(known));
+        var open = (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null;
+        if (open && billId && String(open.id) === String(billId) && open.doctor_id) {
+            return Promise.resolve(String(open.doctor_id));
+        }
+        if (!billId || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve('');
+        return SB.from('bills').select('doctor_id').eq('id', billId).maybeSingle()
+            .then(function (r) { return (r && r.data && r.data.doctor_id) ? String(r.data.doctor_id) : ''; },
+                function () { return ''; });
     }
 
     function onPatientCreated(row, referredBy) {
         var clinicCode = '';
         if (typeof currentClinicCodeForTagging === 'function') clinicCode = currentClinicCodeForTagging() || '';
-        return loadState().then(function () {
+        return loadState().then(loadUsage).then(function () {
             return resolveReferrer(referredBy).then(function (ref) {
                 var plans = planNewChart({
                     clinicCode: clinicCode,
+                    doctorKey: loginDoctorKey(),
                     clinics: _clinics,
                     doctors: _doctors,
                     campaigns: campaigns(),
@@ -2073,7 +2840,28 @@ var COUPONS = (function () {
             lines.push('ℹ️ ' + ct('coupons.info.needFull', 'Issued once the bill is fully paid.'));
         }
         host.hidden = false;
-        host.innerHTML = lines.map(function (t) { return '<div>' + esc(t) + '</div>'; }).join('');
+        host.innerHTML = lines.map(function (t) { return '<div>' + esc(t) + '</div>'; }).join('') + spendBarHtml(total, prog);
+    }
+
+    function spendBarHtml(amount, prog) {
+        if (!prog || (!prog.reached.length && !prog.next)) return '';
+        var amt = round2(parseFloat(amount) || 0);
+        var goal = prog.next || prog.reached[prog.reached.length - 1];
+        var scale = parseFloat(goal.target) || 0;
+        if (scale <= 0) return '';
+        var pct = Math.max(0, Math.min(100, amt / scale * 100));
+        var ticks = prog.reached.map(function (c) {
+            var at = Math.min(100, (parseFloat(c.target) || 0) / scale * 100);
+            return at < 99.5 ? '<i class="dc-prog-tick" style="left:' + at.toFixed(1) + '%" title="' + esc(campLabel(c)) + '"></i>' : '';
+        }).join('');
+        var right = prog.next
+            ? esc(campLabel(prog.next))
+            : '✓ ' + esc(ct('coupons.prog.top', 'Top spend reward reached'));
+        return '<div class="dc-prog' + (prog.next ? '' : ' is-top') + '" role="progressbar" aria-valuemin="0" aria-valuemax="' +
+            round2(scale) + '" aria-valuenow="' + Math.min(amt, round2(scale)) + '" aria-label="' +
+            esc(ct('coupons.prog.label', 'Progress to the next spend reward')) + '">' +
+            '<div class="dc-prog-track"><span class="dc-prog-fill" style="width:' + pct.toFixed(1) + '%"></span>' + ticks + '</div>' +
+            '<div class="dc-prog-cap"><span>HK$' + amt.toFixed(0) + ' / ' + round2(scale).toFixed(0) + '</span><span>' + right + '</span></div></div>';
     }
 
     function onBillFullyPaid(info) {
@@ -2082,21 +2870,23 @@ var COUPONS = (function () {
             String((typeof bdCurrentBill !== 'undefined' && bdCurrentBill && bdCurrentBill.clinic_tag) || '').trim() ||
             clinicCodeNow();
         return Promise.all([
-            loadState(),
+            loadState().then(loadUsage),
             billCashPaid(info.billId, info.cashAmount),
             (typeof SB !== 'undefined' && SB && info.billId)
                 ? SB.from('discount_coupons').select('campaign_key,status').eq('origin_bill_id', info.billId)
                     .then(function (r) { return (r && r.data) || []; }, function () { return []; })
-                : Promise.resolve([])
+                : Promise.resolve([]),
+            billDoctorKey(info.billId, info.doctorKey)
         ]).then(function (res) {
             var cashPaid = res[1];
+            var doctorKey = res[3];
             var already = {};
             (res[2] || []).forEach(function (c) { if (c.status !== 'void') already[c.campaign_key] = true; });
             var list = campaigns().filter(function (c) { return !already[c.key]; });
             return loadWallet(info.patientId).then(function (wallet) {
                 var plan = planTargetSpend({
                     clinicCode: clinicCode,
-                    doctorKey: info.doctorKey,
+                    doctorKey: doctorKey,
                     clinics: _clinics,
                     doctors: _doctors,
                     campaigns: list,
@@ -2142,20 +2932,64 @@ var COUPONS = (function () {
         return '';
     }
 
-    function logCoupon(operation, detail, patientNo, recordId) {
-        if (typeof recordAuditTrail !== 'function') return;
+    /** Coupon log row. Written straight to the audit table so it does not depend on the general audit switch. Resolves true when saved. */
+    function logCoupon(operation, detail, patientNo, recordId, actor) {
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve(false);
+        var row = {
+            clinic_tag: clinicCodeNow() || (typeof auditActiveClinicTag === 'function' ? auditActiveClinicTag() : '') || null,
+            user_id: actor ? actor.user_id : (typeof currentUserId !== 'undefined' ? currentUserId : null),
+            user_name: actor ? grantorName(actor) : actorName(),
+            audit_item: 'COUPON ' + operation,
+            table_name: 'discount_coupons',
+            operation: operation,
+            record_id: recordId || null,
+            patient_no: patientNo || null,
+            changes_detail: detail
+        };
         try {
-            recordAuditTrail({
-                audit_item: 'COUPON ' + operation,
-                table_name: 'discount_coupons',
-                operation: operation,
-                record_id: recordId || null,
-                patient_no: patientNo || null,
-                changes_detail: detail,
-                user_id: (typeof currentUserId !== 'undefined' ? currentUserId : null),
-                user_name: actorName()
-            });
-        } catch (e) {}
+            if (typeof auditClientHostLabel === 'function') row.client_host = auditClientHostLabel() || null;
+        } catch (e0) {}
+        var table = (typeof AUDIT_TRAIL_TABLE !== 'undefined' && AUDIT_TRAIL_TABLE) ? AUDIT_TRAIL_TABLE : 'audit_trail';
+        try {
+            return Promise.resolve(SB.from(table).insert([row])).then(function (r) {
+                return !!r && !r.error;
+            }, function () { return false; });
+        } catch (e) {
+            return Promise.resolve(false);
+        }
+    }
+
+    function grantorName(user) {
+        if (!user) return '';
+        return String(user.display_name || user.user_id || '').trim();
+    }
+
+    /** Note suffix when the person who authorized is not the login on screen. */
+    function screenLoginSuffix(user) {
+        var screen = String((typeof currentUserId !== 'undefined' && currentUserId) || '').trim();
+        if (!screen || !user || screen.toLowerCase() === String(user.user_id || '').toLowerCase()) return '';
+        return ' · screen login ' + screen;
+    }
+
+    /** Re-check a staff login before a gift or transfer. The shared Nurse login is refused. */
+    function verifyGrantor(uid, pw) {
+        uid = String(uid || '').trim();
+        if (!uid || !pw) return Promise.resolve({ ok: false, reason: 'auth_missing' });
+        if (SHARED_LOGIN_IDS[uid.toLowerCase()]) return Promise.resolve({ ok: false, reason: 'shared_login' });
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            return Promise.resolve({ ok: false, reason: 'no_db' });
+        }
+        return SB.from('app_users')
+            .select('user_id,role,display_name,is_active')
+            .eq('user_id', uid)
+            .eq('password', pw)
+            .eq('is_active', true)
+            .limit(1)
+            .then(function (r) {
+                var u = r && !r.error && r.data && r.data[0];
+                if (!u || SHARED_LOGIN_IDS[String(u.user_id || '').toLowerCase()]) return { ok: false, reason: 'creds' };
+                return { ok: true, user: u };
+            }, function () { return { ok: false, reason: 'creds' }; });
     }
 
     function clinicCodeNow() {
@@ -2223,6 +3057,14 @@ var COUPONS = (function () {
     }
 
     function grantReason(code) {
+        if (code === 'auth_missing') return ct('coupons.auth.need', 'Enter your login ID and password');
+        if (code === 'creds') return ct('coupons.auth.creds', 'Login ID or password is incorrect');
+        if (code === 'shared_login') return ct('coupons.auth.shared', 'The shared Nurse login cannot gift or transfer coupons. Use your own login.');
+        if (code === 'no_db') return ct('coupons.log.noDb', 'Database not connected.');
+        if (code === 'expired') return ct('coupons.xfer.expired', 'This coupon has expired');
+        if (code === 'locked') return ct('coupons.xfer.locked', 'New-chart and referral coupons stay with the patient');
+        if (code === 'same_patient') return ct('coupons.xfer.same', 'That is the same chart');
+        if (code === 'not_unused') return ct('coupons.xfer.notUnused', 'Only an unused coupon can be transferred');
         if (code === 'amount') return ct('coupons.grant.amount', 'Enter HK$1 to HK$200');
         if (code === 'wallet_full') return ct('coupons.grant.full', 'Wallet already holds 20 unused coupons');
         if (code === 'already_holding') return ct('coupons.grant.holding', 'This patient already holds the most allowed of this coupon (see “Hold up to” in Configuration)');
@@ -2243,10 +3085,12 @@ var COUPONS = (function () {
         openBillSheet(bill, { gift: true });
     }
 
-    function grantToWallet(patientId, campaignKey, amount, patientNo) {
-        return loadState().then(function () {
+    /** grantor: verified app_users row from verifyGrantor. Required. */
+    function grantToWallet(patientId, campaignKey, amount, patientNo, grantor) {
+        if (!grantor || !grantor.user_id) return Promise.resolve({ ok: false, reason: 'auth_missing' });
+        return loadState().then(loadUsage).then(function () {
             var joined = clinicJoined(clinicCodeNow());
-            var role = (typeof currentRole !== 'undefined' && currentRole) ? currentRole : '';
+            var role = String(grantor.role || '');
             return loadWallet(patientId).then(function (wallet) {
                 var camp = campaignByKey(campaignKey);
                 var plan = planChairsideGrant({
@@ -2262,21 +3106,40 @@ var COUPONS = (function () {
                 var row = issueRecord(camp, patientId, {
                     face: plan.campaignKey === 'cash' ? plan.amount : camp.face,
                     clinicCode: clinicCodeNow(),
-                    issuedBy: actorName(),
-                    note: 'Gifted into wallet'
+                    issuedBy: grantorName(grantor),
+                    note: 'Gifted into wallet' + screenLoginSuffix(grantor)
                 });
                 return insertCoupon(row, camp.sms !== false).then(function (saved) {
-                    if (saved && saved.ok) {
-                        logCoupon('GRANT', (camp.nameZh || camp.key) + ' HK$' + round2(row.face_value).toFixed(2) +
-                            ' code ' + (saved.code || row.code), patientNo || null, saved.id || null);
-                    }
-                    return saved;
+                    if (!saved || !saved.ok) return saved;
+                    return logCoupon('GRANT', (camp.nameZh || camp.key) + ' HK$' + round2(row.face_value).toFixed(2) +
+                        ' code ' + (saved.code || row.code) + ' to ' + (patientNo || patientId) + screenLoginSuffix(grantor),
+                        patientNo || null, saved.id || null, grantor).then(function (logged) {
+                        saved.logged = logged;
+                        return saved;
+                    });
                 });
             });
         });
     }
 
-    function transferSelected(coupon, toPatient, fromPatientNo) {
+    /** Pure: coupon log text for a transfer, e.g. "Coupon DC-AB12 · 現金券 HK$100 · from 001 to 002". */
+    function transferDetail(coupon, fromPatientNo, toPatient) {
+        coupon = coupon || {};
+        var camp = campaignByKey(coupon.campaign_key) || {};
+        var mode = coupon.discount_mode || coupon.mode || camp.mode;
+        var face = coupon.face_value != null ? coupon.face_value : coupon.face;
+        var value = mode === 'free_line' ? '' : mode === 'percent'
+            ? ' ' + round2(parseFloat(coupon.percent) || 0) + '%'
+            : ' HK$' + round2(parseFloat(face) || 0).toFixed(2);
+        return 'Coupon ' + (coupon.code || coupon.id || '') +
+            ' · ' + (camp.nameZh || camp.name || coupon.campaign_key || '') + value +
+            ' · from ' + (fromPatientNo || coupon.patient_id || '?') +
+            ' to ' + ((toPatient && (toPatient.patient_no || toPatient.id)) || '?');
+    }
+
+    /** grantor: verified app_users row from verifyGrantor. Required. */
+    function transferSelected(coupon, toPatient, fromPatientNo, grantor) {
+        if (!grantor || !grantor.user_id) return Promise.resolve({ ok: false, reason: 'auth_missing' });
         return loadWallet(toPatient.id).then(function (toWallet) {
             var plan = planTransfer({
                 coupon: coupon,
@@ -2288,117 +3151,29 @@ var COUPONS = (function () {
             if (typeof SB === 'undefined' || !SB) return { ok: false, reason: 'no_db' };
             return SB.from('discount_coupons').update({
                 patient_id: toPatient.id,
-                note: 'Transferred from ' + (fromPatientNo || coupon.patient_id || '')
+                note: 'Transferred from ' + (fromPatientNo || coupon.patient_id || '') + ' by ' + grantorName(grantor) +
+                    screenLoginSuffix(grantor)
             }).eq('id', coupon.id).eq('status', 'unused').then(function (r) {
                 if (r.error) return { ok: false, error: r.error.message };
-                logCoupon('TRANSFER', 'Coupon ' + (coupon.code || coupon.id) + ' to ' + (toPatient.patient_no || toPatient.id),
-                    toPatient.patient_no || null, coupon.id);
-                return { ok: true };
+                return logCoupon('TRANSFER', transferDetail(coupon, fromPatientNo, toPatient) + screenLoginSuffix(grantor),
+                    toPatient.patient_no || null, coupon.id, grantor).then(function (logged) {
+                    return { ok: true, logged: logged };
+                });
             });
         });
     }
 
     function ensureCss() {
-        if (document.getElementById('dc-css')) return;
-        var style = document.createElement('style');
-        style.id = 'dc-css';
-        style.textContent = [
-            '.dc-cfg{max-width:920px;color:#0f172a;}',
-            '.dc-title{margin:0 0 6px;font-size:20px;}',
-            '.dc-blurb,.dc-hint{margin:0 0 12px;color:#64748b;font-size:13px;line-height:1.45;}',
-            '.dc-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;margin-bottom:14px;}',
-            '.dc-card-title{font-weight:800;margin-bottom:8px;}',
-            '.dc-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}',
-            '.dc-tab{border:1px solid #cbd5e1;background:#fff;border-radius:999px;padding:6px 12px;cursor:pointer;font-weight:700;}',
-            '.dc-tab.is-active{background:#0f766e;color:#fff;border-color:#0f766e;}',
-            '.dc-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#86efac;margin-left:6px;}',
-            '.dc-row{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid #f1f5f9;}',
-            '.dc-doc{padding-left:14px;}',
-            '.dc-join{font-size:13px;font-weight:700;color:#0f766e;}',
-            '.dc-spend{border-top:1px solid #e2e8f0;padding:10px 0;}',
-            '.dc-spend-label{font-weight:800;}',
-            '.dc-camp{border-top:1px solid #e2e8f0;padding:10px 0;}',
-            '.dc-camp-head{display:flex;gap:8px;align-items:center;font-size:14px;}',
-            '.dc-camp-head span{color:#64748b;font-weight:500;}',
-            '.dc-camp-grid{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;}',
-            '.dc-field{display:flex;flex-direction:column;font-size:11px;color:#64748b;gap:2px;}',
-            '.dc-field input{width:88px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;}',
-            '.dc-items{display:flex;flex-direction:column;gap:4px;margin-top:6px;}',
-            '.dc-item{font-size:12px;color:#334155;}',
-            '#dcSheetHost{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:8000;display:flex;align-items:center;justify-content:center;padding:18px;}',
-            '#dcSheetHost[hidden]{display:none;}',
-            '.dc-sheet{background:#fff;width:min(520px,100%);max-height:min(86vh,760px);overflow:auto;border-radius:16px;padding:16px 16px 18px;position:relative;}',
-            '.dc-x{position:absolute;top:8px;right:10px;border:none;background:none;font-size:22px;cursor:pointer;}',
-            '.dc-chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;}',
-            '.dc-chip{border:1px solid #cbd5e1;background:#fff;border-radius:999px;padding:4px 10px;cursor:pointer;font-size:12px;}',
-            '.dc-chip.is-on{background:#0f766e;color:#fff;border-color:#0f766e;}',
-            'button.dc-card{width:100%;text-align:left;border:1px solid #dbeafe;background:#f8fafc;border-radius:12px;padding:10px 12px;margin-bottom:8px;cursor:pointer;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline;}',
-            'button.dc-card{position:relative;}',
-            'button.dc-card.is-picked{border-color:#0f766e;background:#ecfdf5;box-shadow:0 0 0 2px #0f766e inset;}',
-            'button.dc-card.is-blocked{background:#f8fafc;border-style:dashed;border-color:#cbd5e1;cursor:pointer;}',
-            'button.dc-card.is-blocked strong{color:#64748b;}',
-            'button.dc-card.is-blocked .dc-save{color:#b45309;font-weight:700;}',
-            'button.dc-card.is-focus{outline:2px solid #1e3a5f;outline-offset:1px;}',
-            'button.dc-card .dc-save{color:#0f766e;font-weight:800;}',
-            'button.dc-card em.dc-best{color:#b45309;background:#fef3c7;border-radius:999px;padding:1px 8px;font-style:normal;font-size:11px;font-weight:800;}',
-            'button.dc-card .dc-picked{display:none;color:#fff;background:#0f766e;border-radius:999px;padding:1px 8px;font-size:11px;}',
-            'button.dc-card.is-picked .dc-picked{display:inline-block;}',
-            'button.dc-card .dc-check{display:none;position:absolute;top:8px;right:10px;color:#0f766e;font-style:normal;font-weight:900;}',
-            'button.dc-card.is-picked .dc-check{display:block;}',
-            'button.dc-card small{flex-basis:100%;color:#64748b;}',
-            '.dc-why{margin:6px 0 0;padding:8px 10px;border-radius:8px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:12px;}',
-            '.dc-why[hidden]{display:none;}',
-            '.dc-items-box{margin-top:8px;padding:8px 10px;border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc;}',
-            '.dc-smart-row{display:flex;align-items:center;gap:6px;font-weight:700;font-size:13px;}',
-            '.dc-kw-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0;}',
-            '.dc-kw-row label{display:flex;flex-direction:column;font-size:12px;color:#475569;gap:3px;}',
-            '.dc-kw-row input{padding:5px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;}',
-            '.dc-pick{border:1px solid #cbd5e1;border-radius:8px;background:#fff;}',
-            '.dc-pick summary{cursor:pointer;padding:7px 10px;font-weight:700;font-size:13px;list-style:revert;}',
-            '.dc-pick-q{display:block;width:calc(100% - 20px);margin:0 10px 6px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;box-sizing:border-box;}',
-            '.dc-pick-list{max-height:260px;overflow:auto;padding:0 10px 8px;}',
-            '.dc-pick-item{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;border-bottom:1px solid #f1f5f9;}',
-            '.dc-pick-item span{flex:1;}',
-            '.dc-auto,.dc-excl,.dc-gone{font-style:normal;font-size:10px;padding:1px 6px;border-radius:999px;}',
-            '.dc-auto{background:#dcfce7;color:#166534;}',
-            '.dc-excl{background:#fee2e2;color:#991b1b;}',
-            '.dc-gone{background:#f1f5f9;color:#64748b;}',
-            '.dc-pick-hint{margin:6px 0 0;font-size:11px;}',
-            '.dc-rules{margin:0 0 10px;border:1px solid #bae6fd;background:#f0f9ff;border-radius:10px;padding:6px 10px;font-size:12px;color:#0c4a6e;}',
-            '.dc-rules summary{cursor:pointer;font-weight:700;list-style:revert;}',
-            '.dc-rules ol{margin:6px 0 2px;padding-left:18px;line-height:1.5;}',
-            '.dc-rules li{margin:2px 0;}',
-            '.dc-rules-hold{color:#475569;}',
-            '.dc-apply:disabled{opacity:.5;cursor:not-allowed;}',
-            '#bdSavedRow[hidden],#bdCouponInfo[hidden]{display:none!important;}',
-            '.dc-log-filter{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;}',
-            '.dc-log-filter input{padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;}',
-            '.dc-log-filter button{padding:6px 12px;border:none;border-radius:8px;background:#1e3a5f;color:#fff;font-weight:700;cursor:pointer;}',
-            '.dc-log-wrap{max-height:420px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;}',
-            '.dc-log{width:100%;border-collapse:collapse;font-size:12px;}',
-            '.dc-log th{position:sticky;top:0;background:#f1f5f9;text-align:left;padding:6px 8px;}',
-            '.dc-log td{padding:6px 8px;border-top:1px solid #f1f5f9;vertical-align:top;}',
-            '.dc-log .dc-op{font-weight:800;}',
-            '.dc-notice{position:fixed;right:18px;bottom:18px;z-index:9000;max-width:380px;background:#065f46;color:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.25);font-size:13px;line-height:1.5;}',
-            '.dc-preview{font-weight:800;margin:8px 0;color:#0f172a;}',
-            '.dc-actions{display:flex;gap:8px;}',
-            '.dc-apply{flex:1;background:#0f766e;color:#fff;border:none;border-radius:10px;padding:10px;font-weight:800;cursor:pointer;}',
-            '.dc-clear{flex:1;background:#e2e8f0;border:none;border-radius:10px;padding:10px;font-weight:700;cursor:pointer;}',
-            '.dc-err{color:#dc2626;font-size:12px;font-weight:700;margin:8px 0 0;}',
-            '.dc-gift{margin-top:14px;padding-top:12px;border-top:1px solid #e2e8f0;}',
-            '.dc-gift label{font-weight:800;}',
-            '.dc-gift-row{display:flex;gap:8px;align-items:center;margin-top:8px;}',
-            '.dc-gift-row select{flex:1;min-width:160px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;}',
-            '.dc-gift-row input{width:96px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;}',
-            '.dc-gift-row input[hidden]{display:none;}',
-            '.dc-gift-row button{padding:8px 12px;border:none;border-radius:8px;background:#0f766e;color:#fff;font-weight:700;cursor:pointer;}',
-            '.dc-transfer{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;}',
-            '.dc-transfer input{flex:1;min-width:140px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;}',
-            '.dc-transfer button{padding:8px 12px;border:none;border-radius:8px;background:#1e3a5f;color:#fff;font-weight:700;cursor:pointer;}',
-            '#bdCouponGrant{padding:4px 10px;border:1px solid #1e3a5f;background:#fff;color:#1e3a5f;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;}',
-            '#bdCouponRow.is-locked #bdCouponPick{opacity:.5;}'
-        ].join('');
-        document.head.appendChild(style);
+        if (typeof document === 'undefined' || document.getElementById('dc-css')) return;
+        var links = document.querySelectorAll('link[rel="stylesheet"]');
+        for (var i = 0; i < links.length; i++) {
+            if (/(^|\/)style-coupons\.css(\?|$)/.test(links[i].getAttribute('href') || '')) return;
+        }
+        var link = document.createElement('link');
+        link.id = 'dc-css';
+        link.rel = 'stylesheet';
+        link.href = typeof window.__JSM_WITH_BUST === 'function' ? window.__JSM_WITH_BUST('style-coupons.css') : 'style-coupons.css';
+        document.head.appendChild(link);
     }
 
     if (typeof window !== 'undefined' && window.addEventListener) {
@@ -2414,8 +3189,15 @@ var COUPONS = (function () {
         });
     }
 
+    scheduleExpiryReminders();
+
     return {
         WALLET_CAP: WALLET_CAP,
+        isLive: isLive,
+        unusedCount: unusedCount,
+        usageText: usageText,
+        loadUsage: loadUsage,
+        sendExpiryReminders: sendExpiryReminders,
         DEFAULT_JOIN_CODE: DEFAULT_JOIN_CODE,
         ITEM_GROUPS: ITEM_GROUPS,
         CAMPAIGN_DEFS: CAMPAIGN_DEFS,
@@ -2451,6 +3233,15 @@ var COUPONS = (function () {
         cashPaidFromPayments: cashPaidFromPayments,
         buildCouponLog: buildCouponLog,
         loadCouponLog: loadCouponLog,
+        couponLogCsv: couponLogCsv,
+        transferDetail: transferDetail,
+        logCoupon: logCoupon,
+        campStatus: campStatus,
+        kindOf: kindOf,
+        daysUntil: daysUntil,
+        expiryChipHtml: expiryChipHtml,
+        walletSummaryHtml: walletSummaryHtml,
+        spendBarHtml: spendBarHtml,
         _paintSheet: paintSheet,
         campLabel: campLabel,
         paintCheckoutHint: paintCheckoutHint,
@@ -2460,6 +3251,8 @@ var COUPONS = (function () {
         nameFitsRule: nameFitsRule,
         itemPickerRows: itemPickerRows,
         CASH_GRANT_MAX: CASH_GRANT_MAX,
+        SHARED_LOGIN_IDS: SHARED_LOGIN_IDS,
+        verifyGrantor: verifyGrantor,
         openGrantSheet: openGrantSheet,
         loadState: loadState,
         snapshot: snapshot,

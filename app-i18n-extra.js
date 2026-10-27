@@ -3350,8 +3350,27 @@
         'coupons.wqr.fail': { en: 'Could not make the wallet link. Try again.', 'zh-CN': '无法生成钱包链接，请再试。', 'zh-Hant': '無法產生錢包連結，請再試。' },
         'coupons.wqr.qrFail': { en: 'The QR code could not be drawn. Copy the link instead.', 'zh-CN': '无法生成二维码，请复制链接。', 'zh-Hant': '無法產生 QR 碼，請複製連結。' },
         'coupons.wqr.png': { en: 'Download PNG', 'zh-CN': '下载 PNG', 'zh-Hant': '下載 PNG' },
+        'coupons.wqr.clickCopy': { en: '(click to copy)', 'zh-CN': '（点击复制）', 'zh-Hant': '（點擊複製）' },
+        'coupons.wqr.clickCopyTitle': { en: 'Click to copy the link', 'zh-CN': '点击复制链接', 'zh-Hant': '點擊複製連結' },
         'coupons.wqr.print': { en: 'Print slip', 'zh-CN': '打印小卡', 'zh-Hant': '列印小卡' },
-        'coupons.wqr.openTool': { en: 'Open in QR generator', 'zh-CN': '在二维码生成器打开', 'zh-Hant': '在 QR 碼產生器開啟' },
+        'coupons.wqr.whatsapp': { en: 'WhatsApp', 'zh-CN': 'WhatsApp', 'zh-Hant': 'WhatsApp' },
+        'coupons.wqr.waTitle': {
+            en: 'Open WhatsApp with the link ready — press Send in WhatsApp',
+            'zh-CN': '打开 WhatsApp 并预填链接，请在 WhatsApp 按发送',
+            'zh-Hant': '開啟 WhatsApp 並預填連結，請在 WhatsApp 按傳送'
+        },
+        'coupons.wqr.noPhone': {
+            en: 'No phone number on this chart — type one in',
+            'zh-CN': '此病历没有电话号码，请输入',
+            'zh-Hant': '此病歷沒有電話號碼，請輸入'
+        },
+        'coupons.wqr.waTo': { en: 'WhatsApp to (phone)', 'zh-CN': 'WhatsApp 发送至（电话）', 'zh-Hant': 'WhatsApp 傳送至（電話）' },
+        'coupons.wqr.waPhonePh': { en: 'e.g. 9123 4567', 'zh-CN': '例如 9123 4567', 'zh-Hant': '例如 9123 4567' },
+        'coupons.wqr.waLocalAsk': {
+            en: 'This link only works on this computer, so the patient cannot open it. Send anyway?',
+            'zh-CN': '此链接只能在这部电脑打开，病人无法使用。仍要发送？',
+            'zh-Hant': '此連結只能在這部電腦開啟，病人無法使用。仍要傳送？'
+        },
         'coupons.wqr.noPatient': { en: 'This chart could not be found. Save the patient first, then try again.', 'zh-CN': '找不到此病历，请先保存病人资料再试。', 'zh-Hant': '找不到此病歷，請先儲存病人資料再試。' },
         'coupons.wqr.offline': { en: 'No connection to the database. Check the internet and try again.', 'zh-CN': '无法连接数据库，请检查网络后再试。', 'zh-Hant': '無法連接資料庫，請檢查網絡後再試。' },
         'coupons.wqr.detail': { en: 'Database says', 'zh-CN': '数据库信息', 'zh-Hant': '資料庫訊息' },
@@ -3561,6 +3580,26 @@
             'zh-Hant': '各診所結餘：{DETAIL}'
         },
         'rewards.panel.started': { en: 'Started', 'zh-CN': '开始日期', 'zh-Hant': '開始日期' },
+        'rewards.pqr.btn': { en: 'Points on the phone', 'zh-CN': '手机查看积分', 'zh-Hant': '手機查看積分' },
+        'rewards.pqr.btnTitle': {
+            en: 'Show a QR code the patient scans to see their points on the phone',
+            'zh-CN': '显示二维码，病人用手机扫描即可查看积分',
+            'zh-Hant': '顯示 QR 碼，病人用手機掃描即可查看積分'
+        },
+        'rewards.pqr.title': { en: 'Reward points on the phone', 'zh-CN': '手机查看积分', 'zh-Hant': '手機查看積分' },
+        'rewards.pqr.hint': {
+            en: 'Ask the patient to scan this with the phone camera. They can see their points balance and history only — points cannot be used or moved from the phone.',
+            'zh-CN': '请病人用手机相机扫描。病人只可查看积分结余及记录，不能在手机上使用或转移积分。',
+            'zh-Hant': '請病人用手機相機掃描。病人只可查看積分結餘及紀錄，不能在手機上使用或轉移積分。'
+        },
+        'rewards.pqr.link': { en: 'Points link', 'zh-CN': '积分链接', 'zh-Hant': '積分連結' },
+        'rewards.pqr.centre': { en: '積分', 'zh-CN': '积分', 'zh-Hant': '積分' },
+        'rewards.pqr.noSql': {
+            en: 'Points on the phone is not set up yet. Run reward_points_wallet.sql in Supabase first.',
+            'zh-CN': '手机积分尚未设置。请先在 Supabase 执行 reward_points_wallet.sql。',
+            'zh-Hant': '手機積分尚未設定。請先在 Supabase 執行 reward_points_wallet.sql。'
+        },
+        'rewards.pqr.fail': { en: 'Could not make the points link. Try again.', 'zh-CN': '无法建立积分链接，请再试。', 'zh-Hant': '無法建立積分連結，請再試。' },
         'rewards.col.when': { en: 'When', 'zh-CN': '时间', 'zh-Hant': '時間' },
         'rewards.col.kind': { en: 'Type', 'zh-CN': '类型', 'zh-Hant': '類型' },
         'rewards.col.points': { en: 'Points', 'zh-CN': '积分', 'zh-Hant': '積分' },

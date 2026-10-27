@@ -307,6 +307,8 @@ function extractIifeHelpers(src) {
         'app-patient.js',
         'app-patient-views.js',
         'app.js',
+        'app-coupons.js',
+        'points.js',
         'scripts/reward-points-smoke.js'
     ];
     for (var si = 0; si < syntaxFiles.length; si++) {
@@ -548,6 +550,81 @@ function extractIifeHelpers(src) {
     pass('i18n cfg.nav.rewards', /'cfg\.nav\.rewards'/.test(i18nExtra));
     pass('i18n rewards.pay.useLabel', /'rewards\.pay\.useLabel'/.test(i18nExtra));
 
+    console.log('\n=== smoke: points on the phone ===');
+    var pwSql = read('reward_points_wallet.sql');
+    var pwRet = (pwSql.match(/return jsonb_build_object\(\s*'ok', true,[\s\S]*?\);/g) || []).pop() || '';
+    pass('points wallet SQL: closed token table + two security-definer functions',
+        /create table if not exists public\.reward_wallet_links/.test(pwSql) &&
+        /enable row level security/.test(pwSql) && /revoke all on public\.reward_wallet_links from anon, authenticated/.test(pwSql) &&
+        (pwSql.match(/security definer\s+set search_path = public/g) || []).length === 2 &&
+        /function public\.rw_wallet_link\(/.test(pwSql) && /function public\.rw_wallet_view\(p_token text\)/.test(pwSql));
+    pass('points wallet SQL: gen_random_uuid token, no pgcrypto, schema reload',
+        /replace\(gen_random_uuid\(\)::text, '-', ''\)/.test(pwSql) && pwSql.indexOf('gen_random_bytes') < 0 &&
+        pwSql.indexOf('create extension') < 0 && /notify pgrst, 'reload schema';\s*$/.test(pwSql));
+    pass('points wallet SQL: same person by HKID, else last 8 phone digits (like the ledger panel)',
+        /char_length\(v_hk\) >= 7/.test(pwSql) && /right\(v_ph, 8\)/.test(pwSql) && /patient_id = any \(v_ids\)/.test(pwSql));
+    pass('points wallet SQL: phone view returns no ids, chart no, phone, HKID or staff notes',
+        pwRet.length > 0 && !/patient_id|patient_no|phone|hkid|'note'|created_by/i.test(pwRet) &&
+        !/'note'/.test(pwSql.split('v_rows')[1] || ''), pwRet.replace(/\s+/g, ' ').slice(0, 120));
+    pass('points wallet SQL: referral and reset-to-zero rows get their own phone labels',
+        /'referral'/.test(pwSql) && /'cleared'/.test(pwSql) && /like '%\[batch %'/.test(pwSql));
+    pass('ledger panel has the Points on the phone button wired to REWARDS.openPhoneQr',
+        /id="rwPhoneQrBtn"[\s\S]{0,200}REWARDS\.openPhoneQr\(\)/.test(idxSrc) && /data-i18n="rewards\.pqr\.btn"/.test(idxSrc));
+    pass('rewards phone QR reuses the coupon QR box (rw_wallet_link + points.html)',
+        /COUPONS\.openPhoneQr\(modal, pid, phoneQrConfig\(\)\)/.test(rewardsSrc) && /rpc: 'rw_wallet_link'/.test(rewardsSrc) &&
+        /page: 'points\.html'/.test(rewardsSrc) && /waText: pointsWhatsAppText/.test(rewardsSrc));
+    var couponSrc = read('app-coupons.js');
+    pass('coupon QR box is shared: openPhoneQr exported, coupon set-up unchanged',
+        /function openPhoneQr\(sheet, patientId, cfg\)/.test(couponSrc) && /openPhoneQr: openPhoneQr/.test(couponSrc) &&
+        /rpc: 'dc_wallet_link',\s+page: 'wallet\.html'/.test(couponSrc) && /walletLinkToken\(patientId, reset, cfg\.rpc\)/.test(couponSrc));
+    ['rewards.pqr.btn', 'rewards.pqr.title', 'rewards.pqr.hint', 'rewards.pqr.link', 'rewards.pqr.noSql', 'rewards.pqr.fail'].forEach(function (k) {
+        var m = new RegExp("'" + k.replace(/\./g, '\\.') + "':\\s*\\{([\\s\\S]*?)\\}").exec(i18nExtra);
+        pass('i18n ' + k + ' in en / zh-CN / zh-Hant', !!m && /en:/.test(m[1]) && /'zh-CN':/.test(m[1]) && /'zh-Hant':/.test(m[1]));
+    });
+
+    console.log('\n=== unit: points page (points.js) ===');
+    try {
+        var ptsWin = { location: { search: '', hash: '' }, navigator: { language: 'en' } };
+        vm.runInNewContext(read('points.js'), { window: ptsWin, Date: Date, Math: Math, JSON: JSON, String: String, Number: Number, isFinite: isFinite, parseFloat: parseFloat });
+        var P = ptsWin.CSPoints;
+        pass('CSPoints loads in vm', !!P && typeof P.renderHtml === 'function');
+        var ptsData = {
+            ok: true, name: '陳○○', balance: 1234.5, charts: 2, started_at: '2026-01-02T03:00:00Z',
+            clinics: [{ clinic: 'PL', balance: 1000 }, { clinic: '<b>X</b>', balance: 234.5 }],
+            earn_rate: 10, zero_policy: 'lifespan', lifespan_months: 12,
+            rows: []
+        };
+        for (var pi = 0; pi < 25; pi++) {
+            ptsData.rows.push({ at: '2026-10-2' + (pi % 9) + 'T20:00:00Z', kind: pi === 0 ? 'referral' : pi === 1 ? 'mystery' : pi % 2 ? 'earn' : 'redeem',
+                points: pi % 2 ? 12.5 : -10, balance_after: 99, clinic: 'PL' });
+        }
+        var ph = P.renderHtml(ptsData, 'en', false);
+        pass('points page: balance 1,234.50 points', /<b id="wlPtsBalance">1,234\.50<\/b> <span>points<\/span>/.test(ph));
+        pass('points page: clinic chips when 2+ clinics hold points (escaped)', (ph.match(/wl-pts-chip"/g) || []).length === 2 &&
+            ph.indexOf('&lt;b&gt;X&lt;/b&gt;') > 0 && ph.indexOf('<b>X</b>') < 0);
+        pass('points page: earn rate and 12-month clearing notes', ph.indexOf('You earn 10% of what you pay as points.') > 0 &&
+            ph.indexOf('Points are cleared after 12 months with no new points.') > 0);
+        pass('points page: first 20 rows then Show more (5)', (ph.match(/class="wl-pts-row"/g) || []).length === 20 && /Show more \(5\)/.test(ph));
+        pass('points page: all rows after Show more', (P.renderHtml(ptsData, 'en', true).match(/class="wl-pts-row"/g) || []).length === 25);
+        pass('points page: per-row balance hidden when several charts add up', ph.indexOf('Balance 99') < 0 &&
+            P.renderHtml(Object.assign({}, ptsData, { charts: 1 }), 'en', false).indexOf('Balance 99') > 0);
+        pass('points page: referral label, unknown kind falls back to clinic adjust', /data-kind="referral"[\s\S]*?Refer a friend/.test(ph) &&
+            /data-kind="adjust"[\s\S]*?Adjusted by the clinic/.test(ph));
+        pass('points page: signs and HK date (20:00Z -> next day)', ph.indexOf('+12.50') > 0 && ph.indexOf('−10') > 0 &&
+            P.hkDate('2026-10-27T20:00:00Z') === '2026-10-28');
+        pass('points page: one clinic -> no chips; year-end note in Chinese', (function () {
+            var h = P.renderHtml({ ok: true, balance: 50, charts: 1, clinics: [{ clinic: 'PL', balance: 50 }], zero_policy: 'year_end', rows: [] }, 'zh-Hant', false);
+            return h.indexOf('wl-pts-chip"') < 0 && h.indexOf('未使用的積分會於每年年底清零。') > 0 && h.indexOf('過去 12 個月沒有積分紀錄。') > 0;
+        })());
+        pass('points page: bad / expired / offline links explained', /not valid any more/.test(P.renderHtml({ ok: false, reason: 'bad_link' }, 'en')) &&
+            /has expired/.test(P.renderHtml({ ok: false, reason: 'expired' }, 'en')) && /Check the connection/.test(P.renderHtml({ ok: false, reason: 'offline' }, 'en')));
+        pass('points page: token only from a 32-hex t=', P.tokenFrom({ search: '?t=0123456789ABCDEF0123456789abcdef&g=en' }) === '0123456789abcdef0123456789abcdef' &&
+            P.tokenFrom({ search: '?t=123' }) === '');
+        pass('points page: fmtPts whole / decimals', P.fmtPts(120) === '120' && P.fmtPts(0.5) === '0.50' && P.fmtPts(1000000) === '1,000,000');
+    } catch (ePts) {
+        pass('points page unit', false, ePts && ePts.message);
+    }
+
     console.log('\n=== unit: vm helpers ===');
     var R = null;
     try {
@@ -563,6 +640,16 @@ function extractIifeHelpers(src) {
                 R.round2(10.5) === 10.5, String(R.round2(1.005)));
             pass('fmtPts 50', R.fmtPts(50) === '50.00');
             pass('isAdmin true when currentRole admin', R.isAdmin() === true);
+            var pwa = R.pointsWhatsAppText('https://a.example/points.html?t=ab', { chinese_name: '陳大文', full_name: 'Chan Tai Man' }).split('\n');
+            pass('points WhatsApp: heading, named bilingual greeting, link, do-not-share',
+                pwa[0] === '[Joyful Smile Dental Clinic 樂意牙科中心]' && pwa[1].indexOf('陳大文 你好！') === 0 && pwa[1].indexOf('積分') > 0 &&
+                pwa[2].indexOf('Hi Chan Tai Man! ') === 0 && /reward points/.test(pwa[2]) &&
+                pwa[3] === 'https://a.example/points.html?t=ab' && pwa[4] === '請勿轉發此連結。Please do not share this link.', pwa.join(' | '));
+            var pwaNo = R.pointsWhatsAppText('u', null).split('\n');
+            pass('points WhatsApp: plain greeting when no name', pwaNo[1].indexOf('你好！') === 0 && pwaNo[2].indexOf('Hi! ') === 0);
+            var pcfg = R.phoneQrConfig();
+            pass('points QR set-up: rpc, page, PNG name, centre label', pcfg.rpc === 'rw_wallet_link' && pcfg.page === 'points.html' &&
+                pcfg.pngName === 'reward-points-qr.png' && pcfg.centre === '積分' && pcfg.scheme === 'rewards');
         }
     } catch (e) {
         pass('REWARDS loads in vm', false, e && e.message);
@@ -622,6 +709,16 @@ function extractIifeHelpers(src) {
         pass('served JS has redeemMulti',
             js.body.indexOf('redeemMulti') >= 0);
 
+        pass('HTML has rwPhoneQrBtn', idx.body.indexOf('id="rwPhoneQrBtn"') >= 0);
+        var ptsHtml = await httpGetText(PAGE_PORT, '/points.html');
+        pass('GET /points.html loads points.js + wallet.css and boots', ptsHtml.status === 200 &&
+            /src="points\.js\?v=/.test(ptsHtml.body) && /href="wallet\.css\?v=/.test(ptsHtml.body) &&
+            ptsHtml.body.indexOf('CSPoints.boot()') > 0 && /name="robots" content="noindex, nofollow"/.test(ptsHtml.body));
+        var ptsJs = await httpGetText(PAGE_PORT, '/points.js');
+        pass('GET /points.js calls rw_wallet_view', ptsJs.status === 200 && ptsJs.body.indexOf('/rest/v1/rpc/rw_wallet_view') > 0);
+        var pwSqlHttp = await httpGetText(PAGE_PORT, '/reward_points_wallet.sql');
+        pass('GET /reward_points_wallet.sql', pwSqlHttp.status === 200 && pwSqlHttp.body.indexOf('rw_wallet_view') > 0);
+
         var sqlHttp = await httpGetText(PAGE_PORT, '/reward_points.sql');
         pass('GET /reward_points.sql', sqlHttp.status === 200 &&
             sqlHttp.body.indexOf('reward_ledger') >= 0);
@@ -679,6 +776,15 @@ function extractIifeHelpers(src) {
         } else {
             pass('API reward_ledger select', ledger.status < 300, 'rows=' +
                 (Array.isArray(ledger.json) ? ledger.json.length : '?'));
+        }
+
+        // Read-only: an unknown token is refused (nothing is written for a token that does not exist).
+        var pwView = await restRpc(sb.url, sb.key, 'rw_wallet_view', { p_token: '00000000000000000000000000000000' });
+        if (/Could not find the function|PGRST202|does not exist/i.test(pwView.raw || '') || pwView.status === 404) {
+            warn('RPC rw_wallet_view not deployed yet — run reward_points_wallet.sql in Supabase', String(pwView.raw || '').slice(0, 160));
+        } else {
+            pass('RPC rw_wallet_view refuses an unknown token', pwView.status < 300 && pwView.json && pwView.json.ok === false &&
+                pwView.json.reason === 'bad_link', pwView.raw);
         }
 
         // Safe RPC: earn with 0 eligible → skipped, no balance change
@@ -1078,6 +1184,137 @@ function extractIifeHelpers(src) {
                 !!(cfgPaint.hasClinicTabs && cfgPaint.hasDocJoin),
                 'tabs=' + cfgPaint.hasClinicTabs + ' join=' + cfgPaint.hasDocJoin);
         }
+
+        // ── Points on the phone QR (rw_wallet_link stubbed: no token is written) ──
+        console.log('\n=== CDP points on the phone QR ===');
+        var pqr = await cdp.js(`(async () => {
+  const out = {};
+  const wait = (test, ms) => new Promise(res => { const t0 = Date.now(); (function tick() { if (test() || Date.now() - t0 > ms) res(test()); else setTimeout(tick, 100); })(); });
+  const pid = '00000000-0000-0000-0000-0000000000aa';
+  const realRpc = SB.rpc, realFrom = SB.from, realConfirm = window.confirm, realWa = window.openWhatsAppPrefill;
+  const calls = [], sent = [];
+  let rpcMode = 'ok';
+  SB.rpc = function (name, args) {
+    if (name !== 'rw_wallet_link') return realRpc.apply(SB, arguments);
+    calls.push({ name: name, reset: !!(args && args.p_reset), pid: args && args.p_patient_id });
+    if (rpcMode === 'missing') return Promise.resolve({ data: null, error: { message: 'Could not find the function public.rw_wallet_link(p_by, p_patient_id, p_reset) in the schema cache' } });
+    return Promise.resolve({ data: { ok: true, token: args && args.p_reset ? 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' : 'abcdefabcdefabcdefabcdefabcdef12' }, error: null });
+  };
+  SB.from = function (table) {
+    if (table !== 'patients') return realFrom.apply(SB, arguments);
+    return { select: function (cols) {
+      if (cols !== 'patient_no,chinese_name,full_name,phone_number,mobile_phone') return realFrom.call(SB, table).select(cols);
+      const row = { patient_no: 'T001', chinese_name: '陳大文', full_name: 'Chan Tai Man', phone_number: '', mobile_phone: '9123 4567' };
+      return { eq: function () { return { maybeSingle: function () { return Promise.resolve({ data: row, error: null }); } }; } };
+    } };
+  };
+  window.confirm = function () { return true; };
+  window.openWhatsAppPrefill = function (p, m) { sent.push({ phone: p, msg: m }); return true; };
+  try {
+    REWARDS.openPatientPanel(pid);
+    const modal = document.getElementById('rewardPatientModal');
+    await wait(() => modal && getComputedStyle(modal).display !== 'none', 5000);
+    const btn = document.getElementById('rwPhoneQrBtn');
+    out.btnShown = !!btn && !btn.hidden && btn.offsetParent !== null && /Points on the phone/.test(btn.textContent);
+    btn.click();
+    await wait(() => !!modal.querySelector('.dc-wqr #dcWqrCode canvas, .dc-wqr #dcWqrCode img'), 10000);
+    const wrap = modal.querySelector('.dc-wqr');
+    out.inModal = !!wrap && wrap.getAttribute('data-scheme') === 'rewards';
+    out.title = (document.getElementById('dcWqrTitle') || {}).textContent || '';
+    out.link = (document.getElementById('dcWqrLink') || {}).value || '';
+    const cv = modal.querySelector('#dcWqrCode canvas');
+    out.qr = !!cv && cv.width === 220;
+    out.calls = calls.slice();
+    await wait(() => (document.getElementById('dcWqrPhone') || {}).value === '9123 4567', 4000);
+    out.phone = document.getElementById('dcWqrPhone').value;
+    const card = document.getElementById('dcWqrBox');
+    const r = card.getBoundingClientRect();
+    const box = modal.querySelector('.reward-points-modal-box');
+    const stack = document.elementsFromPoint(r.left + r.width / 2, r.top + 30);
+    const iCard = stack.findIndex(el => card.contains(el));
+    const iBox = stack.findIndex(el => box.contains(el) && !wrap.contains(el));
+    out.onTop = iCard >= 0 && (iBox < 0 || iCard < iBox);
+    const wr = wrap.getBoundingClientRect();
+    out.fullScreen = Math.round(wr.width) === innerWidth && Math.round(wr.height) === innerHeight && wr.left === 0 && wr.top === 0;
+    out.notInBox = !box.contains(wrap);
+    out.inView = r.top >= 0 && r.left >= 0 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1;
+    if (!(out.onTop && out.fullScreen && out.inView)) {
+      out.topDebug = { stack: stack.slice(0, 4).map(el => el.tagName + '#' + el.id + '.' + el.className), card: [r.left, r.top, r.width, r.height].map(Math.round),
+        wrap: [wr.left, wr.top, wr.width, wr.height].map(Math.round), view: [innerWidth, innerHeight] };
+    }
+    await wait(() => !document.getElementById('dcWqrWa').disabled, 4000);
+    document.getElementById('dcWqrWa').click();
+    out.wa = sent[0] || null;
+    out.linkLabel = (modal.querySelector('.dc-wqr-linkfield > span') || {}).textContent || '';
+    document.getElementById('dcWqrReset').click();
+    await wait(() => (document.getElementById('dcWqrLink').value || '').indexOf('eeee') > 0, 5000);
+    out.resetLink = document.getElementById('dcWqrLink').value;
+    wrap.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    out.escClosesQrOnly = !modal.querySelector('.dc-wqr') && getComputedStyle(modal).display !== 'none';
+    rpcMode = 'missing';
+    btn.click();
+    await wait(() => { const e = document.getElementById('dcWqrErr'); return e && !e.hidden; }, 5000);
+    out.missingMsg = (document.getElementById('dcWqrErr') || {}).textContent || '';
+    REWARDS.closePatientPanel();
+    out.closeAlsoClosesQr = !document.querySelector('#rewardPatientModal .dc-wqr');
+  } catch (e) {
+    out.err = String(e && e.stack || e);
+  } finally {
+    SB.rpc = realRpc; SB.from = realFrom; window.confirm = realConfirm; window.openWhatsAppPrefill = realWa;
+  }
+  return out;
+})()`, true, 40000);
+        pass('CDP ledger panel shows Points on the phone', !!(pqr && pqr.btnShown), JSON.stringify(pqr).slice(0, 300));
+        pass('CDP points QR covers the screen above the ledger panel (not clipped by the panel box)',
+            !!(pqr && pqr.inModal && pqr.onTop && pqr.fullScreen && pqr.notInBox && pqr.inView),
+            pqr && JSON.stringify(pqr.topDebug || ''));
+        pass('CDP points QR title and link label', !!(pqr && /Reward points on the phone/.test(pqr.title) && /Points link/.test(pqr.linkLabel)),
+            pqr && (pqr.title + ' | ' + pqr.linkLabel));
+        pass('CDP points QR asks rw_wallet_link and links to points.html', !!(pqr && pqr.qr && pqr.calls.length >= 1 &&
+            pqr.calls[0].name === 'rw_wallet_link' && pqr.calls[0].reset === false && pqr.calls[0].pid === '00000000-0000-0000-0000-0000000000aa' &&
+            /\/points\.html\?t=abcdefabcdefabcdefabcdefabcdef12$/.test(pqr.link)), pqr && pqr.link);
+        pass('CDP points QR fills the chart phone and WhatsApps the points message', !!(pqr && pqr.phone === '9123 4567' && pqr.wa &&
+            pqr.wa.phone === '9123 4567' && pqr.wa.msg.indexOf(pqr.link) > 0 && pqr.wa.msg.indexOf('陳大文 你好！') > 0 &&
+            /reward points balance/.test(pqr.wa.msg)), pqr && pqr.wa && pqr.wa.msg.replace(/\n/g, ' | '));
+        pass('CDP points New QR code asks for a fresh token', !!(pqr && /t=e{32}$/.test(pqr.resetLink)), pqr && pqr.resetLink);
+        pass('CDP Esc closes the points QR and keeps the ledger panel', !!(pqr && pqr.escClosesQrOnly));
+        pass('CDP points QR explains when reward_points_wallet.sql is not run', !!(pqr && /reward_points_wallet\.sql/.test(pqr.missingMsg)), pqr && pqr.missingMsg);
+        pass('CDP closing the ledger panel closes the points QR', !!(pqr && pqr.closeAlsoClosesQr), pqr && pqr.err);
+
+        var ppage = await cdp.js(`(async () => {
+  const f = document.createElement('iframe');
+  f.style.cssText = 'position:fixed;left:-2000px;top:0;width:390px;height:800px';
+  f.src = 'points.html?t=00000000000000000000000000000000&g=en';
+  document.body.appendChild(f);
+  const t0 = Date.now();
+  let d = null;
+  while (Date.now() - t0 < 12000) {
+    d = f.contentDocument;
+    if (d && d.querySelector('#wlMain .wl-error, #wlMain .wl-pts-card')) break;
+    await new Promise(r => setTimeout(r, 200));
+  }
+  const out = { real: d ? (d.querySelector('#wlMain') || {}).textContent : '' };
+  const w = f.contentWindow;
+  const rows = [];
+  for (let i = 0; i < 30; i++) rows.push({ at: '2026-10-1' + (i % 9) + 'T02:00:00Z', kind: i % 3 ? 'earn' : 'redeem', points: i % 3 ? 123.45 : -1000, clinic: 'PL' });
+  d.getElementById('wlMain').innerHTML = w.CSPoints.renderHtml({ ok: true, balance: 123456.78, charts: 2, started_at: '2025-02-01T00:00:00Z',
+    clinics: [{ clinic: 'PL', balance: 100000 }, { clinic: 'PY', balance: 23456.78 }], earn_rate: 10, zero_policy: 'year_end', rows: rows }, 'en', false);
+  await new Promise(r => setTimeout(r, 150));
+  const card = d.querySelector('.wl-pts-card');
+  out.cardBg = card ? getComputedStyle(card).backgroundImage : '';
+  out.bigSize = parseFloat(getComputedStyle(d.getElementById('wlPtsBalance')).fontSize);
+  out.noSideScroll = d.documentElement.scrollWidth <= d.documentElement.clientWidth + 1;
+  out.rows = d.querySelectorAll('.wl-pts-row').length;
+  out.minusColour = getComputedStyle(d.querySelector('.wl-pts-amt.is-minus')).color;
+  out.title = d.title;
+  f.remove();
+  return out;
+})()`, true, 20000);
+        pass('CDP points.html explains a link that is not valid (real database call)',
+            !!(ppage && /not valid any more|Could not load your points/.test(ppage.real)), ppage && ppage.real);
+        pass('CDP points.html styled card, big balance, no sideways scroll at 390px', !!(ppage && /gradient/.test(ppage.cardBg) &&
+            ppage.bigSize >= 36 && ppage.noSideScroll && ppage.rows === 20 && ppage.minusColour === 'rgb(194, 65, 12)' && ppage.title === 'My reward points'),
+            ppage && JSON.stringify(ppage).slice(0, 240));
 
         // ── Live real patient (read-only) ─────────────────────
         console.log('\n=== CDP live real patient ===');

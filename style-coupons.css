@@ -300,10 +300,23 @@ button.dc-card.is-blocked .dc-check { display: none; }
 .dc-wqr-local { margin: 0 0 8px; font-size: 12px; }
 .dc-wqr-card .dc-authp-field input { font-size: 12px; color: #334155; background: #f8fafc; }
 .dc-wqr-actions { flex-wrap: wrap; }
+.dc-wqr-linkfield > span { display: flex; align-items: baseline; gap: 6px; }
+.dc-wqr-linkhint { font-weight: 400; color: #94a3b8; font-size: 11px; }
+.dc-wqr-copied { margin-left: auto; font-style: normal; font-size: 11px; font-weight: 700; color: #15803d; }
+.dc-wqr-card .dc-authp-field input.dc-wqr-link { cursor: copy; transition: background .15s, border-color .15s; }
+.dc-wqr-card .dc-authp-field input.dc-wqr-link:hover { background: #f0fdf4; border-color: #86efac; }
+.dc-wqr-card .dc-authp-field input.dc-wqr-link.is-copied { background: #dcfce7; border-color: #22c55e; color: #14532d; }
 .dc-wqr-who { margin: -4px 0 10px; text-align: center; font-size: 14px; font-weight: 700; color: #166534; }
 .dc-wqr-tools { flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
 .dc-wqr-tools .dc-clear { flex: 1 1 calc(50% - 6px); font-size: 12px; padding: 7px 8px; }
 .dc-wqr-tools .dc-clear:disabled { opacity: .45; cursor: default; }
+.dc-wqr-tools .dc-wqr-wa { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: #25d366; border-color: #1ebe5b; color: #fff; font-weight: 700; }
+.dc-wqr-tools .dc-wqr-wa:hover:not(:disabled) { background: #1ebe5b; border-color: #17a74f; color: #fff; }
+.dc-wqr-tools .dc-wqr-wa:focus-visible { outline: 2px solid #15803d; outline-offset: 2px; }
+.dc-wqr-tools .dc-wqr-wa:disabled { background: #a7f3c6; border-color: #a7f3c6; color: #f0fdf4; }
+.dc-wqr-wa-ico { width: 15px; height: 15px; flex: 0 0 auto; }
+.dc-wqr-phonefield input.dc-wqr-phone { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.dc-wqr-phonefield input.dc-wqr-phone:focus { border-color: #25d366; box-shadow: 0 0 0 3px rgba(37, 211, 102, .2); outline: none; }
 .dc-wqr-detail { display: block; margin-top: 4px; font-size: 11px; color: #7f1d1d; word-break: break-word; }
 .dc-wqr-note { margin: 8px 0 0; font-size: 11px; }
 

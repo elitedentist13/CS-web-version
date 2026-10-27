@@ -3105,6 +3105,9 @@ var REWARDS = (function () {
         _panelLedgerRows = [];
         _panelLedgerFilter = 'all';
         paintPanelLedger();
+        var openQr = modal.querySelector('.dc-wqr');
+        if (openQr && openQr.__dcCancel) openQr.__dcCancel();
+        syncPhoneQrBtn();
         if (tbody) tbody.innerHTML = ledgerMessageRow(tr('common.loadingEllipsis', 'Loading…'));
         if (typeof openModal === 'function') openModal('rewardPatientModal');
         else modal.style.display = 'flex';
@@ -3250,7 +3253,56 @@ var REWARDS = (function () {
         }).join(' · ');
     }
 
+    /** Pure: WhatsApp message to the patient with their points link (staff press Send in WhatsApp). */
+    function pointsWhatsAppText(url, p) {
+        var zh = String((p && (p.chinese_name || p.full_name)) || '').trim();
+        var en = String((p && (p.full_name || p.chinese_name)) || '').trim();
+        return '[' + SMS_HEADING_NAME + ']\n' +
+            (zh ? zh + ' ' : '') + '你好！按以下連結即可在手機查看你的積分結餘及紀錄：\n' +
+            'Hi' + (en ? ' ' + en : '') + '! Tap the link below to see your reward points balance and history on your phone:\n' +
+            String(url || '') + '\n' +
+            '請勿轉發此連結。Please do not share this link.';
+    }
+
+    function phoneQrConfig() {
+        return {
+            scheme: 'rewards',
+            rpc: 'rw_wallet_link',
+            page: 'points.html',
+            pngName: 'reward-points-qr.png',
+            title: tr('rewards.pqr.title', 'Reward points on the phone'),
+            hint: tr('rewards.pqr.hint',
+                'Ask the patient to scan this with the phone camera. They can see their points balance and history only — points cannot be used or moved from the phone.'),
+            linkLabel: tr('rewards.pqr.link', 'Points link'),
+            centre: tr('rewards.pqr.centre', '積分'),
+            noSql: tr('rewards.pqr.noSql', 'Points on the phone is not set up yet. Run reward_points_wallet.sql in Supabase first.'),
+            fail: tr('rewards.pqr.fail', 'Could not make the points link. Try again.'),
+            slip: {
+                heading: '我的積分 My reward points',
+                tip: '用手機相機掃描，即可查看你的積分。 Scan with the phone camera to see your points.'
+            },
+            waText: pointsWhatsAppText
+        };
+    }
+
+    /** Phone QR over the ledger panel: the patient scans it to see their own points (browse only). */
+    function openPhoneQr(patientId) {
+        var pid = patientId || _panelPatientId;
+        // The backdrop, not the panel box: the box is transformed and scrolls, which would clip a fixed overlay.
+        var modal = document.getElementById('rewardPatientModal');
+        if (!pid || !modal || typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.openPhoneQr !== 'function') return null;
+        return COUPONS.openPhoneQr(modal, pid, phoneQrConfig());
+    }
+
+    function syncPhoneQrBtn() {
+        var btn = document.getElementById('rwPhoneQrBtn');
+        if (!btn) return;
+        btn.hidden = typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.openPhoneQr !== 'function';
+    }
+
     function closePatientPanel() {
+        var qr = document.querySelector('#rewardPatientModal .dc-wqr');
+        if (qr && qr.__dcCancel) qr.__dcCancel();
         if (typeof closeModal === 'function') closeModal('rewardPatientModal');
         else {
             var m = document.getElementById('rewardPatientModal');
@@ -4600,6 +4652,8 @@ var REWARDS = (function () {
             '.rw-hero-bal .rw-hero-label{color:#047857;}' +
             '#rwPatientBalance{font-size:30px;font-weight:800;color:#065f46;line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:-.01em;}' +
             '#rwPatientStarted{font-size:16px;font-weight:700;color:#334155;margin-top:2px;}' +
+            '#rewardPatientModal .rw-pqr-btn{margin-top:8px;align-self:flex-start;white-space:nowrap;}' +
+            '#rewardPatientModal .rw-pqr-btn[hidden]{display:none;}' +
             '#rwAdminAdjust{padding:10px 12px;border-radius:14px;border:1px dashed #cbd5e1;background:#fff;}' +
             '.rw-lg-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px;}' +
             '.rw-lg-summary:empty,.rw-lg-filters:empty{display:none;}' +
@@ -4803,6 +4857,9 @@ var REWARDS = (function () {
         applyRedeemAllOnPayment: applyRedeemAllOnPayment,
         openPatientPanel: openPatientPanel,
         closePatientPanel: closePatientPanel,
+        openPhoneQr: openPhoneQr,
+        phoneQrConfig: phoneQrConfig,
+        pointsWhatsAppText: pointsWhatsAppText,
         openLedgerFinder: openLedgerFinder,
         closeLedgerFinder: closeLedgerFinder,
         refreshBannerBalances: refreshBannerBalances,

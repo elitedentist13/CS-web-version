@@ -65,3 +65,26 @@ body { padding: 16px 14px calc(32px + env(safe-area-inset-bottom)); }
 .wl-more { display: block; width: 100%; margin-top: 4px; padding: 10px; border: 1px solid var(--wl-border); background: #fff; border-radius: 12px; font: inherit; font-weight: 700; color: var(--wl-muted); cursor: pointer; }
 
 .wl-foot { margin-top: 18px; text-align: center; font-size: 12px; color: var(--wl-muted); }
+
+/* Reward points page (points.html) */
+.wl-pts-card { text-align: center; padding: 16px 14px 14px; border-radius: 18px; color: #fff; background: linear-gradient(140deg, #16a34a 0%, #0f766e 100%); box-shadow: 0 10px 26px rgba(15, 118, 110, .25); }
+.wl-pts-label { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; opacity: .9; }
+.wl-pts-big { margin-top: 2px; }
+.wl-pts-big b { font-size: 40px; font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.wl-pts-big span { font-size: 15px; font-weight: 700; opacity: .9; }
+.wl-pts-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 8px; }
+.wl-pts-chip { font-size: 12px; padding: 2px 10px; border-radius: 999px; background: rgba(255, 255, 255, .2); }
+.wl-pts-since { margin-top: 8px; font-size: 12px; opacity: .9; }
+.wl-pts-notes { list-style: none; margin: 10px 2px 0; font-size: 12px; color: var(--wl-muted); line-height: 1.5; }
+.wl-pts-notes li::before { content: 'ⓘ '; color: var(--wl-green); }
+.wl-pts-list { list-style: none; background: var(--wl-card); border: 1px solid var(--wl-border); border-radius: 14px; overflow: hidden; }
+.wl-pts-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid #f1f5f9; }
+.wl-pts-row:first-child { border-top: 0; }
+.wl-pts-ico { flex: 0 0 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #f0fdf4; font-size: 15px; }
+.wl-pts-row[data-kind="redeem"] .wl-pts-ico, .wl-pts-row[data-kind="transfer_out"] .wl-pts-ico, .wl-pts-row[data-kind="cleared"] .wl-pts-ico { background: #fff7ed; }
+.wl-pts-what { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.wl-pts-what b { font-size: 14px; }
+.wl-pts-what small, .wl-pts-amt small { font-size: 11px; color: var(--wl-muted); font-weight: 400; }
+.wl-pts-amt { display: flex; flex-direction: column; align-items: flex-end; font-weight: 800; font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wl-pts-amt.is-plus { color: var(--wl-green); }
+.wl-pts-amt.is-minus { color: #c2410c; }

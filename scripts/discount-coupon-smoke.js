@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261028walletqr1';
+var BUILD = '20261028pointsqr1';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -1357,7 +1357,20 @@ function loadCoupons() {
         slip.indexOf('陳** · KT') > 0 && slip.indexOf('Joyful Smile Dental Clinic 樂意牙科中心') > 0 && /do not share/.test(slip));
     pass('wallet QR slip escapes text', C.walletSlipHtml('x"><script>', { who: '<b>x</b>' }).indexOf('<script>') < 0 &&
         C.walletSlipHtml('', { who: '<b>x</b>' }).indexOf('<b>x</b>') < 0);
-    pass('wallet QR draws through the Tools QR generator', /QRTOOL\.draw\(codeEl, url/.test(src) && /QRTOOL\.openWith\(\{ text: url/.test(src));
+    pass('wallet QR draws through the Tools QR generator', /QRTOOL\.draw\(codeEl, url/.test(src));
+    var waText = C.walletWhatsAppText('https://a.example/wallet.html?t=' + tok);
+    pass('wallet WhatsApp message: clinic heading, bilingual line, the link, do-not-share', waText.split('\n')[0] === '[Joyful Smile Dental Clinic 樂意牙科中心]' &&
+        waText.indexOf('查看你的優惠券') > 0 && waText.indexOf('see your coupons') > 0 &&
+        waText.indexOf('https://a.example/wallet.html?t=' + tok) > 0 && /Please do not share this link\.$/.test(waText), waText);
+    var waNamed = C.walletWhatsAppText('https://a.example/w', { chinese_name: '陳大文', full_name: 'Chan Tai Man' }).split('\n');
+    var waEnOnly = C.walletWhatsAppText('https://a.example/w', { full_name: 'Mary Lee' }).split('\n');
+    pass('wallet WhatsApp greets by name (Chinese in the Chinese line, English in the English line)',
+        waNamed[1].indexOf('陳大文 你好！') === 0 && waNamed[2].indexOf('Hi Chan Tai Man! ') === 0 &&
+        waEnOnly[1].indexOf('Mary Lee 你好！') === 0 && waEnOnly[2].indexOf('Hi Mary Lee! ') === 0 &&
+        waText.split('\n')[1].indexOf('你好！') === 0 && waText.split('\n')[2].indexOf('Hi! ') === 0, waNamed.slice(1, 3).join(' | '));
+    pass('wallet WhatsApp sends to the phone field via the shared WhatsApp opener', /var phone = waPhone\(\);/.test(src) &&
+        /openWhatsAppPrefill\(phone, cfg\.waText\(url, patient\)\)/.test(src) && /waText: walletWhatsAppText/.test(src) && src.indexOf('id="dcWqrPhone"') > 0 &&
+        /phone_number,mobile_phone/.test(src) && src.indexOf('QRTOOL.openWith') < 0);
     var toolsSrc = read('app-tools.js');
     pass('Tools QR generator offers draw() and openWith() to other modules', /return \{ open: open, draw: draw, openWith: openWith \}/.test(toolsSrc) &&
         /function draw\(container, text, opts\)/.test(toolsSrc));
@@ -1371,7 +1384,8 @@ function loadCoupons() {
     var wPage = read('wallet.html');
     pass('wallet.html loads wallet.js, no referrer, not indexed', wPage.indexOf('wallet.js?v=') >= 0 &&
         wPage.indexOf('no-referrer') >= 0 && wPage.indexOf('noindex') >= 0 && !/<form|<input/.test(wPage));
-    pass('sheet has a Wallet QR button', src.indexOf('id="dcWalletQrBtn"') >= 0 && src.indexOf("SB.rpc('dc_wallet_link'") >= 0);
+    pass('sheet has a Wallet QR button', src.indexOf('id="dcWalletQrBtn"') >= 0 && src.indexOf("var fn = rpc || 'dc_wallet_link';") >= 0 &&
+        src.indexOf('SB.rpc(fn, { p_patient_id: patientId') >= 0 && /openPhoneQr\(host && host\.querySelector\('\.dc-sheet'\), patientId, couponQrConfig\(\)\)/.test(src));
 
     console.log('\n=== HTML spot ===');
     var server = null;
@@ -1710,7 +1724,20 @@ function loadCoupons() {
     return Promise.resolve({ data: { ok: true, token: args && args.p_reset ? 'ffffffffffffffffffffffffffffffff' : '0123456789abcdef0123456789abcdef' }, error: null });
   };
   var realConfirm = window.confirm;
-  window.confirm = function () { return true; };
+  var asked = [];
+  window.confirm = function (m) { asked.push(m); return true; };
+  var realFrom = SB.from;
+  SB.from = function (table) {
+    if (table !== 'patients') return realFrom.apply(SB, arguments);
+    return { select: function (cols) {
+      if (String(cols).indexOf('mobile_phone') < 0) return realFrom.call(SB, table).select(cols);
+      var row = { patient_no: 'T001', chinese_name: '陳大文', full_name: 'Chan Tai Man', phone_number: '', mobile_phone: '9123 4567' };
+      return { eq: function () { return { maybeSingle: function () { return Promise.resolve({ data: row, error: null }); } }; } };
+    } };
+  };
+  var realWa = window.openWhatsAppPrefill;
+  var sent = [];
+  window.openWhatsAppPrefill = function (p, m) { sent.push({ phone: p, msg: m }); return true; };
   try {
     document.getElementById('dcWalletQrBtn').click();
     await wait(function () { return !!host.querySelector('#dcWqrCode img, #dcWqrCode canvas') || /could not be drawn/.test((host.querySelector('#dcWqrCode') || {}).textContent || ''); }, 10000);
@@ -1725,12 +1752,49 @@ function loadCoupons() {
     await wait(function () { return !document.getElementById('dcWqrPng').disabled; }, 8000);
     var qc = host.querySelector('#dcWqrCode canvas');
     out.viaTool = !!qc && qc.getAttribute('role') === 'img' && qc.width === 220;
-    out.toolsReady = ['dcWqrCopy', 'dcWqrPng', 'dcWqrPrint', 'dcWqrTool'].every(function (id) { return !document.getElementById(id).disabled; });
+    await wait(function () { return !document.getElementById('dcWqrWa').disabled; }, 5000);
+    out.toolsReady = ['dcWqrCopy', 'dcWqrPng', 'dcWqrPrint', 'dcWqrWa'].every(function (id) { return !document.getElementById(id).disabled; });
+    out.noToolBtn = !document.getElementById('dcWqrTool');
+    var waBtn = document.getElementById('dcWqrWa');
+    var waCss = getComputedStyle(waBtn);
+    out.waGreen = waCss.backgroundColor === 'rgb(37, 211, 102)' && waCss.color === 'rgb(255, 255, 255)' && /WhatsApp/.test(waBtn.textContent);
+    out.waTitle = waBtn.title;
+    var phoneIn = document.getElementById('dcWqrPhone');
+    out.phoneField = phoneIn.value;
+    waBtn.click();
+    out.waSent = sent.length === 1 ? sent[0] : null;
+    out.waAskedLocal = asked.some(function (m) { return /only works on this computer/.test(m); });
+    phoneIn.value = '';
+    phoneIn.dispatchEvent(new Event('input', { bubbles: true }));
+    out.waOffNoPhone = waBtn.disabled && /type one in/.test(waBtn.title);
+    phoneIn.value = '+852 6234 5678';
+    phoneIn.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(function (r) { setTimeout(r, 750); });
+    waBtn.click();
+    out.waTyped = sent.length === 2 ? sent[1].phone : JSON.stringify(sent);
+    var copied = [];
+    var realClip = navigator.clipboard;
+    try {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: function (v) { copied.push(v); return Promise.resolve(); } } });
+      var linkIn = document.getElementById('dcWqrLink');
+      linkIn.click();
+      await wait(function () { return !document.getElementById('dcWqrCopied').hidden; }, 3000);
+      out.clickCopy = copied.length === 1 && copied[0] === linkIn.value && !document.getElementById('dcWqrCopied').hidden &&
+        linkIn.classList.contains('is-copied') && /Copied/.test(document.getElementById('dcWqrCopy').textContent);
+      linkIn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await wait(function () { return copied.length === 2; }, 2000);
+      out.keyCopy = copied.length === 2;
+      out.copyCursor = getComputedStyle(linkIn).cursor === 'copy';
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: realClip });
+    }
     var direct = await QRTOOL.draw(null, 'https://example.com/wallet.html?t=0123', { size: 160, label: 'TEST' });
     out.direct = !!(direct && direct.ok && direct.canvas && direct.canvas.width === 160 && String(direct.dataUrl).indexOf('data:image/png') === 0);
   } finally {
     SB.rpc = realRpc;
+    SB.from = realFrom;
     window.confirm = realConfirm;
+    window.openWhatsAppPrefill = realWa;
   }
   host.innerHTML = ''; host.setAttribute('hidden', '');
   return out;
@@ -1744,8 +1808,18 @@ function loadCoupons() {
             wqr.calls[0].reset === false && wqr.calls[1].reset === true && wqr.calls[0].name === 'dc_wallet_link'));
         pass('CDP local address warning shows on 127.0.0.1', !!(wqr && wqr.localWarn));
         pass('CDP wallet QR is drawn by the Tools QR generator', !!(wqr && wqr.viaTool));
-        pass('CDP Copy / Download / Print / Open in QR generator turn on once drawn', !!(wqr && wqr.toolsReady));
+        pass('CDP Copy / Download / Print / WhatsApp turn on once drawn', !!(wqr && wqr.toolsReady && wqr.noToolBtn));
+        pass('CDP WhatsApp button is green and names the chart phone', !!(wqr && wqr.waGreen && /9123 4567/.test(wqr.waTitle)), wqr && wqr.waTitle);
+        pass('CDP WhatsApp opens with the patient phone and the wallet link in the message', !!(wqr && wqr.waSent && wqr.waSent.phone === '9123 4567' &&
+            wqr.waSent.msg.indexOf(wqr.resetLink) > 0 && /^\[Joyful Smile Dental Clinic/.test(wqr.waSent.msg) &&
+            wqr.waSent.msg.indexOf('陳大文 你好！') > 0 && wqr.waSent.msg.indexOf('Hi Chan Tai Man!') > 0), wqr && JSON.stringify(wqr.waSent));
+        pass('CDP WhatsApp warns before sending a local-only link', !!(wqr && wqr.waAskedLocal));
+        pass('CDP WhatsApp phone field is filled from the chart phone', !!(wqr && wqr.phoneField === '9123 4567'), wqr && wqr.phoneField);
+        pass('CDP WhatsApp turns off when the phone field is empty', !!(wqr && wqr.waOffNoPhone));
+        pass('CDP WhatsApp sends to the phone typed in the field', !!(wqr && wqr.waTyped === '+852 6234 5678'), wqr && wqr.waTyped);
         pass('CDP QRTOOL.draw works on its own (size, label, PNG data)', !!(wqr && wqr.direct));
+        pass('CDP clicking the wallet link copies it and shows Copied', !!(wqr && wqr.clickCopy));
+        pass('CDP Enter on the wallet link also copies; copy cursor shown', !!(wqr && wqr.keyCopy && wqr.copyCursor));
         pass('CDP a real database error shows its message', !!(wqr && /Database says: /.test(wqr.realErr)), wqr && wqr.realErr);
         var wpage = await cdp.js(`(async function () {
   var f = document.createElement('iframe');

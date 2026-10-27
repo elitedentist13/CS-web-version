@@ -107,7 +107,7 @@ var COUPONS = (function () {
         { key: 'spend_4', name: 'Custom spend 1', nameZh: '自訂滿額 1', scope: 'bill', mode: 'amount', face: 0, target: 0, expiry: 180, sms: true, trigger: 'target_spend', hold: 3 },
         { key: 'spend_5', name: 'Custom spend 2', nameZh: '自訂滿額 2', scope: 'bill', mode: 'amount', face: 0, target: 0, expiry: 180, sms: true, trigger: 'target_spend', hold: 3 },
         { key: 'new_chart', name: 'New chart', nameZh: '新客券', scope: 'bill', mode: 'amount', face: 100, expiry: 90, sms: false, trigger: 'new_chart', hold: 1 },
-        { key: 'referral', name: 'Refer a friend', nameZh: '介紹新客', scope: 'bill', mode: 'amount', face: 100, expiry: 180, sms: true, trigger: 'referral', hold: 5 },
+        { key: 'referral', name: 'Refer a friend', nameZh: '介紹新客', scope: 'bill', mode: 'amount', face: 100, expiry: 180, sms: true, trigger: 'referral', hold: 5, minFirst: 300 },
         { key: 'free_scaling', name: 'Free scaling', nameZh: '免費洗牙', scope: 'items', mode: 'free_line', face: 0, expiry: 180, sms: true, trigger: 'manual', hold: 2 },
         { key: 'free_filling', name: 'Free filling', nameZh: '免費補牙', scope: 'items', mode: 'free_line', face: 0, expiry: 180, sms: true, trigger: 'manual', hold: 2 },
         { key: 'free_extraction', name: 'Free extraction', nameZh: '免費脫牙', scope: 'items', mode: 'free_line', face: 0, expiry: 180, sms: true, trigger: 'manual', hold: 2 },
@@ -179,6 +179,7 @@ var COUPONS = (function () {
             face: def.face || 0,
             percent: def.percent || 0,
             minSpend: 0,
+            minFirstSpend: def.minFirst || 0,
             target: def.target || 0,
             expiryDays: def.expiry || 90,
             maxDiscount: def.max || 0,
@@ -987,7 +988,8 @@ var COUPONS = (function () {
         return couponSmsBody({
             today: opts.today,
             wallet: list,
-            change: '+1 ' + smsCouponName(coupon) + ' ' + smsCouponValue(coupon) + ' (發出/Issued)',
+            change: '+1 ' + smsCouponName(coupon) + ' ' + smsCouponValue(coupon) + ' (發出/Issued)' +
+                (opts.thanks ? ' — 多謝介紹 ' + opts.thanks + ' / thanks for referring ' + opts.thanks : ''),
             clinic: opts.clinic || coupon.clinic_code || '',
             ref: coupon.code || ''
         });
@@ -1029,7 +1031,7 @@ var COUPONS = (function () {
             if (!o) return c;
             var next = clone(c);
             ['enabled', 'face', 'percent', 'minSpend', 'target', 'expiryDays', 'maxDiscount',
-                'issueCap', 'budget', 'sms', 'mode', 'name', 'nameZh', 'holdLimit'].forEach(function (k) {
+                'issueCap', 'budget', 'sms', 'mode', 'name', 'nameZh', 'holdLimit', 'minFirstSpend'].forEach(function (k) {
                 if (o[k] != null) next[k] = o[k];
             });
             if (Array.isArray(o.itemNames)) next.itemNames = o.itemNames.slice();
@@ -1434,13 +1436,24 @@ var COUPONS = (function () {
             html += field(c.key, 'expiryDays', ct('coupons.cfg.expiry', 'Days'), c.expiryDays);
             html += field(c.key, 'maxDiscount', ct('coupons.cfg.ceiling', 'Ceiling'), c.maxDiscount);
             html += field(c.key, 'holdLimit', ct('coupons.cfg.hold', 'Hold up to'), holdLimitFor(c));
+            if (c.trigger === 'referral') {
+                html += field(c.key, 'minFirstSpend', ct('coupons.ref.minFirst', 'Min first-visit HK$'), c.minFirstSpend, true);
+            }
             html += limitFields(c);
             html += '</div>' + usageLine(c);
             if (c.key === 'cash') html += cashRulesHtml();
+            if (c.trigger === 'referral') {
+                html += '<p class="dc-hint">' + esc(ct('coupons.ref.cfgHint',
+                    'The referrer gets this coupon when the new patient’s first bill is fully paid and the cash paid is at least the minimum (blank = any amount). Pick the referrer in “Referred by” on the patient form and choose this coupon or reward points (set in Reward Points configuration).')) + '</p>';
+            }
             if (c.scope === 'items') html += itemPickerHtml(c);
             html += '</div>';
         });
         html += '</div></div>';
+        html += '<div class="dc-card" id="dcRefCard"><div class="dc-card-title">' + esc(ct('coupons.ref.title', 'Referrals')) + '</div>' +
+            '<p class="dc-hint">' + esc(ct('coupons.ref.listHint',
+                'Each new patient with a referrer. Pending waits for the first fully paid visit; blocked shows why no coupon is given.')) + '</p>' +
+            '<div class="dc-log-wrap" id="dcRefBody"></div></div>';
         var today = new Date();
         var from = new Date(today.getTime() - 30 * 86400000);
         html += '<div class="dc-card" id="dcLogCard"><div class="dc-card-title">' + esc(ct('coupons.log.title', 'Coupon log')) + '</div>' +
@@ -1464,6 +1477,7 @@ var COUPONS = (function () {
         var csv = document.getElementById('dcLogCsv');
         if (csv) csv.onclick = downloadCouponLog;
         loadCouponLog();
+        loadReferralList();
     }
 
     function patientNoMap(ids) {
@@ -3142,7 +3156,7 @@ var COUPONS = (function () {
         };
     }
 
-    function insertCoupon(row, sms) {
+    function insertCoupon(row, sms, smsOpts) {
         if (typeof SB === 'undefined' || !SB) return Promise.resolve({ ok: false, reason: 'no_db', row: row });
         return SB.from('discount_coupons').insert([row]).select('id,code').then(function (r) {
             if (r.error) return { ok: false, error: r.error.message, row: row };
@@ -3150,7 +3164,7 @@ var COUPONS = (function () {
             if (sms && row.patient_id) {
                 var issued = Object.assign({}, row, { code: saved.code || row.code });
                 sendCouponSms(row.patient_id, function (wallet) {
-                    return smsIssued(issued, wallet, { clinic: row.clinic_code || clinicCodeNow() });
+                    return smsIssued(issued, wallet, Object.assign({ clinic: row.clinic_code || clinicCodeNow() }, smsOpts || {}));
                 });
             }
             return { ok: true, id: saved.id, code: saved.code || row.code };
@@ -3280,44 +3294,826 @@ var COUPONS = (function () {
                 function () { return ''; });
     }
 
-    function onPatientCreated(row, referredBy) {
+    /** New chart: welcome coupon now; the referrer's coupon waits for the friend's first paid visit. */
+    function onPatientCreated(row, referredBy, referrerId, kind) {
         var clinicCode = '';
         if (typeof currentClinicCodeForTagging === 'function') clinicCode = currentClinicCodeForTagging() || '';
         return loadState().then(loadUsage).then(function () {
-            return resolveReferrer(referredBy).then(function (ref) {
-                var plans = planNewChart({
-                    clinicCode: clinicCode,
-                    doctorKey: loginDoctorKey(),
-                    clinics: _clinics,
-                    doctors: _doctors,
-                    campaigns: campaigns(),
-                    patientId: row && row.id,
-                    referrerId: ref && ref.id,
-                    wallet: [],
-                    referrerWallet: []
-                });
-                var seq = Promise.resolve();
-                plans.forEach(function (p) {
-                    seq = seq.then(function () {
-                        return loadWallet(p.patientId).then(function (w) {
-                            var gate = canIssue(w, p.campaign);
-                            if (!gate.ok) return null;
-                            return insertCoupon(issueRecord(p.campaign, p.patientId, { clinicCode: clinicCode }), p.sms);
-                        });
+            var plans = planNewChart({
+                clinicCode: clinicCode,
+                doctorKey: loginDoctorKey(),
+                clinics: _clinics,
+                doctors: _doctors,
+                campaigns: campaigns(),
+                patientId: row && row.id,
+                wallet: []
+            });
+            var seq = Promise.resolve();
+            plans.forEach(function (p) {
+                seq = seq.then(function () {
+                    return loadWallet(p.patientId).then(function (w) {
+                        var gate = canIssue(w, p.campaign);
+                        if (!gate.ok) return null;
+                        return insertCoupon(issueRecord(p.campaign, p.patientId, { clinicCode: clinicCode }), p.sms);
                     });
                 });
-                return seq;
+            });
+            return seq.then(function () {
+                if (!row || !row.id || (!referrerId && !String(referredBy || '').trim())) return null;
+                return registerReferral(row.id, referredBy, referrerId, { source: 'register', kind: kind });
             });
         });
     }
 
-    function resolveReferrer(referredBy) {
-        var s = String(referredBy || '').trim();
-        if (!s || typeof SB === 'undefined' || !SB) return Promise.resolve(null);
-        return SB.from('patients').select('id,patient_no').eq('patient_no', s).limit(1)
+    /** Chart no. typed or picked in "Referred by". Exact chart no. only; two charts with the same no. are not guessed. */
+    function resolveReferrer(referredBy, referrerId) {
+        if (typeof SB === 'undefined' || !SB) return Promise.resolve(null);
+        if (referrerId) {
+            return SB.from('patients').select(REF_PATIENT_COLS).eq('id', referrerId).maybeSingle()
+                .then(function (r) { return (r && r.data) || null; }, function () { return null; });
+        }
+        var s = String(referredBy || '').trim().replace(/^#\s*/, '');
+        if (!s) return Promise.resolve(null);
+        return SB.from('patients').select(REF_PATIENT_COLS).eq('patient_no', s).limit(2)
             .then(function (r) {
-                return (r.data && r.data[0]) || null;
+                var rows = (r && r.data) || [];
+                return rows.length === 1 ? rows[0] : null;
             }, function () { return null; });
+    }
+
+    // ── Refer a friend ──────────────────────────────────────────────
+    var REF_TABLE = 'discount_coupon_referrals';
+    var REF_EDIT_DAYS = 30;
+    var REF_PATIENT_COLS = 'id,patient_no,full_name,chinese_name,phone_number,mobile_phone,hkid,created_at';
+
+    function phoneKey(s) {
+        var d = String(s || '').replace(/\D/g, '');
+        if (d.length === 11 && d.indexOf('852') === 0) d = d.slice(3);
+        return d.length >= 8 ? d : '';
+    }
+    function hkidKey(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+    function nameKey(s) { return String(s || '').toUpperCase().replace(/\s+/g, ' ').trim(); }
+    function phonesOf(p) {
+        return [phoneKey(p && p.phone_number), phoneKey(p && p.mobile_phone)].filter(Boolean);
+    }
+
+    /** Pure: same chart, same HKID, or a shared phone number (one household counts as one person). */
+    function samePerson(a, b) {
+        if (!a || !b) return false;
+        if (a.id && b.id && String(a.id) === String(b.id)) return true;
+        var ha = hkidKey(a.hkid);
+        if (ha && ha === hkidKey(b.hkid)) return true;
+        var pb = phonesOf(b);
+        return phonesOf(a).some(function (x) { return pb.indexOf(x) >= 0; });
+    }
+
+    /** Pure: another chart that is this patient registered earlier (same HKID, or same phone and same name). */
+    function isEarlierChart(friend, other) {
+        if (!friend || !other || String(friend.id) === String(other.id)) return false;
+        var ha = hkidKey(friend.hkid);
+        var same = !!ha && ha === hkidKey(other.hkid);
+        if (!same) {
+            var po = phonesOf(other);
+            var phone = phonesOf(friend).some(function (x) { return po.indexOf(x) >= 0; });
+            var name = (nameKey(friend.full_name) && nameKey(friend.full_name) === nameKey(other.full_name)) ||
+                (nameKey(friend.chinese_name) && nameKey(friend.chinese_name) === nameKey(other.chinese_name));
+            same = phone && !!name;
+        }
+        if (!same) return false;
+        if (!other.created_at || !friend.created_at) return true;
+        return String(other.created_at) < String(friend.created_at);
+    }
+
+    /** Pure: "陳大文" → "陳**", "CHAN TAI MAN" → "CHAN **". */
+    function maskName(p) {
+        var zh = String((p && p.chinese_name) || '').trim();
+        if (zh) return zh.charAt(0) + '**';
+        var en = String((p && p.full_name) || '').trim();
+        return en ? en.split(/\s+/)[0] + ' **' : '';
+    }
+
+    /** Pure: days between an ISO time and today (null when unknown). */
+    function daysSince(iso, now) {
+        if (!iso) return null;
+        var t = new Date(iso).getTime();
+        if (!isFinite(t)) return null;
+        return Math.floor(((now || Date.now()) - t) / 86400000);
+    }
+
+    var REF_KINDS = ['coupon', 'points'];
+
+    /** Pure: is the discount coupon branch usable at this clinic / doctor? */
+    function referralCouponGate(ctx) {
+        ctx = ctx || {};
+        var camp = ctx.campaign;
+        if (!camp || !camp.enabled) return { ok: false, reason: 'campaign_off' };
+        if (!clinicJoined(ctx.clinicCode, ctx.clinics) || !doctorJoined(ctx.clinicCode, ctx.doctorKey, ctx)) {
+            return { ok: false, reason: 'clinic' };
+        }
+        return { ok: true, reason: '' };
+    }
+
+    /** Pure: the two reward branches for the form, each on or greyed out with its reason. */
+    function referralOptions(couponGate, pointsGate) {
+        return [
+            { kind: 'coupon', ok: !!(couponGate && couponGate.ok), reason: (couponGate && couponGate.reason) || 'campaign_off' },
+            { kind: 'points', ok: !!(pointsGate && pointsGate.ok), reason: (pointsGate && pointsGate.reason) || 'points_off' }
+        ].map(function (o) { if (o.ok) o.reason = ''; return o; });
+    }
+
+    /** Pure: the requested branch when it is on, else the first branch that is on, else '' (no referral reward here). */
+    function pickReferralKind(requested, options) {
+        var list = options || [];
+        var want = list.filter(function (o) { return o.kind === requested && o.ok; })[0];
+        if (want) return want.kind;
+        var first = list.filter(function (o) { return o.ok; })[0];
+        return first ? first.kind : '';
+    }
+
+    /**
+     * Pure: what to record for a friend + referrer pair. kind = 'coupon' | 'points'.
+     * skip = nothing to record (no referrer, already recorded, branch off); blocked / pending = record it.
+     */
+    function planReferral(ctx) {
+        ctx = ctx || {};
+        var friend = ctx.friend || {};
+        var ref = ctx.referrer;
+        var kind = ctx.kind === 'points' ? 'points' : 'coupon';
+        if (!ref || !ref.id) return { status: 'skip', reason: 'no_referrer', kind: kind };
+        if (ctx.existing) return { status: 'skip', reason: 'already', kind: kind };
+        var gate = kind === 'points' ? (ctx.pointsGate || { ok: false, reason: 'points_off' }) : referralCouponGate(ctx);
+        if (!gate.ok) return { status: 'skip', reason: gate.reason, kind: kind };
+        var out = sharedReferralGuards(ctx, friend, ref);
+        out.kind = kind;
+        return out;
+    }
+
+    function sharedReferralGuards(ctx, friend, ref) {
+        if (ctx.source === 'edit') {
+            var age = daysSince(friend.created_at, ctx.now);
+            if (age == null || age > REF_EDIT_DAYS) return { status: 'skip', reason: 'edit_window' };
+        }
+        if (samePerson(friend, ref)) return { status: 'blocked', reason: 'same_person' };
+        if (ref.created_at && friend.created_at && String(ref.created_at) >= String(friend.created_at)) {
+            return { status: 'blocked', reason: 'referrer_newer' };
+        }
+        if ((ctx.lookalikes || []).some(function (o) { return String(o.id) !== String(ref.id) && isEarlierChart(friend, o); })) {
+            return { status: 'blocked', reason: 'not_new' };
+        }
+        return { status: 'pending', reason: '' };
+    }
+
+    /**
+     * Pure: may the pending referral reward on this fully paid bill? Failing keeps it pending for a later visit.
+     * Coupon branch: campaign + clinic + wallet limits. Points branch: points scheme at this clinic.
+     */
+    function planReferralIssue(ctx) {
+        ctx = ctx || {};
+        var rec = ctx.record;
+        if (!rec || rec.status !== 'pending') return { ok: false, reason: 'not_pending' };
+        if (rec.reward_kind === 'points') {
+            var pg = ctx.pointsGate || { ok: false, reason: 'points_off' };
+            if (!pg.ok) return { ok: false, reason: pg.reason };
+            var pmin = parseFloat(ctx.pointsConfig && ctx.pointsConfig.minFirstSpend) || 0;
+            if (pmin > 0 && cents(ctx.cashPaid) < cents(pmin)) return { ok: false, reason: 'below_min' };
+            return { ok: true, reason: '', points: round2(ctx.pointsConfig && ctx.pointsConfig.points) };
+        }
+        var camp = ctx.campaign;
+        var cg = referralCouponGate(ctx);
+        if (!cg.ok) return { ok: false, reason: cg.reason };
+        var min = parseFloat(camp.minFirstSpend) || 0;
+        if (min > 0 && cents(ctx.cashPaid) < cents(min)) return { ok: false, reason: 'below_min' };
+        var gate = canIssue(ctx.referrerWallet || [], camp);
+        if (!gate.ok) return { ok: false, reason: gate.reason };
+        return { ok: true, reason: '' };
+    }
+
+    function referralReason(code) {
+        var map = {
+            no_referrer: ['coupons.ref.r.noReferrer', 'No chart with that number'],
+            already: ['coupons.ref.r.already', 'This patient already has a referrer recorded'],
+            campaign_off: ['coupons.ref.r.off', 'Refer a friend is switched off in Configuration'],
+            clinic: ['coupons.ref.r.clinic', 'This clinic or doctor is not in the coupon scheme'],
+            edit_window: ['coupons.ref.r.window', 'A referrer can only be added within 30 days of registration'],
+            same_person: ['coupons.ref.r.same', 'Referrer looks like the same person (same chart, HKID or phone)'],
+            referrer_newer: ['coupons.ref.r.newer', 'Referrer’s chart is newer than this patient’s'],
+            not_new: ['coupons.ref.r.notNew', 'This patient already had an earlier chart'],
+            below_min: ['coupons.ref.r.min', 'First paid visit was below the minimum'],
+            wallet_full: ['coupons.ref.r.full', 'Referrer’s wallet is full'],
+            already_holding: ['coupons.ref.r.holding', 'Referrer already holds the most referral coupons allowed'],
+            issue_cap: ['coupons.ref.r.cap', 'Referral coupon issue limit reached'],
+            budget: ['coupons.ref.r.budget', 'Referral coupon budget used up'],
+            bill_voided: ['coupons.ref.r.voided', 'The paid bill was voided; waiting for another paid visit'],
+            chart_deleted: ['coupons.ref.r.deleted', 'Chart deleted'],
+            insert_failed: ['coupons.ref.r.insert', 'Could not save the coupon; tries again at the next paid visit'],
+            points_off: ['coupons.ref.r.pointsOff', 'Referral points are switched off in Reward Points configuration'],
+            points_clinic: ['coupons.ref.r.pointsClinic', 'This clinic or doctor is not in the reward points scheme'],
+            points_spent: ['coupons.ref.r.spent', 'Referral points were already used, so they were not taken back'],
+            no_scheme: ['coupons.ref.r.noScheme', 'This clinic is in neither scheme, so no referral reward']
+        };
+        var m = map[code];
+        return m ? ct(m[0], m[1]) : String(code || '');
+    }
+
+    function referralStatusText(st) {
+        var map = {
+            pending: ['coupons.ref.s.pending', 'Pending'],
+            issuing: ['coupons.ref.s.pending', 'Pending'],
+            issued: ['coupons.ref.s.issued', 'Issued'],
+            blocked: ['coupons.ref.s.blocked', 'Blocked'],
+            void: ['coupons.ref.s.void', 'Void']
+        };
+        var m = map[st];
+        return m ? ct(m[0], m[1]) : String(st || '');
+    }
+
+    /** Pure: what the referrer would get, e.g. "a referral coupon HK$100" or "100 reward points". */
+    function referralRewardText(kind, camp, pointsCfg) {
+        if (kind === 'points') {
+            return round2((pointsCfg && pointsCfg.points) || 0).toFixed(0) + ' ' + ct('coupons.ref.points', 'reward points');
+        }
+        return ct('coupons.ref.aCoupon', 'a referral coupon') + ' HK$' + round2((camp && camp.face) || 0).toFixed(0);
+    }
+
+    /** Pure: the line under "Referred by" on the patient form. */
+    function referralPreviewText(plan, referrer, camp, pointsCfg) {
+        var who = referrer ? '#' + (referrer.patient_no || '') + ' ' + (referrer.chinese_name || referrer.full_name || '') : '';
+        if (!plan || plan.status === 'skip' || plan.status === 'blocked') {
+            var why = plan ? referralReason(plan.reason) : '';
+            return (who ? who.trim() + ' — ' : '') + ct('coupons.ref.noReward', 'no referral reward') + (why ? ': ' + why : '');
+        }
+        var kind = plan.kind === 'points' ? 'points' : 'coupon';
+        var min = kind === 'points' ? parseFloat(pointsCfg && pointsCfg.minFirstSpend) || 0 : parseFloat(camp && camp.minFirstSpend) || 0;
+        return who.trim() + ' — ' + ct('coupons.ref.gets', 'gets') + ' ' + referralRewardText(kind, camp, pointsCfg) + ' ' +
+            ct('coupons.ref.after', 'after this patient’s first fully paid visit') +
+            (min > 0 ? ' (' + ct('coupons.ref.min', 'min') + ' HK$' + round2(min).toFixed(0) + ')' : '');
+    }
+
+    /** Points branch gate for a clinic (REWARDS decides points participation). */
+    function referralPointsGateFor(clinicCode, doctorKey) {
+        if (typeof REWARDS === 'undefined' || !REWARDS || typeof REWARDS.referralAvailability !== 'function') {
+            return Promise.resolve({ ok: false, reason: 'points_off', config: null });
+        }
+        var clinicId = null;
+        try {
+            var cx = REWARDS.clinicCtx ? REWARDS.clinicCtx() : null;
+            if (cx && String(cx.clinic_code || '').toUpperCase() === String(clinicCode || '').toUpperCase()) clinicId = cx.clinic_id;
+        } catch (e) { clinicId = null; }
+        return Promise.resolve(REWARDS.referralAvailability(clinicId, clinicCode, doctorKey ? { doctor_id: doctorKey } : undefined))
+            .then(function (g) { return g || { ok: false, reason: 'points_off' }; },
+                function () { return { ok: false, reason: 'points_off', config: null }; });
+    }
+
+    /** Both branches at a clinic: { options, coupon: gate, points: gate, camp, pointsCfg }. */
+    function referralBranches(clinicCode, doctorKey) {
+        return Promise.all([loadState(), referralPointsGateFor(clinicCode, doctorKey)]).then(function (res) {
+            var camp = campaignByKey('referral');
+            var cg = referralCouponGate({ campaign: camp, clinicCode: clinicCode, doctorKey: doctorKey, clinics: _clinics, doctors: _doctors });
+            var pg = res[1];
+            return { options: referralOptions(cg, pg), coupon: cg, points: pg, camp: camp, pointsCfg: pg.config || null };
+        });
+    }
+
+    function sbReady() { return typeof SB !== 'undefined' && SB && typeof SB.from === 'function'; }
+
+    function orValue(v) { return '"' + String(v).replace(/["\\]/g, '') + '"'; }
+
+    /** Other charts sharing this patient's HKID or phone. */
+    function loadLookalikes(friend) {
+        if (!sbReady() || !friend) return Promise.resolve([]);
+        var parts = [];
+        var hk = String(friend.hkid || '').trim();
+        if (hk) parts.push('hkid.eq.' + orValue(hk));
+        [friend.phone_number, friend.mobile_phone].forEach(function (p) {
+            var raw = String(p || '').trim();
+            if (!phoneKey(raw)) return;
+            var vals = [raw, phoneKey(raw)].filter(function (v, i, a) { return a.indexOf(v) === i; });
+            vals.forEach(function (v) {
+                parts.push('phone_number.eq.' + orValue(v));
+                parts.push('mobile_phone.eq.' + orValue(v));
+            });
+        });
+        if (!parts.length) return Promise.resolve([]);
+        return SB.from('patients').select(REF_PATIENT_COLS).or(parts.join(',')).neq('id', friend.id).limit(20)
+            .then(function (r) { return (r && r.data) || []; }, function () { return []; });
+    }
+
+    function loadReferralRecord(friendId) {
+        if (!sbReady() || !friendId) return Promise.resolve({ ok: false, row: null });
+        return SB.from(REF_TABLE).select('*').eq('referred_patient_id', friendId).limit(1)
+            .then(function (r) {
+                if (!r || r.error) return { ok: false, row: null, error: r && r.error && r.error.message };
+                return { ok: true, row: (r.data && r.data[0]) || null };
+            }, function (e) { return { ok: false, row: null, error: String(e && e.message || e) }; });
+    }
+
+    /** Save the friend → referrer link (pending or blocked). Idempotent: one record per friend. */
+    function registerReferral(friendId, referredBy, referrerId, opts) {
+        opts = opts || {};
+        if (!sbReady() || !friendId) return Promise.resolve({ ok: false, reason: 'no_db' });
+        var clinicCode = opts.clinicCode || clinicCodeNow();
+        var doctorKey = loginDoctorKey();
+        return Promise.all([
+            referralBranches(clinicCode, doctorKey),
+            SB.from('patients').select(REF_PATIENT_COLS).eq('id', friendId).maybeSingle()
+                .then(function (r) { return (r && r.data) || null; }, function () { return null; }),
+            resolveReferrer(referredBy, referrerId),
+            loadReferralRecord(friendId)
+        ]).then(function (res) {
+            var br = res[0];
+            var friend = res[1];
+            var ref = res[2];
+            var existing = res[3];
+            if (!friend) return { ok: false, reason: 'no_friend' };
+            if (!existing.ok) {
+                if (ref) couponNotice('🤝 ' + ct('coupons.ref.noTable', 'Referrals table not set up yet — run discount_coupon_referrals.sql in Supabase.'));
+                return { ok: false, reason: 'no_table', error: existing.error };
+            }
+            var kind = pickReferralKind(opts.kind, br.options);
+            if (!kind) {
+                if (ref) couponNotice('🤝 ' + referralPreviewText({ status: 'skip', reason: 'no_scheme' }, ref, br.camp));
+                return { ok: true, status: 'skip', reason: 'no_scheme' };
+            }
+            return loadLookalikes(friend).then(function (looks) {
+                var plan = planReferral({
+                    kind: kind,
+                    friend: friend,
+                    referrer: ref,
+                    campaign: br.camp,
+                    pointsGate: br.points,
+                    clinicCode: clinicCode,
+                    doctorKey: doctorKey,
+                    clinics: _clinics,
+                    doctors: _doctors,
+                    existing: existing.row,
+                    lookalikes: looks,
+                    source: opts.source
+                });
+                if (plan.status === 'skip') {
+                    if (plan.reason !== 'already' && (ref || plan.reason === 'no_referrer')) {
+                        couponNotice('🤝 ' + referralPreviewText(plan, ref, br.camp, br.pointsCfg));
+                    }
+                    return { ok: true, status: 'skip', reason: plan.reason, kind: kind };
+                }
+                var rec = {
+                    referred_patient_id: friend.id,
+                    referrer_patient_id: ref.id,
+                    referred_no: friend.patient_no || null,
+                    referrer_no: ref.patient_no || null,
+                    reward_kind: kind,
+                    status: plan.status,
+                    reason: plan.reason || null,
+                    clinic_code: clinicCode || null,
+                    created_by: actorName() || null
+                };
+                return SB.from(REF_TABLE).insert([rec]).select('id').then(function (r) {
+                    if (r && r.error) return { ok: false, reason: 'insert', error: r.error.message };
+                    logCoupon('REFERRAL', 'Referral (' + kind + ') ' + plan.status + ': #' + (friend.patient_no || '') + ' referred by #' +
+                        (ref.patient_no || '') + (plan.reason ? ' (' + plan.reason + ')' : ''), friend.patient_no || null,
+                        (r.data && r.data[0] && r.data[0].id) || null);
+                    couponNotice('🤝 ' + referralPreviewText(plan, ref, br.camp, br.pointsCfg));
+                    return { ok: true, status: plan.status, reason: plan.reason, kind: kind };
+                });
+            });
+        });
+    }
+
+    /** "Referred by" was changed in Edit patient: record it once, within 30 days of registration. */
+    function onReferrerEdited(patientId, referredBy, referrerId, kind) {
+        if (!patientId || (!referrerId && !String(referredBy || '').trim())) return Promise.resolve(null);
+        return registerReferral(patientId, referredBy, referrerId, { source: 'edit', kind: kind });
+    }
+
+    /** Pure: the thank-you text for the referrer's SMS, e.g. "多謝介紹 李** / thanks for referring 李**". */
+    function referralThanks(friend, fallbackNo) {
+        var m = maskName(friend);
+        if (m) return '多謝介紹 ' + m + ' / thanks for referring ' + m;
+        return fallbackNo ? '介紹 #' + fallbackNo + ' / referral #' + fallbackNo : '';
+    }
+
+    function nowIso() { return new Date().toISOString(); }
+
+    function finishReferral(rec, patch) {
+        patch.updated_at = nowIso();
+        return SB.from(REF_TABLE).update(patch).eq('id', rec.id);
+    }
+
+    /** Coupon branch: HK$ coupon into the referrer's wallet + coupon SMS. */
+    function rewardReferralCoupon(rec, info, camp, friend) {
+        var row = issueRecord(camp, rec.referrer_patient_id, {
+            clinicCode: info.clinicCode,
+            originBillId: info.billId,
+            note: 'Referral: #' + (rec.referred_no || friend.patient_no || '')
+        });
+        return insertCoupon(row, camp.sms !== false, { thanks: maskName(friend) }).then(function (saved) {
+            var done = saved && saved.ok;
+            return finishReferral(rec, done
+                ? { status: 'issued', coupon_id: saved.id || null, reason: null, issued_at: nowIso() }
+                : { status: 'pending', trigger_bill_id: null, reason: 'insert_failed' }).then(function () {
+                if (!done) return { ok: false, reason: 'insert_failed' };
+                logCoupon('ISSUE', 'Referral coupon ' + (saved.code || row.code) + ' HK$' + round2(row.face_value).toFixed(2) +
+                    ' to #' + (rec.referrer_no || '') + ' for referring #' + (rec.referred_no || ''),
+                    rec.referrer_no || null, saved.id || null);
+                couponNotice('🤝 ' + ct('coupons.ref.issued', 'Referral coupon sent to the referrer') + ' #' +
+                    (rec.referrer_no || '') + ' · HK$' + round2(row.face_value).toFixed(0));
+                return { ok: true, kind: 'coupon', code: saved.code || row.code, couponId: saved.id };
+            });
+        });
+    }
+
+    /** Points branch: points onto the referrer's chart + reward points SMS. */
+    function rewardReferralPoints(rec, info, plan, friend) {
+        var credit = (typeof REWARDS !== 'undefined' && REWARDS && typeof REWARDS.referralCredit === 'function')
+            ? REWARDS.referralCredit({
+                patientId: rec.referrer_patient_id,
+                points: plan.points,
+                clinicCode: info.clinicCode,
+                note: 'Referral: #' + (rec.referred_no || friend.patient_no || ''),
+                ref: referralThanks(friend, rec.referred_no)
+            })
+            : Promise.resolve({ ok: false, error: 'no_rewards' });
+        return Promise.resolve(credit).then(function (res) { return res; }, function (e) {
+            return { ok: false, error: String(e && e.message || e) };
+        }).then(function (res) {
+            var done = !!(res && res.ok && !res.skipped);
+            return finishReferral(rec, done
+                ? { status: 'issued', ledger_id: res.ledger_id || null, points: round2(res.points || plan.points), reason: null, issued_at: nowIso() }
+                : { status: 'pending', trigger_bill_id: null, reason: 'insert_failed' }).then(function () {
+                if (!done) return { ok: false, reason: 'insert_failed', error: res && res.error };
+                logCoupon('ISSUE', 'Referral points +' + round2(res.points || plan.points).toFixed(2) + ' to #' + (rec.referrer_no || '') +
+                    ' for referring #' + (rec.referred_no || ''), rec.referrer_no || null, res.ledger_id || null);
+                couponNotice('🤝 ' + ct('coupons.ref.issuedPts', 'Referral points sent to the referrer') + ' #' +
+                    (rec.referrer_no || '') + ' · +' + round2(res.points || plan.points).toFixed(0));
+                return { ok: true, kind: 'points', points: round2(res.points || plan.points), ledgerId: res.ledger_id };
+            });
+        });
+    }
+
+    /** Friend's bill fully paid: reward the referrer (coupon or points) when the pending referral qualifies. */
+    function referralOnBillPaid(info) {
+        info = info || {};
+        if (!sbReady() || !info.patientId || !info.billId) return Promise.resolve({ ok: false, reason: 'no_db' });
+        return (_loaded ? Promise.resolve() : loadState()).then(function () {
+            return SB.from(REF_TABLE).select('*').eq('referred_patient_id', info.patientId).eq('status', 'pending').limit(1);
+        }).then(function (r) {
+            var rec = r && !r.error && r.data && r.data[0];
+            if (!rec) return { ok: true, skipped: true };
+            var points = rec.reward_kind === 'points';
+            var camp = campaignByKey('referral');
+            var prep = points
+                ? referralPointsGateFor(info.clinicCode, info.doctorKey).then(function (g) { return { pointsGate: g, pointsConfig: g.config }; })
+                : loadWallet(rec.referrer_patient_id).then(function (w) { return { referrerWallet: w }; });
+            return prep.then(function (extra) {
+                var plan = planReferralIssue(Object.assign({
+                    record: rec,
+                    campaign: camp,
+                    clinicCode: info.clinicCode,
+                    doctorKey: info.doctorKey,
+                    clinics: _clinics,
+                    doctors: _doctors,
+                    cashPaid: info.cashPaid
+                }, extra));
+                if (!plan.ok) {
+                    if (plan.reason !== rec.reason) {
+                        SB.from(REF_TABLE).update({ reason: plan.reason, updated_at: nowIso() })
+                            .eq('id', rec.id).eq('status', 'pending').then(function () {}, function () {});
+                    }
+                    return { ok: false, reason: plan.reason, kind: rec.reward_kind || 'coupon' };
+                }
+                return SB.from(REF_TABLE).update({ status: 'issuing', trigger_bill_id: info.billId, updated_at: nowIso() })
+                    .eq('id', rec.id).eq('status', 'pending').select('id').then(function (claim) {
+                        if (!claim || claim.error || !claim.data || !claim.data.length) return { ok: false, reason: 'taken' };
+                        return SB.from('patients').select(REF_PATIENT_COLS).eq('id', info.patientId).maybeSingle()
+                            .then(function (fr) { return (fr && fr.data) || {}; }, function () { return {}; })
+                            .then(function (friend) {
+                                return points ? rewardReferralPoints(rec, info, plan, friend) : rewardReferralCoupon(rec, info, camp, friend);
+                            });
+                    });
+            });
+        }, function () { return { ok: false, reason: 'no_table' }; });
+    }
+
+    /** Pure: referral records to put back to pending because their coupon was cancelled with the bill. */
+    function referralsToReopen(records, cancelledIds) {
+        var gone = (cancelledIds || []).map(String);
+        return (records || []).filter(function (rec) {
+            if (!rec) return false;
+            if (rec.status === 'issuing') return true;
+            if (rec.reward_kind === 'points') return false;
+            return rec.status === 'issued' && rec.coupon_id && gone.indexOf(String(rec.coupon_id)) >= 0;
+        }).map(function (rec) { return String(rec.id); });
+    }
+
+    /** Pure: issued points-branch referrals whose points should be taken back. */
+    function referralPointsToReverse(records) {
+        return (records || []).filter(function (rec) {
+            return rec && rec.reward_kind === 'points' && rec.status === 'issued' && (parseFloat(rec.points) || 0) > 0;
+        });
+    }
+
+    function reversePointsReferral(rec, why) {
+        if (typeof REWARDS === 'undefined' || !REWARDS || typeof REWARDS.referralReverse !== 'function') {
+            return Promise.resolve({ ok: false, reason: 'no_rewards' });
+        }
+        return Promise.resolve(REWARDS.referralReverse({
+            patientId: rec.referrer_patient_id,
+            points: rec.points,
+            clinicCode: rec.clinic_code || clinicCodeNow(),
+            note: 'Referral reversed (' + why + '): #' + (rec.referred_no || '')
+        })).then(function (res) { return res || { ok: false }; }, function () { return { ok: false }; });
+    }
+
+    var REF_UNDO_COLS = 'id,status,coupon_id,reward_kind,points,ledger_id,referrer_patient_id,referred_patient_id,referrer_no,referred_no,clinic_code';
+
+    function reopenReferrals(billId, cancelledIds) {
+        if (!sbReady() || !billId) return Promise.resolve([]);
+        return SB.from(REF_TABLE).select(REF_UNDO_COLS).eq('trigger_bill_id', billId).then(function (r) {
+            var rows = (r && r.data) || [];
+            var ids = referralsToReopen(rows, cancelledIds);
+            var reopenPatch = { status: 'pending', coupon_id: null, ledger_id: null, trigger_bill_id: null, issued_at: null, reason: 'bill_voided' };
+            var jobs = ids.map(function (id) {
+                return SB.from(REF_TABLE).update(Object.assign({ updated_at: nowIso() }, reopenPatch)).eq('id', id);
+            });
+            referralPointsToReverse(rows).forEach(function (rec) {
+                jobs.push(reversePointsReferral(rec, 'bill voided').then(function (res) {
+                    if (res && res.ok) {
+                        ids.push(String(rec.id));
+                        logCoupon('CANCEL', 'Referral points -' + round2(rec.points).toFixed(2) + ' taken back from #' + (rec.referrer_no || '') +
+                            ' (bill voided)', rec.referrer_no || null, rec.ledger_id || null);
+                        return finishReferral(rec, Object.assign({}, reopenPatch));
+                    }
+                    logCoupon('CANCEL', 'Referral points +' + round2(rec.points).toFixed(2) + ' for #' + (rec.referrer_no || '') +
+                        ' already used; not taken back', rec.referrer_no || null, billId);
+                    couponNotice('🤝 ' + referralReason('points_spent') + ': #' + (rec.referrer_no || '') + ' +' + round2(rec.points).toFixed(0));
+                    return finishReferral(rec, { reason: 'points_spent' });
+                }));
+            });
+            return Promise.all(jobs).then(function () { return ids; });
+        }, function () { return []; });
+    }
+
+    /** Chart deleted: its referral records end; an unused coupon or the points it earned are taken back. */
+    function onPatientDeleted(patientId) {
+        if (!sbReady() || !patientId) return Promise.resolve({ ok: false });
+        return SB.from(REF_TABLE).select(REF_UNDO_COLS)
+            .or('referred_patient_id.eq.' + patientId + ',referrer_patient_id.eq.' + patientId)
+            .then(function (r) {
+                var rows = (r && !r.error && r.data) || [];
+                return Promise.all(rows.map(function (rec) {
+                    var jobs = [];
+                    var friendGone = String(rec.referred_patient_id) === String(patientId);
+                    if (friendGone && rec.coupon_id) {
+                        jobs.push(SB.from('discount_coupons').update({ status: 'void', note: 'Referred chart deleted' })
+                            .eq('id', rec.coupon_id).eq('status', 'unused'));
+                    }
+                    if (friendGone && referralPointsToReverse([rec]).length) jobs.push(reversePointsReferral(rec, 'chart deleted'));
+                    if (rec.status !== 'void') {
+                        jobs.push(SB.from(REF_TABLE).update({ status: 'void', reason: 'chart_deleted', updated_at: nowIso() })
+                            .eq('id', rec.id));
+                    }
+                    return Promise.all(jobs);
+                })).then(function () { return { ok: true, n: rows.length }; });
+            }, function () { return { ok: false }; });
+    }
+
+    // ── Referrer picker on the patient forms ────────────────────────
+    var _refPick = { timer: null, seq: 0 };
+
+    function refPickerEls(input) {
+        var root = input.closest ? input.closest('.dc-ref-fg') : null;
+        return {
+            root: root,
+            hidden: root && root.querySelector('.dc-ref-id'),
+            list: root && root.querySelector('.dc-ref-list'),
+            kinds: root && root.querySelector('.dc-ref-kind'),
+            preview: root && root.querySelector('.dc-ref-preview')
+        };
+    }
+
+    function resetReferrerPicker(inputId) {
+        if (typeof document === 'undefined') return Promise.resolve();
+        var input = document.getElementById(inputId);
+        if (!input) return Promise.resolve();
+        var els = refPickerEls(input);
+        input._refRow = null;
+        if (els.hidden) els.hidden.value = '';
+        if (els.list) { els.list.innerHTML = ''; els.list.hidden = true; }
+        if (els.preview) { els.preview.textContent = ''; els.preview.className = 'dc-ref-preview'; }
+        return paintReferralKinds(input);
+    }
+
+    /** Selected reward branch on a form ('' when neither scheme runs at this clinic). */
+    function selectedReferralKind(input) {
+        var els = input ? refPickerEls(input) : {};
+        var on = els.kinds && els.kinds.querySelector('input[type="radio"]:checked:not(:disabled)');
+        return on ? on.value : '';
+    }
+
+    /** Pure: radio pair HTML; a branch the clinic is not in is greyed out and cannot be chosen. */
+    function referralKindsHtml(name, options, chosen, camp, pointsCfg, lockedKind) {
+        var any = (options || []).some(function (o) { return o.ok; });
+        var html = '<span class="dc-ref-kind-label">' + esc(ct('coupons.ref.rewardWith', '介紹獎賞 / Reward the referrer with')) + '</span>';
+        (options || []).forEach(function (o) {
+            var off = !o.ok || (lockedKind && lockedKind !== o.kind);
+            var label = o.kind === 'points'
+                ? '⭐ ' + ct('coupons.ref.kindPoints', '積分 Reward points') + (pointsCfg ? ' +' + round2(pointsCfg.points || 0).toFixed(0) : '')
+                : '🎟️ ' + ct('coupons.ref.kindCoupon', '優惠券 Discount coupon') + (camp ? ' HK$' + round2(camp.face || 0).toFixed(0) : '');
+            var title = !o.ok ? referralReason(o.reason) : '';
+            html += '<label class="dc-ref-k' + (off ? ' is-off' : '') + '" data-kind="' + o.kind + '"' +
+                (title ? ' title="' + esc(title) + '"' : '') + '>' +
+                '<input type="radio" name="' + esc(name) + '" value="' + o.kind + '"' + (off ? ' disabled' : '') +
+                (o.kind === chosen ? ' checked' : '') + '> <span>' + esc(label) + '</span>' +
+                (!o.ok ? ' <small>' + esc(title) + '</small>' : '') + '</label>';
+        });
+        if (!any) html += '<small class="dc-ref-k-none">' + esc(referralReason('no_scheme')) + '</small>';
+        return html;
+    }
+
+    function paintReferralKinds(input) {
+        var els = refPickerEls(input);
+        if (!els.kinds) return Promise.resolve(null);
+        var edit = input.id === 'edit_referredBy';
+        var friendId = edit && typeof editPatientId !== 'undefined' ? editPatientId : null;
+        var recP = friendId ? loadReferralRecord(friendId) : Promise.resolve({ ok: true, row: null });
+        var prev = selectedReferralKind(input);
+        return Promise.all([referralBranches(clinicCodeNow(), loginDoctorKey()), recP]).then(function (res) {
+            var br = res[0];
+            var rec = res[1] && res[1].row;
+            var locked = rec ? (rec.reward_kind || 'coupon') : '';
+            var chosen = locked || pickReferralKind(prev || 'coupon', br.options);
+            els.kinds.innerHTML = referralKindsHtml('refKind_' + input.id, br.options, chosen, br.camp, br.pointsCfg, locked);
+            var any = br.options.some(function (o) { return o.ok; });
+            els.kinds.classList.toggle('is-off', !any);
+            if (els.root) els.root.classList.toggle('is-ref-off', !any);
+            input._refBranches = br;
+            return br;
+        }, function () { return null; });
+    }
+
+    /** Form values for the patient being registered or edited, for the same-person check. */
+    function refFormPatient(input) {
+        var edit = input.id === 'edit_referredBy';
+        function v(id) { var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
+        var p = {
+            id: edit && typeof editPatientId !== 'undefined' ? editPatientId : null,
+            hkid: v(edit ? 'edit_hkid' : 'hkid'),
+            phone_number: v(edit ? 'edit_phone' : 'phone'),
+            mobile_phone: v(edit ? 'edit_mobilePhone' : 'mobilePhone')
+        };
+        return p;
+    }
+
+    function paintReferrerPreview(input, referrer) {
+        var els = refPickerEls(input);
+        if (!els.preview) return Promise.resolve();
+        if (!referrer) { els.preview.textContent = ''; return Promise.resolve(); }
+        var edit = input.id === 'edit_referredBy';
+        var friend = refFormPatient(input);
+        input._refRow = referrer;
+        var recP = edit && friend.id ? loadReferralRecord(friend.id) : Promise.resolve({ ok: true, row: null });
+        var brP = input._refBranches ? Promise.resolve(input._refBranches) : paintReferralKinds(input);
+        return Promise.all([brP, loadWallet(referrer.id), recP]).then(function (res) {
+            var br = res[0] || { options: [], camp: campaignByKey('referral'), points: null, pointsCfg: null };
+            var rec = res[2] && res[2].row;
+            var kind = selectedReferralKind(input) || pickReferralKind('coupon', br.options);
+            var plan = kind ? planReferral({
+                kind: kind,
+                friend: friend,
+                referrer: referrer,
+                campaign: br.camp,
+                pointsGate: br.points,
+                clinicCode: clinicCodeNow(),
+                doctorKey: loginDoctorKey(),
+                clinics: _clinics,
+                doctors: _doctors,
+                existing: rec
+            }) : { status: 'skip', reason: 'no_scheme' };
+            var text;
+            if (rec) {
+                text = ct('coupons.ref.recorded', 'Referral already recorded') + ': #' + (rec.referrer_no || '') + ' · ' +
+                    (rec.reward_kind === 'points' ? ct('coupons.ref.kindPoints', '積分 Reward points') : ct('coupons.ref.kindCoupon', '優惠券 Discount coupon')) +
+                    ' · ' + referralStatusText(rec.status) + (rec.reason ? ' — ' + referralReason(rec.reason) : '');
+            } else {
+                text = referralPreviewText(plan, referrer, br.camp, br.pointsCfg);
+                var gate = plan.status === 'pending' && kind === 'coupon' ? canIssue(res[1] || [], br.camp) : { ok: true };
+                if (!gate.ok) text += ' · ' + ct('coupons.ref.waitNote', 'for now') + ': ' + referralReason(gate.reason);
+            }
+            els.preview.textContent = '🤝 ' + text;
+            els.preview.className = 'dc-ref-preview ' + (!rec && plan.status === 'pending' ? 'is-ok' : 'is-warn');
+        });
+    }
+
+    function searchReferrers(q) {
+        var s = String(q || '').replace(/[,()*%"\\]/g, ' ').trim();
+        if (s.length < 2 || !sbReady()) return Promise.resolve([]);
+        var like = '%' + s + '%';
+        return SB.from('patients').select(REF_PATIENT_COLS)
+            .or(['patient_no.ilike.' + like, 'full_name.ilike.' + like, 'chinese_name.ilike.' + like,
+                'phone_number.ilike.' + like, 'mobile_phone.ilike.' + like].join(','))
+            .order('patient_no', { ascending: true }).limit(8)
+            .then(function (r) { return (r && r.data) || []; }, function () { return []; });
+    }
+
+    function onReferrerInput(input) {
+        var els = refPickerEls(input);
+        input._refRow = null;
+        if (els.hidden) els.hidden.value = '';
+        if (els.preview) { els.preview.textContent = ''; els.preview.className = 'dc-ref-preview'; }
+        clearTimeout(_refPick.timer);
+        var seq = ++_refPick.seq;
+        _refPick.timer = setTimeout(function () {
+            searchReferrers(input.value).then(function (rows) {
+                if (seq !== _refPick.seq || !els.list) return;
+                var self = refFormPatient(input).id;
+                rows = rows.filter(function (p) { return !self || String(p.id) !== String(self); });
+                if (!rows.length) { els.list.innerHTML = ''; els.list.hidden = true; return; }
+                els.list.innerHTML = rows.map(function (p) {
+                    return '<button type="button" class="dc-ref-opt" data-id="' + esc(p.id) + '">' +
+                        '<b>#' + esc(p.patient_no || '') + '</b> ' + esc(p.full_name || '') +
+                        (p.chinese_name ? ' ' + esc(p.chinese_name) : '') +
+                        (p.phone_number ? ' <small>' + esc(String(p.phone_number).replace(/^(.*)(\d{4})$/, '••••$2')) + '</small>' : '') +
+                        '</button>';
+                }).join('');
+                els.list.hidden = false;
+                els.list._rows = rows;
+            });
+        }, 250);
+    }
+
+    function pickReferrer(input, p) {
+        var els = refPickerEls(input);
+        input.value = p.patient_no || '';
+        if (els.hidden) els.hidden.value = p.id;
+        if (els.list) { els.list.innerHTML = ''; els.list.hidden = true; }
+        return paintReferrerPreview(input, p);
+    }
+
+    function wireReferrerPickers() {
+        if (typeof document === 'undefined' || !document.addEventListener || wireReferrerPickers._on) return;
+        wireReferrerPickers._on = true;
+        document.addEventListener('input', function (e) {
+            var t = e.target;
+            if (t && t.getAttribute && t.getAttribute('data-ref-picker') != null) onReferrerInput(t);
+        });
+        document.addEventListener('click', function (e) {
+            var btn = e.target && e.target.closest ? e.target.closest('.dc-ref-opt') : null;
+            if (!btn) return;
+            var root = btn.closest('.dc-ref-fg');
+            var input = root && root.querySelector('[data-ref-picker]');
+            var list = root && root.querySelector('.dc-ref-list');
+            var rows = (list && list._rows) || [];
+            var id = btn.getAttribute('data-id');
+            var p = rows.filter(function (r) { return String(r.id) === String(id); })[0];
+            if (input && p) pickReferrer(input, p);
+        });
+        document.addEventListener('change', function (e) {
+            var t = e.target;
+            if (!t || t.type !== 'radio' || String(t.name || '').indexOf('refKind_') !== 0) return;
+            var root = t.closest ? t.closest('.dc-ref-fg') : null;
+            var input = root && root.querySelector('[data-ref-picker]');
+            if (input && input._refRow) paintReferrerPreview(input, input._refRow);
+        });
+        document.addEventListener('focusout', function (e) {
+            var t = e.target;
+            if (!t || !t.getAttribute || t.getAttribute('data-ref-picker') == null) return;
+            setTimeout(function () {
+                var els = refPickerEls(t);
+                if (els.list && !els.list.contains(document.activeElement)) els.list.hidden = true;
+            }, 200);
+        });
+    }
+
+    function loadReferralList() {
+        var body = typeof document !== 'undefined' && document.getElementById('dcRefBody');
+        if (!body) return Promise.resolve();
+        if (!sbReady()) { body.innerHTML = ''; return Promise.resolve(); }
+        return SB.from(REF_TABLE).select('*').order('created_at', { ascending: false }).limit(100).then(function (r) {
+            if (!r || r.error) {
+                body.innerHTML = '<p class="dc-hint">' + esc(ct('coupons.ref.noTable', 'Referrals table not set up yet — run discount_coupon_referrals.sql in Supabase.')) + '</p>';
+                return;
+            }
+            var rows = r.data || [];
+            if (!rows.length) {
+                body.innerHTML = '<p class="dc-hint">' + esc(ct('coupons.ref.none', 'No referrals yet.')) + '</p>';
+                return;
+            }
+            body.innerHTML = '<table class="dc-log"><thead><tr>' +
+                '<th>' + esc(ct('coupons.log.when', 'When')) + '</th>' +
+                '<th>' + esc(ct('coupons.ref.colFriend', 'New patient')) + '</th>' +
+                '<th>' + esc(ct('coupons.ref.colReferrer', 'Referrer')) + '</th>' +
+                '<th>' + esc(ct('coupons.ref.colReward', 'Reward')) + '</th>' +
+                '<th>' + esc(ct('coupons.ref.colStatus', 'Status')) + '</th>' +
+                '<th>' + esc(ct('coupons.log.note', 'Detail')) + '</th></tr></thead><tbody>' +
+                rows.map(function (x) {
+                    return '<tr data-ref-status="' + esc(x.status) + '"><td>' + esc(String(x.created_at || '').replace('T', ' ').slice(0, 16)) + '</td>' +
+                        '<td>#' + esc(x.referred_no || '') + '</td><td>#' + esc(x.referrer_no || '') + '</td>' +
+                        '<td>' + esc(x.reward_kind === 'points'
+                            ? '⭐ ' + ct('coupons.ref.kindPoints', '積分 Reward points') + (x.points ? ' +' + round2(x.points).toFixed(0) : '')
+                            : '🎟️ ' + ct('coupons.ref.kindCoupon', '優惠券 Discount coupon')) + '</td>' +
+                        '<td>' + esc(referralStatusText(x.status)) + '</td>' +
+                        '<td>' + esc(x.reason ? referralReason(x.reason) : (x.issued_at ? String(x.issued_at).slice(0, 10) : '')) + '</td></tr>';
+                }).join('') + '</tbody></table>';
+        }, function () { body.innerHTML = ''; });
     }
 
     function isNonCashMethod(method) {
@@ -3437,6 +4233,13 @@ var COUPONS = (function () {
         ]).then(function (res) {
             var cashPaid = res[1];
             var doctorKey = res[3];
+            referralOnBillPaid({
+                patientId: info.patientId,
+                billId: info.billId,
+                cashPaid: cashPaid,
+                clinicCode: clinicCode,
+                doctorKey: doctorKey
+            }).catch(function () {});
             var already = {};
             (res[2] || []).forEach(function (c) { if (c.status !== 'void') already[c.campaign_key] = true; });
             var list = campaigns().filter(function (c) { return !already[c.key]; });
@@ -3596,6 +4399,7 @@ var COUPONS = (function () {
                         logCoupon('CANCEL', 'Void bill cancelled issued coupon ' + plan.cancel.join(','), null, billId);
                     }
                     flagStuck(plan.stuck, billId);
+                    reopenReferrals(billId, plan.cancel);
                     bill.coupon_id = null;
                     return { ok: true, restore: plan.restore, cancel: plan.cancel, stuck: plan.stuck };
                 });
@@ -3631,6 +4435,7 @@ var COUPONS = (function () {
                         couponNotice(ct('coupons.void.payment', 'Payment voided: the spend coupon earned by this bill was taken back. It is issued again when the bill is fully paid.'));
                     }
                     flagStuck(plan.stuck, billId);
+                    reopenReferrals(billId, plan.cancel);
                     return { ok: true, cancel: plan.cancel, stuck: plan.stuck };
                 });
             }, function (e) {
@@ -3782,8 +4587,34 @@ var COUPONS = (function () {
     }
 
     scheduleExpiryReminders();
+    wireReferrerPickers();
 
     return {
+        samePerson: samePerson,
+        isEarlierChart: isEarlierChart,
+        maskName: maskName,
+        planReferral: planReferral,
+        planReferralIssue: planReferralIssue,
+        referralCouponGate: referralCouponGate,
+        referralOptions: referralOptions,
+        pickReferralKind: pickReferralKind,
+        referralKindsHtml: referralKindsHtml,
+        referralThanks: referralThanks,
+        referralPointsToReverse: referralPointsToReverse,
+        referralBranches: referralBranches,
+        selectedReferralKind: selectedReferralKind,
+        paintReferralKinds: paintReferralKinds,
+        referralPreviewText: referralPreviewText,
+        referralReason: referralReason,
+        referralsToReopen: referralsToReopen,
+        registerReferral: registerReferral,
+        referralOnBillPaid: referralOnBillPaid,
+        onReferrerEdited: onReferrerEdited,
+        onPatientDeleted: onPatientDeleted,
+        resetReferrerPicker: resetReferrerPicker,
+        pickReferrer: pickReferrer,
+        loadReferralList: loadReferralList,
+        REF_EDIT_DAYS: REF_EDIT_DAYS,
         WALLET_CAP: WALLET_CAP,
         isLive: isLive,
         unusedCount: unusedCount,

@@ -5,6 +5,7 @@ var selPatientId  = null;
 var editPatientId = null;
 /** Snapshot of patients.clinic_tag when edit modal opened (for refilling dropdown after clinics load). */
 var editPatientLoadedClinicTag = '';
+var editPatientLoadedReferredBy = '';
 var selPatientClinicTag = null;
 /** Last fetched patient list (for i18n re-render). */
 var patientListCache = [];
@@ -276,11 +277,15 @@ function readPatientExtraFields(isEdit) {
     var dist = g(isEdit ? 'edit_residentialDistrict' : 'residentialDistrict');
     var fam = g(isEdit ? 'edit_familyHistory' : 'familyHistory');
     var ref = g(isEdit ? 'edit_referredBy' : 'referredBy');
+    var refId = g(isEdit ? 'edit_referredById' : 'referredById');
+    var refKind = document.querySelector('input[name="refKind_' + (isEdit ? 'edit_referredBy' : 'referredBy') + '"]:checked:not(:disabled)');
     return {
         mobile_phone: mob ? String(mob.value || '').trim() || null : null,
         residential_district: dist ? String(dist.value || '').trim() || null : null,
         family_history: fam ? String(fam.value || '').trim() || null : null,
-        referred_by: ref ? String(ref.value || '').trim() || null : null
+        referred_by: ref ? String(ref.value || '').trim() || null : null,
+        referrer_id: refId ? String(refId.value || '').trim() || null : null,
+        referral_kind: refKind ? refKind.value : ''
     };
 }
 
@@ -764,6 +769,7 @@ function applyAddPatientPrefill(prefill) {
 function openAddPatient(prefill) {
     prefill = prefill || null;
     g('patientForm').reset();
+    if (typeof COUPONS !== 'undefined' && COUPONS.resetReferrerPicker) COUPONS.resetReferrerPicker('referredBy');
     sv('preview_patientNo','');
     if (g('banana_info_enabled')) {
         g('banana_info_enabled').checked = false;
@@ -878,7 +884,7 @@ function submitAddPatient(e) {
             }
 
             if (row && typeof COUPONS !== 'undefined' && typeof COUPONS.onPatientCreated === 'function') {
-                COUPONS.onPatientCreated(row, payload.referred_by);
+                COUPONS.onPatientCreated(row, payload.referred_by, extra.referrer_id, extra.referral_kind);
             }
             var linkedToday = row &&
                 typeof linkTodayApptAfterPatientRegistration === 'function' &&
@@ -1797,6 +1803,8 @@ function openEditPatient(id) {
         if (resSel) resSel.value = p.residential_district || '';
         sv('edit_familyHistory', p.family_history || '');
         sv('edit_referredBy',    p.referred_by    || '');
+        editPatientLoadedReferredBy = p.referred_by || '';
+        if (typeof COUPONS !== 'undefined' && COUPONS.resetReferrerPicker) COUPONS.resetReferrerPicker('edit_referredBy');
         sv('edit_alerts',      p.medical_alerts ||'');
         sv('edit_remarks',     p.remarks        ||'');
         sv('edit_banana_index', p.banana_index != null ? String(p.banana_index) : '');
@@ -1866,6 +1874,10 @@ function submitEditPatient(e) {
     if (!nurse) payload[PATIENT_CLINIC_TAG_FIELD] = ctEdit;
     function doneUpdate(savedPatient) {
         var savedId = (savedPatient && savedPatient.id) || editPatientId;
+        if (!nurse && extraEdit && typeof COUPONS !== 'undefined' && COUPONS.onReferrerEdited &&
+            (extraEdit.referrer_id || String(extraEdit.referred_by || '') !== String(editPatientLoadedReferredBy || ''))) {
+            COUPONS.onReferrerEdited(savedId, extraEdit.referred_by, extraEdit.referrer_id, extraEdit.referral_kind);
+        }
         closeModal('editPatientModal');
         fetchPatients();
         if (typeof refreshApptListsAfterPatientEdit === 'function') {
@@ -1922,6 +1934,7 @@ function submitEditPatient(e) {
 function deletePatient() {
     if (currentRole==='nurse') { alert(patTr('patient.alertPermissionDenied')); return; }
     if (!editPatientId) return;
+    var deletedId = editPatientId;
     var name = g('edit_fullName').value  || patTr('patient.thisPatient');
     var no   = g('edit_patientNo').value || '';
     if (!confirm(patTrRepl('patient.confirmDelete', { NO: no, NAME: name }))) return;
@@ -1931,6 +1944,7 @@ function deletePatient() {
     })
     .then(function(r) {
         if (r.error) { alert(trRepl('appt.msg.error', { MSG: r.error.message })); return; }
+        if (typeof COUPONS !== 'undefined' && COUPONS.onPatientDeleted) COUPONS.onPatientDeleted(deletedId);
         closeModal('editPatientModal');
         fetchPatients();
         alert(patTr('patient.alertDeleted'));

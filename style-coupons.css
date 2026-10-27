@@ -319,6 +319,25 @@ button.dc-card.is-blocked .dc-check { display: none; }
 }
 
 /* ---------- Bill page + checkout ---------- */
+.dc-ref-fg { position: relative; }
+.dc-ref-list { position: absolute; left: 0; right: 0; z-index: 50; margin-top: 2px; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 8px 24px rgba(15, 23, 42, .15); max-height: 240px; overflow-y: auto; }
+.dc-ref-list[hidden] { display: none; }
+.dc-ref-opt { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-bottom: 1px solid #f1f5f9; background: #fff; cursor: pointer; font-size: 13px; }
+.dc-ref-opt:hover, .dc-ref-opt:focus { background: #ecfdf5; }
+.dc-ref-opt small { color: #64748b; margin-left: 6px; }
+.dc-ref-kind { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 6px; font-size: 13px; }
+.dc-ref-kind:empty { display: none; }
+.dc-ref-kind-label { width: 100%; font-size: 12px; font-weight: 700; color: #475569; }
+.dc-ref-k { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; cursor: pointer; }
+.dc-ref-k:has(input:checked) { border-color: #0f766e; background: #ecfdf5; }
+.dc-ref-k.is-off { opacity: .45; cursor: not-allowed; background: #f1f5f9; filter: grayscale(1); }
+.dc-ref-k.is-off input { pointer-events: none; }
+.dc-ref-k small { color: #64748b; }
+.dc-ref-k-none { width: 100%; color: #b45309; }
+.dc-ref-preview { margin-top: 4px; font-size: 12px; line-height: 1.4; color: #64748b; }
+.dc-ref-preview:empty { display: none; }
+.dc-ref-preview.is-ok { color: #047857; }
+.dc-ref-preview.is-warn { color: #b45309; }
 .dc-notice { position: fixed; right: 18px; bottom: 18px; z-index: 9000; max-width: 380px; background: #065f46; color: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); font-size: 13px; line-height: 1.5; }
 #bdSavedRow[hidden], #bdCouponInfo[hidden] { display: none !important; }
 #bdCouponGrant { padding: 4px 10px; border: 1px solid #1e3a5f; background: #fff; color: #1e3a5f; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }

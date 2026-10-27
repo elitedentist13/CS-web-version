@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261027smsbal1';
+var BUILD = '20261028referral2';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -198,7 +198,10 @@ function loadCoupons() {
         !(camp('spend_4').target > 0) && !(camp('spend_4').face > 0) &&
         !(camp('spend_5').target > 0) && !(camp('spend_5').face > 0));
     pass('campaigns start off', camps.every(function (c) { return c.enabled === false; }));
-    pass('reward module is not referenced', src.indexOf('REWARDS') < 0);
+    var rwUses = (src.match(/REWARDS\.[a-zA-Z]+/g) || []).filter(function (u, i, a) { return a.indexOf(u) === i; });
+    pass('reward module is used only for the refer-a-friend points branch', rwUses.length > 0 && rwUses.every(function (u) {
+        return ['REWARDS.referralAvailability', 'REWARDS.referralCredit', 'REWARDS.referralReverse', 'REWARDS.clinicCtx'].indexOf(u) >= 0;
+    }), rwUses.join(','));
 
     console.log('=== 4 treatment wiring ===');
     var scaling = { treatment_item_id: 's1', desc: 'typed over' };
@@ -306,6 +309,376 @@ function loadCoupons() {
     pass('self referral is skipped', C.planNewChart({
         clinicCode: 'KT', campaigns: camps, patientId: 'same', referrerId: 'same', wallet: [], referrerWallet: []
     }).every(function (p) { return p.campaign.key !== 'referral'; }));
+
+    console.log('=== 8b refer a friend ===');
+    var refCamp = Object.assign({}, camp('referral'), { enabled: true, minFirstSpend: 300 });
+    var oldP = { id: 'old', patient_no: '000123', chinese_name: '陳大文', full_name: 'CHAN TAI MAN', phone_number: '9123 4567', hkid: 'A123456(7)', created_at: '2024-01-01T00:00:00Z' };
+    var newP = { id: 'new', patient_no: '000456', chinese_name: '李小明', full_name: 'LEE SIU MING', phone_number: '98765432', hkid: 'B7654321', created_at: '2026-10-27T02:00:00Z' };
+    pass('referral default: HK$100, 180 days, min first visit HK$300', camp('referral').face === 100 && camp('referral').expiryDays === 180 &&
+        camp('referral').minFirstSpend === 300);
+    pass('same person: same HKID with different punctuation', C.samePerson(oldP, { id: 'x', hkid: 'a1234567' }));
+    pass('same person: shared phone (+852 and spaces ignored)', C.samePerson(oldP, { id: 'x', mobile_phone: '+852 91234567' }));
+    pass('different people are not the same person', !C.samePerson(oldP, newP));
+    pass('earlier chart: same HKID, older', C.isEarlierChart(newP, { id: 'n0', hkid: 'B7654321', created_at: '2020-01-01' }));
+    pass('earlier chart: same phone + same name, no date (imported)', C.isEarlierChart(newP, { id: 'n0', phone_number: '9876 5432', full_name: 'lee  siu ming' }));
+    pass('not an earlier chart: same phone, different name (family)', !C.isEarlierChart(newP, { id: 'n0', phone_number: '98765432', full_name: 'LEE TAI MAN' }));
+    pass('mask name: 陳大文 → 陳**, CHAN TAI MAN → CHAN **', C.maskName(oldP) === '陳**' && C.maskName({ full_name: 'CHAN TAI MAN' }) === 'CHAN **');
+    var rp = function (extra) {
+        return C.planReferral(Object.assign({ friend: newP, referrer: oldP, campaign: refCamp, clinicCode: 'KT' }, extra || {}));
+    };
+    pass('referral plan: valid pair is pending', rp().status === 'pending');
+    pass('referral plan: no referrer → skip', rp({ referrer: null }).reason === 'no_referrer');
+    pass('referral plan: already recorded → skip', rp({ existing: { id: 'r' } }).reason === 'already');
+    pass('referral plan: campaign off → skip', rp({ campaign: Object.assign({}, refCamp, { enabled: false }) }).reason === 'campaign_off');
+    pass('referral plan: clinic off → skip', rp({ clinicCode: 'CWB' }).reason === 'clinic');
+    pass('referral plan: self referral → blocked', rp({ referrer: Object.assign({}, newP) }).status === 'blocked' && rp({ referrer: Object.assign({}, newP) }).reason === 'same_person');
+    pass('referral plan: household phone → blocked', rp({ referrer: Object.assign({}, oldP, { phone_number: '98765432' }) }).reason === 'same_person');
+    pass('referral plan: referrer newer than friend → blocked', rp({ referrer: Object.assign({}, oldP, { created_at: '2026-10-28T00:00:00Z' }) }).reason === 'referrer_newer');
+    pass('referral plan: friend had an earlier chart → blocked', rp({ lookalikes: [{ id: 'n0', hkid: 'B7654321', created_at: '2019-01-01' }] }).reason === 'not_new');
+    var nowMs = new Date('2026-11-10T00:00:00Z').getTime();
+    pass('referral plan: edit within 30 days ok', rp({ source: 'edit', now: nowMs }).status === 'pending');
+    pass('referral plan: edit after 30 days → skip', rp({ source: 'edit', now: new Date('2026-12-30T00:00:00Z').getTime() }).reason === 'edit_window');
+    pass('referral plan: edit on an imported chart (no date) → skip', rp({ source: 'edit', friend: Object.assign({}, newP, { created_at: null }) }).reason === 'edit_window');
+    var ri = function (extra) {
+        return C.planReferralIssue(Object.assign({ record: { status: 'pending' }, campaign: refCamp, clinicCode: 'KT', cashPaid: 500, referrerWallet: [] }, extra || {}));
+    };
+    pass('referral issue: paid HK$500 ≥ HK$300 → issue', ri().ok);
+    pass('referral issue: exactly the minimum → issue', ri({ cashPaid: 300 }).ok);
+    pass('referral issue: HK$299.99 → wait (below_min)', ri({ cashPaid: 299.99 }).reason === 'below_min');
+    pass('referral issue: blank minimum → any amount', C.planReferralIssue({ record: { status: 'pending' }, campaign: Object.assign({}, refCamp, { minFirstSpend: 0 }), clinicCode: 'KT', cashPaid: 1 }).ok);
+    pass('referral issue: not pending → no', ri({ record: { status: 'issued' } }).reason === 'not_pending');
+    var heldFive = [1, 2, 3, 4, 5].map(function (i) { return { campaign_key: 'referral', status: 'unused', code: 'R' + i }; });
+    pass('referral issue: referrer already holds 5 → wait', ri({ referrerWallet: heldFive }).reason === 'already_holding');
+    pass('referral issue: clinic off at payment → wait', ri({ clinicCode: 'CWB' }).reason === 'clinic');
+    pass('reopen: issued record whose coupon was cancelled', C.referralsToReopen([
+        { id: 'a', status: 'issued', coupon_id: 'c1' }, { id: 'b', status: 'issued', coupon_id: 'c2' }, { id: 'c', status: 'issuing' }
+    ], ['c1']).join(',') === 'a,c');
+    var prevOk = C.referralPreviewText({ status: 'pending' }, oldP, refCamp);
+    pass('preview names the referrer, value, and the min first visit', prevOk.indexOf('#000123 陳大文') === 0 && prevOk.indexOf('HK$100') > 0 && prevOk.indexOf('HK$300') > 0, prevOk);
+    var prevNo = C.referralPreviewText({ status: 'blocked', reason: 'same_person' }, oldP, refCamp);
+    pass('preview explains a blocked referral', /no referral reward: Referrer looks like the same person/.test(prevNo), prevNo);
+    var thanksSms = C.smsIssued({ code: 'DC-R1', campaign_key: 'referral', discount_mode: 'amount', face_value: 100, clinic_code: 'KT' }, [], { today: '2026-10-28', clinic: 'KT', thanks: '李**' });
+    pass('referral SMS thanks the referrer with the masked friend name',
+        thanksSms.split('\n')[1] === '變動/Change: +1 介紹新客 Refer a friend HK$100.00 (發出/Issued) — 多謝介紹 李** / thanks for referring 李**', thanksSms.split('\n')[1]);
+
+    function memSB(db) {
+        var log = [];
+        function parseOr(s) {
+            var out = [];
+            var re = /([a-z_]+)\.(eq|ilike)\.("([^"]*)"|[^,]*)/g;
+            var m;
+            while ((m = re.exec(s))) out.push({ k: m[1], op: m[2], v: m[4] != null ? m[4] : m[3] });
+            return out;
+        }
+        function hit(r, c) {
+            var val = r[c.k] == null ? '' : String(r[c.k]);
+            if (c.op === 'eq') return val === String(c.v);
+            return val.toLowerCase().indexOf(String(c.v).replace(/%/g, '').toLowerCase()) >= 0;
+        }
+        return {
+            log: log,
+            rpc: function (fn, args) {
+                log.push({ t: 'rpc', fn: fn, args: args });
+                return Promise.resolve(db.__rpc ? db.__rpc(fn, args) : { data: null, error: { message: 'no rpc' } });
+            },
+            from: function (table) {
+                db[table] = db[table] || [];
+                var conds = [];
+                var op = 'select';
+                var body = null;
+                var lim = 0;
+                var single = false;
+                var q = {
+                    select: function () { return q; },
+                    order: function () { return q; },
+                    eq: function (k, v) { conds.push(function (r) { return String(r[k]) === String(v); }); return q; },
+                    neq: function (k, v) { conds.push(function (r) { return String(r[k]) !== String(v); }); return q; },
+                    in: function (k, vs) { conds.push(function (r) { return vs.map(String).indexOf(String(r[k])) >= 0; }); return q; },
+                    or: function (s) { var cs = parseOr(s); conds.push(function (r) { return cs.some(function (c) { return hit(r, c); }); }); return q; },
+                    ilike: function () { return q; },
+                    limit: function (n) { lim = n; return q; },
+                    maybeSingle: function () { single = true; return q; },
+                    single: function () { single = true; return q; },
+                    insert: function (rows) { op = 'insert'; body = rows; return q; },
+                    update: function (u) { op = 'update'; body = u; return q; },
+                    then: function (ok, bad) {
+                        var res;
+                        if (op === 'insert') {
+                            var err = null;
+                            var added = [];
+                            body.forEach(function (row) {
+                                if (table === 'discount_coupon_referrals' && db[table].some(function (x) {
+                                    return String(x.referred_patient_id) === String(row.referred_patient_id);
+                                })) { err = { message: 'duplicate key value violates unique constraint' }; return; }
+                                var r = Object.assign({ id: table + '-' + (db[table].length + 1), created_at: new Date().toISOString() }, row);
+                                db[table].push(r);
+                                added.push(r);
+                            });
+                            log.push({ t: table, op: 'insert', rows: added });
+                            res = { data: err ? null : added.map(function (r) { return Object.assign({}, r); }), error: err };
+                        } else {
+                            var rows = db[table].filter(function (r) { return conds.every(function (c) { return c(r); }); });
+                            if (op === 'update') {
+                                rows.forEach(function (r) { Object.assign(r, body); });
+                                log.push({ t: table, op: 'update', u: body, n: rows.length });
+                            }
+                            if (lim) rows = rows.slice(0, lim);
+                            rows = rows.map(function (r) { return Object.assign({}, r); });
+                            res = { data: single ? (rows[0] || null) : rows, error: null };
+                        }
+                        return Promise.resolve(res).then(ok, bad);
+                    }
+                };
+                return q;
+            }
+        };
+    }
+    var refDb = {
+        patients: [oldP, newP, { id: 'other', patient_no: '000789', full_name: 'WONG', phone_number: '90000000', created_at: '2025-01-01T00:00:00Z' }],
+        discount_coupons: [],
+        discount_coupon_referrals: [],
+        program_settings: [{ setting_key: 'discount_coupon_scheme', setting_value: JSON.stringify({
+            clinics: { KT: { joined: true } },
+            campaigns: [{ key: 'referral', enabled: true, minFirstSpend: 300 }, { key: 'new_chart', enabled: true }]
+        }) }]
+    };
+    var refSb = memSB(refDb);
+    var refSms = [];
+    var refCtx = {
+        console: console, setTimeout: setTimeout, clearTimeout: clearTimeout, SB: refSb,
+        currentClinicCodeForTagging: function () { return 'KT'; },
+        AIHELPER: { sendTwilioOutreach: function (o) { refSms.push(o); return Promise.resolve({ ok: true }); } }
+    };
+    refCtx.window = refCtx;
+    vm.createContext(refCtx);
+    vm.runInContext(src, refCtx, { filename: 'app-coupons.js' });
+    var RC = refCtx.COUPONS;
+    var settle = function () { return new Promise(function (r) { setTimeout(r, 30); }); };
+    await RC.onPatientCreated({ id: 'new', patient_no: '000456' }, '000123', 'old');
+    await settle();
+    var recs = refDb.discount_coupon_referrals;
+    pass('flow: registering with a referrer records one pending referral', recs.length === 1 && recs[0].status === 'pending' &&
+        recs[0].referrer_patient_id === 'old' && recs[0].referred_no === '000456' && recs[0].referrer_no === '000123', JSON.stringify(recs));
+    pass('flow: new patient gets the welcome coupon, referrer gets nothing yet',
+        refDb.discount_coupons.filter(function (c) { return c.patient_id === 'new' && c.campaign_key === 'new_chart'; }).length === 1 &&
+        refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old'; }).length === 0);
+    await RC.onReferrerEdited('new', '000789', 'other');
+    pass('flow: a second referrer for the same patient is ignored', recs.length === 1 && recs[0].referrer_patient_id === 'old');
+    var low = await RC.referralOnBillPaid({ patientId: 'new', billId: 'bill-A', cashPaid: 200, clinicCode: 'KT' });
+    pass('flow: first paid visit below HK$300 waits', low.ok === false && low.reason === 'below_min' && recs[0].status === 'pending' &&
+        refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old'; }).length === 0, JSON.stringify(low));
+    var paid = await RC.referralOnBillPaid({ patientId: 'new', billId: 'bill-B', cashPaid: 680, clinicCode: 'KT' });
+    await settle();
+    var refCoupon = refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old' && c.campaign_key === 'referral'; });
+    pass('flow: paid HK$680 issues HK$100 referral coupon into the referrer wallet', paid.ok && refCoupon.length === 1 &&
+        Number(refCoupon[0].face_value) === 100 && refCoupon[0].origin_bill_id === 'bill-B' && refCoupon[0].note === 'Referral: #000456', JSON.stringify(refCoupon));
+    pass('flow: referral record is issued with the coupon id', recs[0].status === 'issued' && recs[0].coupon_id === refCoupon[0].id &&
+        recs[0].trigger_bill_id === 'bill-B');
+    var smsToRef = refSms.filter(function (s) { return s.to === '9123 4567'; });
+    pass('flow: referrer gets the SMS with the masked friend name', smsToRef.length === 1 &&
+        smsToRef[0].body.indexOf('多謝介紹 李** / thanks for referring 李**') > 0 && smsToRef[0].body.indexOf('總結餘/All-clinic total: 1張') > 0,
+        smsToRef[0] && smsToRef[0].body.split('\n').slice(1, 4).join(' | '));
+    var again = await RC.referralOnBillPaid({ patientId: 'new', billId: 'bill-C', cashPaid: 900, clinicCode: 'KT' });
+    pass('flow: a later paid visit does not issue a second coupon', again.skipped === true &&
+        refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old'; }).length === 1);
+    var voidRes = await RC.onBillVoided({ id: 'bill-B', patient_id: 'new' });
+    await settle();
+    pass('flow: voiding the friend’s paid bill cancels the unused referral coupon', voidRes.ok && refCoupon[0].id &&
+        refDb.discount_coupons.filter(function (c) { return c.id === refCoupon[0].id; })[0].status === 'void');
+    pass('flow: and the referral goes back to pending', recs[0].status === 'pending' && !recs[0].coupon_id && recs[0].reason === 'bill_voided', JSON.stringify(recs[0]));
+    var repay = await RC.referralOnBillPaid({ patientId: 'new', billId: 'bill-D', cashPaid: 450, clinicCode: 'KT' });
+    pass('flow: the next qualifying paid visit issues it again', repay.ok && recs[0].status === 'issued' &&
+        refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old' && c.status === 'unused' && c.campaign_key === 'referral'; }).length === 1);
+    await RC.onPatientDeleted('new');
+    pass('flow: deleting the friend’s chart voids the record and its unused coupon', recs[0].status === 'void' &&
+        refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old' && c.status === 'unused' && c.campaign_key === 'referral'; }).length === 0);
+    refDb.patients.push({ id: 'kid', patient_no: '000999', full_name: 'CHAN SIU MING', phone_number: '91234567', created_at: '2026-10-28T01:00:00Z' });
+    await RC.onPatientCreated({ id: 'kid', patient_no: '000999' }, '000123', null);
+    var kidRec = recs.filter(function (r) { return r.referred_patient_id === 'kid'; })[0];
+    pass('flow: typed chart no. resolves; same household phone is recorded as blocked', kidRec && kidRec.status === 'blocked' && kidRec.reason === 'same_person', JSON.stringify(kidRec));
+    var kidPaid = await RC.referralOnBillPaid({ patientId: 'kid', billId: 'bill-K', cashPaid: 5000, clinicCode: 'KT' });
+    pass('flow: a blocked referral never issues', kidPaid.skipped === true);
+    var patSrc = read('app-patient.js');
+    pass('patient form passes the picked referrer id and reward kind on register',
+        /COUPONS\.onPatientCreated\(row, payload\.referred_by, extra\.referrer_id, extra\.referral_kind\)/.test(patSrc));
+    pass('edit patient records a newly added referrer with its reward kind',
+        /COUPONS\.onReferrerEdited\(savedId, extraEdit\.referred_by, extraEdit\.referrer_id, extraEdit\.referral_kind\)/.test(patSrc));
+    pass('patient form reads only an enabled reward-kind radio', /refKind_/.test(patSrc) && /:checked:not\(:disabled\)/.test(patSrc));
+    pass('both patient forms have the reward-kind choice', (html.match(/class="dc-ref-kind"/g) || []).length === 2);
+    pass('deleting a chart ends its referrals', /COUPONS\.onPatientDeleted\(deletedId\)/.test(patSrc));
+    pass('bill fully paid checks the pending referral', /function onBillFullyPaid[\s\S]{0,1600}referralOnBillPaid\(\{/.test(src));
+    pass('both patient forms use the referrer picker', /id="referredBy" data-ref-picker/.test(html) && /id="edit_referredBy" data-ref-picker/.test(html) &&
+        /id="referredById" class="dc-ref-id"/.test(html) && /id="edit_referredById" class="dc-ref-id"/.test(html));
+    var refSql = read('discount_coupon_referrals.sql');
+    pass('referral SQL: one record per new patient, no self referral', /unique \(referred_patient_id\)/.test(refSql) &&
+        /referred_patient_id <> referrer_patient_id/.test(refSql));
+    pass('referral SQL: reward kind is coupon or points, with points + ledger columns', /reward_kind in \('coupon', ?'points'\)/.test(refSql) &&
+        /add column if not exists points/.test(refSql) && /add column if not exists ledger_id/.test(refSql));
+
+    console.log('=== 8c refer a friend: reward points branch ===');
+    var cOk = C.referralCouponGate({ campaign: refCamp, clinicCode: 'KT' });
+    var cOff = C.referralCouponGate({ campaign: refCamp, clinicCode: 'CWB' });
+    pass('coupon branch gate: on at KT, clinic-off at CWB, campaign-off when disabled', cOk.ok && cOff.reason === 'clinic' &&
+        C.referralCouponGate({ campaign: Object.assign({}, refCamp, { enabled: false }), clinicCode: 'KT' }).reason === 'campaign_off',
+        JSON.stringify([cOk, cOff]));
+    var bothOn = C.referralOptions({ ok: true }, { ok: true });
+    var ptsOnly = C.referralOptions({ ok: false, reason: 'clinic' }, { ok: true });
+    var neither = C.referralOptions({ ok: false, reason: 'clinic' }, { ok: false, reason: 'points_clinic' });
+    pass('options: two branches, the off one carries its reason', bothOn.length === 2 && bothOn.every(function (o) { return o.ok && !o.reason; }) &&
+        ptsOnly[0].ok === false && ptsOnly[0].reason === 'clinic' && neither[1].reason === 'points_clinic');
+    pass('pick kind: keeps the requested branch when on', C.pickReferralKind('points', bothOn) === 'points' && C.pickReferralKind('coupon', bothOn) === 'coupon');
+    pass('pick kind: falls back to the branch that is on', C.pickReferralKind('coupon', ptsOnly) === 'points' && C.pickReferralKind(undefined, ptsOnly) === 'points');
+    pass('pick kind: neither scheme → no referral', C.pickReferralKind('points', neither) === '');
+    var kh = C.referralKindsHtml('refKind_referredBy', ptsOnly, 'points', refCamp, { points: 100 });
+    pass('kind radios: the off branch is greyed out and disabled with its reason',
+        /class="dc-ref-k is-off" data-kind="coupon"[^>]*title="[^"]+"><input type="radio" name="refKind_referredBy" value="coupon" disabled>/.test(kh) &&
+        /data-kind="points"><input type="radio" name="refKind_referredBy" value="points" checked>/.test(kh) && kh.indexOf('+100') > 0, kh);
+    var khNone = C.referralKindsHtml('refKind_referredBy', neither, '', refCamp, { points: 100 });
+    pass('kind radios: neither scheme → both disabled + explanation', (khNone.match(/ disabled>/g) || []).length === 2 &&
+        khNone.indexOf('dc-ref-k-none') > 0, khNone);
+    var khLock = C.referralKindsHtml('refKind_edit_referredBy', bothOn, 'coupon', refCamp, { points: 100 }, 'coupon');
+    pass('kind radios: an already recorded referral locks its branch', /value="points" disabled>/.test(khLock) && /value="coupon" checked>/.test(khLock));
+    var pGate = { ok: true, reason: '' };
+    var rpp = function (extra) {
+        return C.planReferral(Object.assign({ friend: newP, referrer: oldP, campaign: refCamp, clinicCode: 'KT', kind: 'points', pointsGate: pGate }, extra || {}));
+    };
+    pass('points plan: valid pair is pending with kind points', rpp().status === 'pending' && rpp().kind === 'points');
+    pass('points plan: works where the coupon campaign is off', rpp({ campaign: Object.assign({}, refCamp, { enabled: false }), clinicCode: 'CWB' }).status === 'pending');
+    pass('points plan: points switched off → skip', rpp({ pointsGate: { ok: false, reason: 'points_off' } }).reason === 'points_off');
+    pass('points plan: clinic not in points scheme → skip', rpp({ pointsGate: { ok: false, reason: 'points_clinic' } }).reason === 'points_clinic');
+    pass('points plan: same guards as coupons (same person, earlier chart, edit window)',
+        rpp({ referrer: Object.assign({}, newP) }).reason === 'same_person' &&
+        rpp({ lookalikes: [{ id: 'n0', hkid: 'B7654321', created_at: '2019-01-01' }] }).reason === 'not_new' &&
+        rpp({ source: 'edit', now: new Date('2026-12-30T00:00:00Z').getTime() }).reason === 'edit_window');
+    var rip = function (extra) {
+        return C.planReferralIssue(Object.assign({ record: { status: 'pending', reward_kind: 'points' }, campaign: refCamp, clinicCode: 'KT', cashPaid: 500,
+            pointsGate: pGate, pointsConfig: { enabled: true, points: 100, minFirstSpend: 400 } }, extra || {}));
+    };
+    pass('points issue: HK$500 ≥ points minimum HK$400 → 100 points', rip().ok && rip().points === 100, JSON.stringify(rip()));
+    pass('points issue: uses the points minimum, not the coupon one', rip({ cashPaid: 350 }).reason === 'below_min');
+    pass('points issue: ignores the coupon wallet limit', rip({ referrerWallet: heldFive }).ok);
+    pass('points issue: clinic left the points scheme → wait', rip({ pointsGate: { ok: false, reason: 'points_clinic' } }).reason === 'points_clinic');
+    pass('reopen: issued points records are reversed, not reopened', C.referralsToReopen([
+        { id: 'p1', status: 'issued', reward_kind: 'points', points: 100 }, { id: 'p2', status: 'issuing', reward_kind: 'points' }
+    ], []).join(',') === 'p2');
+    pass('reverse list: only issued points records with points', C.referralPointsToReverse([
+        { id: 'a', reward_kind: 'points', status: 'issued', points: 100 }, { id: 'b', reward_kind: 'points', status: 'pending', points: 100 },
+        { id: 'c', reward_kind: 'coupon', status: 'issued' }, { id: 'd', reward_kind: 'points', status: 'issued', points: 0 }
+    ]).map(function (r) { return r.id; }).join(',') === 'a');
+    pass('referrer thanks text is masked', C.referralThanks(newP) === '多謝介紹 李** / thanks for referring 李**' &&
+        C.referralThanks({}, '000456') === '介紹 #000456 / referral #000456');
+    var prevPts = C.referralPreviewText({ status: 'pending', kind: 'points' }, oldP, refCamp, { points: 100, minFirstSpend: 400 });
+    pass('preview for points names the points and the points minimum', prevPts.indexOf('100') > 0 && prevPts.indexOf('HK$400') > 0 &&
+        prevPts.indexOf('HK$100') < 0, prevPts);
+    pass('referral reasons for points read as plain text', !/^coupons\./.test(C.referralReason('points_clinic')) &&
+        !/^coupons\./.test(C.referralReason('points_spent')) && !/^coupons\./.test(C.referralReason('no_scheme')));
+
+    var ptDb = {
+        patients: [oldP, { id: 'pf', patient_no: '000555', chinese_name: '張美玲', full_name: 'CHEUNG MEI LING', phone_number: '97770000', hkid: 'C1112223',
+            created_at: '2026-10-28T01:00:00Z' }],
+        discount_coupons: [],
+        discount_coupon_referrals: [],
+        reward_program: [{ id: 1, sms_notify_enabled: true }],
+        reward_program_clinics: [{ clinic_id: null, clinic_code: 'KT', enabled: true, join_gain: true, join_redeem: true }],
+        reward_program_doctors: [],
+        reward_accounts: [{ id: 'acc-old', patient_id: 'old', balance: 50 }],
+        reward_sms_log: [],
+        program_settings: [
+            { setting_key: 'discount_coupon_scheme', setting_value: JSON.stringify({
+                clinics: { KT: { joined: true } }, campaigns: [{ key: 'referral', enabled: true, minFirstSpend: 300 }, { key: 'new_chart', enabled: false }]
+            }) },
+            { setting_key: 'reward_referral', setting_value: JSON.stringify({ enabled: true, points: 100, minFirstSpend: 300 }) }
+        ]
+    };
+    var ledgerN = 0;
+    ptDb.__rpc = function (fn, args) {
+        if (fn !== 'reward_adjust') return { data: null, error: { message: 'unexpected rpc ' + fn } };
+        if (!args.p_note) return { data: { ok: false, error: 'note required' }, error: null };
+        var acc = ptDb.reward_accounts.filter(function (a) { return a.patient_id === args.p_patient_id; })[0];
+        if (!acc) { acc = { id: 'acc-' + args.p_patient_id, patient_id: args.p_patient_id, balance: 0 }; ptDb.reward_accounts.push(acc); }
+        var next = Math.round((acc.balance + args.p_points_delta) * 100) / 100;
+        if (next < 0) return { data: { ok: false, error: 'balance would be negative' }, error: null };
+        acc.balance = next;
+        return { data: { ok: true, kind: 'adjust', patient_id: acc.patient_id, points: args.p_points_delta, balance: next, ledger_id: 'L' + (++ledgerN) }, error: null };
+    };
+    var ptSb = memSB(ptDb);
+    var ptSms = [];
+    var nullDoc = {
+        addEventListener: function () {}, getElementById: function () { return null; }, querySelector: function () { return null; },
+        querySelectorAll: function () { return []; }, dispatchEvent: function () {}, createElement: function () { return { style: {}, setAttribute: function () {}, appendChild: function () {} }; }
+    };
+    var ptCtx = {
+        console: console, setTimeout: function () { return 0; }, clearTimeout: function () {}, setInterval: function () { return 0; }, clearInterval: function () {},
+        SB: ptSb, document: nullDoc, CustomEvent: function () {},
+        currentClinicCodeForTagging: function () { return 'KT'; },
+        AIHELPER: { sendTwilioOutreach: function (o) { ptSms.push(o); return Promise.resolve({ ok: true }); } }
+    };
+    ptCtx.window = ptCtx;
+    vm.createContext(ptCtx);
+    vm.runInContext(read('app-rewards.js') + '\n;this.REWARDS = REWARDS;', ptCtx, { filename: 'app-rewards.js' });
+    vm.runInContext(src, ptCtx, { filename: 'app-coupons.js' });
+    var PC = ptCtx.COUPONS;
+    var PRW = ptCtx.REWARDS;
+    pass('rewards: referral config defaults (off, 100 points, HK$300)', JSON.stringify(PRW.normalizeReferralConfig(null)) ===
+        JSON.stringify({ enabled: false, points: 100, minFirstSpend: 300 }) && PRW.normalizeReferralConfig({ enabled: true, points: '80', minFirstSpend: '' }).points === 80);
+    pass('rewards: points gate — off, clinic not joined, on', PRW.referralPointsGate({ enabled: false, points: 100 }, true).reason === 'points_off' &&
+        PRW.referralPointsGate({ enabled: true, points: 0 }, true).reason === 'points_off' &&
+        PRW.referralPointsGate({ enabled: true, points: 100 }, false).reason === 'points_clinic' &&
+        PRW.referralPointsGate({ enabled: true, points: 100 }, true).ok === true);
+    pass('rewards: ledger kind label 介紹新客/Refer a friend', PRW.kindLabelBilingual('referral') === '介紹新客/Refer a friend', PRW.kindLabelBilingual('referral'));
+    var brKT = await PC.referralBranches('KT');
+    var brCWB = await PC.referralBranches('CWB');
+    pass('branches at KT: coupon and points both on', brKT.options.every(function (o) { return o.ok; }) && brKT.pointsCfg && brKT.pointsCfg.points === 100,
+        JSON.stringify(brKT.options));
+    pass('branches at CWB: both greyed out (not in either scheme)', brCWB.options.every(function (o) { return !o.ok; }) &&
+        brCWB.options[0].reason === 'clinic' && brCWB.options[1].reason === 'points_clinic', JSON.stringify(brCWB.options));
+    var ptFriend = { id: 'pf', patient_no: '000555' };
+    await PC.onPatientCreated(ptFriend, '000123', 'old', 'points');
+    var pRecs = ptDb.discount_coupon_referrals;
+    pass('points flow: register with points records a pending points referral', pRecs.length === 1 && pRecs[0].reward_kind === 'points' &&
+        pRecs[0].status === 'pending', JSON.stringify(pRecs));
+    var pLow = await PC.referralOnBillPaid({ patientId: 'pf', billId: 'bill-P0', cashPaid: 299, clinicCode: 'KT' });
+    pass('points flow: HK$299 below the points minimum waits', pLow.reason === 'below_min' && pRecs[0].status === 'pending' &&
+        ptDb.reward_accounts[0].balance === 50, JSON.stringify(pLow));
+    var pPaid = await PC.referralOnBillPaid({ patientId: 'pf', billId: 'bill-P1', cashPaid: 680, clinicCode: 'KT' });
+    var credit = ptSb.log.filter(function (l) { return l.t === 'rpc'; });
+    pass('points flow: paid HK$680 credits +100 via reward_adjust with a note', pPaid.ok && pPaid.kind === 'points' && credit.length === 1 &&
+        credit[0].args.p_patient_id === 'old' && credit[0].args.p_points_delta === 100 && credit[0].args.p_note === 'Referral: #000555' &&
+        ptDb.reward_accounts[0].balance === 150, JSON.stringify(pPaid));
+    pass('points flow: record issued with points + ledger id, no coupon issued', pRecs[0].status === 'issued' && pRecs[0].points === 100 &&
+        pRecs[0].ledger_id === 'L1' && pRecs[0].trigger_bill_id === 'bill-P1' && ptDb.discount_coupons.length === 0, JSON.stringify(pRecs[0]));
+    var ptSmsRef = ptSms.filter(function (s) { return s.to === '9123 4567'; });
+    var ptLines = ptSmsRef[0] ? ptSmsRef[0].body.split('\n') : [];
+    pass('points flow: referrer gets the reward points SMS', ptSmsRef.length === 1 &&
+        ptLines[0] === '[Joyful Smile Dental Clinic 樂意牙科中心] 積分更新 / Reward points update' &&
+        ptLines[1] === '變動/Change: +100.00 (介紹新客/Refer a friend)' &&
+        ptLines[2] === '結餘/Balance (KT): 150.00' && ptLines[3] === '總結餘/All-clinic total: 150.00' &&
+        ptLines.indexOf('參考/Ref: 多謝介紹 張** / thanks for referring 張**') > 0, ptLines.join(' | '));
+    pass('points flow: a second paid visit does not credit again', (await PC.referralOnBillPaid({ patientId: 'pf', billId: 'bill-P2', cashPaid: 900, clinicCode: 'KT' })).skipped === true &&
+        ptSb.log.filter(function (l) { return l.t === 'rpc'; }).length === 1);
+    await PC.onBillVoided({ id: 'bill-P1', patient_id: 'pf' });
+    await settle();
+    var rev = ptSb.log.filter(function (l) { return l.t === 'rpc'; })[1];
+    pass('points flow: voiding the friend’s bill takes the 100 points back', rev && rev.args.p_points_delta === -100 && /bill voided/.test(rev.args.p_note) &&
+        ptDb.reward_accounts[0].balance === 50, JSON.stringify(rev && rev.args));
+    pass('points flow: and the referral goes back to pending', pRecs[0].status === 'pending' && !pRecs[0].ledger_id && pRecs[0].reason === 'bill_voided',
+        JSON.stringify(pRecs[0]));
+    await PC.referralOnBillPaid({ patientId: 'pf', billId: 'bill-P3', cashPaid: 400, clinicCode: 'KT' });
+    pass('points flow: next qualifying visit credits again', pRecs[0].status === 'issued' && ptDb.reward_accounts[0].balance === 150);
+    ptDb.reward_accounts[0].balance = 30;
+    await PC.onBillVoided({ id: 'bill-P3', patient_id: 'pf' });
+    await settle();
+    pass('points flow: points already spent are not forced negative', ptDb.reward_accounts[0].balance === 30 && pRecs[0].status === 'issued' &&
+        pRecs[0].reason === 'points_spent', JSON.stringify(pRecs[0]));
+    ptDb.reward_accounts[0].balance = 200;
+    await PC.onPatientDeleted('pf');
+    await settle();
+    pass('points flow: deleting the friend’s chart takes the points back and voids the record', ptDb.reward_accounts[0].balance === 100 &&
+        pRecs[0].status === 'void', JSON.stringify(pRecs[0]) + ' bal=' + ptDb.reward_accounts[0].balance);
+    ptDb.patients.push({ id: 'pg', patient_no: '000556', full_name: 'HO KA YAN', phone_number: '96660000', created_at: '2026-10-28T02:00:00Z' });
+    ptCtx.currentClinicCodeForTagging = function () { return 'CWB'; };
+    await PC.onPatientCreated({ id: 'pg', patient_no: '000556' }, '000123', 'old', 'points');
+    pass('points flow: at a clinic in neither scheme, no referral is recorded', pRecs.filter(function (r) { return r.referred_patient_id === 'pg'; }).length === 0);
 
     console.log('=== 9 SMS ===');
     var issuedSms = C.smsIssued({ nameZh: '滿額回贈', mode: 'amount', face: 100, expires_on: '2027-01-01' });
@@ -1057,6 +1430,70 @@ function loadCoupons() {
         pass('CDP typed text is not a match', live && live.typed === false);
         pass('CDP SMS heading', live && live.sms === true);
         pass('CDP reward SMS balance lines and note', live && live.rwSms === true);
+
+        var refLive = await cdp.js(`(async () => {
+  var input = document.getElementById('referredBy');
+  var edit = document.getElementById('edit_referredBy');
+  if (!input || !edit) return { ok: false, reason: 'no inputs' };
+  await COUPONS.pickReferrer(input, { id: '00000000-0000-0000-0000-000000000000', patient_no: 'SMOKE01', chinese_name: '測試', created_at: '2020-01-01T00:00:00Z' });
+  var root = input.closest('.dc-ref-fg');
+  var out = {
+    picker: input.hasAttribute('data-ref-picker') && edit.hasAttribute('data-ref-picker'),
+    value: input.value,
+    hiddenId: document.getElementById('referredById').value,
+    preview: root.querySelector('.dc-ref-preview').textContent
+  };
+  await COUPONS.paintReferralKinds(input);
+  var radios = Array.prototype.slice.call(root.querySelectorAll('.dc-ref-kind input[type="radio"]'));
+  out.kinds = radios.map(function (r) {
+    return { kind: r.value, disabled: r.disabled, checked: r.checked, off: r.closest('.dc-ref-k').classList.contains('is-off') };
+  });
+  out.kindsConsistent = radios.every(function (r) { return r.disabled === r.closest('.dc-ref-k').classList.contains('is-off'); });
+  var fake = document.createElement('div');
+  fake.innerHTML = COUPONS.referralKindsHtml('refKind_smoke', COUPONS.referralOptions({ ok: false, reason: 'clinic' }, { ok: true }), 'points', null, { points: 100 });
+  fake.className = 'dc-ref-kind';
+  document.body.appendChild(fake);
+  var offLabel = fake.querySelector('.dc-ref-k.is-off');
+  out.offGrey = !!offLabel && getComputedStyle(offLabel).cursor === 'not-allowed' && offLabel.querySelector('input').disabled;
+  fake.remove();
+  if (window.REWARDS && REWARDS.renderConfigPane) {
+    var rwPane = document.createElement('div');
+    REWARDS.renderConfigPane(rwPane);
+    var rwDeadline = Date.now() + 25000;
+    while (Date.now() < rwDeadline && !rwPane.querySelector('#rwCfgReferral')) await new Promise(function (r) { setTimeout(r, 250); });
+    var rwCard = rwPane.querySelector('#rwCfgReferral');
+    var rwAdmin = String(typeof currentRole !== 'undefined' ? currentRole : '').toLowerCase() === 'admin';
+    out.rwRefCard = !!rwCard && (rwAdmin ? !!rwCard.querySelector('#rwCfgRefPoints') && !!rwCard.querySelector('#rwCfgRefMin') : !rwCard.querySelector('input'));
+    out.rwPaneText = (rwAdmin ? 'admin: ' : 'read-only: ') + (rwCard ? rwCard.textContent : rwPane.textContent).replace(/\s+/g, ' ').slice(0, 200);
+  }
+  COUPONS.resetReferrerPicker('referredBy');
+  out.cleared = document.getElementById('referredById').value === '' && root.querySelector('.dc-ref-preview').textContent === '';
+  input.value = '';
+  var pane = document.getElementById('cfgPane-coupons');
+  if (pane) {
+    COUPONS.renderConfigPane(pane);
+    var deadline = Date.now() + 12000;
+    while (Date.now() < deadline) {
+      var b = pane.querySelector('#dcRefBody');
+      if (b && b.textContent.trim()) break;
+      await new Promise(function (r) { setTimeout(r, 200); });
+    }
+    out.minField = !!pane.querySelector('.dc-num[data-key="referral"][data-prop="minFirstSpend"]');
+    out.refCard = !!pane.querySelector('#dcRefCard');
+    out.refBody = (pane.querySelector('#dcRefBody') || {}).textContent || '';
+  }
+  return out;
+})()`, true, 20000);
+        pass('CDP referrer picker fills chart no. and id', refLive && refLive.picker && refLive.value === 'SMOKE01' &&
+            refLive.hiddenId === '00000000-0000-0000-0000-000000000000', JSON.stringify(refLive));
+        pass('CDP referrer preview shows the referrer and the outcome', refLive && /#SMOKE01 測試 — /.test(refLive.preview), refLive && refLive.preview);
+        pass('CDP referrer picker resets', refLive && refLive.cleared === true);
+        pass('CDP reward kind radios render (coupon + points), off = disabled', refLive && refLive.kinds && refLive.kinds.length === 2 &&
+            refLive.kinds[0].kind === 'coupon' && refLive.kinds[1].kind === 'points' && refLive.kindsConsistent, refLive && JSON.stringify(refLive.kinds));
+        pass('CDP greyed-out branch is not clickable', refLive && refLive.offGrey === true);
+        pass('CDP Reward Points config has the refer-a-friend card', refLive && refLive.rwRefCard === true, refLive && refLive.rwPaneText);
+        pass('CDP Config has the min first-visit field and the Referrals card', refLive && refLive.minField && refLive.refCard &&
+            refLive.refBody.length > 0, refLive && refLive.refBody.slice(0, 120));
 
         var paint = await cdp.js(`(async () => {
   var pane = document.getElementById('cfgPane-coupons');

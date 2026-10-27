@@ -1725,6 +1725,7 @@ var REWARDS = (function () {
             void_earn: { en: 'void earn', 'zh-Hant': '撤銷賺取', 'zh-CN': '撤销赚取' },
             void_redeem: { en: 'void redeem', 'zh-Hant': '撤銷使用', 'zh-CN': '撤销使用' },
             adjust: { en: 'adjust', 'zh-Hant': '調整', 'zh-CN': '调整' },
+            referral: { en: 'Refer a friend', 'zh-Hant': '介紹新客', 'zh-CN': '介绍新客' },
             net: { en: 'update', 'zh-Hant': '更新', 'zh-CN': '更新' }
         };
         var L = lang || 'en';
@@ -1901,6 +1902,122 @@ var REWARDS = (function () {
             clinic: clinic,
             ref: meta.ref || ''
         }).then(function () { return res; });
+    }
+
+    // ── Refer a friend (points branch; the referral record lives with the coupon module) ──
+    var REFERRAL_SETTING_KEY = 'reward_referral';
+    var REFERRAL_DEFAULTS = { enabled: false, points: 100, minFirstSpend: 300 };
+    var _referralCfg = null;
+    var _referralCfgAt = 0;
+
+    /** Pure: saved JSON → { enabled, points, minFirstSpend } (blank / bad values fall back to defaults). */
+    function normalizeReferralConfig(raw) {
+        var o = raw || {};
+        var pts = Number(o.points);
+        var min = Number(o.minFirstSpend);
+        return {
+            enabled: !!o.enabled,
+            points: isFinite(pts) && pts >= 0 ? round2(pts) : REFERRAL_DEFAULTS.points,
+            minFirstSpend: isFinite(min) && min >= 0 ? round2(min) : REFERRAL_DEFAULTS.minFirstSpend
+        };
+    }
+
+    function loadReferralConfig(force) {
+        if (!force && _referralCfg && (Date.now() - _referralCfgAt) < 30000) return Promise.resolve(_referralCfg);
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            return Promise.resolve(normalizeReferralConfig(REFERRAL_DEFAULTS));
+        }
+        return Promise.resolve(SB.from('program_settings').select('setting_value').eq('setting_key', REFERRAL_SETTING_KEY))
+            .then(function (r) {
+                var raw = r && r.data && r.data[0] && r.data[0].setting_value;
+                var parsed = REFERRAL_DEFAULTS;
+                if (raw) { try { parsed = JSON.parse(raw); } catch (e) { parsed = REFERRAL_DEFAULTS; } }
+                _referralCfg = normalizeReferralConfig(parsed);
+                _referralCfgAt = Date.now();
+                return _referralCfg;
+            }, function () { return normalizeReferralConfig(REFERRAL_DEFAULTS); });
+    }
+
+    function saveReferralConfig(patch) {
+        if (!isAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
+        return loadReferralConfig(true).then(function (cur) {
+            var next = normalizeReferralConfig(Object.assign({}, cur, patch || {}));
+            var row = { setting_key: REFERRAL_SETTING_KEY, setting_value: JSON.stringify(next) };
+            var p = typeof persistProgramSettingRow === 'function'
+                ? persistProgramSettingRow(row)
+                : SB.from('program_settings').insert([row]);
+            return Promise.resolve(p).then(function (r) {
+                if (r && r.error) return { ok: false, error: r.error.message };
+                _referralCfg = next;
+                _referralCfgAt = Date.now();
+                return { ok: true, config: next };
+            });
+        });
+    }
+
+    /** Pure: is the points branch usable here? cfg from loadReferralConfig, joined = clinic + doctor in the points scheme. */
+    function referralPointsGate(cfg, joined) {
+        if (!cfg || !cfg.enabled || !(Number(cfg.points) > 0)) return { ok: false, reason: 'points_off' };
+        if (!joined) return { ok: false, reason: 'points_clinic' };
+        return { ok: true, reason: '' };
+    }
+
+    function referralAvailability(clinicId, clinicCode, doctorInput) {
+        return Promise.all([
+            loadReferralConfig(false),
+            isClinicJoined(clinicId || null, clinicCode || '', doctorInput).catch(function () { return false; })
+        ]).then(function (both) {
+            var gate = referralPointsGate(both[0], both[1]);
+            gate.config = both[0];
+            return gate;
+        });
+    }
+
+    /** Credit the referrer and text them with the reward points SMS (kind 介紹新客 / Refer a friend). */
+    function referralCredit(opts) {
+        opts = opts || {};
+        if (!opts.patientId || !(Number(opts.points) > 0)) return Promise.resolve({ ok: false, error: 'points required' });
+        return rewardRpc('reward_adjust', {
+            p_patient_id: opts.patientId,
+            p_points_delta: round2(opts.points),
+            p_clinic_id: opts.clinicId || null,
+            p_clinic_code: opts.clinicCode || null,
+            p_created_by: opts.createdBy || actorName() || 'system',
+            p_note: opts.note || 'Referral'
+        }).then(function (r) {
+            if (r.error) return { ok: false, error: r.error.message };
+            var res = rpcResult(r.data);
+            if (!res || !res.ok || res.skipped) return res || { ok: false, error: 'empty rpc' };
+            return notifyBalanceChange({
+                patientId: res.patient_id || opts.patientId,
+                points: res.points,
+                balance: res.balance,
+                kind: 'referral',
+                ledgerId: res.ledger_id,
+                clinic: opts.clinicCode || '',
+                ref: opts.ref || ''
+            }).then(function (sms) { res.sms = sms; return res; }, function () { return res; });
+        });
+    }
+
+    /** Take the referral points back (bill voided / chart deleted). Spent points are not forced negative. */
+    function referralReverse(opts) {
+        opts = opts || {};
+        if (!opts.patientId || !(Number(opts.points) > 0)) return Promise.resolve({ ok: false, error: 'points required' });
+        return rewardRpc('reward_adjust', {
+            p_patient_id: opts.patientId,
+            p_points_delta: -round2(opts.points),
+            p_clinic_id: opts.clinicId || null,
+            p_clinic_code: opts.clinicCode || null,
+            p_created_by: opts.createdBy || actorName() || 'system',
+            p_note: opts.note || 'Referral reversed'
+        }).then(function (r) {
+            if (r.error) return { ok: false, error: r.error.message };
+            var res = rpcResult(r.data);
+            if (res && !res.ok && /negative/i.test(String(res.error || ''))) res.reason = 'spent';
+            if (res && res.ok && res.patient_id != null && res.balance != null) refreshBannerBalances(res.patient_id, res.balance);
+            return res;
+        });
     }
 
     /** After a payment that may redeem + earn: one SMS with net change. */
@@ -3796,7 +3913,8 @@ var REWARDS = (function () {
             SB.from('clinics').select('id,clinic_code,english_name,chinese_name').order('clinic_code'),
             loadClinicJoinMap(true),
             loadDoctorJoinMap(true),
-            loadLedger(null, 80)
+            loadLedger(null, 80),
+            loadReferralConfig(true)
         ]).then(function (parts) {
             var program = parts[0];
             var clinics = (parts[1].data || parts[1]) || [];
@@ -3805,7 +3923,7 @@ var REWARDS = (function () {
             var docMap = parts[3] || {};
             var ledgerRaw = parts[4] || [];
             return enrichLedgerMeta(ledgerRaw, clinics).then(function (ledger) {
-                return { program: program, clinics: clinics, map: map, docMap: docMap, ledger: ledger };
+                return { program: program, clinics: clinics, map: map, docMap: docMap, ledger: ledger, referral: parts[5] };
             });
         }).then(function (ctx) {
             var program = ctx.program;
@@ -3852,6 +3970,29 @@ var REWARDS = (function () {
             } else {
                 html += '<div>' + (program.sms_notify_enabled !== false
                     ? esc(tr('common.on', 'On'))
+                    : esc(tr('common.off', 'Off'))) + '</div>';
+            }
+            html += '</div>';
+
+            var refCfg = ctx.referral || normalizeReferralConfig(REFERRAL_DEFAULTS);
+            html += '<div class="rw-cfg-card" id="rwCfgReferral">';
+            html += '<div class="rw-cfg-card-title">' + esc(tr('rewards.cfg.refTitle', 'Refer a friend (points)')) + '</div>';
+            html += '<p style="margin:0 0 10px;font-size:12px;color:#64748b;">' + esc(tr('rewards.cfg.refBlurb',
+                'The referrer gets these points when the new patient’s first bill is fully paid and the cash paid is at least the minimum. Staff choose points or a discount coupon under “Referred by”; a choice is greyed out where the clinic is not in that scheme.')) + '</p>';
+            if (admin) {
+                html += '<label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-bottom:8px;">' +
+                    '<input type="checkbox" id="rwCfgRefOn"' + (refCfg.enabled ? ' checked' : '') + '> ' +
+                    '<span>' + esc(tr('rewards.cfg.refOn', 'Give reward points for referrals')) + '</span></label>';
+                html += '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">' +
+                    '<label>' + esc(tr('rewards.cfg.refPoints', 'Points')) + ' <input type="number" id="rwCfgRefPoints" min="0" step="1" value="' +
+                    esc(String(refCfg.points)) + '" style="width:100px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;"></label>' +
+                    '<label>' + esc(tr('rewards.cfg.refMin', 'Min first-visit HK$')) + ' <input type="number" id="rwCfgRefMin" min="0" step="1" value="' +
+                    (refCfg.minFirstSpend > 0 ? esc(String(refCfg.minFirstSpend)) : '') + '" placeholder="—" style="width:100px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;"></label>' +
+                    '<button type="button" id="rwCfgRefSave" class="btn btn--primary" style="padding:8px 14px;">' + esc(tr('common.save', 'Save')) + '</button></div>';
+            } else {
+                html += '<div>' + (refCfg.enabled
+                    ? esc(fmtPts(refCfg.points) + ' ' + tr('rewards.cfg.refPoints', 'Points') + ' · ' +
+                        tr('rewards.cfg.refMin', 'Min first-visit HK$') + ' ' + (refCfg.minFirstSpend > 0 ? fmtPts(refCfg.minFirstSpend) : '—'))
                     : esc(tr('common.off', 'Off'))) + '</div>';
             }
             html += '</div>';
@@ -4053,6 +4194,23 @@ var REWARDS = (function () {
                     saveBtn.addEventListener('click', function () {
                         var inp = document.getElementById('rwCfgRate');
                         saveRate(inp && inp.value).then(function (res) {
+                            if (!res.ok) alert(res.error || 'Save failed');
+                            else if (typeof toast === 'function') toast(tr('rewards.cfg.saved', 'Saved'));
+                            else alert(tr('rewards.cfg.saved', 'Saved'));
+                        });
+                    });
+                }
+                var refSave = document.getElementById('rwCfgRefSave');
+                if (refSave) {
+                    refSave.addEventListener('click', function () {
+                        var on = document.getElementById('rwCfgRefOn');
+                        var pts = document.getElementById('rwCfgRefPoints');
+                        var min = document.getElementById('rwCfgRefMin');
+                        saveReferralConfig({
+                            enabled: !!(on && on.checked),
+                            points: Number(pts && pts.value) || 0,
+                            minFirstSpend: Number(min && min.value) || 0
+                        }).then(function (res) {
                             if (!res.ok) alert(res.error || 'Save failed');
                             else if (typeof toast === 'function') toast(tr('rewards.cfg.saved', 'Saved'));
                             else alert(tr('rewards.cfg.saved', 'Saved'));
@@ -4452,6 +4610,14 @@ var REWARDS = (function () {
         applyRedeemForBill: applyRedeemForBill,
         applyEarnForPayment: applyEarnForPayment,
         notifyBalanceChange: notifyBalanceChange,
+        normalizeReferralConfig: normalizeReferralConfig,
+        loadReferralConfig: loadReferralConfig,
+        saveReferralConfig: saveReferralConfig,
+        referralPointsGate: referralPointsGate,
+        referralAvailability: referralAvailability,
+        referralCredit: referralCredit,
+        referralReverse: referralReverse,
+        kindLabelBilingual: kindLabelBilingual,
         buildSmsBody: buildSmsBody,
         smsBalances: smsBalances,
         notifyFromRpcResult: notifyFromRpcResult,

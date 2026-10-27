@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261028ptscap1';
+var BUILD = '20261028manual1';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -199,9 +199,12 @@ function loadCoupons() {
         !(camp('spend_5').target > 0) && !(camp('spend_5').face > 0));
     pass('campaigns start off', camps.every(function (c) { return c.enabled === false; }));
     var rwUses = (src.match(/REWARDS\.[a-zA-Z]+/g) || []).filter(function (u, i, a) { return a.indexOf(u) === i; });
-    pass('reward module is used only for the refer-a-friend points branch', rwUses.length > 0 && rwUses.every(function (u) {
-        return ['REWARDS.referralAvailability', 'REWARDS.referralCredit', 'REWARDS.referralReverse', 'REWARDS.clinicCtx'].indexOf(u) >= 0;
+    pass('reward module is used only for the refer-a-friend points branch and the shared manual link', rwUses.length > 0 && rwUses.every(function (u) {
+        return ['REWARDS.referralAvailability', 'REWARDS.referralCredit', 'REWARDS.referralReverse', 'REWARDS.clinicCtx',
+            'REWARDS.loyaltyGuideLinkHtml'].indexOf(u) >= 0;
     }), rwUses.join(','));
+    pass('coupon config title has the 📖 manual link (only when the reward module is loaded)',
+        /REWARDS\.loyaltyGuideLinkHtml\('coupons'\) : ''/.test(src) && /'<h2 class="dc-title">'[^\n]*\+ guide \+ '<\/div>'/.test(src));
 
     console.log('=== 4 treatment wiring ===');
     var scaling = { treatment_item_id: 's1', desc: 'typed over' };

@@ -269,6 +269,9 @@ function extractIifeHelpers(src) {
         currentName: 'smoke',
         APP_CLINICS: [],
         t: function (k) { return k; },
+        esc: function (s) {
+            return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        },
         todayISO: function () { return '2026-10-19'; },
         openModal: function () {},
         closeModal: function () {}
@@ -650,6 +653,41 @@ function extractIifeHelpers(src) {
         pass('points page unit', false, ePts && ePts.message);
     }
 
+    console.log('\n=== unit: Points & Coupons manual ===');
+    try {
+        var manWin = {};
+        vm.runInNewContext(read('docs/loyalty-manual.js'), {
+            window: manWin, document: { readyState: 'loading', addEventListener: function () {} }
+        });
+        var LM = manWin.LoyaltyManual;
+        pass('manual loads in vm', !!LM && LM.LANGS.length === 3);
+        var shape = function (l) {
+            var t = LM.T[l];
+            return [t.rw.steps.length, t.dc.steps.length, t.rw.tipList.length, t.dc.tipList.length, t.rw.recapList.length, t.dc.recapList.length,
+                t.rw.steps.map(function (s) { return s.list.length + (s.mock ? 'm' : '') + (s.key ? 'k' : '') + (s.danger ? 'd' : ''); }).join(','),
+                t.dc.steps.map(function (s) { return s.list.length + (s.mock ? 'm' : '') + (s.key ? 'k' : ''); }).join(','),
+                Object.keys(t.mock).sort().join(',')].join('|');
+        };
+        pass('manual: English / 繁 / 简 have the same steps, tips and pictures', shape('en') === shape('zh-Hant') && shape('en') === shape('zh-CN'), shape('en'));
+        pass('manual: every reward points config card has a step',
+            ['Earn rate', 'SMS notify on balance change', 'Refer a friend (points)', 'Using points on one bill', 'Reset reward points to zero',
+                'Clinics in scheme', 'Summary log'].join('|') === LM.T.en.rw.steps.map(function (s) { return s.t; }).join('|'));
+        pass('manual: every coupon config card has a step',
+            ['Clinics in scheme', 'Expenditure coupons', 'Campaigns', 'Using cash coupons on one bill', 'Treatment items for a treatment coupon',
+                'Referrals', 'Coupon log'].join('|') === LM.T.en.dc.steps.map(function (s) { return s.t; }).join('|'));
+        pass('manual: Chinese step titles match the screen',
+            LM.T['zh-Hant'].rw.steps[0].t === '賺取比率' && LM.T['zh-CN'].rw.steps[3].t === '单张账单使用积分上限' &&
+            LM.T['zh-Hant'].dc.steps[1].t === '消費滿額券' && LM.T['zh-CN'].dc.steps[3].t === '同一张单使用现金券');
+        pass('manual: deep links #rewards-x / #lang-x / #coupons-x', LM.targetFor('#rewards-zh-CN').id === 'lang-zh-CN' &&
+            LM.targetFor('#lang-en').id === 'lang-en' && LM.targetFor('#coupons-zh-Hant').id === 'coupons-zh-Hant' && LM.targetFor('#x') === null);
+        pass('manual: HK$3,000 defaults stated for points and cash coupons in all 3 languages', LM.LANGS.every(function (l) {
+            var t = LM.T[l.id];
+            return t.rw.steps[3].list.join(' ').indexOf('HK$3,000') >= 0 && t.dc.steps[3].list.join(' ').indexOf('HK$3,000') >= 0;
+        }));
+    } catch (eMan) {
+        pass('manual unit', false, eMan && eMan.message);
+    }
+
     console.log('\n=== unit: vm helpers ===');
     var R = null;
     try {
@@ -697,6 +735,13 @@ function extractIifeHelpers(src) {
                 R.redeemCapSummary({ maxPercent: 0, maxAmount: 0 }) === 'No limit on points per bill',
                 R.redeemCapSummary({ maxPercent: 0, maxAmount: 3000 }));
             pass('points cap: nothing loaded -> payRedeemCapLeft is Infinity', R.payRedeemCapLeft() === Infinity);
+            pass('manual link: part + dashboard language (zh-TW -> 繁, other -> English)',
+                R.loyaltyGuideHref('coupons', 'zh-CN') === 'docs/loyalty-manual.html?v=20261028a#coupons-zh-CN' &&
+                /#rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-Hant')) &&
+                /#rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-TW')) && /#rewards-en$/.test(R.loyaltyGuideHref('x', 'fr')));
+            var gl = R.loyaltyGuideLinkHtml('coupons');
+            pass('manual link: opens a new tab, styled like the X-ray guide button',
+                /class="xray-helper-guide-btn loyalty-guide-btn"/.test(gl) && /target="_blank" rel="noopener"/.test(gl) && /data-guide-part="coupons"/.test(gl));
         }
     } catch (e) {
         pass('REWARDS loads in vm', false, e && e.message);
@@ -763,6 +808,12 @@ function extractIifeHelpers(src) {
             ptsHtml.body.indexOf('CSPoints.boot()') > 0 && /name="robots" content="noindex, nofollow"/.test(ptsHtml.body));
         var ptsJs = await httpGetText(PAGE_PORT, '/points.js');
         pass('GET /points.js calls rw_wallet_view', ptsJs.status === 200 && ptsJs.body.indexOf('/rest/v1/rpc/rw_wallet_view') > 0);
+        var manHtml = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.html');
+        var manJs = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.js');
+        var manPdf = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.pdf');
+        pass('GET manual html + js + pdf', manHtml.status === 200 && /src="loyalty-manual\.js"/.test(manHtml.body) &&
+            /href="loyalty-manual\.pdf"/.test(manHtml.body) && manJs.status === 200 && manPdf.status === 200 &&
+            manPdf.body.slice(0, 5) === '%PDF-', manHtml.status + '/' + manJs.status + '/' + manPdf.status);
         var pwSqlHttp = await httpGetText(PAGE_PORT, '/reward_points_wallet.sql');
         pass('GET /reward_points_wallet.sql', pwSqlHttp.status === 200 && pwSqlHttp.body.indexOf('rw_wallet_view') > 0);
 
@@ -1209,6 +1260,10 @@ function extractIifeHelpers(src) {
       hasDocJoin: html.indexOf('rw-doc-join') >= 0,
       hasError: html.indexOf('color:#dc2626') >= 0,
       capSum: (document.getElementById('rwCfgCapSum') || {}).textContent || '',
+      guide: (function () {
+        var a = pane.querySelector('.loyalty-guide-btn');
+        return a ? { text: a.textContent, href: a.getAttribute('href'), lang: typeof getAppLang === 'function' ? getAppLang() : '' } : null;
+      })(),
       capBeforeZero: (function () {
         var c = document.getElementById('rwCfgCap'), z = pane.querySelector('.rw-cfg-card--danger');
         return !!c && (!z || !!(c.compareDocumentPosition(z) & 4));
@@ -1236,7 +1291,55 @@ function extractIifeHelpers(src) {
                 !!(cfgPaint.hasClinicTabs && cfgPaint.hasDocJoin),
                 'tabs=' + cfgPaint.hasClinicTabs + ' join=' + cfgPaint.hasDocJoin);
             pass('live config: points-per-bill card shows its limit', cfgPaint.capBeforeZero && /HK\$|limit|上限/.test(cfgPaint.capSum), cfgPaint.capSum);
+            pass('live config: 📖 How to use opens the points part in the dashboard language',
+                !!cfgPaint.guide && /^📖/.test(cfgPaint.guide.text) &&
+                cfgPaint.guide.href === 'docs/loyalty-manual.html?v=20261028a#rewards-' +
+                    (['zh-Hant', 'zh-CN'].indexOf(cfgPaint.guide.lang) >= 0 ? cfgPaint.guide.lang : 'en'), JSON.stringify(cfgPaint.guide));
         }
+
+        var guideLive = await cdp.js(`(async () => {
+  const out = {};
+  const pane = document.getElementById('cfgPane-coupons');
+  if (pane && typeof COUPONS !== 'undefined') {
+    COUPONS.renderConfigPane(pane);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 10000 && !pane.querySelector('.loyalty-guide-btn')) await new Promise(r => setTimeout(r, 200));
+    const a = pane.querySelector('.loyalty-guide-btn');
+    out.coupons = a ? a.getAttribute('href') : null;
+  }
+  const oldLang = typeof getAppLang === 'function' ? getAppLang() : 'en';
+  if (typeof setAppLang === 'function') {
+    setAppLang('zh-CN');
+    const a2 = document.querySelector('#cfgPane-coupons .loyalty-guide-btn');
+    if (a2) {
+      a2.setAttribute('href', 'docs/loyalty-manual.html#coupons-en');
+      a2.addEventListener('click', e => e.preventDefault(), { once: true });
+      a2.click();
+      out.afterSwitch = a2.getAttribute('href');
+    }
+    setAppLang(oldLang);
+  }
+  const r = await fetch('docs/loyalty-manual.html', { cache: 'no-store' });
+  const frame = document.createElement('iframe');
+  frame.style.cssText = 'position:fixed;left:-2000px;top:0;width:900px;height:700px;';
+  frame.src = 'docs/loyalty-manual.html#coupons-zh-Hant';
+  document.body.appendChild(frame);
+  await new Promise(res => { frame.onload = res; setTimeout(res, 8000); });
+  const d = frame.contentDocument;
+  out.manualOk = r.ok;
+  out.pages = d ? d.querySelectorAll('.xhg-page[id]').length : 0;
+  out.onTab = d && (d.querySelector('.xhg-toolbar a.is-on') || {}).textContent;
+  out.title = d && (d.querySelector('#coupons-zh-Hant .xhg-title') || {}).textContent;
+  frame.remove();
+  return out;
+})()`, true, 40000);
+        pass('live coupons config: 📖 How to use opens the coupon part', !!guideLive && /#coupons-(en|zh-Hant|zh-CN)$/.test(guideLive.coupons || ''),
+            guideLive && guideLive.coupons);
+        if (guideLive && guideLive.afterSwitch !== undefined) {
+            pass('live: switching the dashboard to 简体 updates the manual link on click', /#coupons-zh-CN$/.test(guideLive.afterSwitch), guideLive.afterSwitch);
+        }
+        pass('live: manual page builds cover + 6 parts and opens 繁 coupons', !!guideLive && guideLive.manualOk && guideLive.pages === 6 &&
+            guideLive.onTab === '繁體中文' && /優惠券/.test(guideLive.title || ''), JSON.stringify(guideLive && { p: guideLive.pages, t: guideLive.onTab, h: guideLive.title }));
 
         // Admin view of the cap card; the save is stubbed so no setting is written.
         var capAdm = await cdp.js(`(async () => {

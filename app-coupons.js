@@ -1351,7 +1351,10 @@ var COUPONS = (function () {
             if (String(c.clinic_code || '').toUpperCase() === DEFAULT_JOIN_CODE) open = i;
         });
         var html = '<div class="dc-cfg">';
-        html += '<h2 class="dc-title">' + esc(ct('coupons.cfg.title', 'Discount Coupons')) + '</h2>';
+        var guide = (typeof REWARDS !== 'undefined' && REWARDS && typeof REWARDS.loyaltyGuideLinkHtml === 'function')
+            ? REWARDS.loyaltyGuideLinkHtml('coupons') : '';
+        html += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+            '<h2 class="dc-title">' + esc(ct('coupons.cfg.title', 'Discount Coupons')) + '</h2>' + guide + '</div>';
         html += '<p class="dc-blurb">' + esc(ct('coupons.cfg.blurb',
             'Separate from reward points. KT is joined. Other clinics stay off until you tick them. Each bill can use one whole-bill coupon plus one treatment coupon. A treatment coupon applies only to the catalog items listed on it.')) + '</p>';
         html += '<div id="dcCfgBanner">' + clinicBannerHtml(clinics) + '</div>';

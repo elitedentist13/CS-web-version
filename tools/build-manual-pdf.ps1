@@ -1,9 +1,10 @@
-# Rebuilds docs\xray-helper-manual.pdf from docs\xray-helper-manual.html (English / Traditional / Simplified Chinese).
-# Run after editing docs\xray-helper-manual.js:  powershell -ExecutionPolicy Bypass -File tools\build-manual-pdf.ps1
+# Rebuilds docs\<Name>.pdf from docs\<Name>.html (English / Traditional / Simplified Chinese).
+# Run after editing the manual's .js:  powershell -ExecutionPolicy Bypass -File tools\build-manual-pdf.ps1 [-Name loyalty-manual]
+param([string]$Name = 'xray-helper-manual')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$src = Join-Path $root 'docs\xray-helper-manual.html'
-$out = Join-Path $root 'docs\xray-helper-manual.pdf'
+$src = Join-Path $root "docs\$Name.html"
+$out = Join-Path $root "docs\$Name.pdf"
 
 $browsers = @(
     "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",

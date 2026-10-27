@@ -3580,6 +3580,12 @@
             'zh-Hant': '各診所結餘：{DETAIL}'
         },
         'rewards.panel.started': { en: 'Started', 'zh-CN': '开始日期', 'zh-Hant': '開始日期' },
+        'loyalty.guideBtn': { en: '📖 How to use', 'zh-CN': '📖 使用说明', 'zh-Hant': '📖 使用說明' },
+        'loyalty.guideTitle': {
+            en: 'Open the Reward Points & Discount Coupons manual (English / 繁體中文 / 简体中文 — printable, PDF download)',
+            'zh-CN': '打开奖励积分及优惠券使用说明（English / 繁體中文 / 简体中文，可打印及下载 PDF）',
+            'zh-Hant': '開啟獎勵積分及優惠券使用說明（English / 繁體中文 / 简体中文，可列印及下載 PDF）'
+        },
         'rewards.cap.title': { en: 'Using points on one bill', 'zh-CN': '单张账单使用积分上限', 'zh-Hant': '單張賬單使用積分上限' },
         'rewards.cap.maxOff': { en: 'Max points used per bill', 'zh-CN': '每张账单最多使用积分', 'zh-Hant': '每張賬單最多使用積分' },
         'rewards.cap.pctLabel': { en: 'Max % of the bill', 'zh-CN': '账单最高百分比', 'zh-Hant': '賬單最高百分比' },

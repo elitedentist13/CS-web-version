@@ -4201,6 +4201,30 @@ var REWARDS = (function () {
         });
     }
 
+    var LOYALTY_MANUAL = 'docs/loyalty-manual.html?v=20261028a';
+
+    /** Pure: manual link for one part (rewards | coupons) at the dashboard language. */
+    function loyaltyGuideHref(part, lang) {
+        lang = String(lang || 'en');
+        if (lang !== 'zh-Hant' && lang !== 'zh-CN') lang = lang.indexOf('zh') === 0 ? 'zh-Hant' : 'en';
+        return LOYALTY_MANUAL + '#' + (part === 'coupons' ? 'coupons' : 'rewards') + '-' + lang;
+    }
+
+    function loyaltyGuideLinkHtml(part) {
+        var lang = typeof getAppLang === 'function' ? getAppLang() : 'en';
+        return '<a class="xray-helper-guide-btn loyalty-guide-btn" data-guide-part="' + esc(part) + '" href="' +
+            esc(loyaltyGuideHref(part, lang)) + '" target="_blank" rel="noopener" title="' +
+            esc(tr('loyalty.guideTitle', 'Open the Reward Points & Discount Coupons manual (English / 繁體中文 / 简体中文 — printable, PDF download)')) +
+            '">' + esc(tr('loyalty.guideBtn', '📖 How to use')) + '</a>';
+    }
+
+    // The dashboard language can change after the pane was drawn.
+    document.addEventListener('click', function (e) {
+        var a = e.target && e.target.closest ? e.target.closest('.loyalty-guide-btn') : null;
+        if (!a) return;
+        a.href = loyaltyGuideHref(a.getAttribute('data-guide-part'), typeof getAppLang === 'function' ? getAppLang() : 'en');
+    }, true);
+
     function renderConfigPane(pane) {
         if (!pane) return;
         pane.innerHTML = '<p style="color:#888;">' + esc(tr('common.loadingEllipsis', 'Loading…')) + '</p>';
@@ -4236,7 +4260,9 @@ var REWARDS = (function () {
 
             var html = '';
             html += '<div class="rw-cfg">';
-            html += '<h2 style="margin:0 0 8px;font-size:20px;">' + esc(tr('rewards.cfg.title', 'Reward Points')) + '</h2>';
+            html += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px;">' +
+                '<h2 style="margin:0;font-size:20px;">' + esc(tr('rewards.cfg.title', 'Reward Points')) + '</h2>' +
+                loyaltyGuideLinkHtml('rewards') + '</div>';
             html += '<p style="margin:0 0 18px;color:#64748b;font-size:13px;">' +
                 esc(tr('rewards.cfg.blurb', 'Patients earn points from payments (default 10%). Points used as discount are not counted as clinic income.')) +
                 '</p>';
@@ -5026,6 +5052,8 @@ var REWARDS = (function () {
         openPatientPanel: openPatientPanel,
         closePatientPanel: closePatientPanel,
         openPhoneQr: openPhoneQr,
+        loyaltyGuideHref: loyaltyGuideHref,
+        loyaltyGuideLinkHtml: loyaltyGuideLinkHtml,
         normalizeRedeemCap: normalizeRedeemCap,
         redeemCapLeft: redeemCapLeft,
         pointsUsedOnBill: pointsUsedOnBill,

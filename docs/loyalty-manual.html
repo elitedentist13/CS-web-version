@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Banana Reward Points &amp; Discount Coupons — manual</title>
+<style>
+@page { size: A4; margin: 14mm 14mm 16mm; }
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body {
+    margin: 0; background: #f1f5f9; color: #1e293b;
+    font-family: "Segoe UI", system-ui, "Microsoft JhengHei", "Microsoft YaHei", sans-serif;
+    font-size: 11pt; line-height: 1.55;
+}
+[lang="zh-Hant"] { font-family: "Microsoft JhengHei", "Segoe UI", sans-serif; }
+[lang="zh-CN"] { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; }
+#manual { max-width: 820px; margin: 0 auto; padding: 20px 0; }
+.xhg-page { background: #fff; padding: 22px 26px; margin: 0 0 20px; border-radius: 10px; box-shadow: 0 4px 16px rgba(15, 23, 42, .08); }
+.xhg-toolbar {
+    position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 8px max(14px, calc((100% - 820px) / 2)); background: #1e293b; color: #fde047; box-shadow: 0 2px 10px rgba(0, 0, 0, .2);
+}
+.xhg-toolbar-brand { font-weight: 800; margin-right: 6px; }
+.xhg-toolbar a, .xhg-toolbar button {
+    font: inherit; font-size: 10.5pt; font-weight: 700; color: #fde047; text-decoration: none; cursor: pointer;
+    background: transparent; border: 1px solid rgba(253, 224, 71, .45); border-radius: 999px; padding: 4px 12px;
+}
+.xhg-toolbar a:hover, .xhg-toolbar button:hover { background: rgba(253, 224, 71, .15); }
+.xhg-toolbar a.is-on { background: #fde047; color: #1e293b; }
+.xhg-toolbar-gap { flex: 1 1 auto; }
+.xhg-page { scroll-margin-top: 56px; }
+@media print {
+    .xhg-toolbar { display: none; }
+    body { background: #fff; }
+    #manual { max-width: none; padding: 0; }
+    .xhg-page { box-shadow: none; border-radius: 0; padding: 0; margin: 0; break-before: page; }
+    .xhg-page:first-child { break-before: auto; }
+    .xhg-step, .xhg-tips, .xhg-before, .xhg-intro, .lm-mock, .lm-ladder { break-inside: avoid; }
+}
+
+/* Cover */
+.xhg-cover { text-align: center; padding-top: 40px; }
+.xhg-cover-logo { font-size: 56pt; line-height: 1; }
+.xhg-cover h1 { font-size: 24pt; margin: 10px 0 4px; color: #422006; }
+.xhg-cover h1 span { display: block; font-size: 14pt; color: #92400e; font-family: "Microsoft JhengHei", sans-serif; margin-top: 4px; }
+.xhg-cover-sub { color: #64748b; margin: 6px 0 26px; }
+.xhg-cover-toc { list-style: none; padding: 0; margin: 0 auto 28px; max-width: 520px; text-align: left; }
+.xhg-cover-toc li { margin: 8px 0; padding: 10px 14px; border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px; }
+.xhg-cover-toc a { color: #1e293b; text-decoration: none; }
+.xhg-cover-toc small { display: block; margin-top: 2px; }
+.xhg-cover-toc small a { color: #92400e; margin-right: 14px; }
+.xhg-cover-key {
+    max-width: 600px; margin: 0 auto; text-align: left;
+    background: #fff7ed; border: 2px solid #fb923c; border-radius: 12px; padding: 12px 16px;
+}
+.xhg-cover-key b { color: #9a3412; }
+.xhg-cover-key p { margin: 6px 0 0; }
+
+/* Language section */
+.xhg-head {
+    display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 12px; border-radius: 10px;
+    background: linear-gradient(180deg, #fef08a 0%, #fde047 60%, #facc15 100%); border: 1px solid #eab308;
+}
+.xhg-head.is-coupons { background: linear-gradient(180deg, #e0f2fe 0%, #bae6fd 60%, #7dd3fc 100%); border-color: #0ea5e9; }
+.xhg-title { margin: 0; font-size: 16pt; color: #422006; flex: 1 1 auto; }
+.xhg-head.is-coupons .xhg-title { color: #0c4a6e; }
+.xhg-lang-tag { background: #1e293b; color: #fde047; font-weight: 700; font-size: 10pt; padding: 3px 12px; border-radius: 999px; }
+.xhg-body h3 { margin: 0 0 6px; font-size: 13pt; color: #0f172a; display: flex; align-items: center; gap: 8px; }
+.xhg-body ul { margin: 4px 0 8px; padding-left: 22px; }
+.xhg-body li { margin: 3px 0; }
+.xhg-body p { margin: 4px 0 8px; }
+.xhg-intro { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 10px 14px; }
+.xhg-before, .xhg-step, .xhg-tips { margin: 12px 0; }
+.xhg-num {
+    display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%;
+    background: #1e293b; color: #fde047; font-size: 11pt; font-weight: 800; flex: 0 0 auto;
+}
+.xhg-step.is-key { background: #fff7ed; border: 2px solid #fb923c; border-radius: 12px; padding: 10px 14px; }
+.xhg-step.is-danger { background: #fff7f7; border: 2px solid #fca5a5; border-radius: 12px; padding: 10px 14px; }
+.xhg-share { display: grid; grid-template-columns: 1fr 270px; gap: 14px; align-items: start; }
+.xhg-note { font-size: 10pt; color: #475569; }
+.xhg-quality { font-size: 9.5pt; color: #64748b; border-top: 1px dashed #e2e8f0; padding-top: 8px; }
+.xhg-tips dl { margin: 4px 0 0; display: grid; grid-template-columns: 34% 1fr; gap: 5px 14px; }
+.xhg-tips dt { font-weight: 700; color: #9a3412; }
+.xhg-tips dd { margin: 0; }
+.lm-recap { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; padding: 10px 14px; margin: 12px 0; }
+.lm-recap h3 { color: #0c4a6e; }
+
+/* Mock of a config card */
+.lm-mock { border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; padding: 9px 11px; font-size: 9pt; line-height: 1.4; box-shadow: 0 6px 16px rgba(15, 23, 42, .12); }
+.lm-mock-title { font-weight: 800; margin-bottom: 6px; color: #0f172a; }
+.lm-mock-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.lm-box { display: inline-block; min-width: 42px; padding: 2px 6px; border: 1px solid #94a3b8; border-radius: 5px; background: #f8fafc; text-align: right; color: #334155; }
+.lm-box.is-empty { color: #94a3b8; text-align: center; }
+.lm-btn { display: inline-block; padding: 2px 9px; border-radius: 6px; background: #2563eb; color: #fff; font-weight: 700; }
+.lm-btn.is-danger { background: #dc2626; }
+.lm-sum { margin-top: 6px; font-weight: 800; color: #166534; }
+.lm-note { margin-top: 6px; color: #92400e; background: #fffbeb; border: 1px dashed #f59e0b; border-radius: 6px; padding: 3px 6px; }
+.lm-radio { display: block; margin: 2px 0; }
+.lm-months { display: flex; gap: 3px; flex-wrap: wrap; margin: 4px 0 6px 16px; }
+.lm-months span { border: 1px solid #cbd5e1; border-radius: 999px; padding: 0 6px; }
+.lm-months span.is-on { background: #1e293b; color: #fde047; border-color: #1e293b; }
+
+/* Mock of the spend ladder */
+.lm-ladder { display: flex; align-items: flex-end; gap: 8px; list-style: none; padding: 8px 10px 0; margin: 0; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; box-shadow: 0 6px 16px rgba(15, 23, 42, .12); }
+.lm-rung { flex: 1; display: flex; flex-direction: column; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0; padding: 5px 3px; font-size: 9pt; background: linear-gradient(180deg, #bae6fd, #38bdf8); color: #0c4a6e; }
+.lm-rung b { font-size: 10pt; color: #064e3b; }
+.lm-rung span { font-size: 8.5pt; text-align: center; }
+.lm-rung { min-width: 0; }
+</style>
+</head>
+<body>
+<nav class="xhg-toolbar" aria-label="Manual">
+    <span class="xhg-toolbar-brand">🎁 Points · 🎟️ Coupons</span>
+    <a href="#lang-en" data-lang="en">English</a>
+    <a href="#lang-zh-Hant" data-lang="zh-Hant">繁體中文</a>
+    <a href="#lang-zh-CN" data-lang="zh-CN">简体中文</a>
+    <span class="xhg-toolbar-gap"></span>
+    <button type="button" id="xhgPrint">🖨 Print · 列印 · 打印</button>
+    <a class="xhg-toolbar-btn" href="loyalty-manual.pdf" download="Banana-Points-and-Coupons-manual.pdf">⬇ PDF</a>
+</nav>
+<main id="manual"></main>
+<script src="loyalty-manual.js"></script>
+</body>
+</html>

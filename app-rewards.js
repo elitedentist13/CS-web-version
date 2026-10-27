@@ -2537,9 +2537,70 @@ var REWARDS = (function () {
     }
 
     // ── Patient ledger modal ─────────────────────────────────
+    var LEDGER_KIND_ICON = {
+        earn: '⭐', redeem: '🎁', transfer_in: '↘', transfer_out: '↗',
+        void_earn: '↩', void_redeem: '↩', adjust: '✎', referral: '🤝', net: '•'
+    };
+    var LEDGER_FILTERS = [
+        { key: 'all', kinds: null, i18n: 'rewards.ledger.f.all', label: 'All' },
+        { key: 'earn', kinds: ['earn'], i18n: 'rewards.ledger.f.earn', label: 'Earned' },
+        { key: 'redeem', kinds: ['redeem'], i18n: 'rewards.ledger.f.redeem', label: 'Used' },
+        { key: 'xfer', kinds: ['transfer_in', 'transfer_out'], i18n: 'rewards.ledger.f.xfer', label: 'Transfers' },
+        { key: 'other', kinds: ['adjust', 'referral', 'void_earn', 'void_redeem'], i18n: 'rewards.ledger.f.other', label: 'Adjust & void' }
+    ];
+    var _panelLedgerRows = [];
+    var _panelLedgerFilter = 'all';
+
+    /** Pure: referral credits are written as kind 'adjust' with a "Referral…" note; show them as Refer a friend. */
+    function ledgerDisplayKind(row) {
+        var k = String((row && row.kind) || '').trim() || 'net';
+        if (k === 'adjust' && /^referral\b/i.test(String((row && row.note) || '').trim())) return 'referral';
+        return k;
+    }
+
     function kindBadge(kind) {
         var label = kindLabel(kind, resolveSmsLang());
-        return '<span class="rw-kind rw-kind--' + esc(kind) + '">' + esc(label) + '</span>';
+        var ico = LEDGER_KIND_ICON[kind] || LEDGER_KIND_ICON.net;
+        return '<span class="rw-kind rw-kind--' + esc(kind) + '"><span class="rw-kind-ico" aria-hidden="true">' + ico +
+            '</span>' + esc(label) + '</span>';
+    }
+
+    /** Pure: rows of one filter chip ('all' = every row). */
+    function ledgerFilterRows(rows, key) {
+        var f = LEDGER_FILTERS.filter(function (x) { return x.key === key; })[0];
+        if (!f || !f.kinds) return (rows || []).slice();
+        return (rows || []).filter(function (r) { return f.kinds.indexOf(ledgerDisplayKind(r)) >= 0; });
+    }
+
+    /** Pure: totals for the summary strip. */
+    function ledgerSummary(rows) {
+        var s = { gained: 0, spent: 0, count: 0, last: null };
+        (rows || []).forEach(function (r) {
+            var p = round2(r && r.points);
+            if (p >= 0) s.gained += p; else s.spent += p;
+            s.count++;
+            if (r && r.created_at && (!s.last || String(r.created_at) > String(s.last))) s.last = r.created_at;
+        });
+        s.gained = round2(s.gained);
+        s.spent = round2(s.spent);
+        return s;
+    }
+
+    function ledgerMonthKey(iso) {
+        var d = new Date(iso);
+        if (!iso || isNaN(d.getTime())) return '';
+        return d.getFullYear() + '-' + (d.getMonth() + 1);
+    }
+
+    function ledgerMonthLabel(iso) {
+        var d = new Date(iso);
+        try { return d.toLocaleDateString(ledgerDateLocale(), { month: 'long', year: 'numeric' }); } catch (e) { return ledgerMonthKey(iso); }
+    }
+
+    function ledgerClock(iso) {
+        var d = new Date(iso);
+        if (!iso || isNaN(d.getTime())) return '';
+        try { return d.toLocaleTimeString(ledgerDateLocale(), { hour: '2-digit', minute: '2-digit', hour12: true }); } catch (e) { return ''; }
     }
 
     function ledgerClinicTag(row) {
@@ -2552,30 +2613,92 @@ var REWARDS = (function () {
         return dr || '—';
     }
 
+    var LEDGER_COLS = 6;
+
+    function ledgerMessageRow(text, cls) {
+        return '<tr><td colspan="' + LEDGER_COLS + '" class="rw-lg-empty' + (cls ? ' ' + cls : '') + '">' + esc(text) + '</td></tr>';
+    }
+
+    /** Ledger rows, newest first, with a divider at each month. */
     function renderLedgerRows(rows) {
-        if (!rows || !rows.length) {
-            return '<tr><td colspan="7" style="padding:16px;color:#94a3b8;text-align:center;">' +
-                esc(tr('rewards.ledger.empty', 'No reward transactions yet.')) + '</td></tr>';
-        }
+        if (!rows || !rows.length) return ledgerMessageRow(tr('rewards.ledger.empty', 'No reward transactions yet.'));
+        var lastMonth = '';
         return rows.map(function (row) {
-            var dt = fmtLedgerTimeHK(row.created_at);
+            var html = '';
+            var mk = ledgerMonthKey(row.created_at);
+            if (mk && mk !== lastMonth) {
+                lastMonth = mk;
+                html += '<tr class="rw-lg-month"><td colspan="' + LEDGER_COLS + '">' + esc(ledgerMonthLabel(row.created_at)) + '</td></tr>';
+            }
             var pts = round2(row.points);
-            var ptsCls = pts >= 0 ? 'rw-pos' : 'rw-neg';
+            var kind = ledgerDisplayKind(row);
             var ref = '';
             if (row.bill_id) ref = 'Bill ' + String(row.bill_id).slice(0, 8).toUpperCase();
             if (row.transfer_id) ref = (ref ? ref + ' · ' : '') + 'Xfer ' + String(row.transfer_id).slice(0, 8);
-            return '<tr>' +
-                '<td style="padding:8px 10px;white-space:nowrap;font-size:12px;color:#64748b;">' + esc(dt) + '</td>' +
-                '<td style="padding:8px 10px;font-size:12px;">' + esc(ledgerClinicTag(row)) + '</td>' +
-                '<td style="padding:8px 10px;font-size:12px;">' + esc(ledgerDoctorName(row)) + '</td>' +
-                '<td style="padding:8px 10px;">' + kindBadge(row.kind) + '</td>' +
-                '<td style="padding:8px 10px;text-align:right;font-weight:700;" class="' + ptsCls + '">' +
-                esc(fmtSigned(pts)) + '</td>' +
-                '<td style="padding:8px 10px;text-align:right;">' + esc(fmtPts(row.balance_after)) + '</td>' +
-                '<td style="padding:8px 10px;font-size:12px;color:#64748b;">' +
-                esc(ref || row.note || '—') + '</td>' +
+            var note = String(row.note || '').trim();
+            var refMain = ref || note || '—';
+            var refSub = ref && note ? note : '';
+            var dr = ledgerDoctorName(row);
+            html += '<tr class="rw-lg-row rw-lg-row--' + esc(kind) + '" title="' + esc(fmtLedgerTimeHK(row.created_at)) + '">' +
+                '<td class="rw-lg-when"><div class="rw-lg-date">' + esc(fmtLedgerDateHK(row.created_at)) + '</div>' +
+                '<div class="rw-lg-time">' + esc(ledgerClock(row.created_at)) + '</div></td>' +
+                '<td class="rw-lg-where"><span class="rw-lg-clinic">' + esc(ledgerClinicTag(row)) + '</span>' +
+                (dr !== '—' ? '<div class="rw-lg-dr" title="' + esc(dr) + '">' + esc(dr) + '</div>' : '') + '</td>' +
+                '<td>' + kindBadge(kind) + '</td>' +
+                '<td class="rw-lg-num"><span class="rw-lg-pts ' + (pts >= 0 ? 'is-pos' : 'is-neg') + '">' + esc(fmtSigned(pts)) + '</span></td>' +
+                '<td class="rw-lg-num rw-lg-bal">' + esc(fmtPts(row.balance_after)) + '</td>' +
+                '<td class="rw-lg-ref" title="' + esc(refSub ? refMain + ' — ' + refSub : refMain) + '"><div>' + esc(refMain) + '</div>' +
+                (refSub ? '<div class="rw-lg-note">' + esc(refSub) + '</div>' : '') + '</td>' +
                 '</tr>';
+            return html;
         }).join('');
+    }
+
+    function renderLedgerSummary(rows) {
+        var s = ledgerSummary(rows);
+        function tile(cls, key, fb, val) {
+            return '<div class="rw-lg-tile' + (cls ? ' ' + cls : '') + '"><span>' + esc(tr(key, fb)) + '</span><b>' + esc(val) + '</b></div>';
+        }
+        return tile('is-in', 'rewards.ledger.in', 'Points in', fmtSigned(s.gained)) +
+            tile('is-out', 'rewards.ledger.out', 'Points out', s.spent ? fmtSigned(s.spent) : fmtPts(0)) +
+            tile('', 'rewards.ledger.count', 'Entries', String(s.count)) +
+            tile('', 'rewards.ledger.last', 'Last activity', s.last ? fmtLedgerDateHK(s.last) : '—');
+    }
+
+    function renderLedgerFilters(rows, active) {
+        return LEDGER_FILTERS.map(function (f) {
+            var n = ledgerFilterRows(rows, f.key).length;
+            var on = f.key === active;
+            return '<button type="button" class="rw-lg-chip' + (on ? ' is-active' : '') + '" data-rw-filter="' + f.key + '" role="tab"' +
+                ' aria-selected="' + (on ? 'true' : 'false') + '"' + (!n && f.key !== 'all' ? ' disabled' : '') + '>' +
+                esc(tr(f.i18n, f.label)) + '<i>' + n + '</i></button>';
+        }).join('');
+    }
+
+    /** Paint table + summary + chips for the open patient, using the current filter. */
+    function paintPanelLedger() {
+        var rows = ledgerFilterRows(_panelLedgerRows, _panelLedgerFilter);
+        var tbody = document.getElementById('rwLedgerBody');
+        if (tbody) {
+            tbody.innerHTML = (rows.length || !_panelLedgerRows.length)
+                ? renderLedgerRows(rows)
+                : ledgerMessageRow(tr('rewards.ledger.noneOfType', 'No entries of this type.'));
+        }
+        var sum = document.getElementById('rwLedgerSummary');
+        if (sum) sum.innerHTML = _panelLedgerRows.length ? renderLedgerSummary(rows) : '';
+        var bar = document.getElementById('rwLedgerFilters');
+        if (bar) {
+            bar.innerHTML = _panelLedgerRows.length ? renderLedgerFilters(_panelLedgerRows, _panelLedgerFilter) : '';
+            if (!bar._rwWired) {
+                bar._rwWired = true;
+                bar.addEventListener('click', function (ev) {
+                    var b = ev.target && ev.target.closest ? ev.target.closest('[data-rw-filter]') : null;
+                    if (!b || b.disabled) return;
+                    _panelLedgerFilter = b.getAttribute('data-rw-filter') || 'all';
+                    paintPanelLedger();
+                });
+            }
+        }
     }
 
     /** Best-effort stamp doctor_name on new ledger row(s) after RPC (column from SQL patch). */
@@ -2979,8 +3102,10 @@ var REWARDS = (function () {
         var meta = document.getElementById('rwPatientMeta');
         var balEl = document.getElementById('rwPatientBalance');
         var tbody = document.getElementById('rwLedgerBody');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="padding:16px;text-align:center;color:#94a3b8;">' +
-            esc(tr('common.loadingEllipsis', 'Loading…')) + '</td></tr>';
+        _panelLedgerRows = [];
+        _panelLedgerFilter = 'all';
+        paintPanelLedger();
+        if (tbody) tbody.innerHTML = ledgerMessageRow(tr('common.loadingEllipsis', 'Loading…'));
         if (typeof openModal === 'function') openModal('rewardPatientModal');
         else modal.style.display = 'flex';
 
@@ -3041,7 +3166,9 @@ var REWARDS = (function () {
                     (chartN > 1 ? '  ·  ' + chartN + ' ' + tr('rewards.panel.charts', 'charts') : '');
             }
             return enrichLedgerMeta(rows || [], null).then(function (enriched) {
-                if (tbody) tbody.innerHTML = renderLedgerRows(enriched);
+                if (String(_panelPatientId) !== String(patientId)) return;
+                _panelLedgerRows = enriched || [];
+                paintPanelLedger();
                 var xferErr = document.getElementById('rwTransferError');
                 if (xferErr) { xferErr.style.display = 'none'; xferErr.textContent = ''; }
                 var xferAmt = document.getElementById('rwTransferAmount');
@@ -3056,11 +3183,7 @@ var REWARDS = (function () {
                 if (xferPrev) xferPrev.textContent = '';
             });
         }).catch(function (e) {
-            if (tbody) {
-                tbody.innerHTML = '<tr><td colspan="7" style="padding:16px;color:#dc2626;">' +
-                    esc((e && e.message) || tr('rewards.err.load', 'Failed to load rewards.')) +
-                    '</td></tr>';
-            }
+            if (tbody) tbody.innerHTML = ledgerMessageRow((e && e.message) || tr('rewards.err.load', 'Failed to load rewards.'), 'is-error');
         });
     }
 
@@ -4175,7 +4298,7 @@ var REWARDS = (function () {
                         esc(row._doctor_name || row.doctor_name || '—') + '</td>' +
                         '<td style="padding:7px 10px;font-size:12px;">' + esc(row._patient_no || '—') + '</td>' +
                         '<td style="padding:7px 10px;font-size:12px;">' + esc(row._patient_name || '—') + '</td>' +
-                        '<td style="padding:7px 10px;">' + kindBadge(row.kind) + '</td>' +
+                        '<td style="padding:7px 10px;">' + kindBadge(ledgerDisplayKind(row)) + '</td>' +
                         '<td style="padding:7px 10px;text-align:right;font-weight:700;" class="' +
                         (round2(row.points) >= 0 ? 'rw-pos' : 'rw-neg') + '">' + esc(fmtSigned(row.points)) + '</td>' +
                         '<td style="padding:7px 10px;text-align:right;">' + esc(fmtPts(row.balance_after)) + '</td>' +
@@ -4463,10 +4586,57 @@ var REWARDS = (function () {
         s.textContent =
             '.rw-info-link{margin-left:6px;}' +
             '.rw-pos{color:#16a34a;}.rw-neg{color:#dc2626;}' +
-            '.rw-kind{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:#f1f5f9;color:#334155;}' +
+            '.rw-kind{display:inline-flex;align-items:center;gap:4px;padding:2px 9px 2px 7px;border-radius:999px;font-size:11px;font-weight:700;background:#f1f5f9;color:#334155;white-space:nowrap;}' +
+            '.rw-kind-ico{font-size:11px;line-height:1;}' +
             '.rw-kind--earn,.rw-kind--transfer_in,.rw-kind--void_redeem{background:#dcfce7;color:#166534;}' +
             '.rw-kind--redeem,.rw-kind--transfer_out,.rw-kind--void_earn{background:#fee2e2;color:#991b1b;}' +
+            '.rw-kind--transfer_in,.rw-kind--transfer_out{background:#e0f2fe;color:#075985;}' +
             '.rw-kind--adjust{background:#e0e7ff;color:#3730a3;}' +
+            '.rw-kind--referral{background:#fef3c7;color:#92400e;}' +
+            '#rewardPatientModal .rw-hero{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;align-items:stretch;}' +
+            '.rw-hero-bal{min-width:190px;padding:12px 16px;border-radius:14px;background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border:1px solid #a7f3d0;box-shadow:inset 0 1px 0 rgba(255,255,255,.7);}' +
+            '.rw-hero-started{padding:12px 16px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;display:flex;flex-direction:column;justify-content:center;}' +
+            '.rw-hero-label{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;}' +
+            '.rw-hero-bal .rw-hero-label{color:#047857;}' +
+            '#rwPatientBalance{font-size:30px;font-weight:800;color:#065f46;line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:-.01em;}' +
+            '#rwPatientStarted{font-size:16px;font-weight:700;color:#334155;margin-top:2px;}' +
+            '#rwAdminAdjust{padding:10px 12px;border-radius:14px;border:1px dashed #cbd5e1;background:#fff;}' +
+            '.rw-lg-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px;}' +
+            '.rw-lg-summary:empty,.rw-lg-filters:empty{display:none;}' +
+            '.rw-lg-tile{border:1px solid #e2e8f0;border-radius:10px;padding:7px 10px;background:#fff;min-width:0;}' +
+            '.rw-lg-tile span{display:block;font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+            '.rw-lg-tile b{display:block;font-size:15px;color:#0f172a;font-variant-numeric:tabular-nums;white-space:nowrap;}' +
+            '.rw-lg-tile.is-in{border-color:#bbf7d0;background:#f7fef9;}.rw-lg-tile.is-in b{color:#15803d;}' +
+            '.rw-lg-tile.is-out{border-color:#fecaca;background:#fffafa;}.rw-lg-tile.is-out b{color:#b91c1c;}' +
+            '.rw-lg-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;}' +
+            '.rw-lg-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #e2e8f0;background:#fff;border-radius:999px;padding:4px 11px;font-size:12px;font-weight:600;color:#475569;cursor:pointer;transition:background .12s,border-color .12s;}' +
+            '.rw-lg-chip:hover:not(:disabled){border-color:#86efac;background:#f0fdf4;}' +
+            '.rw-lg-chip.is-active{background:#166534;border-color:#166534;color:#fff;}' +
+            '.rw-lg-chip i{font-style:normal;font-size:11px;font-variant-numeric:tabular-nums;padding:0 6px;border-radius:999px;background:#f1f5f9;color:#64748b;}' +
+            '.rw-lg-chip.is-active i{background:rgba(255,255,255,.22);color:#fff;}' +
+            '.rw-lg-chip:disabled{opacity:.45;cursor:default;}' +
+            '.rw-lg-wrap{overflow:auto;max-height:320px;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:16px;background:#fff;}' +
+            '.rw-lg{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;}' +
+            '.rw-lg thead th{position:sticky;top:0;z-index:1;background:#f8fafc;padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid #e2e8f0;vertical-align:bottom;}' +
+            '.rw-lg th.rw-lg-num,.rw-lg td.rw-lg-num{text-align:right;}' +
+            '.rw-lg td{padding:7px 10px;border-bottom:1px solid #f1f5f9;vertical-align:middle;}' +
+            '.rw-lg-row:hover td{background:#f8fafc;}' +
+            '.rw-lg-month td{padding:9px 10px 4px;font-size:11px;font-weight:800;color:#0f766e;text-transform:uppercase;letter-spacing:.05em;background:#fbfefd;border-bottom:1px solid #e2e8f0;}' +
+            '.rw-lg-date{font-size:12px;font-weight:600;color:#334155;white-space:nowrap;}' +
+            '.rw-lg-time{font-size:11px;color:#94a3b8;white-space:nowrap;}' +
+            '.rw-lg-clinic{display:inline-block;padding:1px 7px;border-radius:6px;font-size:11px;font-weight:700;color:#0f766e;background:#f0fdfa;border:1px solid #ccfbf1;}' +
+            '.rw-lg-dr{font-size:11px;color:#64748b;margin-top:2px;max-width:118px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+            '.rw-lg-pts{display:inline-block;min-width:62px;padding:2px 8px;border-radius:8px;font-weight:800;font-variant-numeric:tabular-nums;text-align:right;}' +
+            '.rw-lg-pts.is-pos{background:#f0fdf4;color:#15803d;}.rw-lg-pts.is-neg{background:#fef2f2;color:#b91c1c;}' +
+            '.rw-lg-bal{font-weight:600;color:#334155;font-variant-numeric:tabular-nums;white-space:nowrap;}' +
+            '.rw-lg-ref{font-size:12px;color:#475569;max-width:132px;}' +
+            '.rw-lg-ref div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+            '.rw-lg-ref .rw-lg-note{font-size:11px;color:#94a3b8;}' +
+            '.rw-lg-row--void_earn td,.rw-lg-row--void_redeem td{background:#fcfcfd;}' +
+            '.rw-lg-row--void_earn .rw-lg-date,.rw-lg-row--void_redeem .rw-lg-date{color:#94a3b8;}' +
+            '.rw-lg-empty{padding:22px 16px;text-align:center;color:#94a3b8;}' +
+            '.rw-lg-empty.is-error{color:#dc2626;}' +
+            '@media (max-width:560px){.rw-lg-summary{grid-template-columns:repeat(2,minmax(0,1fr));}.rw-lg-dr,.rw-lg-ref{max-width:110px;}}' +
             '.rw-cfg-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 18px;margin-bottom:14px;}' +
             '.rw-cfg-card--danger{border-color:#fecaca;background:#fff7f7;}' +
             '.rw-cfg-card-title{font-weight:700;margin-bottom:10px;font-size:14px;}' +
@@ -4548,7 +4718,7 @@ var REWARDS = (function () {
             '#rewardPatientModal.reward-points-modal{z-index:3200;background:rgba(15,23,42,.28);}' +
             '#rewardPatientModal .reward-points-modal-box{' +
             'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);' +
-            'margin:0;width:min(640px,92vw);max-width:640px;max-height:92vh;overflow:auto;' +
+            'margin:0;width:min(700px,94vw);max-width:700px;max-height:92vh;overflow:auto;' +
             'box-shadow:0 18px 50px rgba(15,23,42,.22);}' +
             'body:has(#billPanel.open) #rewardPatientModal .reward-points-modal-box{' +
             'left:calc((100vw - min(680px,100vw)) / 2);' +
@@ -4618,6 +4788,11 @@ var REWARDS = (function () {
         referralCredit: referralCredit,
         referralReverse: referralReverse,
         kindLabelBilingual: kindLabelBilingual,
+        ledgerDisplayKind: ledgerDisplayKind,
+        ledgerFilterRows: ledgerFilterRows,
+        ledgerSummary: ledgerSummary,
+        renderLedgerRows: renderLedgerRows,
+        renderLedgerFilters: renderLedgerFilters,
         buildSmsBody: buildSmsBody,
         smsBalances: smsBalances,
         notifyFromRpcResult: notifyFromRpcResult,

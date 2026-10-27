@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261028referral2';
+var BUILD = '20261028ledgerui1';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -695,7 +695,10 @@ function loadCoupons() {
     var full = C.smsIssued({ code: 'DC-A1', campaign_key: 'cash', discount_mode: 'amount', face_value: 100, expires_on: '2026-12-01' },
         smsWallet, { today: '2026-10-27', clinic: 'KT' });
     var fullLines = full.split('\n');
-    var rwCtx = { console: console, setTimeout: function () { return 0; }, clearTimeout: function () {}, setInterval: function () { return 0; }, SB: null };
+    var rwCtx = {
+        console: console, setTimeout: function () { return 0; }, clearTimeout: function () {}, setInterval: function () { return 0; }, SB: null,
+        esc: function (s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+    };
     rwCtx.window = rwCtx;
     rwCtx.document = { addEventListener: function () {}, getElementById: function () { return null; }, querySelectorAll: function () { return []; } };
     vm.createContext(rwCtx);
@@ -711,6 +714,30 @@ function loadCoupons() {
     var oldStored = '[Joyful Smile Dental Clinic 樂意牙科中心] 積分更新 / Reward points update\n變動/Change: {CHANGE} ({KIND})\n結餘/Balance: {BALANCE}\n診所/Clinic: {CLINIC}\n參考/Ref: {REF}';
     pass('reward SMS upgrades an older saved template', RW.buildSmsBody({ sms_template_en: oldStored }, { points: 1, balance: 5, total: 9, kind: 'earn', clinic: 'PL' })
         .indexOf('總結餘/All-clinic total: 9.00') >= 0);
+    var lgRows = [
+        { created_at: '2026-10-27T06:32:00Z', kind: 'adjust', points: 100, balance_after: 284.5, clinic_code: 'KT', note: 'Referral: #000555' },
+        { created_at: '2026-10-21T03:05:00Z', kind: 'earn', points: 68, balance_after: 184.5, clinic_code: 'KT', bill_id: 'a70b025a-1111', _doctor_name: 'Dr Ng' },
+        { created_at: '2026-10-21T03:05:00Z', kind: 'redeem', points: -50, balance_after: 116.5, clinic_code: 'KT', bill_id: 'a70b025a-1111' },
+        { created_at: '2026-09-30T02:12:00Z', kind: 'adjust', points: -10, balance_after: 166.5, clinic_code: 'PL', note: 'Goodwill fix' }
+    ];
+    pass('ledger: referral credits show as Refer a friend, other adjusts stay adjust', RW.ledgerDisplayKind(lgRows[0]) === 'referral' &&
+        RW.ledgerDisplayKind(lgRows[3]) === 'adjust' && RW.ledgerDisplayKind({ kind: 'adjust', note: 'Referral reversed (bill voided): #1' }) === 'referral');
+    pass('ledger filters: earned 1, used 1, adjust & void 2 (incl. referral)', RW.ledgerFilterRows(lgRows, 'earn').length === 1 &&
+        RW.ledgerFilterRows(lgRows, 'redeem').length === 1 && RW.ledgerFilterRows(lgRows, 'other').length === 2 &&
+        RW.ledgerFilterRows(lgRows, 'all').length === 4 && RW.ledgerFilterRows(lgRows, 'xfer').length === 0);
+    var lgSum = RW.ledgerSummary(lgRows);
+    pass('ledger summary: points in / out / count / last', lgSum.gained === 168 && lgSum.spent === -60 && lgSum.count === 4 &&
+        lgSum.last === '2026-10-27T06:32:00Z', JSON.stringify(lgSum));
+    var lgHtml = RW.renderLedgerRows(lgRows);
+    pass('ledger rows: a divider per month, pills and badges', (lgHtml.match(/class="rw-lg-month"/g) || []).length === 2 &&
+        /rw-lg-pts is-pos">\+100\.00/.test(lgHtml) && /rw-lg-pts is-neg">-50\.00/.test(lgHtml) &&
+        /rw-kind rw-kind--referral/.test(lgHtml) && /class="rw-lg-note">/.test(lgHtml) === false && /Bill A70B025A/.test(lgHtml));
+    pass('ledger rows: empty and every row spans 6 columns', /colspan="6"/.test(RW.renderLedgerRows([])) && !/colspan="7"/.test(lgHtml));
+    var lgChips = RW.renderLedgerFilters(lgRows, 'redeem');
+    pass('ledger chips: active one marked, empty type disabled', /class="rw-lg-chip is-active" data-rw-filter="redeem"/.test(lgChips) &&
+        /data-rw-filter="xfer"[^>]* disabled>/.test(lgChips) && !/data-rw-filter="all"[^>]* disabled>/.test(lgChips), lgChips);
+    pass('ledger modal has summary, filter chips and the styled table', /id="rwLedgerSummary"/.test(html) && /id="rwLedgerFilters"/.test(html) &&
+        /<table class="rw-lg">/.test(html) && /class="rw-hero"/.test(html) && /id="rwLedgerBody"/.test(html));
     var rwBal = RW.smsBalances([{ patient_id: 'a', balance: 40 }, { patient_id: 'b', balance: 60.5 }], 'b', 0);
     pass('reward SMS balances: this chart and the person total', rwBal.balance === 60.5 && rwBal.total === 100.5, JSON.stringify(rwBal));
     pass('reward SMS reads fresh chart balances at send time', /listPersonAccountsFresh\(info\.patientId\)/.test(read('app-rewards.js')));
@@ -1466,6 +1493,9 @@ function loadCoupons() {
     out.rwRefCard = !!rwCard && (rwAdmin ? !!rwCard.querySelector('#rwCfgRefPoints') && !!rwCard.querySelector('#rwCfgRefMin') : !rwCard.querySelector('input'));
     out.rwPaneText = (rwAdmin ? 'admin: ' : 'read-only: ') + (rwCard ? rwCard.textContent : rwPane.textContent).replace(/\s+/g, ' ').slice(0, 200);
   }
+  var rwStyle = document.getElementById('rwStyles');
+  out.ledgerUi = !!document.getElementById('rwLedgerSummary') && !!document.getElementById('rwLedgerFilters') &&
+    !!rwStyle && rwStyle.textContent.indexOf('.rw-lg-pts') >= 0 && rwStyle.textContent.indexOf('.rw-lg-month') >= 0;
   COUPONS.resetReferrerPicker('referredBy');
   out.cleared = document.getElementById('referredById').value === '' && root.querySelector('.dc-ref-preview').textContent === '';
   input.value = '';
@@ -1491,6 +1521,7 @@ function loadCoupons() {
         pass('CDP reward kind radios render (coupon + points), off = disabled', refLive && refLive.kinds && refLive.kinds.length === 2 &&
             refLive.kinds[0].kind === 'coupon' && refLive.kinds[1].kind === 'points' && refLive.kindsConsistent, refLive && JSON.stringify(refLive.kinds));
         pass('CDP greyed-out branch is not clickable', refLive && refLive.offGrey === true);
+        pass('CDP reward ledger panel has the summary, chips and new styles', refLive && refLive.ledgerUi === true);
         pass('CDP Reward Points config has the refer-a-friend card', refLive && refLive.rwRefCard === true, refLive && refLive.rwPaneText);
         pass('CDP Config has the min first-visit field and the Referrals card', refLive && refLive.minField && refLive.refCard &&
             refLive.refBody.length > 0, refLive && refLive.refBody.slice(0, 120));

@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261027couponsms1';
+var BUILD = '20261027smsbal1';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -313,37 +313,57 @@ function loadCoupons() {
     var exp = C.smsExpiring({ status: 'unused', nameZh: '介紹新客', expires_on: '2026-11-02' }, '2026-10-26');
     pass('expiry SMS is 7 days before', exp.indexOf('7日內到期') >= 0 && exp.indexOf('2026-11-02') >= 0);
     var smsWallet = [
-        { code: 'DC-A1', campaign_key: 'cash', discount_mode: 'amount', face_value: 100, status: 'unused', expires_on: '2026-12-01' },
-        { code: 'DC-A2', campaign_key: 'free_scaling', discount_mode: 'free_line', face_value: 0, status: 'unused', expires_on: '2026-11-20' },
-        { code: 'DC-A3', campaign_key: 'ortho', discount_mode: 'percent', percent: 10, max_discount: 3000, status: 'unused', expires_on: '2027-01-01' },
+        { code: 'DC-A1', campaign_key: 'cash', discount_mode: 'amount', face_value: 100, status: 'unused', expires_on: '2026-12-01', clinic_code: 'KT' },
+        { code: 'DC-A2', campaign_key: 'free_scaling', discount_mode: 'free_line', face_value: 0, status: 'unused', expires_on: '2026-11-20', clinic_code: 'PL' },
+        { code: 'DC-A3', campaign_key: 'ortho', discount_mode: 'percent', percent: 10, max_discount: 3000, status: 'unused', expires_on: '2027-01-01', clinic_code: 'kt' },
         { code: 'DC-OLD', campaign_key: 'cash', discount_mode: 'amount', face_value: 50, status: 'used', expires_on: '2026-12-01' },
         { code: 'DC-GONE', campaign_key: 'cash', discount_mode: 'amount', face_value: 70, status: 'unused', expires_on: '2026-10-01' }
     ];
     var full = C.smsIssued({ code: 'DC-A1', campaign_key: 'cash', discount_mode: 'amount', face_value: 100, expires_on: '2026-12-01' },
         smsWallet, { today: '2026-10-27', clinic: 'KT' });
     var fullLines = full.split('\n');
-    var rewardSms = '[Joyful Smile Dental Clinic 樂意牙科中心] 積分更新 / Reward points update\n變動/Change: +10 (x)\n結餘/Balance: 20\n診所/Clinic: KT\n參考/Ref: R1';
+    var rwCtx = { console: console, setTimeout: function () { return 0; }, clearTimeout: function () {}, setInterval: function () { return 0; }, SB: null };
+    rwCtx.window = rwCtx;
+    rwCtx.document = { addEventListener: function () {}, getElementById: function () { return null; }, querySelectorAll: function () { return []; } };
+    vm.createContext(rwCtx);
+    vm.runInContext(read('app-rewards.js') + '\n;this.REWARDS = REWARDS;', rwCtx, { filename: 'app-rewards.js' });
+    var RW = rwCtx.REWARDS;
+    var rewardSms = RW.buildSmsBody({}, { points: 12, balance: 132, total: 250, kind: 'earn', clinic: 'KT', ref: 'Bill 1A2B3C4D', year: '2026' });
+    var rewardLines = rewardSms.split('\n');
+    pass('reward SMS shows this chart and the all-clinic total', rewardLines[2] === '結餘/Balance (KT): 132.00' &&
+        rewardLines[3] === '總結餘/All-clinic total: 250.00', rewardSms);
+    pass('reward SMS ends with the year-end note', rewardLines.length === 7 &&
+        rewardLines[6].indexOf('備註/Note: 所有積分將於今年2026年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。') === 0 &&
+        rewardLines[6].indexOf('All reward points expire on 31 Dec 2026 23:59 this year') >= 0, rewardLines[6]);
+    var oldStored = '[Joyful Smile Dental Clinic 樂意牙科中心] 積分更新 / Reward points update\n變動/Change: {CHANGE} ({KIND})\n結餘/Balance: {BALANCE}\n診所/Clinic: {CLINIC}\n參考/Ref: {REF}';
+    pass('reward SMS upgrades an older saved template', RW.buildSmsBody({ sms_template_en: oldStored }, { points: 1, balance: 5, total: 9, kind: 'earn', clinic: 'PL' })
+        .indexOf('總結餘/All-clinic total: 9.00') >= 0);
+    var rwBal = RW.smsBalances([{ patient_id: 'a', balance: 40 }, { patient_id: 'b', balance: 60.5 }], 'b', 0);
+    pass('reward SMS balances: this chart and the person total', rwBal.balance === 60.5 && rwBal.total === 100.5, JSON.stringify(rwBal));
+    pass('reward SMS reads fresh chart balances at send time', /listPersonAccountsFresh\(info\.patientId\)/.test(read('app-rewards.js')));
     var shape = function (s) {
-        return s.split('\n').filter(function (l) { return /^(\[|變動\/Change|結餘\/Balance|診所\/Clinic|參考\/Ref)/.test(l); })
-            .map(function (l) { return l.replace(/^\[[^\]]+\].*$/, 'HEAD').replace(/:.*$/, ''); }).join('|');
+        return s.split('\n').filter(function (l) { return /^(\[|變動\/Change|結餘\/Balance|總結餘\/All-clinic total|診所\/Clinic|參考\/Ref|備註\/Note)/.test(l); })
+            .map(function (l) { return l.replace(/^\[[^\]]+\].*$/, 'HEAD').replace(/\s*\(.*$/, '').replace(/:.*$/, ''); }).join('|');
     };
     pass('coupon SMS follows the reward points layout', shape(full) === shape(rewardSms) &&
-        fullLines[0] === '[Joyful Smile Dental Clinic 樂意牙科中心] 優惠券更新 / Discount coupon update', full);
+        fullLines[0] === '[Joyful Smile Dental Clinic 樂意牙科中心] 優惠券更新 / Discount coupon update', shape(full) + ' vs ' + shape(rewardSms));
     pass('coupon SMS change line names the new coupon', fullLines[1] === '變動/Change: +1 現金券 Cash coupon HK$100.00 (發出/Issued)', fullLines[1]);
-    pass('coupon SMS balance counts usable coupons only', fullLines[2] === '結餘/Balance: 3張 / 3 coupons', fullLines[2]);
+    pass('coupon SMS balance: this clinic, then all clinics', fullLines[2] === '結餘/Balance (KT): 2張 / 2 coupons' &&
+        fullLines[3] === '總結餘/All-clinic total: 3張 / 3 coupons', fullLines.slice(2, 4).join(' | '));
     pass('coupon SMS lists every usable coupon, soonest expiry first',
-        fullLines[3] === '可用優惠券/Available coupons:' &&
-        fullLines[4] === '1. 免費洗牙 Free scaling 免費/Free (DC-A2)' &&
-        fullLines[5] === '2. 現金券 Cash coupon HK$100.00 (DC-A1)' &&
-        fullLines[6] === '3. 矯齒優惠 Orthodontic discount 10% (最多/up to HK$3000.00) (DC-A3)' &&
-        full.indexOf('DC-OLD') < 0 && full.indexOf('DC-GONE') < 0, fullLines.slice(3, 7).join(' | '));
-    pass('coupon SMS clinic and ref lines', fullLines[7] === '診所/Clinic: KT' && fullLines[8] === '參考/Ref: DC-A1');
-    pass('coupon SMS ends with the year-end note', fullLines.length === 10 &&
-        fullLines[9].indexOf('備註/Note: 所有優惠券將於今年2026年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。') === 0 &&
-        fullLines[9].indexOf('All discount coupons expire on 31 Dec 2026 23:59 this year') >= 0 &&
-        /invite others/.test(fullLines[9]), fullLines[9]);
-    var lone = C.smsIssued({ code: 'DC-N1', campaign_key: 'referral', discount_mode: 'amount', face_value: 100 }, [], { today: '2026-10-27' });
-    pass('coupon SMS adds the new coupon when the wallet has not caught up', /結餘\/Balance: 1張 \/ 1 coupon\n/.test(lone) && lone.indexOf('1. 介紹新客 Refer a friend HK$100.00 (DC-N1)') >= 0);
+        fullLines[4] === '可用優惠券/Available coupons:' &&
+        fullLines[5] === '1. 免費洗牙 Free scaling 免費/Free (DC-A2)' &&
+        fullLines[6] === '2. 現金券 Cash coupon HK$100.00 (DC-A1)' &&
+        fullLines[7] === '3. 矯齒優惠 Orthodontic discount 10% (最多/up to HK$3000.00) (DC-A3)' &&
+        full.indexOf('DC-OLD') < 0 && full.indexOf('DC-GONE') < 0, fullLines.slice(4, 8).join(' | '));
+    pass('coupon SMS clinic and ref lines', fullLines[8] === '診所/Clinic: KT' && fullLines[9] === '參考/Ref: DC-A1');
+    pass('coupon SMS ends with the year-end note', fullLines.length === 11 &&
+        fullLines[10].indexOf('備註/Note: 所有優惠券將於今年2026年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。') === 0 &&
+        fullLines[10].indexOf('All discount coupons expire on 31 Dec 2026 23:59 this year') >= 0 &&
+        /invite others/.test(fullLines[10]), fullLines[10]);
+    var lone = C.smsIssued({ code: 'DC-N1', campaign_key: 'referral', discount_mode: 'amount', face_value: 100, clinic_code: 'KT' }, [], { today: '2026-10-27', clinic: 'KT' });
+    pass('coupon SMS adds the new coupon when the wallet has not caught up', /結餘\/Balance \(KT\): 1張 \/ 1 coupon\n總結餘\/All-clinic total: 1張 \/ 1 coupon\n/.test(lone) &&
+        lone.indexOf('1. 介紹新客 Refer a friend HK$100.00 (DC-N1)') >= 0, lone);
     var bigWallet = [];
     for (var bw = 0; bw < 13; bw++) bigWallet.push({ code: 'B' + bw, campaign_key: 'cash', discount_mode: 'amount', face_value: 10, status: 'unused', expires_on: '2027-01-01' });
     var bigSms = C.smsIssued({ code: 'B0', campaign_key: 'cash', discount_mode: 'amount', face_value: 10 }, bigWallet, { today: '2026-10-27' });
@@ -527,6 +547,67 @@ function loadCoupons() {
     pass('void cancels a coupon that this bill issued',
         voidPlan.cancel.length === 1 && voidPlan.cancel[0] === 'c-born');
     pass('void route is wired', read('app-appt.js').indexOf('COUPONS.onBillVoided(') >= 0);
+    var stackVoid = C.planBillVoid({ id: 'bill-2', coupon_id: 'k1' }, [
+        { id: 'k1', status: 'used', bill_id: 'bill-2', code: 'K1' },
+        { id: 'k2', status: 'used', bill_id: 'bill-2', code: 'K2' },
+        { id: 'k3', status: 'used', bill_id: 'bill-2', code: 'K3' },
+        { id: 'e1', status: 'used', bill_id: 'bill-7', origin_bill_id: 'bill-2', code: 'E1' },
+        { id: 'e2', status: 'void', origin_bill_id: 'bill-2', code: 'E2' }
+    ]);
+    pass('void gives back every stacked coupon on the bill', stackVoid.restore.join(',') === 'k1,k2,k3', JSON.stringify(stackVoid));
+    pass('void flags an earned coupon that was already used elsewhere', stackVoid.stuck.join(',') === 'E1' && stackVoid.cancel.length === 0);
+    var payBorn = [
+        { id: 'p1', status: 'unused', origin_bill_id: 'bill-3', code: 'P1' },
+        { id: 'p2', status: 'used', bill_id: 'bill-8', origin_bill_id: 'bill-3', code: 'P2' },
+        { id: 'p3', status: 'used', bill_id: 'bill-3', code: 'P3' }
+    ];
+    var payVoid = C.planPaymentVoid({ id: 'bill-3' }, payBorn, 200);
+    pass('payment void takes back the spend coupon once the bill is not fully paid',
+        payVoid.cancel.join(',') === 'p1' && payVoid.stuck.join(',') === 'P2', JSON.stringify(payVoid));
+    pass('payment void keeps coupons used on the bill (it can be paid again)', payVoid.cancel.indexOf('p3') < 0);
+    var payStill = C.planPaymentVoid({ id: 'bill-3' }, payBorn, 0);
+    pass('payment void changes nothing while the bill is still fully paid', payStill.cancel.length === 0 && payStill.stuck.length === 0);
+    var pvWrites = [];
+    var pvCtx = { console: console, setTimeout: setTimeout };
+    pvCtx.SB = {
+        from: function (table) {
+            var f = {};
+            var upd = null;
+            var q = {
+                select: function () { return q; },
+                eq: function (k, v) { f[k] = v; return q; },
+                update: function (u) { upd = u; return q; },
+                insert: function (rows) { pvWrites.push({ t: table, insert: rows }); return Promise.resolve({ data: [], error: null }); },
+                then: function (ok, bad) {
+                    var out;
+                    if (upd) { pvWrites.push({ t: table, update: upd, f: JSON.parse(JSON.stringify(f)) }); out = { data: [], error: null }; }
+                    else {
+                        out = { data: payBorn.filter(function (r) {
+                            return Object.keys(f).every(function (k) { return String(r[k]) === String(f[k]); });
+                        }), error: null };
+                    }
+                    return Promise.resolve(out).then(ok, bad);
+                }
+            };
+            return q;
+        }
+    };
+    pvCtx.window = pvCtx;
+    vm.createContext(pvCtx);
+    vm.runInContext(src, pvCtx, { filename: 'app-coupons.js' });
+    var pvRes = await pvCtx.COUPONS.onPaymentVoided({ billId: 'bill-3', balanceAfter: 350 });
+    var pvVoided = pvWrites.filter(function (w) { return w.t === 'discount_coupons' && w.update && w.update.status === 'void'; });
+    var pvLogs = pvWrites.filter(function (w) { return w.insert && w.t !== 'discount_coupons'; });
+    pass('payment void cancels only the unused earned coupon in the database', pvRes.ok && pvVoided.length === 1 &&
+        pvVoided[0].f.id === 'p1' && pvVoided[0].f.status === 'unused', JSON.stringify(pvWrites.map(function (w) { return w.t + ':' + (w.update ? 'upd' : 'ins'); })));
+    pass('payment void writes the coupon log', pvLogs.length === 2 && pvLogs.every(function (w) { return w.insert[0].operation === 'CANCEL'; }));
+    var pvSkip = await pvCtx.COUPONS.onPaymentVoided({ billId: 'bill-3', balanceAfter: 0 });
+    pass('payment void on a still-paid bill does nothing', pvSkip.ok && pvSkip.skipped === true);
+    var apptSrc0 = read('app-appt.js');
+    pass('payment void is wired after the new balance is saved',
+        /function voidPaymentRecord[\s\S]{0,4000}COUPONS\.onPaymentVoided\(\{ billId: p\.bill_id, balanceAfter: newBalance \}\)/.test(apptSrc0));
+    pass('deleting an unpaid bill gives its coupons back first',
+        /function deleteUnpaidBillForPendingList[\s\S]{0,1200}COUPONS\.onBillVoided\([\s\S]{0,300}couponP\.then\(function \(\) \{ return SB\.from\('bills'\)\.delete\(\)/.test(apptSrc0));
     function giftCamp(key, extra) {
         var found = C.defaultCampaigns().filter(function (c) { return c.key === key; })[0];
         var copy = JSON.parse(JSON.stringify(found));
@@ -962,15 +1043,20 @@ function loadCoupons() {
     line: scaling.lineName,
     typed: typed,
     sms: (function (s) {
-      return s.indexOf('樂意牙科中心] 優惠券更新 / Discount coupon update') >= 0 && s.indexOf('結餘/Balance: 1張') >= 0 &&
+      return s.indexOf('樂意牙科中心] 優惠券更新 / Discount coupon update') >= 0 && s.indexOf('結餘/Balance (KT): 1張') >= 0 &&
+        s.indexOf('總結餘/All-clinic total: 1張') >= 0 &&
         s.indexOf('可用優惠券/Available coupons:') >= 0 && s.indexOf('備註/Note: 所有優惠券將於今年') >= 0;
-    })(COUPONS.smsIssued({ code: 'DC-LIVE', campaign_key: 'cash', discount_mode: 'amount', face_value: 100, expires_on: '2027-01-01' }, [], {}))
+    })(COUPONS.smsIssued({ code: 'DC-LIVE', campaign_key: 'cash', discount_mode: 'amount', face_value: 100, expires_on: '2027-01-01', clinic_code: 'KT' }, [], { clinic: 'KT' })),
+    rwSms: (function (s) {
+      return s.indexOf('結餘/Balance (KT): 5.00') >= 0 && s.indexOf('總結餘/All-clinic total: 8.00') >= 0 && s.indexOf('備註/Note: 所有積分將於今年') >= 0;
+    })(REWARDS.buildSmsBody({}, { points: 1, balance: 5, total: 8, kind: 'earn', clinic: 'KT' }))
   };
 })()`, false, 10000);
         pass('CDP 16 coupon rows, KT on, PL off', live && live.n === 16 && live.kt === true && live.pl === false, JSON.stringify(live));
         pass('CDP scaling coupon ignores the implant line', live && live.save === 560 && String(live.line).indexOf('SCALING') >= 0);
         pass('CDP typed text is not a match', live && live.typed === false);
         pass('CDP SMS heading', live && live.sms === true);
+        pass('CDP reward SMS balance lines and note', live && live.rwSms === true);
 
         var paint = await cdp.js(`(async () => {
   var pane = document.getElementById('cfgPane-coupons');

@@ -3240,6 +3240,16 @@
         'coupons.cash.sumAny': { en: 'Any number of cash coupons per bill', 'zh-CN': '每张单现金券数量不限', 'zh-Hant': '每張單現金券數量不限' },
         'coupons.cash.anyCount': { en: 'No limit', 'zh-CN': '不限', 'zh-Hant': '不限' },
         'coupons.cash.upTo': { en: 'up to', 'zh-CN': '上限', 'zh-Hant': '上限' },
+        'coupons.void.stuck': {
+            en: 'A spend coupon earned by this bill was already used, so it cannot be taken back:',
+            'zh-CN': '此账单所赚取的满额券已被使用，无法收回：',
+            'zh-Hant': '此賬單所賺取的滿額券已被使用，無法收回：'
+        },
+        'coupons.void.payment': {
+            en: 'Payment voided: the spend coupon earned by this bill was taken back. It is issued again when the bill is fully paid.',
+            'zh-CN': '付款已作废：此账单所赚取的满额券已收回，账单再次全数付清时会重新发出。',
+            'zh-Hant': '付款已作廢：此賬單所賺取的滿額券已收回，賬單再次全數付清時會重新發出。'
+        },
         'coupons.wqr.btn': { en: 'Wallet QR', 'zh-CN': '钱包二维码', 'zh-Hant': '錢包 QR 碼' },
         'coupons.wqr.title': { en: 'Coupon wallet on the phone', 'zh-CN': '手机查看优惠券钱包', 'zh-Hant': '手機查看優惠券錢包' },
         'coupons.wqr.hint': {

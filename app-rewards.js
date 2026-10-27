@@ -130,9 +130,12 @@ var REWARDS = (function () {
     var SMS_FALLBACK_BILINGUAL =
         '[' + SMS_HEADING_NAME + '] 積分更新 / Reward points update\n' +
         '變動/Change: {CHANGE} ({KIND})\n' +
-        '結餘/Balance: {BALANCE}\n' +
+        '結餘/Balance ({CLINIC}): {BALANCE}\n' +
+        '總結餘/All-clinic total: {TOTAL}\n' +
         '診所/Clinic: {CLINIC}\n' +
-        '參考/Ref: {REF}';
+        '參考/Ref: {REF}\n' +
+        '備註/Note: 所有積分將於今年{YEAR}年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。' +
+        'All reward points expire on 31 Dec {YEAR} 23:59 this year. Please make good use of them, and you are welcome to invite others to use them.';
 
     function isRewardPayMethod(method) {
         var s = String(method == null ? '' : method).trim().toLowerCase().replace(/[_-]+/g, ' ');
@@ -1760,7 +1763,7 @@ var REWARDS = (function () {
             var c = String(candidates[i] || '').trim();
             if (c && looksBilingualTemplate(c)) { tpl = c; break; }
         }
-        if (!tpl) tpl = SMS_FALLBACK_BILINGUAL;
+        if (!tpl || tpl.indexOf('{TOTAL}') < 0) tpl = SMS_FALLBACK_BILINGUAL;
         tpl = tpl
             .replace(/\[Banana\]/g, '[' + SMS_HEADING_NAME + ']')
             .replace(/【Banana】/g, '[' + SMS_HEADING_NAME + ']')
@@ -1769,8 +1772,21 @@ var REWARDS = (function () {
             .replace(/\{CHANGE\}/g, fmtSigned(info.points))
             .replace(/\{BALANCE\}/g, fmtPts(info.balance))
             .replace(/\{KIND\}/g, kindLabelBilingual(info.kind))
+            .replace(/\{TOTAL\}/g, fmtPts(info.total != null ? info.total : info.balance))
             .replace(/\{CLINIC\}/g, info.clinic || '')
-            .replace(/\{REF\}/g, info.ref || '—');
+            .replace(/\{REF\}/g, info.ref || '—')
+            .replace(/\{YEAR\}/g, info.year || String(new Date(Date.now() + 8 * 3600000).getUTCFullYear()));
+    }
+
+    /** Pure: this chart's balance and the person's all-clinic total from their chart ledgers. */
+    function smsBalances(accounts, patientId, fallback) {
+        var list = accounts || [];
+        var mine = list.filter(function (a) { return String(a.patient_id) === String(patientId); })[0];
+        var fb = round2(fallback);
+        return {
+            balance: mine ? round2(mine.balance) : fb,
+            total: list.length ? sumPersonBalance(list) : fb
+        };
     }
 
     function patientPhone(patient) {
@@ -1807,7 +1823,12 @@ var REWARDS = (function () {
                     return { ok: true, skipped: true, reason: 'disabled' };
                 });
             }
-            return loadPatientLite(info.patientId).then(function (pat) {
+            return Promise.all([
+                loadPatientLite(info.patientId),
+                listPersonAccountsFresh(info.patientId).catch(function () { return []; })
+            ]).then(function (both) {
+                var pat = both[0];
+                var bal = smsBalances(both[1], info.patientId, info.balance);
                 var phone = patientPhone(pat);
                 if (!phone) {
                     return logSms({
@@ -1820,7 +1841,8 @@ var REWARDS = (function () {
                 }
                 var body = buildSmsBody(program, {
                     points: info.points,
-                    balance: info.balance,
+                    balance: bal.balance,
+                    total: bal.total,
                     kind: info.kind || 'net',
                     clinic: info.clinic || '',
                     ref: info.ref || ''
@@ -4430,6 +4452,8 @@ var REWARDS = (function () {
         applyRedeemForBill: applyRedeemForBill,
         applyEarnForPayment: applyEarnForPayment,
         notifyBalanceChange: notifyBalanceChange,
+        buildSmsBody: buildSmsBody,
+        smsBalances: smsBalances,
         notifyFromRpcResult: notifyFromRpcResult,
         notifyNetChange: notifyNetChange,
         refreshAddPaymentRewardPanel: refreshAddPaymentRewardPanel,

@@ -816,21 +816,40 @@ var COUPONS = (function () {
     }
 
     /** Used coupon on this bill returns to the wallet. A coupon this bill issued is cancelled. */
+    /**
+     * Pure: what to undo when a bill is voided or deleted.
+     * restore = coupons used on this bill (back to the wallet); cancel = unused coupons this bill earned;
+     * stuck = coupons this bill earned that were already used on another bill (cannot be taken back).
+     */
     function planBillVoid(bill, coupons) {
         bill = bill || {};
         var restore = [];
         var cancel = [];
+        var stuck = [];
         (coupons || []).forEach(function (c) {
             if (!c || !c.id) return;
             var onThis = (bill.coupon_id && String(c.id) === String(bill.coupon_id)) ||
                 (c.bill_id && bill.id && String(c.bill_id) === String(bill.id));
+            var earnedHere = c.origin_bill_id && bill.id && String(c.origin_bill_id) === String(bill.id);
             if (onThis && c.status === 'used') restore.push(String(c.id));
-            if (c.status === 'unused' && c.origin_bill_id && bill.id &&
-                    String(c.origin_bill_id) === String(bill.id)) {
-                cancel.push(String(c.id));
-            }
+            else if (earnedHere && c.status === 'unused') cancel.push(String(c.id));
+            else if (earnedHere && c.status === 'used') stuck.push(String(c.code || c.id));
         });
-        return { restore: restore, cancel: cancel };
+        return { restore: restore, cancel: cancel, stuck: stuck };
+    }
+
+    /**
+     * Pure: a payment on the bill was voided. While the bill is still fully paid nothing changes;
+     * otherwise the spend coupons it earned are taken back (unused) or flagged (already used).
+     * Coupons used on the bill stay on it — the bill still exists and can be paid again.
+     */
+    function planPaymentVoid(bill, coupons, balanceAfter) {
+        bill = bill || {};
+        if (!bill.id || !((parseFloat(balanceAfter) || 0) > 0.005)) return { cancel: [], stuck: [] };
+        var plan = planBillVoid({ id: bill.id }, (coupons || []).filter(function (c) {
+            return c && c.origin_bill_id && String(c.origin_bill_id) === String(bill.id);
+        }));
+        return { cancel: plan.cancel, stuck: plan.stuck };
     }
 
     function planChairsideGrant(opts) {
@@ -919,7 +938,8 @@ var COUPONS = (function () {
 
     /**
      * Pure: coupon SMS in the reward points layout —
-     * heading, 變動/Change, 結餘/Balance, the list of usable coupons, 診所/Clinic, 參考/Ref, then the year-end note.
+     * heading, 變動/Change, 結餘/Balance (coupons issued at this clinic), 總結餘/All-clinic total,
+     * the list of usable coupons, 診所/Clinic, 參考/Ref, then the year-end note.
      */
     function couponSmsBody(opts) {
         opts = opts || {};
@@ -928,10 +948,16 @@ var COUPONS = (function () {
         live.sort(function (a, b) {
             return String(a.expires_on || '9999-12-31').localeCompare(String(b.expires_on || '9999-12-31'));
         });
+        var clinic = String(opts.clinic || '').trim();
+        var atClinic = live.filter(function (c) {
+            return clinic && String(c.clinic_code || '').trim().toUpperCase() === clinic.toUpperCase();
+        }).length;
+        function countText(n) { return n + '張 / ' + n + (n === 1 ? ' coupon' : ' coupons'); }
         var lines = [
             SMS_HEADING + ' 優惠券更新 / Discount coupon update',
             '變動/Change: ' + opts.change,
-            '結餘/Balance: ' + live.length + '張 / ' + live.length + (live.length === 1 ? ' coupon' : ' coupons')
+            '結餘/Balance (' + clinic + '): ' + countText(atClinic),
+            '總結餘/All-clinic total: ' + countText(live.length)
         ];
         if (live.length) {
             lines.push('可用優惠券/Available coupons:');
@@ -944,7 +970,7 @@ var COUPONS = (function () {
             }
         }
         var end = smsYearEnd(today);
-        lines.push('診所/Clinic: ' + (opts.clinic || ''));
+        lines.push('診所/Clinic: ' + clinic);
         lines.push('參考/Ref: ' + (opts.ref || '—'));
         lines.push('備註/Note: 所有優惠券將於今年' + end.zh + '到期，請好好善用；歡迎邀請親友使用。' +
             'All discount coupons expire on ' + end.en + ' this year. Please make good use of them, and you are welcome to invite others to use them.');
@@ -3569,8 +3595,43 @@ var COUPONS = (function () {
                     if (plan.cancel.length) {
                         logCoupon('CANCEL', 'Void bill cancelled issued coupon ' + plan.cancel.join(','), null, billId);
                     }
+                    flagStuck(plan.stuck, billId);
                     bill.coupon_id = null;
-                    return { ok: true, restore: plan.restore, cancel: plan.cancel };
+                    return { ok: true, restore: plan.restore, cancel: plan.cancel, stuck: plan.stuck };
+                });
+            }, function (e) {
+                return { ok: false, error: String(e && e.message || e) };
+            });
+    }
+
+    function flagStuck(codes, billId) {
+        if (!codes || !codes.length) return;
+        logCoupon('CANCEL', 'Coupon ' + codes.join(', ') + ' earned by this bill was already used on another bill; not taken back', null, billId);
+        couponNotice(ct('coupons.void.stuck', 'A spend coupon earned by this bill was already used, so it cannot be taken back:') + ' ' + codes.join(', '));
+    }
+
+    /** A payment was voided or deleted: take back the spend coupons this bill earned once it is no longer fully paid. */
+    function onPaymentVoided(info) {
+        info = info || {};
+        var billId = info.billId;
+        if (!billId || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            return Promise.resolve({ ok: false, reason: 'no_db' });
+        }
+        if (!((parseFloat(info.balanceAfter) || 0) > 0.005)) return Promise.resolve({ ok: true, skipped: true });
+        return SB.from('discount_coupons').select('id,code,status,bill_id,origin_bill_id').eq('origin_bill_id', billId)
+            .then(function (r) {
+                var plan = planPaymentVoid({ id: billId }, (r && r.data) || [], info.balanceAfter);
+                var jobs = plan.cancel.map(function (id) {
+                    return SB.from('discount_coupons').update({ status: 'void', note: 'Voided with payment' })
+                        .eq('id', id).eq('status', 'unused');
+                });
+                return Promise.all(jobs).then(function () {
+                    if (plan.cancel.length) {
+                        logCoupon('CANCEL', 'Void payment took back spend coupon ' + plan.cancel.join(','), null, billId);
+                        couponNotice(ct('coupons.void.payment', 'Payment voided: the spend coupon earned by this bill was taken back. It is issued again when the bill is fully paid.'));
+                    }
+                    flagStuck(plan.stuck, billId);
+                    return { ok: true, cancel: plan.cancel, stuck: plan.stuck };
                 });
             }, function (e) {
                 return { ok: false, error: String(e && e.message || e) };
@@ -3744,6 +3805,8 @@ var COUPONS = (function () {
         planTargetSpend: planTargetSpend,
         billTotalCents: billTotalCents,
         refundEffect: refundEffect,
+        planPaymentVoid: planPaymentVoid,
+        onPaymentVoided: onPaymentVoided,
         smsIssued: smsIssued,
         couponSmsBody: couponSmsBody,
         smsExpiring: smsExpiring,

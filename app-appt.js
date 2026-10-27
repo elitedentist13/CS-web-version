@@ -932,7 +932,7 @@ function deleteUnpaidBillForPendingList(pl, cb) {
         if (cb) cb(true);
         return;
     }
-    SB.from('bills').select('amount_paid,balance,total,voided_at').eq('id', pl.bill_id).single()
+    SB.from('bills').select('*').eq('id', pl.bill_id).single()
         .then(function (r) {
             var b = (!r.error && r.data) ? r.data : null;
             if (!b || b.voided_at) {
@@ -944,7 +944,11 @@ function deleteUnpaidBillForPendingList(pl, cb) {
                 if (cb) cb(true);
                 return;
             }
-            SB.from('bills').delete().eq('id', pl.bill_id).then(function () {
+            var couponP = (typeof COUPONS !== 'undefined' && typeof COUPONS.onBillVoided === 'function')
+                ? COUPONS.onBillVoided({ id: pl.bill_id, patient_id: b.patient_id, coupon_id: b.coupon_id || null })
+                    .catch(function () { return null; })
+                : Promise.resolve(null);
+            couponP.then(function () { return SB.from('bills').delete().eq('id', pl.bill_id); }).then(function () {
                 clearPendingBillIdLocalStore(pl);
                 if (cb) cb(true);
             }).catch(function () {
@@ -24482,6 +24486,11 @@ function voidPaymentRecord(p) {
         }).eq('id', p.bill_id)
         .then(function(u) {
             if (u.error) return;
+            if (typeof COUPONS !== 'undefined' && typeof COUPONS.onPaymentVoided === 'function') {
+                COUPONS.onPaymentVoided({ billId: p.bill_id, balanceAfter: newBalance }).catch(function (e) {
+                    console.warn('Coupon take-back on payment void failed:', e && e.message ? e.message : e);
+                });
+            }
             if (typeof billHistoryCache !== 'undefined' && billHistoryCache && billHistoryCache.length) {
                 billHistoryCache.forEach(function (b) {
                     if (!b || String(b.id) !== String(p.bill_id)) return;

@@ -57,9 +57,37 @@
         '</div>';
     }
 
+    function deskCouponMock(m) {
+        return '<div class="lm-mock" aria-hidden="true">' +
+            '<div class="lm-mock-title">' + m.dkBill + '</div>' +
+            '<div class="lm-mock-row"><span>🎟️ ' + m.dkCouponRow + '</span><b>−100.00</b><span class="lm-btn is-ghost">' + m.dkChoose + '</span></div>' +
+            '<div class="lm-tabs"><span class="lm-tab is-on">' + m.dkUse + '</span><span class="lm-tab">' + m.dkGift + '</span>' +
+                '<span class="lm-tab">' + m.dkXfer + '</span></div>' +
+            '<div class="lm-ticket is-on"><b>HK$100</b> <small>' + m.dkWhole + '</small> <em>' + m.dkBest + '</em><span>−100.00 ✓</span></div>' +
+            '<div class="lm-ticket is-off"><b>' + m.dkScaling + '</b> <small>' + m.dkTreat + '</small><span>' + m.dkNotTicked + '</span></div>' +
+            '<div class="lm-sum">' + m.dkNewTotal + ' 460.00</div>' +
+            '<div class="lm-mock-row"><span class="lm-btn">' + m.dkApply + '</span><span class="lm-btn is-ghost">' + m.dkNoCoupon + '</span></div>' +
+        '</div>';
+    }
+
+    function deskPayMock(m) {
+        return '<div class="lm-mock lm-mock-pay" aria-hidden="true">' +
+            '<div class="lm-mock-title">💰 ' + m.dkAddPay + '</div>' +
+            '<div class="lm-mock-row lm-split"><span>' + m.dkDoctor + '</span><b>Dr Chan</b></div>' +
+            '<div class="lm-mock-row lm-split"><b>' + m.dkAvail + '</b><b class="lm-green">1,250.00</b></div>' +
+            '<div class="lm-mock-row">☑ ' + m.dkUsePts + '</div>' +
+            '<div class="lm-mock-row lm-split"><small>' + m.dkByClinic + '</small><span class="lm-btn is-green">' + m.dkRedeemAll + '</span></div>' +
+            '<div class="lm-mock-row"><span>☑ PL 800.00</span><span>☑ KT 450.00</span></div>' +
+            '<div class="lm-mock-row"><span>' + m.dkPtsToUse + '</span><span class="lm-box">500</span></div>' +
+            '<div class="lm-sum">' + m.dkWillTake + ' KT 450.00 · PL 50.00</div>' +
+            '<div class="lm-note">' + m.dkCapNote + '</div>' +
+            '<div class="lm-mock-row" style="margin-top:6px"><span class="lm-btn">' + m.dkConfirm + '</span></div>' +
+        '</div>';
+    }
+
     var T = {
         en: {
-            coverPart: { rw: 'Reward points', dc: 'Discount coupons' },
+            coverPart: { rw: 'Reward points', dc: 'Discount coupons', dk: 'At the payment desk' },
             rw: {
                 title: '🎁 Reward Points — set-up guide',
                 intro: 'Patients earn reward points on what they pay. <b>1 point = HK$1</b> off a later bill. ' +
@@ -94,7 +122,7 @@
                         'Default: <b>up to HK$3,000</b> per bill, no %. This matches the line on the patient’s phone page ' +
                             '(“Maximum usage per bill is HK$3,000, unless otherwise specified.”).',
                         'It counts <b>every payment on the same bill</b>. At the payment desk the points box stops at the limit, ' +
-                            'an amber note shows what is left, and <b>Save payment</b> refuses anything over it.'
+                            'an amber note shows what is left, and <b>✓ Confirm Payment</b> refuses anything over it.'
                     ] },
                     { t: 'Reset reward points to zero', danger: true, mock: zeroMock, list: [
                         'Choose how balances are cleared: <b>Manual</b> (default, points never clear by themselves), ' +
@@ -224,7 +252,83 @@
                     ['“Run discount_coupon_zero.sql in Supabase first.”', 'The set zero tables are not in the database yet. Ask the system admin to run discount_coupon_zero.sql once.']
                 ]
             },
+            desk: {
+                title: '🧾 At the payment desk — reward points &amp; discount coupons',
+                intro: 'For front-desk staff using Banana. This part shows, step by step, how to use <b>discount coupons</b> and ' +
+                    '<b>reward points</b> while you take a payment: <b>Bill Detail</b> → 🎟️ coupon row → <b>+ Add Payment</b>.',
+                before: 'Before you start',
+                beforeList: [
+                    'Each scheme works only at clinics (and doctors) that are joined. Where a clinic is not in a scheme, its controls are hidden or greyed out.',
+                    'Choose the <b>treating doctor</b> on the bill first. Reward points belong to the doctor who earned them.',
+                    'Work in this order: <b>coupon first, then payment</b>. The coupon row locks as soon as any payment is on the bill.'
+                ],
+                steps: [
+                    { t: 'See what the patient has', list: [
+                        'On the patient info banner, the <b>Rewards</b> button shows the points balance. The <b>📖 How to use</b> link next to it opens this manual.',
+                        'Click <b>Rewards</b> to open the panel with two tabs: <b>🎁 Reward points</b> (ledger) and <b>🎟️ Discount coupons</b> (wallet). ' +
+                            'A tab is greyed out (“Clinic not in scheme”) where the clinic is not joined.',
+                        'The same panel opens from <b>Patients → ⋯ → Rewards</b>. On the patient <b>Dashboard</b>, the 🎁 card shows the points and the 🎟️ <b>Coupon wallet</b> card shows how many coupons are live.'
+                    ] },
+                    { t: 'Use a discount coupon on the bill', key: true, mock: deskCouponMock, list: [
+                        'In <b>Bill Detail</b>, press <b>Choose</b> on the 🎟️ <b>Discount coupon</b> row. The <b>Use</b> tab lists the patient’s live coupons.',
+                        'Each ticket shows its value, <b>Whole bill</b> or <b>Treatment</b>, the expiry, and how much it takes off. <b>Best</b> marks the biggest saving.',
+                        'Tap a ticket to pick it (<b>✓ Selected</b>). The line at the bottom shows the new total. Press <b>Apply</b>.',
+                        'A ticket that cannot be used shows the reason instead of an amount (for example the treatment is not on the bill, or it has expired).',
+                        'To take a coupon off, press <b>Choose</b> → <b>Do not use a coupon</b>. Once a payment is saved, <b>Choose</b> is greyed out.'
+                    ] },
+                    { t: 'Gift or transfer a coupon', list: [
+                        '<b>Gift</b> tab: pick the coupon type (cash coupon HK$1–200, or a treatment coupon that is turned on), then press the 🔒 button and log in with your staff login.',
+                        '<b>Transfer</b> tab: pick the coupon, type the other patient’s <b>chart no.</b>, then 🔒 log in. New-chart and referral coupons cannot be moved.',
+                        'You can do the same without a bill: <b>Rewards</b> → <b>🎟️ Discount coupons</b> tab → <b>Wallet</b> / <b>Gift</b> / <b>Transfer</b>. ' +
+                            'Wallet there is for browsing only. Press Esc to close the login box without closing the panel.'
+                    ] },
+                    { t: 'Use reward points in Add Payment', key: true, mock: deskPayMock, list: [
+                        'Press <b>+ Add Payment</b>. The green reward box shows the <b>Doctor</b> and <b>Available for this doctor (all clinics)</b>.',
+                        'Tick <b>Use reward points as discount</b>. Under <b>By clinic (same doctor)</b>, tick the clinics to take points from.',
+                        'Type <b>Points to use</b>, or press <b>Redeem all</b> (it takes the smallest clinic balance first). <b>Will take:</b> shows which clinic pays for it.',
+                        'The <b>Amount</b> box drops by the points, so it shows the cash still to pay. If you hit the per-bill limit, an amber note shows what is left.',
+                        'Fill in the payment method, then press <b>✓ Confirm Payment</b>. Points used are a discount, <b>not clinic income</b>.'
+                    ] },
+                    { t: 'After the payment', list: [
+                        'Points earned on this payment appear in the <b>Rewards</b> balance. They can be used from the <b>next</b> payment, not the same one.',
+                        'Coupons earned by spending are issued when the bill is <b>fully paid</b>. The green box under the balance shows <b>Earned from this bill</b>, ' +
+                            'or how much more to spend for the next coupon.',
+                        'The <b>Saved on this bill</b> line adds up line discounts, extra discount and coupons.'
+                    ] },
+                    { t: 'Give the patient the phone page', list: [
+                        'Points: <b>Rewards</b> → 🎁 tab → <b>📱 Points on the phone</b>. Coupons: <b>Rewards</b> → 🎟️ tab → <b>Wallet QR</b>, or the 🎟️ <b>Coupon wallet</b> card on the patient Dashboard.',
+                        'The patient scans the QR code with the phone camera. You can also copy the link, download the PNG, print a slip, or send it by <b>WhatsApp</b>.',
+                        '<b>New QR code</b> stops the old link from working (for example if the patient lost the phone). The phone page is browse only.'
+                    ] },
+                    { t: 'Fixing a mistake', danger: true, list: [
+                        '<b>Void a payment</b>: the points used on it come back, and the points it earned are taken away.',
+                        '<b>Void a bill</b>: coupons used on it go back to the wallet, and coupons it issued are cancelled. Points are reversed the same way.',
+                        'Wrong coupon before any payment? Press <b>Choose</b> again and pick another one, or <b>Do not use a coupon</b>.'
+                    ] }
+                ],
+                recap: 'Quick order at the desk',
+                recapList: [
+                    'Doctor on the bill → <b>Choose</b> a coupon → <b>Apply</b>.',
+                    '<b>+ Add Payment</b> → tick <b>Use reward points</b> → <b>Points to use</b> or <b>Redeem all</b> → <b>✓ Confirm Payment</b>.',
+                    'Tell the patient about the phone page (📱 points, Wallet QR for coupons).'
+                ],
+                tips: 'Problems?',
+                tipList: [
+                    ['The green reward box is not in Add Payment', 'The clinic or the bill’s doctor is not joined in Reward Points → Clinics in scheme.'],
+                    ['“Use reward points” cannot be ticked', 'No doctor on the bill, or this patient has no points with this doctor.'],
+                    ['Choose is greyed out', 'A payment is already on the bill. Coupons must be chosen before the first payment.'],
+                    ['A coupon shows a reason instead of an amount', 'The treatment is not on the bill, the coupon has expired, a whole-bill coupon is already used, or the clinic is not in the coupon scheme.'],
+                    ['The points box stops early', 'It stops at the smallest of: the bill balance, this doctor’s points, and the per-bill limit.'],
+                    ['Points from today cannot be used', 'By design: points earned on a payment are usable from the next payment.']
+                ]
+            },
             mock: {
+                dkBill: 'Bill Detail', dkCouponRow: 'Discount coupon', dkChoose: 'Choose', dkUse: 'Use', dkGift: 'Gift', dkXfer: 'Transfer',
+                dkWhole: 'Whole bill', dkTreat: 'Treatment', dkBest: 'Best', dkScaling: 'Free scaling', dkNotTicked: 'Not on this bill',
+                dkNewTotal: 'New total', dkApply: 'Apply', dkNoCoupon: 'Do not use a coupon',
+                dkAddPay: 'Add Payment', dkDoctor: 'Doctor', dkAvail: 'Available for this doctor (all clinics)', dkUsePts: 'Use reward points as discount',
+                dkByClinic: 'By clinic (same doctor)', dkRedeemAll: 'Redeem all', dkPtsToUse: 'Points to use', dkWillTake: 'Will take:',
+                dkCapNote: 'Per-bill limit HK$3000.00 · already used on this bill 0.00 · can use now 3000.00', dkConfirm: '✓ Confirm Payment',
                 capTitle: 'Using points on one bill', capMax: 'Max points used per bill', ofBill: 'of the bill', upTo: 'up to', save: 'Save',
                 capSum: 'At most HK$3,000 in points per bill',
                 capNote: 'Per-bill limit HK$3000.00 · already used on this bill 500.00 · can use now 2500.00',
@@ -237,7 +341,7 @@
             }
         },
         'zh-Hant': {
-            coverPart: { rw: '獎勵積分', dc: '優惠券' },
+            coverPart: { rw: '獎勵積分', dc: '優惠券', dk: '收費櫃檯' },
             rw: {
                 title: '🎁 獎勵積分 — 設定說明',
                 intro: '病人按付款金額賺取獎勵積分，<b>1 積分 = HK$1</b>，可在之後的賬單抵扣。' +
@@ -266,7 +370,7 @@
                         '設定每張賬單最多可用多少積分：<b>賬單金額 %</b>、<b>最多 HK$</b>，或兩者都設，然後按<b>儲存</b>。',
                         '兩個上限同時適用，<b>以較小者為準</b>；留空即取消該上限。百分比以賬單總額計算。',
                         '預設：每張賬單<b>最多 HK$3,000</b>，不設百分比，與病人手機頁面所寫的「每張賬單最高使用額為 HK$3,000，另有註明除外。」一致。',
-                        '同一張賬單的<b>每次付款合併計算</b>。付款時積分欄不能超過上限，琥珀色提示顯示尚餘多少，超出時<b>儲存付款</b>會被拒絕。'
+                        '同一張賬單的<b>每次付款合併計算</b>。付款時積分欄不能超過上限，琥珀色提示顯示尚餘多少，超出時<b>✓ 確認付款</b>會被拒絕。'
                     ] },
                     { t: '將獎勵積分清零', danger: true, mock: zeroMock, list: [
                         '選擇清零方式：<b>手動</b>（預設，積分不會自動清零）、<b>每年 12 月 31 日 23:59</b>（香港時間）自動清零，' +
@@ -385,7 +489,82 @@
                     ['「請先在 Supabase 執行 discount_coupon_zero.sql。」', '資料庫尚未有清零用的資料表。請系統管理員執行一次 discount_coupon_zero.sql。']
                 ]
             },
+            desk: {
+                title: '🧾 收費櫃檯 — 獎勵積分及優惠券',
+                intro: '給使用 Banana 的前台同事。本部分逐步說明收款時如何使用<b>優惠券</b>及<b>獎勵積分</b>：' +
+                    '<b>帳單詳情</b> → 🎟️ 優惠券一行 → <b>+ 新增付款</b>。',
+                before: '開始前',
+                beforeList: [
+                    '兩個計劃只在已加入的診所（及醫生）適用。診所未加入時，相關按鈕會隱藏或變灰。',
+                    '先在賬單選好<b>主診醫生</b>。獎勵積分屬於賺取積分時的醫生。',
+                    '次序：<b>先選優惠券，後收款</b>。賬單一有付款，優惠券一行便會鎖定。'
+                ],
+                steps: [
+                    { t: '查看病人擁有甚麼', list: [
+                        '病人資料橫額上的<b>積分</b>按鈕顯示積分結餘；旁邊的 <b>📖 使用說明</b> 開啟本手冊。',
+                        '按<b>積分</b>開啟面板，有兩個分頁：<b>🎁 獎勵積分</b>（賬本）及 <b>🎟️ 優惠券</b>（錢包）。' +
+                            '診所未加入的計劃，其分頁會變灰（「診所未加入」）。',
+                        '在<b>病人 → ⋯ → 獎賞</b>亦會開啟同一面板。病人<b>總覽</b>頁的 🎁 卡顯示積分，🎟️ <b>優惠券錢包</b>卡顯示可用優惠券數目。'
+                    ] },
+                    { t: '在賬單使用優惠券', key: true, mock: deskCouponMock, list: [
+                        '在<b>帳單詳情</b>的 🎟️ <b>優惠券</b>一行按<b>選擇</b>。<b>使用</b>分頁列出病人可用的優惠券。',
+                        '每張券顯示面值、<b>全單券</b>或<b>治療券</b>、到期日及可扣減金額。<b>最優</b>表示節省最多。',
+                        '按一下券即選取（<b>✓ 已選</b>），底部顯示新總額，然後按<b>使用</b>。',
+                        '不能使用的券會顯示原因而不是金額（例如賬單上沒有該治療，或已過期）。',
+                        '要取消優惠券，按<b>選擇</b> → <b>不使用優惠券</b>。付款儲存後，<b>選擇</b>會變灰。'
+                    ] },
+                    { t: '贈送或轉讓優惠券', list: [
+                        '<b>贈送</b>分頁：選擇券種（現金券 HK$1–200，或已開啟的治療券），按 🔒 按鈕並以職員帳戶登入。',
+                        '<b>轉讓</b>分頁：選擇優惠券，輸入對方的<b>病歷號</b>，再 🔒 登入。新客券及介紹新客券不能轉讓。',
+                        '不經賬單亦可操作：<b>積分</b> → <b>🎟️ 優惠券</b>分頁 → <b>錢包</b>／<b>贈送</b>／<b>轉讓</b>。' +
+                            '該處的錢包只供瀏覽。按 Esc 可關閉登入框而不關閉面板。'
+                    ] },
+                    { t: '在新增付款使用獎勵積分', key: true, mock: deskPayMock, list: [
+                        '按 <b>+ 新增付款</b>。綠色積分框顯示<b>醫生</b>及<b>本醫生可用積分（全部診所）</b>。',
+                        '剔選<b>使用積分抵扣</b>，在<b>按診所（同一醫生）</b>剔選要扣除積分的診所。',
+                        '輸入<b>使用積分數</b>，或按<b>全部兌換</b>（先扣結餘較少的診所）。<b>將扣除：</b>顯示由哪間診所扣除。',
+                        '<b>金額</b>欄會減去積分，顯示仍需支付的現金。到達每張賬單上限時，琥珀色提示顯示尚餘多少。',
+                        '填寫付款方式，按 <b>✓ 確認付款</b>。積分抵扣屬折扣，<b>不計作診所收入</b>。'
+                    ] },
+                    { t: '付款之後', list: [
+                        '今次付款賺取的積分會加入<b>積分</b>結餘，可於<b>下一筆</b>付款使用，不可在同一筆付款使用。',
+                        '消費優惠券在賬單<b>全數付清</b>後發出。結餘下方的綠色框顯示<b>本單獲得</b>，或再消費多少可獲下一張券。',
+                        '賬單上的<b>本單共節省</b>一行合計項目折扣、額外折扣及優惠券。'
+                    ] },
+                    { t: '給病人手機頁', list: [
+                        '積分：<b>積分</b> → 🎁 分頁 → <b>📱 手機查看積分</b>。優惠券：<b>積分</b> → 🎟️ 分頁 → <b>錢包 QR 碼</b>，或病人總覽頁的 🎟️ <b>優惠券錢包</b>卡。',
+                        '病人用手機相機掃描 QR 碼。亦可複製連結、下載 PNG、列印紙條，或以 <b>WhatsApp</b> 發送。',
+                        '<b>重新產生 QR 碼</b>會令舊連結失效（例如病人遺失手機）。手機頁只供瀏覽。'
+                    ] },
+                    { t: '更正錯誤', danger: true, list: [
+                        '<b>作廢付款</b>：該次使用的積分會退回，該次賺取的積分會扣除。',
+                        '<b>作廢賬單</b>：已使用的優惠券退回錢包，該單發出的優惠券會取消；積分亦同樣還原。',
+                        '未收款前選錯優惠券？再按<b>選擇</b>另選一張，或按<b>不使用優惠券</b>。'
+                    ] }
+                ],
+                recap: '櫃檯快速次序',
+                recapList: [
+                    '賬單選醫生 → <b>選擇</b>優惠券 → <b>使用</b>。',
+                    '<b>+ 新增付款</b> → 剔選<b>使用積分抵扣</b> → <b>使用積分數</b>或<b>全部兌換</b> → <b>✓ 確認付款</b>。',
+                    '告訴病人手機頁（📱 積分，優惠券用錢包 QR 碼）。'
+                ],
+                tips: '遇到問題？',
+                tipList: [
+                    ['新增付款沒有綠色積分框', '診所或賬單醫生未在 獎勵積分 → 參與診所 加入。'],
+                    ['「使用積分抵扣」不能剔選', '賬單未選醫生，或病人沒有此醫生的積分。'],
+                    ['「選擇」變灰', '賬單已有付款。優惠券須在第一筆付款前選擇。'],
+                    ['優惠券顯示原因而不是金額', '賬單上沒有該治療、優惠券已過期、已使用全單券，或診所未加入優惠券計劃。'],
+                    ['積分欄提早停止', '以下最小者為上限：賬單結欠、此醫生的積分、每張賬單上限。'],
+                    ['今天賺取的積分不能使用', '按設計：付款賺取的積分可於下一筆付款使用。']
+                ]
+            },
             mock: {
+                dkBill: '帳單詳情', dkCouponRow: '優惠券', dkChoose: '選擇', dkUse: '使用', dkGift: '贈送', dkXfer: '轉讓',
+                dkWhole: '全單券', dkTreat: '治療券', dkBest: '最優', dkScaling: '免費洗牙', dkNotTicked: '賬單上沒有此治療',
+                dkNewTotal: '新總額', dkApply: '使用', dkNoCoupon: '不使用優惠券',
+                dkAddPay: '新增付款', dkDoctor: '醫生', dkAvail: '本醫生可用積分（全部診所）', dkUsePts: '使用積分抵扣',
+                dkByClinic: '按診所（同一醫生）', dkRedeemAll: '全部兌換', dkPtsToUse: '使用積分數', dkWillTake: '將扣除：',
+                dkCapNote: '每張賬單上限 HK$3000.00 · 本單已用 0.00 · 現可用 3000.00', dkConfirm: '✓ 確認付款',
                 capTitle: '單張賬單使用積分上限', capMax: '每張賬單最多使用積分', ofBill: '賬單金額', upTo: '最多', save: '儲存',
                 capSum: '最多 HK$3,000 積分／每張賬單',
                 capNote: '每張賬單上限 HK$3000.00 · 此賬單已使用 500.00 · 現可使用 2500.00',
@@ -398,7 +577,7 @@
             }
         },
         'zh-CN': {
-            coverPart: { rw: '奖励积分', dc: '优惠券' },
+            coverPart: { rw: '奖励积分', dc: '优惠券', dk: '收费柜台' },
             rw: {
                 title: '🎁 奖励积分 — 设置说明',
                 intro: '病人按付款金额赚取奖励积分，<b>1 积分 = HK$1</b>，可在之后的账单抵扣。' +
@@ -427,7 +606,7 @@
                         '设置每张账单最多可用多少积分：<b>账单金额 %</b>、<b>最多 HK$</b>，或两者都设，然后点<b>保存</b>。',
                         '两个上限同时适用，<b>以较小者为准</b>；留空即取消该上限。百分比以账单总额计算。',
                         '默认：每张账单<b>最多 HK$3,000</b>，不设百分比，与病人手机页面所写的「每张账单最高使用额为 HK$3,000，另有注明除外。」一致。',
-                        '同一张账单的<b>每次付款合并计算</b>。付款时积分栏不能超过上限，琥珀色提示显示尚余多少，超出时<b>保存付款</b>会被拒绝。'
+                        '同一张账单的<b>每次付款合并计算</b>。付款时积分栏不能超过上限，琥珀色提示显示尚余多少，超出时<b>✓ 确认付款</b>会被拒绝。'
                     ] },
                     { t: '将奖励积分清零', danger: true, mock: zeroMock, list: [
                         '选择清零方式：<b>手动</b>（默认，积分不会自动清零）、<b>每年 12 月 31 日 23:59</b>（香港时间）自动清零，' +
@@ -546,7 +725,82 @@
                     ['「请先在 Supabase 运行 discount_coupon_zero.sql。」', '数据库尚未有清零用的数据表。请系统管理员运行一次 discount_coupon_zero.sql。']
                 ]
             },
+            desk: {
+                title: '🧾 收费柜台 — 奖励积分及优惠券',
+                intro: '给使用 Banana 的前台同事。本部分逐步说明收款时如何使用<b>优惠券</b>及<b>奖励积分</b>：' +
+                    '<b>账单详情</b> → 🎟️ 优惠券一行 → <b>+ 添加付款</b>。',
+                before: '开始前',
+                beforeList: [
+                    '两个计划只在已加入的诊所（及医生）适用。诊所未加入时，相关按钮会隐藏或变灰。',
+                    '先在账单选好<b>主诊医生</b>。奖励积分属于赚取积分时的医生。',
+                    '次序：<b>先选优惠券，后收款</b>。账单一有付款，优惠券一行便会锁定。'
+                ],
+                steps: [
+                    { t: '查看病人拥有什么', list: [
+                        '病人资料横幅上的<b>积分</b>按钮显示积分余额；旁边的 <b>📖 使用说明</b> 打开本手册。',
+                        '点<b>积分</b>打开面板，有两个分页：<b>🎁 奖励积分</b>（账本）及 <b>🎟️ 优惠券</b>（钱包）。' +
+                            '诊所未加入的计划，其分页会变灰（“诊所未加入”）。',
+                        '在<b>病人 → ⋯ → 奖赏</b>也会打开同一面板。病人<b>总览</b>页的 🎁 卡显示积分，🎟️ <b>优惠券钱包</b>卡显示可用优惠券数目。'
+                    ] },
+                    { t: '在账单使用优惠券', key: true, mock: deskCouponMock, list: [
+                        '在<b>账单详情</b>的 🎟️ <b>优惠券</b>一行点<b>选择</b>。<b>使用</b>分页列出病人可用的优惠券。',
+                        '每张券显示面值、<b>全单券</b>或<b>治疗券</b>、到期日及可扣减金额。<b>最优</b>表示节省最多。',
+                        '点一下券即选取（<b>✓ 已选</b>），底部显示新总额，然后点<b>使用</b>。',
+                        '不能使用的券会显示原因而不是金额（例如账单上没有该治疗，或已过期）。',
+                        '要取消优惠券，点<b>选择</b> → <b>不使用优惠券</b>。付款保存后，<b>选择</b>会变灰。'
+                    ] },
+                    { t: '赠送或转让优惠券', list: [
+                        '<b>赠送</b>分页：选择券种（现金券 HK$1–200，或已开启的治疗券），点 🔒 按钮并以职员账户登录。',
+                        '<b>转让</b>分页：选择优惠券，输入对方的<b>病历号</b>，再 🔒 登录。新客券及介绍新客券不能转让。',
+                        '不经账单也可操作：<b>积分</b> → <b>🎟️ 优惠券</b>分页 → <b>钱包</b>／<b>赠送</b>／<b>转让</b>。' +
+                            '该处的钱包只供浏览。按 Esc 可关闭登录框而不关闭面板。'
+                    ] },
+                    { t: '在添加付款使用奖励积分', key: true, mock: deskPayMock, list: [
+                        '点 <b>+ 添加付款</b>。绿色积分框显示<b>医生</b>及<b>本医生可用积分（全部诊所）</b>。',
+                        '勾选<b>使用积分抵扣</b>，在<b>按诊所（同一医生）</b>勾选要扣除积分的诊所。',
+                        '输入<b>使用积分数</b>，或点<b>全部兑换</b>（先扣余额较少的诊所）。<b>将扣除：</b>显示由哪间诊所扣除。',
+                        '<b>金额</b>栏会减去积分，显示仍需支付的现金。到达每张账单上限时，琥珀色提示显示尚余多少。',
+                        '填写付款方式，点 <b>✓ 确认付款</b>。积分抵扣属折扣，<b>不计作诊所收入</b>。'
+                    ] },
+                    { t: '付款之后', list: [
+                        '本次付款赚取的积分会加入<b>积分</b>余额，可于<b>下一笔</b>付款使用，不可在同一笔付款使用。',
+                        '消费优惠券在账单<b>全数付清</b>后发出。余额下方的绿色框显示<b>本单获得</b>，或再消费多少可获下一张券。',
+                        '账单上的<b>本单共节省</b>一行合计项目折扣、额外折扣及优惠券。'
+                    ] },
+                    { t: '给病人手机页', list: [
+                        '积分：<b>积分</b> → 🎁 分页 → <b>📱 手机查看积分</b>。优惠券：<b>积分</b> → 🎟️ 分页 → <b>钱包二维码</b>，或病人总览页的 🎟️ <b>优惠券钱包</b>卡。',
+                        '病人用手机相机扫描二维码。也可复制链接、下载 PNG、打印纸条，或以 <b>WhatsApp</b> 发送。',
+                        '<b>重新生成二维码</b>会令旧链接失效（例如病人遗失手机）。手机页只供浏览。'
+                    ] },
+                    { t: '更正错误', danger: true, list: [
+                        '<b>作废付款</b>：该次使用的积分会退回，该次赚取的积分会扣除。',
+                        '<b>作废账单</b>：已使用的优惠券退回钱包，该单发出的优惠券会取消；积分也同样还原。',
+                        '未收款前选错优惠券？再点<b>选择</b>另选一张，或点<b>不使用优惠券</b>。'
+                    ] }
+                ],
+                recap: '柜台快速次序',
+                recapList: [
+                    '账单选医生 → <b>选择</b>优惠券 → <b>使用</b>。',
+                    '<b>+ 添加付款</b> → 勾选<b>使用积分抵扣</b> → <b>使用积分数</b>或<b>全部兑换</b> → <b>✓ 确认付款</b>。',
+                    '告诉病人手机页（📱 积分，优惠券用钱包二维码）。'
+                ],
+                tips: '遇到问题？',
+                tipList: [
+                    ['添加付款没有绿色积分框', '诊所或账单医生未在 奖励积分 → 参与诊所 加入。'],
+                    ['“使用积分抵扣”不能勾选', '账单未选医生，或病人没有此医生的积分。'],
+                    ['“选择”变灰', '账单已有付款。优惠券须在第一笔付款前选择。'],
+                    ['优惠券显示原因而不是金额', '账单上没有该治疗、优惠券已过期、已使用全单券，或诊所未加入优惠券计划。'],
+                    ['积分栏提早停止', '以下最小者为上限：账单结欠、此医生的积分、每张账单上限。'],
+                    ['今天赚取的积分不能使用', '按设计：付款赚取的积分可于下一笔付款使用。']
+                ]
+            },
             mock: {
+                dkBill: '账单详情', dkCouponRow: '优惠券', dkChoose: '选择', dkUse: '使用', dkGift: '赠送', dkXfer: '转让',
+                dkWhole: '全单券', dkTreat: '治疗券', dkBest: '最优', dkScaling: '免费洗牙', dkNotTicked: '账单上没有此治疗',
+                dkNewTotal: '新总额', dkApply: '使用', dkNoCoupon: '不使用优惠券',
+                dkAddPay: '添加付款', dkDoctor: '医生', dkAvail: '本医生可用积分（全部诊所）', dkUsePts: '使用积分抵扣',
+                dkByClinic: '按诊所（同一医生）', dkRedeemAll: '全部兑换', dkPtsToUse: '使用积分数', dkWillTake: '将扣除：',
+                dkCapNote: '每张账单上限 HK$3000.00 · 本单已用 0.00 · 现可用 3000.00', dkConfirm: '✓ 确认付款',
                 capTitle: '单张账单使用积分上限', capMax: '每张账单最多使用积分', ofBill: '账单金额', upTo: '最多', save: '保存',
                 capSum: '最多 HK$3,000 积分／每张账单',
                 capNote: '每张账单上限 HK$3000.00 · 此账单已使用 500.00 · 现可使用 2500.00',
@@ -585,14 +839,14 @@
             '<div class="xhg-body">' + body + '</div></section>';
     }
 
-    /** #lang-x and #rewards-x open the reward points part, #coupons-x the coupon part.
-     *  #start-rewards-x / #start-coupons-x open the cover (contents page) with that language and part marked. */
+    /** #lang-x and #rewards-x open the reward points part, #coupons-x the coupon part, #desk-x the payment desk part.
+     *  #start-rewards-x / #start-coupons-x / #start-desk-x open the cover (contents page) with that language and part marked. */
     function targetFor(hash) {
-        var s = /^#start-(rewards|coupons)-(en|zh-Hant|zh-CN)$/.exec(hash || '');
+        var s = /^#start-(rewards|coupons|desk)-(en|zh-Hant|zh-CN)$/.exec(hash || '');
         if (s) return { lang: s[2], id: 'manualCover', part: s[1], cover: true };
-        var m = /^#(lang|rewards|coupons)-(en|zh-Hant|zh-CN)$/.exec(hash || '');
+        var m = /^#(lang|rewards|coupons|desk)-(en|zh-Hant|zh-CN)$/.exec(hash || '');
         if (!m) return null;
-        return { lang: m[2], id: (m[1] === 'coupons' ? 'coupons-' : 'lang-') + m[2] };
+        return { lang: m[2], id: (m[1] === 'coupons' ? 'coupons-' : m[1] === 'desk' ? 'desk-' : 'lang-') + m[2] };
     }
 
     /** Pure: the language to open with no #anchor — the dashboard's saved language, else Traditional Chinese. */
@@ -619,7 +873,8 @@
                     var t = T[l.id];
                     return '<li data-lang="' + l.id + '"><a href="#lang-' + l.id + '"><b>' + l.label + '</b></a>' +
                         '<small><a href="#rewards-' + l.id + '" data-part="rewards">🎁 ' + t.coverPart.rw + '</a>' +
-                        '<a href="#coupons-' + l.id + '" data-part="coupons">🎟️ ' + t.coverPart.dc + '</a></small></li>';
+                        '<a href="#coupons-' + l.id + '" data-part="coupons">🎟️ ' + t.coverPart.dc + '</a>' +
+                        '<a href="#desk-' + l.id + '" data-part="desk">🧾 ' + t.coverPart.dk + '</a></small></li>';
                 }).join('') +
             '</ol>' +
             '<div class="xhg-cover-key">' +
@@ -627,13 +882,17 @@
                 '<p>Configuration → 🎁 Reward Points / 🎟️ Discount Coupons — 📖 How to use opens this manual.<br>' +
                 '設定 → 🎁 獎勵積分／🎟️ 優惠券 — 按 📖 使用說明開啟本手冊。<br>' +
                 '设置 → 🎁 奖励积分／🎟️ 优惠券 — 点 📖 使用说明打开本手册。</p>' +
+                '<p>Patient info banner → <b>Rewards</b> 📖 — front-desk steps: 🧾 ' + T.en.coverPart.dk + '.<br>' +
+                '病人資料橫額 → <b>積分</b> 📖 — 前台步驟：🧾 ' + T['zh-Hant'].coverPart.dk + '。<br>' +
+                '病人资料横幅 → <b>积分</b> 📖 — 前台步骤：🧾 ' + T['zh-CN'].coverPart.dk + '。</p>' +
                 '<p><b>💳 HK$3,000</b> — ' + T.en.rw.steps[3].t + ' · ' + T['zh-Hant'].rw.steps[3].t + ' · ' + T['zh-CN'].rw.steps[3].t + '</p>' +
             '</div>' +
         '</section>';
         root.innerHTML = cover + LANGS.map(function (l) {
             var t = T[l.id];
             return page('lang-' + l.id, l.id, l.label, t.rw.title, '', renderPart(t.rw, t.mock)) +
-                page('coupons-' + l.id, l.id, l.label, t.dc.title, ' is-coupons', renderPart(t.dc, t.mock));
+                page('coupons-' + l.id, l.id, l.label, t.dc.title, ' is-coupons', renderPart(t.dc, t.mock)) +
+                page('desk-' + l.id, l.id, l.label, t.desk.title, ' is-desk', renderPart(t.desk, t.mock));
         }).join('');
         document.title = 'Banana Reward Points & Discount Coupons — user manual · 使用說明 · 使用说明';
 

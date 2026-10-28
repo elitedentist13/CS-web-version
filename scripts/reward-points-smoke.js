@@ -682,7 +682,9 @@ function extractIifeHelpers(src) {
             return [t.rw.steps.length, t.dc.steps.length, t.rw.tipList.length, t.dc.tipList.length, t.rw.recapList.length, t.dc.recapList.length,
                 t.rw.steps.map(function (s) { return s.list.length + (s.mock ? 'm' : '') + (s.key ? 'k' : '') + (s.danger ? 'd' : ''); }).join(','),
                 t.dc.steps.map(function (s) { return s.list.length + (s.mock ? 'm' : '') + (s.key ? 'k' : ''); }).join(','),
-                Object.keys(t.mock).sort().join(',')].join('|');
+                t.desk.steps.map(function (s) { return s.list.length + (s.mock ? 'm' : '') + (s.key ? 'k' : '') + (s.danger ? 'd' : ''); }).join(','),
+                t.desk.tipList.length, t.desk.recapList.length, t.desk.beforeList.length,
+                Object.keys(t.mock).sort().join(','), Object.keys(t.coverPart).sort().join(',')].join('|');
         };
         pass('manual: English / 繁 / 简 have the same steps, tips and pictures', shape('en') === shape('zh-Hant') && shape('en') === shape('zh-CN'), shape('en'));
         pass('manual: every reward points config card has a step',
@@ -711,6 +713,32 @@ function extractIifeHelpers(src) {
         var st = LM.targetFor('#start-coupons-zh-CN');
         pass('manual: #start-part-x opens the contents page with that language and part marked', st && st.cover === true &&
             st.id === 'manualCover' && st.lang === 'zh-CN' && st.part === 'coupons' && LM.targetFor('#start-rewards-fr') === null, JSON.stringify(st));
+        pass('manual: payment desk part covers coupons and points at the desk, step by step',
+            ['See what the patient has', 'Use a discount coupon on the bill', 'Gift or transfer a coupon', 'Use reward points in Add Payment',
+                'After the payment', 'Give the patient the phone page', 'Fixing a mistake'].join('|') === LM.T.en.desk.steps.map(function (s) { return s.t; }).join('|') &&
+            LM.T['zh-Hant'].desk.steps[1].t === '在賬單使用優惠券' && LM.T['zh-CN'].desk.steps[3].t === '在添加付款使用奖励积分', LM.T.en.desk.steps.map(function (s) { return s.t; }).join('|'));
+        pass('manual: desk part names the real buttons (Choose, Apply, + Add Payment, Redeem all, ✓ Confirm Payment) in all 3 languages',
+            LM.LANGS.every(function (l) {
+                var t = LM.T[l.id], all = JSON.stringify(t.desk);
+                var want = {
+                    en: ['Choose', 'Apply', 'Do not use a coupon', '+ Add Payment', 'Use reward points as discount', 'Redeem all', '✓ Confirm Payment', 'Points on the phone', 'Wallet QR'],
+                    'zh-Hant': ['選擇', '不使用優惠券', '+ 新增付款', '使用積分抵扣', '全部兌換', '✓ 確認付款', '手機查看積分', '錢包 QR 碼', '獎賞'],
+                    'zh-CN': ['选择', '不使用优惠券', '+ 添加付款', '使用积分抵扣', '全部兑换', '✓ 确认付款', '手机查看积分', '钱包二维码', '奖赏']
+                }[l.id];
+                return want.every(function (w) { return all.indexOf(w) >= 0; });
+            }));
+        pass('manual: desk pictures show the coupon sheet and the Add Payment points box in all 3 languages', LM.LANGS.every(function (l) {
+            var t = LM.T[l.id];
+            var c = t.desk.steps[1].mock(t.mock), p = t.desk.steps[3].mock(t.mock);
+            return c.indexOf(t.mock.dkChoose) > 0 && c.indexOf(t.mock.dkApply) > 0 && c.indexOf('lm-ticket is-on') > 0 &&
+                p.indexOf(t.mock.dkRedeemAll) > 0 && p.indexOf(t.mock.dkConfirm) > 0 && p.indexOf('KT 450.00 · PL 50.00') > 0;
+        }));
+        pass('manual: "Save payment" is now the real button name ✓ Confirm Payment', LM.T.en.rw.steps[3].list.join(' ').indexOf('✓ Confirm Payment') > 0 &&
+            LM.T['zh-Hant'].rw.steps[3].list.join(' ').indexOf('✓ 確認付款') > 0 && LM.T['zh-CN'].rw.steps[3].list.join(' ').indexOf('✓ 确认付款') > 0 &&
+            JSON.stringify(LM.T).indexOf('Save payment') < 0);
+        var dkT = LM.targetFor('#desk-zh-Hant'), dkS = LM.targetFor('#start-desk-en');
+        pass('manual: #desk-x opens the desk part, #start-desk-x the contents with the desk part marked', dkT && dkT.id === 'desk-zh-Hant' &&
+            dkS && dkS.cover && dkS.part === 'desk' && dkS.lang === 'en', JSON.stringify([dkT, dkS]));
         pass('manual: HK$3,000 defaults stated for points and cash coupons in all 3 languages', LM.LANGS.every(function (l) {
             var t = LM.T[l.id];
             return t.rw.steps[3].list.join(' ').indexOf('HK$3,000') >= 0 && t.dc.steps[3].list.join(' ').indexOf('HK$3,000') >= 0;
@@ -773,11 +801,11 @@ function extractIifeHelpers(src) {
                 R.pickPanelTab('coupons', { points: true, coupons: false }) === 'points' &&
                 R.pickPanelTab('points', { points: false, coupons: false }) === '');
             pass('manual link: part + dashboard language (en / 简 / 繁 kept; unknown or missing -> 繁)',
-                R.loyaltyGuideHref('coupons', 'zh-CN') === 'docs/loyalty-manual.html?v=20261028d#start-coupons-zh-CN' &&
+                R.loyaltyGuideHref('coupons', 'zh-CN') === 'docs/loyalty-manual.html?v=20261028desk#start-coupons-zh-CN' &&
                 /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-Hant')) && /#start-rewards-en$/.test(R.loyaltyGuideHref('rewards', 'en')) &&
                 /#start-rewards-en$/.test(R.loyaltyGuideHref('rewards', 'en-GB')) &&
                 /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-TW')) && /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('x', 'fr')) &&
-                /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards')));
+                /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards')) && /#start-desk-zh-CN$/.test(R.loyaltyGuideHref('desk', 'zh-CN')));
             var gl = R.loyaltyGuideLinkHtml('coupons');
             pass('manual link: opens a new tab, styled like the X-ray guide button',
                 /class="xray-helper-guide-btn loyalty-guide-btn"/.test(gl) && /target="_blank" rel="noopener"/.test(gl) && /data-guide-part="coupons"/.test(gl));
@@ -843,7 +871,7 @@ function extractIifeHelpers(src) {
         pass('HTML has rwPhoneQrBtn', idx.body.indexOf('id="rwPhoneQrBtn"') >= 0);
         pass('HTML ledger panel has the 📖 manual link (points part)',
             /id="rwGuideBtn" class="[^"]*loyalty-guide-btn[^"]*" data-guide-part="rewards"/.test(idx.body) &&
-            /href="docs\/loyalty-manual\.html\?v=20261028d#start-rewards-zh-Hant" target="_blank"/.test(idx.body));
+            /href="docs\/loyalty-manual\.html\?v=20261028desk#start-rewards-zh-Hant" target="_blank"/.test(idx.body));
         var ptsHtml = await httpGetText(PAGE_PORT, '/points.html');
         pass('GET /points.html loads points.js + wallet.css and boots', ptsHtml.status === 200 &&
             /src="points\.js\?v=/.test(ptsHtml.body) && /href="wallet\.css\?v=/.test(ptsHtml.body) &&
@@ -853,7 +881,7 @@ function extractIifeHelpers(src) {
         var manHtml = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.html');
         var manJs = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.js');
         var manPdf = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.pdf');
-        pass('GET manual html + js + pdf', manHtml.status === 200 && /src="loyalty-manual\.js\?v=20261028d"/.test(manHtml.body) &&
+        pass('GET manual html + js + pdf', manHtml.status === 200 && /src="loyalty-manual\.js\?v=20261028desk"/.test(manHtml.body) &&
             /href="loyalty-manual\.pdf"/.test(manHtml.body) && manJs.status === 200 && manPdf.status === 200 &&
             manPdf.body.slice(0, 5) === '%PDF-', manHtml.status + '/' + manJs.status + '/' + manPdf.status);
         var pwSqlHttp = await httpGetText(PAGE_PORT, '/reward_points_wallet.sql');
@@ -1335,7 +1363,7 @@ function extractIifeHelpers(src) {
             pass('live config: points-per-bill card shows its limit', cfgPaint.capBeforeZero && /HK\$|limit|上限/.test(cfgPaint.capSum), cfgPaint.capSum);
             pass('live config: 📖 How to use opens the points part in the dashboard language',
                 !!cfgPaint.guide && /^📖/.test(cfgPaint.guide.text) &&
-                cfgPaint.guide.href === 'docs/loyalty-manual.html?v=20261028d#start-rewards-' +
+                cfgPaint.guide.href === 'docs/loyalty-manual.html?v=20261028desk#start-rewards-' +
                     (['zh-Hant', 'zh-CN'].indexOf(cfgPaint.guide.lang) >= 0 ? cfgPaint.guide.lang : 'en'), JSON.stringify(cfgPaint.guide));
         }
 
@@ -1419,7 +1447,7 @@ function extractIifeHelpers(src) {
         pass('live: manual with no anchor opens in the dashboard language (简 / English), else 繁', !!guideLive &&
             guideLive.bareCn === '#start-rewards-zh-CN' && guideLive.bareEn === '#start-rewards-en' && guideLive.bareNone === '#start-rewards-zh-Hant',
             JSON.stringify(guideLive && [guideLive.bareCn, guideLive.bareEn, guideLive.bareNone]));
-        pass('live: manual page builds cover + 6 parts and opens 繁 coupons', !!guideLive && guideLive.manualOk && guideLive.pages === 7 &&
+        pass('live: manual page builds cover + 9 parts (3 per language) and opens 繁 coupons', !!guideLive && guideLive.manualOk && guideLive.pages === 10 &&
             guideLive.onTab === '繁體中文' && /優惠券/.test(guideLive.title || ''), JSON.stringify(guideLive && { p: guideLive.pages, t: guideLive.onTab, h: guideLive.title }));
 
         // Ledger panel tabs: clinic context and the coupon join check are stubbed; a dummy patient id reads nothing.
@@ -1584,6 +1612,60 @@ function extractIifeHelpers(src) {
             dm.tabs === 'points:on,coupons:on' && dm.pointsOpen, JSON.stringify(dm));
         pass('live patient dir ⋯ Rewards: coupon tab shows Wallet / Gift / Transfer', dm.couponsOpen === 'wallet,gift,transfer', JSON.stringify(dm));
 
+        var bannerGuide = await cdp.js(`(async () => {
+  const out = {};
+  const oldLang = typeof getAppLang === 'function' ? getAppLang() : 'en';
+  ['con', 'appt'].forEach(k => {
+    const btn = document.getElementById(k + 'BannerRewardsBtn');
+    const a = document.getElementById(k + 'BannerRewardsBtnGuide');
+    out[k] = { btn: !!btn, guide: !!a, next: !!btn && btn.nextElementSibling === a, href: a ? a.getAttribute('href') : '',
+      text: a ? a.textContent : '', target: a ? a.target : '', cls: a ? a.className : '' };
+  });
+  const a = document.getElementById('conBannerRewardsBtnGuide');
+  if (a && typeof setAppLang === 'function') {
+    setAppLang('zh-CN');
+    a.addEventListener('click', e => e.preventDefault(), { once: true });
+    a.click();
+    out.afterCn = a.getAttribute('href');
+    setAppLang(oldLang);
+  }
+  async function frame(hash) {
+    const f = document.createElement('iframe');
+    f.style.cssText = 'position:fixed;left:-2000px;top:0;width:900px;height:700px;';
+    f.src = 'docs/loyalty-manual.html?v=dk' + Date.now() + hash;
+    document.body.appendChild(f);
+    await new Promise(res => { f.onload = res; setTimeout(res, 8000); });
+    await new Promise(res => setTimeout(res, 300));
+    const d = f.contentDocument;
+    const r = {
+      part: (d.querySelector('.xhg-cover-toc li.is-on a.is-on[data-part]') || { getAttribute: () => null }).getAttribute('data-part'),
+      scrollY: f.contentWindow.scrollY,
+      deskLinks: d.querySelectorAll('.xhg-cover-toc a[data-part="desk"]').length,
+      deskTitle: (d.querySelector('#desk-en .xhg-title') || {}).textContent || '',
+      deskHead: !!d.querySelector('#desk-zh-Hant .xhg-head.is-desk'),
+      deskSteps: d.querySelectorAll('#desk-en .xhg-step').length,
+      mocks: d.querySelectorAll('#desk-en .lm-mock').length,
+      deskTop: Math.round((d.getElementById('desk-en') || { getBoundingClientRect: () => ({ top: -1 }) }).getBoundingClientRect().top)
+    };
+    f.remove();
+    return r;
+  }
+  out.start = await frame('#start-desk-zh-Hant');
+  out.desk = await frame('#desk-en');
+  return out;
+})()`, true, 40000);
+        var bg = bannerGuide || {};
+        pass('live banner: 📖 How to use sits right after the Rewards button (consultation + appointment banners)',
+            bg.con && bg.con.btn && bg.con.guide && bg.con.next && bg.appt && bg.appt.guide && bg.appt.next &&
+            /^📖/.test(bg.con.text) && bg.con.target === '_blank' && /rw-banner-guide/.test(bg.con.cls), JSON.stringify(bg.con) + ' ' + JSON.stringify(bg.appt));
+        pass('live banner: 📖 opens the manual contents with the payment desk part marked, in the dashboard language',
+            /^docs\/loyalty-manual\.html\?v=20261028desk#start-desk-(en|zh-Hant|zh-CN)$/.test((bg.con || {}).href || '') && /#start-desk-zh-CN$/.test(bg.afterCn || ''),
+            (bg.con || {}).href + ' / ' + bg.afterCn);
+        pass('live manual: #start-desk-x opens the contents page with 🧾 desk marked (3 desk links)', bg.start && bg.start.part === 'desk' &&
+            bg.start.scrollY === 0 && bg.start.deskLinks === 3, JSON.stringify(bg.start));
+        pass('live manual: #desk-en jumps to the desk part: 7 steps, 2 pictures, green header', bg.desk && bg.desk.deskSteps === 7 && bg.desk.mocks === 2 &&
+            /payment desk/.test(bg.desk.deskTitle) && bg.desk.deskHead && bg.desk.scrollY > 1000 && bg.desk.deskTop >= 0 && bg.desk.deskTop < 90, JSON.stringify(bg.desk));
+
         // Admin view of the cap card; the save is stubbed so no setting is written.
         var capAdm = await cdp.js(`(async () => {
   const pane = document.getElementById('cfgPane-rewards');
@@ -1720,7 +1802,7 @@ function extractIifeHelpers(src) {
         pass('CDP ledger panel shows Points on the phone', !!(pqr && pqr.btnShown), JSON.stringify(pqr).slice(0, 300));
         pass('CDP ledger panel has 📖 How to use -> points part of the manual in the dashboard language (new tab)',
             !!(pqr && pqr.guide && pqr.guide.shown && /^📖/.test(pqr.guide.text) && pqr.guide.target === '_blank' &&
-                pqr.guide.href === 'docs/loyalty-manual.html?v=20261028d#start-rewards-' + pqr.guide.lang), JSON.stringify(pqr && pqr.guide));
+                pqr.guide.href === 'docs/loyalty-manual.html?v=20261028desk#start-rewards-' + pqr.guide.lang), JSON.stringify(pqr && pqr.guide));
         pass('CDP points QR covers the screen above the ledger panel (not clipped by the panel box)',
             !!(pqr && pqr.inModal && pqr.onTop && pqr.fullScreen && pqr.notInBox && pqr.inView),
             pqr && JSON.stringify(pqr.topDebug || ''));

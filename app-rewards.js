@@ -3994,6 +3994,15 @@ var REWARDS = (function () {
             });
             sub.appendChild(btn);
         }
+        var guideId = btnId + 'Guide';
+        if (!document.getElementById(guideId)) {
+            var tmp = document.createElement('span');
+            tmp.innerHTML = loyaltyGuideLinkHtml('desk');
+            var guide = tmp.firstChild;
+            guide.id = guideId;
+            guide.classList.add('rw-banner-guide');
+            btn.insertAdjacentElement('afterend', guide);
+        }
         // Repair older builds that used wrong strong id (btnId + "Bal")
         var balEl = document.getElementById(balId);
         if (!balEl && btn) {
@@ -4330,14 +4339,14 @@ var REWARDS = (function () {
         });
     }
 
-    var LOYALTY_MANUAL = 'docs/loyalty-manual.html?v=20261028d';
+    var LOYALTY_MANUAL = 'docs/loyalty-manual.html?v=20261028desk';
 
     /** Pure: manual link for one part (rewards | coupons) at the dashboard language. */
     /** Opens the manual's contents page, with the dashboard language (Traditional Chinese when unknown) and the part marked. */
     function loyaltyGuideHref(part, lang) {
         lang = String(lang || 'zh-Hant');
         if (lang !== 'zh-Hant' && lang !== 'zh-CN' && lang !== 'en') lang = lang.indexOf('en') === 0 ? 'en' : 'zh-Hant';
-        return LOYALTY_MANUAL + '#start-' + (part === 'coupons' ? 'coupons' : 'rewards') + '-' + lang;
+        return LOYALTY_MANUAL + '#start-' + (part === 'coupons' || part === 'desk' ? part : 'rewards') + '-' + lang;
     }
 
     function dashboardLang() {
@@ -4966,6 +4975,7 @@ var REWARDS = (function () {
         }
         s.textContent =
             '.rw-info-link{margin-left:6px;}' +
+            '.rw-banner-guide{margin-left:6px;padding:3px 8px;font-size:11px;vertical-align:middle;}' +
             '.rw-pos{color:#16a34a;}.rw-neg{color:#dc2626;}' +
             '.rw-kind{display:inline-flex;align-items:center;gap:4px;padding:2px 9px 2px 7px;border-radius:999px;font-size:11px;font-weight:700;background:#f1f5f9;color:#334155;white-space:nowrap;}' +
             '.rw-kind-ico{font-size:11px;line-height:1;}' +

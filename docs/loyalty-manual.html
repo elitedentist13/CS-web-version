@@ -111,6 +111,26 @@ body {
 .lm-rung b { font-size: 10pt; color: #064e3b; }
 .lm-rung span { font-size: 8.5pt; text-align: center; }
 .lm-rung { min-width: 0; }
+
+/* Payment desk part */
+.xhg-head.is-desk { background: linear-gradient(180deg, #dcfce7 0%, #bbf7d0 60%, #86efac 100%); border-color: #16a34a; }
+.xhg-head.is-desk .xhg-title { color: #14532d; }
+.lm-btn.is-ghost { background: #fff; color: #0f766e; border: 1px solid #0f766e; }
+.lm-btn.is-green { background: #166534; }
+.lm-green { color: #166534; }
+.lm-split { justify-content: space-between; }
+.lm-mock-pay { background: #f0fdf4; border-color: #bbf7d0; }
+.lm-tabs { display: flex; gap: 3px; margin: 7px 0 5px; border-bottom: 1px solid #e2e8f0; }
+.lm-tab { padding: 1px 8px; border-radius: 6px 6px 0 0; color: #64748b; }
+.lm-tab.is-on { background: #0f766e; color: #fff; font-weight: 700; }
+.lm-ticket { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin: 3px 0; padding: 3px 6px; border: 1px dashed #94a3b8; border-radius: 6px; }
+.lm-ticket span { margin-left: auto; font-weight: 700; }
+.lm-ticket small { color: #64748b; }
+.lm-ticket em { font-style: normal; font-size: 8pt; background: #fef08a; color: #713f12; border-radius: 999px; padding: 0 5px; }
+.lm-ticket.is-on { border: 2px solid #0f766e; background: #f0fdfa; }
+.lm-ticket.is-on span { color: #0f766e; }
+.lm-ticket.is-off { opacity: .6; }
+.lm-ticket.is-off span { color: #b45309; font-weight: 400; }
 </style>
 </head>
 <body>
@@ -124,6 +144,6 @@ body {
     <a class="xhg-toolbar-btn" href="loyalty-manual.pdf" download="Banana-Points-and-Coupons-manual.pdf">⬇ PDF</a>
 </nav>
 <main id="manual"></main>
-<script src="loyalty-manual.js?v=20261028d"></script>
+<script src="loyalty-manual.js?v=20261028desk"></script>
 </body>
 </html>

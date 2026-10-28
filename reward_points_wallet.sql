@@ -81,6 +81,7 @@ declare
     v_clinics jsonb;
     v_rows jsonb;
     v_prog jsonb;
+    v_cap jsonb;
 begin
     if p_token is null or p_token !~ '^[0-9a-f]{32}$' then
         return jsonb_build_object('ok', false, 'reason', 'bad_link');
@@ -160,6 +161,14 @@ begin
 
     select to_jsonb(p) into v_prog from public.reward_program p where p.id = 1;
 
+    -- Per-bill limit from Configuration → Reward Points (same default as the app when never saved).
+    begin
+        select s.setting_value::jsonb into v_cap
+          from public.program_settings s where s.setting_key = 'reward_redeem_cap';
+    exception when others then
+        v_cap := null;
+    end;
+
     return jsonb_build_object(
         'ok', true,
         'name', coalesce(v_masked, ''),
@@ -171,7 +180,8 @@ begin
         'rows', v_rows,
         'earn_rate', v_prog -> 'earn_rate_percent',
         'zero_policy', v_prog ->> 'zero_policy',
-        'lifespan_months', v_prog -> 'lifespan_months'
+        'lifespan_months', v_prog -> 'lifespan_months',
+        'redeem_cap', coalesce(v_cap, '{"maxPercent": 0, "maxAmount": 3000}'::jsonb)
     );
 end;
 $$;

@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261028desk';
+var BUILD = '20261028cap';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -1474,10 +1474,24 @@ function loadCoupons() {
         wPast.indexOf('所有優惠券將於今年2026年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。') > 0 &&
         W.renderHtml(wData, 'zh-CN', false).indexOf('所有优惠券将于今年2026年12月31日 23:59到期，请好好善用；欢迎邀请亲友使用。') > 0 &&
         W.renderHtml({ ok: true, today: '2026-10-27', coupons: [] }, 'en').indexOf('wl-remind') < 0, wHtml.slice(0, 0));
-    pass('wallet shows the HK$3,000 per-bill limit in the chosen language',
-        wHtml.indexOf('<p>💳 Maximum usage per bill is HK$3,000, unless otherwise specified.</p></div>') > 0 &&
-        wPast.indexOf('<p>💳 每張賬單最高使用額為 HK$3,000，另有註明除外。</p>') > 0 &&
-        W.renderHtml(wData, 'zh-CN', false).indexOf('<p>💳 每张账单最高使用额为 HK$3,000，另有注明除外。</p>') > 0);
+    pass('wallet: no per-bill line until the database sends the saved cash rules (no fixed HK$3,000)',
+        wHtml.indexOf('💳') < 0 && wHtml.indexOf('unless otherwise specified') < 0);
+    var wRules = function (rules, lang, data) { return W.renderHtml(Object.assign({}, data || wData, { cash_rules: rules }), lang || 'en', false); };
+    pass('wallet: cash coupon per-bill line follows Configuration (%, HK$, count) in the chosen language',
+        wRules({ maxCount: 0, maxPercent: 50, maxAmount: 3000 }).indexOf('<p>💳 Cash coupons per bill: at most 50% of the bill, up to HK$3,000.</p></div>') > 0 &&
+        wRules({ maxCount: 2, maxPercent: 0, maxAmount: 800 }).indexOf('<p>💳 Cash coupons per bill: at most HK$800. Up to 2 cash coupons per bill.</p>') > 0 &&
+        wRules({ maxCount: 0, maxPercent: 25, maxAmount: 0 }, 'zh-Hant').indexOf('<p>💳 每張賬單現金券最多扣減賬單金額 25%。</p>') > 0 &&
+        wRules({ maxCount: 3, maxPercent: 0, maxAmount: 0 }, 'zh-CN').indexOf('<p>💳 每张账单最多使用 3 张现金券。</p>') > 0 &&
+        wRules({ maxCount: 0, maxPercent: 0, maxAmount: 0 }).indexOf('💳') < 0 &&
+        W.cashRuleLines({ limitMode: 'amount', limitValue: 600 }, 'en').join(' ') === 'Cash coupons per bill: at most HK$600.');
+    pass('wallet: cash line only when the patient holds a live cash coupon', wRules({ maxPercent: 50, maxAmount: 3000 }, 'en', {
+        ok: true, today: '2026-10-27', coupons: [{ code: 'X', campaign_key: 'spend_1', discount_mode: 'amount', face_value: 100, status: 'unused', expires_on: '2027-01-01' }]
+    }).indexOf('💳') < 0);
+    pass('wallet SQL sends the saved cash rules to the phone', (function () {
+        var s = read('discount_coupon_wallet.sql');
+        return /setting_value::jsonb -> 'cashRules' into v_cash/.test(s) &&
+            /'cash_rules', coalesce\(nullif\(v_cash, 'null'::jsonb\), '\{"maxCount": 0, "maxPercent": 50, "maxAmount": 3000\}'::jsonb\)/.test(s);
+    })());
     pass('wallet page address follows the phone-scan public address',
         C.walletPageBase({ href: 'http://127.0.0.1:8080/index.html?x=1' }, 'https://clinic.example.com/app/scan.html') === 'https://clinic.example.com/app/wallet.html' &&
         C.walletPageBase({ href: 'https://cs.example.com/app/index.html#p' }, '') === 'https://cs.example.com/app/wallet.html');
@@ -2013,7 +2027,7 @@ function loadCoupons() {
         pass('CDP sheet shows the Wallet QR button', !!(wqr && wqr.btn && wqr.overlay), JSON.stringify(wqr));
         pass('CDP coupon sheet has 📖 How to use -> coupon part of the manual in the dashboard language (new tab)',
             !!(wqr && wqr.guide && wqr.guide.shown && /^📖/.test(wqr.guide.text) && wqr.guide.target === '_blank' &&
-                wqr.guide.href === 'docs/loyalty-manual.html?v=20261028desk#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
+                wqr.guide.href === 'docs/loyalty-manual.html?v=20261028cap#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
         pass('CDP Wallet QR explains when the link cannot be made', !!(wqr && /discount_coupon_wallet\.sql|Could not make/.test(wqr.realErr)), wqr && wqr.realErr);
         pass('CDP Esc closes the QR and keeps the sheet', !!(wqr && wqr.escClosesQrOnly));
         pass('CDP Wallet QR draws the wallet link', !!(wqr && wqr.qr && /\/wallet\.html\?t=0123456789abcdef0123456789abcdef$/.test(wqr.link) && wqr.qrUrl === wqr.link),

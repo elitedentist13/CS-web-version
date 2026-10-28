@@ -71,6 +71,7 @@ declare
     v_masked text;
     v_coupons jsonb;
     v_names jsonb;
+    v_cash jsonb;
 begin
     if p_token is null or p_token !~ '^[0-9a-f]{32}$' then
         return jsonb_build_object('ok', false, 'reason', 'bad_link');
@@ -131,12 +132,21 @@ begin
         v_names := '[]'::jsonb;
     end;
 
+    -- Cash coupon per-bill limit from Configuration → Discount Coupons (same default as the app when never saved).
+    begin
+        select s.setting_value::jsonb -> 'cashRules' into v_cash
+          from public.program_settings s where s.setting_key = 'discount_coupon_scheme';
+    exception when others then
+        v_cash := null;
+    end;
+
     return jsonb_build_object(
         'ok', true,
         'name', coalesce(v_masked, ''),
         'today', (now() at time zone 'Asia/Hong_Kong')::date,
         'coupons', v_coupons,
-        'campaigns', coalesce(v_names, '[]'::jsonb)
+        'campaigns', coalesce(v_names, '[]'::jsonb),
+        'cash_rules', coalesce(nullif(v_cash, 'null'::jsonb), '{"maxCount": 0, "maxPercent": 50, "maxAmount": 3000}'::jsonb)
     );
 end;
 $$;

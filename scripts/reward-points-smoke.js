@@ -648,17 +648,30 @@ function extractIifeHelpers(src) {
             P.hkDate('2026-10-27T20:00:00Z') === '2026-10-28');
         pass('points page: one clinic -> no chips; SMS year-end reminder in Chinese', (function () {
             var h = P.renderHtml({ ok: true, today: '2026-10-28', balance: 50, charts: 1, clinics: [{ clinic: 'PL', balance: 50 }], zero_policy: 'year_end', rows: [] }, 'zh-Hant', false);
-            return h.indexOf('wl-pts-chip"') < 0 && h.indexOf('<div class="wl-remind" role="note"><p>⏰ 所有積分將於今年2026年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。</p>') > 0 &&
-                h.indexOf('<p>💳 每張賬單最高使用額為 HK$3,000，另有註明除外。</p></div>') > 0 &&
+            return h.indexOf('wl-pts-chip"') < 0 && h.indexOf('<div class="wl-remind" role="note"><p>⏰ 所有積分將於今年2026年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。</p></div>') > 0 &&
                 h.indexOf('過去 12 個月沒有積分紀錄。') > 0;
         })());
         pass('points page: English / Simplified reminder; none when the balance is zero', (function () {
             var d = { ok: true, today: '2027-01-05', balance: 10, rows: [] };
             return P.renderHtml(d, 'en').indexOf('All reward points expire on 31 Dec 2027 23:59 this year. Please make good use of them, and you are welcome to invite others to use them.') > 0 &&
                 P.renderHtml(d, 'zh-CN').indexOf('所有积分将于今年2027年12月31日 23:59到期，请好好善用；欢迎邀请亲友使用。') > 0 &&
-                P.renderHtml(d, 'en').indexOf('<p>💳 Maximum usage per bill is HK$3,000, unless otherwise specified.</p>') > 0 &&
-                P.renderHtml(d, 'zh-CN').indexOf('每张账单最高使用额为 HK$3,000，另有注明除外。') > 0 &&
                 P.renderHtml(Object.assign({}, d, { balance: 0 }), 'en').indexOf('wl-remind') < 0;
+        })());
+        pass('points page: per-bill line follows the saved limit (no fixed HK$3,000)', (function () {
+            var d = { ok: true, today: '2027-01-05', balance: 10, rows: [] };
+            function line(cap, lang) { return P.renderHtml(Object.assign({}, d, { redeem_cap: cap }), lang || 'en'); }
+            return line({ maxPercent: 0, maxAmount: 5000 }).indexOf('<p>💳 Maximum usage per bill is HK$5,000.</p></div>') > 0 &&
+                line({ maxPercent: 40, maxAmount: 2500 }).indexOf('<p>💳 Maximum usage per bill: 40% of the bill, up to HK$2,500.</p>') > 0 &&
+                line({ maxPercent: 30, maxAmount: 0 }, 'zh-Hant').indexOf('<p>💳 每張賬單最高使用額為賬單金額 30%。</p>') > 0 &&
+                line({ maxPercent: 0, maxAmount: 3000 }, 'zh-CN').indexOf('<p>💳 每张账单最高使用额为 HK$3,000。</p>') > 0 &&
+                line({ maxPercent: 0, maxAmount: 0 }).indexOf('💳') < 0 &&
+                P.renderHtml(d, 'en').indexOf('💳') < 0 &&
+                P.perBillText({}, 'en') === 'Maximum usage per bill is HK$3,000.' &&
+                (P.renderHtml(d, 'en') + line({ maxAmount: 5000 })).indexOf('unless otherwise specified') < 0;
+        })());
+        pass('points SQL sends the saved per-bill limit to the phone', (function () {
+            var s = read('reward_points_wallet.sql');
+            return /setting_key = 'reward_redeem_cap'/.test(s) && /'redeem_cap', coalesce\(v_cap, '\{"maxPercent": 0, "maxAmount": 3000\}'::jsonb\)/.test(s);
         })());
         pass('points page: bad / expired / offline links explained', /not valid any more/.test(P.renderHtml({ ok: false, reason: 'bad_link' }, 'en')) &&
             /has expired/.test(P.renderHtml({ ok: false, reason: 'expired' }, 'en')) && /Check the connection/.test(P.renderHtml({ ok: false, reason: 'offline' }, 'en')));
@@ -801,7 +814,7 @@ function extractIifeHelpers(src) {
                 R.pickPanelTab('coupons', { points: true, coupons: false }) === 'points' &&
                 R.pickPanelTab('points', { points: false, coupons: false }) === '');
             pass('manual link: part + dashboard language (en / 简 / 繁 kept; unknown or missing -> 繁)',
-                R.loyaltyGuideHref('coupons', 'zh-CN') === 'docs/loyalty-manual.html?v=20261028desk#start-coupons-zh-CN' &&
+                R.loyaltyGuideHref('coupons', 'zh-CN') === 'docs/loyalty-manual.html?v=20261028cap#start-coupons-zh-CN' &&
                 /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-Hant')) && /#start-rewards-en$/.test(R.loyaltyGuideHref('rewards', 'en')) &&
                 /#start-rewards-en$/.test(R.loyaltyGuideHref('rewards', 'en-GB')) &&
                 /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-TW')) && /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('x', 'fr')) &&
@@ -871,7 +884,7 @@ function extractIifeHelpers(src) {
         pass('HTML has rwPhoneQrBtn', idx.body.indexOf('id="rwPhoneQrBtn"') >= 0);
         pass('HTML ledger panel has the 📖 manual link (points part)',
             /id="rwGuideBtn" class="[^"]*loyalty-guide-btn[^"]*" data-guide-part="rewards"/.test(idx.body) &&
-            /href="docs\/loyalty-manual\.html\?v=20261028desk#start-rewards-zh-Hant" target="_blank"/.test(idx.body));
+            /href="docs\/loyalty-manual\.html\?v=20261028cap#start-rewards-zh-Hant" target="_blank"/.test(idx.body));
         var ptsHtml = await httpGetText(PAGE_PORT, '/points.html');
         pass('GET /points.html loads points.js + wallet.css and boots', ptsHtml.status === 200 &&
             /src="points\.js\?v=/.test(ptsHtml.body) && /href="wallet\.css\?v=/.test(ptsHtml.body) &&
@@ -881,7 +894,7 @@ function extractIifeHelpers(src) {
         var manHtml = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.html');
         var manJs = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.js');
         var manPdf = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.pdf');
-        pass('GET manual html + js + pdf', manHtml.status === 200 && /src="loyalty-manual\.js\?v=20261028desk"/.test(manHtml.body) &&
+        pass('GET manual html + js + pdf', manHtml.status === 200 && /src="loyalty-manual\.js\?v=20261028cap"/.test(manHtml.body) &&
             /href="loyalty-manual\.pdf"/.test(manHtml.body) && manJs.status === 200 && manPdf.status === 200 &&
             manPdf.body.slice(0, 5) === '%PDF-', manHtml.status + '/' + manJs.status + '/' + manPdf.status);
         var pwSqlHttp = await httpGetText(PAGE_PORT, '/reward_points_wallet.sql');
@@ -1363,7 +1376,7 @@ function extractIifeHelpers(src) {
             pass('live config: points-per-bill card shows its limit', cfgPaint.capBeforeZero && /HK\$|limit|上限/.test(cfgPaint.capSum), cfgPaint.capSum);
             pass('live config: 📖 How to use opens the points part in the dashboard language',
                 !!cfgPaint.guide && /^📖/.test(cfgPaint.guide.text) &&
-                cfgPaint.guide.href === 'docs/loyalty-manual.html?v=20261028desk#start-rewards-' +
+                cfgPaint.guide.href === 'docs/loyalty-manual.html?v=20261028cap#start-rewards-' +
                     (['zh-Hant', 'zh-CN'].indexOf(cfgPaint.guide.lang) >= 0 ? cfgPaint.guide.lang : 'en'), JSON.stringify(cfgPaint.guide));
         }
 
@@ -1659,7 +1672,7 @@ function extractIifeHelpers(src) {
             bg.con && bg.con.btn && bg.con.guide && bg.con.next && bg.appt && bg.appt.guide && bg.appt.next &&
             /^📖/.test(bg.con.text) && bg.con.target === '_blank' && /rw-banner-guide/.test(bg.con.cls), JSON.stringify(bg.con) + ' ' + JSON.stringify(bg.appt));
         pass('live banner: 📖 opens the manual contents with the payment desk part marked, in the dashboard language',
-            /^docs\/loyalty-manual\.html\?v=20261028desk#start-desk-(en|zh-Hant|zh-CN)$/.test((bg.con || {}).href || '') && /#start-desk-zh-CN$/.test(bg.afterCn || ''),
+            /^docs\/loyalty-manual\.html\?v=20261028cap#start-desk-(en|zh-Hant|zh-CN)$/.test((bg.con || {}).href || '') && /#start-desk-zh-CN$/.test(bg.afterCn || ''),
             (bg.con || {}).href + ' / ' + bg.afterCn);
         pass('live manual: #start-desk-x opens the contents page with 🧾 desk marked (3 desk links)', bg.start && bg.start.part === 'desk' &&
             bg.start.scrollY === 0 && bg.start.deskLinks === 3, JSON.stringify(bg.start));
@@ -1802,7 +1815,7 @@ function extractIifeHelpers(src) {
         pass('CDP ledger panel shows Points on the phone', !!(pqr && pqr.btnShown), JSON.stringify(pqr).slice(0, 300));
         pass('CDP ledger panel has 📖 How to use -> points part of the manual in the dashboard language (new tab)',
             !!(pqr && pqr.guide && pqr.guide.shown && /^📖/.test(pqr.guide.text) && pqr.guide.target === '_blank' &&
-                pqr.guide.href === 'docs/loyalty-manual.html?v=20261028desk#start-rewards-' + pqr.guide.lang), JSON.stringify(pqr && pqr.guide));
+                pqr.guide.href === 'docs/loyalty-manual.html?v=20261028cap#start-rewards-' + pqr.guide.lang), JSON.stringify(pqr && pqr.guide));
         pass('CDP points QR covers the screen above the ledger panel (not clipped by the panel box)',
             !!(pqr && pqr.inModal && pqr.onTop && pqr.fullScreen && pqr.notInBox && pqr.inView),
             pqr && JSON.stringify(pqr.topDebug || ''));

@@ -23,10 +23,25 @@
             'zh-Hant': '所有優惠券將於今年{YEAR}年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。',
             'zh-CN': '所有优惠券将于今年{YEAR}年12月31日 23:59到期，请好好善用；欢迎邀请亲友使用。'
         },
-        perBill: {
-            en: 'Maximum usage per bill is HK$3,000, unless otherwise specified.',
-            'zh-Hant': '每張賬單最高使用額為 HK$3,000，另有註明除外。',
-            'zh-CN': '每张账单最高使用额为 HK$3,000，另有注明除外。'
+        cashBoth: {
+            en: 'Cash coupons per bill: at most {PCT}% of the bill, up to {AMT}.',
+            'zh-Hant': '每張賬單現金券最多扣減賬單金額 {PCT}%，最多 {AMT}。',
+            'zh-CN': '每张账单现金券最多扣减账单金额 {PCT}%，最多 {AMT}。'
+        },
+        cashAmt: {
+            en: 'Cash coupons per bill: at most {AMT}.',
+            'zh-Hant': '每張賬單現金券最多扣減 {AMT}。',
+            'zh-CN': '每张账单现金券最多扣减 {AMT}。'
+        },
+        cashPct: {
+            en: 'Cash coupons per bill: at most {PCT}% of the bill.',
+            'zh-Hant': '每張賬單現金券最多扣減賬單金額 {PCT}%。',
+            'zh-CN': '每张账单现金券最多扣减账单金额 {PCT}%。'
+        },
+        cashCount: {
+            en: 'Up to {N} cash coupons per bill.',
+            'zh-Hant': '每張賬單最多使用 {N} 張現金券。',
+            'zh-CN': '每张账单最多使用 {N} 张现金券。'
         },
         none: { en: 'You have no coupons ready to use right now.', 'zh-Hant': '您暫時沒有可使用的優惠券。', 'zh-CN': '您暂时没有可使用的优惠券。' },
         sumCount: { en: 'coupons', 'zh-Hant': '張優惠券', 'zh-CN': '张优惠券' },
@@ -200,6 +215,30 @@
             '</div></article>';
     }
 
+    /** Pure: cash coupon per-bill lines from Configuration → Discount Coupons (cash_rules). [] = no limit, or the database does not send it yet. */
+    function cashRuleLines(rules, lang) {
+        if (!rules || typeof rules !== 'object') return [];
+        function part(v, dflt) {
+            var n = parseFloat(v);
+            if (v == null || v === '' || !isFinite(n)) return dflt;
+            return Math.max(0, n);
+        }
+        var pctRaw = rules.maxPercent;
+        var amtRaw = rules.maxAmount;
+        if (pctRaw == null && amtRaw == null && rules.limitMode) {
+            pctRaw = rules.limitMode === 'percent' ? rules.limitValue : 0;
+            amtRaw = rules.limitMode === 'amount' ? rules.limitValue : 0;
+        }
+        var pct = Math.min(100, part(pctRaw, 50));
+        var amt = part(amtRaw, 3000);
+        var count = parseInt(rules.maxCount, 10);
+        var lines = [];
+        var key = pct > 0 && amt > 0 ? 'cashBoth' : amt > 0 ? 'cashAmt' : pct > 0 ? 'cashPct' : '';
+        if (key) lines.push(tr(key, lang).split('{PCT}').join(String(Math.round(pct * 100) / 100)).split('{AMT}').join(hk(amt)));
+        if (count > 0) lines.push(tr('cashCount', lang).split('{N}').join(String(count)));
+        return lines;
+    }
+
     function split(data) {
         var today = data.today || new Date().toISOString().slice(0, 10);
         var live = [];
@@ -234,8 +273,10 @@
             if (value > 0) html += '<div class="wl-sum-item"><b>' + esc(hk(value)) + '</b>' + esc(tr('sumValue', lang)) + '</div>';
             if (next) html += '<div class="wl-sum-item"><b>' + esc(next.slice(5)) + '</b>' + esc(tr('sumNext', lang)) + '</div>';
             html += '</div>';
+            var hasCash = parts.live.some(function (c) { return kindOf(c) === 'cash'; });
+            var cashLines = hasCash ? cashRuleLines(data.cash_rules, lang) : [];
             html += '<div class="wl-remind" role="note"><p>⏰ ' + esc(tr('yearEnd', lang).split('{YEAR}').join(String(parts.today).slice(0, 4))) + '</p>' +
-                '<p>💳 ' + esc(tr('perBill', lang)) + '</p></div>';
+                (cashLines.length ? '<p>💳 ' + esc(cashLines.join(' ')) + '</p>' : '') + '</div>';
             html += '<h2 class="wl-sec-title">' + esc(tr('ready', lang)) + '</h2>';
             parts.live.forEach(function (c) { html += ticketHtml(c, d, lang, false); });
         } else {
@@ -330,6 +371,7 @@
     root.CSWallet = {
         boot: boot,
         renderHtml: renderHtml,
+        cashRuleLines: cashRuleLines,
         campaignLabel: campaignLabel,
         tokenFrom: tokenFrom,
         pickLang: pickLang,

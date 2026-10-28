@@ -29,10 +29,20 @@
             'zh-Hant': '所有積分將於今年{YEAR}年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。',
             'zh-CN': '所有积分将于今年{YEAR}年12月31日 23:59到期，请好好善用；欢迎邀请亲友使用。'
         },
-        perBill: {
-            en: 'Maximum usage per bill is HK$3,000, unless otherwise specified.',
-            'zh-Hant': '每張賬單最高使用額為 HK$3,000，另有註明除外。',
-            'zh-CN': '每张账单最高使用额为 HK$3,000，另有注明除外。'
+        perBillBoth: {
+            en: 'Maximum usage per bill: {PCT}% of the bill, up to HK${AMT}.',
+            'zh-Hant': '每張賬單最高使用額為賬單金額 {PCT}%，最多 HK${AMT}。',
+            'zh-CN': '每张账单最高使用额为账单金额 {PCT}%，最多 HK${AMT}。'
+        },
+        perBillAmt: {
+            en: 'Maximum usage per bill is HK${AMT}.',
+            'zh-Hant': '每張賬單最高使用額為 HK${AMT}。',
+            'zh-CN': '每张账单最高使用额为 HK${AMT}。'
+        },
+        perBillPct: {
+            en: 'Maximum usage per bill is {PCT}% of the bill.',
+            'zh-Hant': '每張賬單最高使用額為賬單金額 {PCT}%。',
+            'zh-CN': '每张账单最高使用额为账单金额 {PCT}%。'
         },
         lifespan: {
             en: 'Points are cleared after {N} months with no new points.',
@@ -107,6 +117,21 @@
         return new Date(t + 8 * 3600000).toISOString().slice(0, 10);
     }
 
+    /** Pure: the per-bill line from Configuration → Reward Points (redeem_cap). '' = no limit, or the database does not send it yet. */
+    function perBillText(cap, lang) {
+        if (!cap || typeof cap !== 'object') return '';
+        function part(v, dflt) {
+            var n = parseFloat(v);
+            if (v == null || v === '' || !isFinite(n)) return dflt;
+            return Math.max(0, n);
+        }
+        var pct = Math.min(100, part(cap.maxPercent, 0));
+        var amt = part(cap.maxAmount, 3000);
+        var key = pct > 0 && amt > 0 ? 'perBillBoth' : amt > 0 ? 'perBillAmt' : pct > 0 ? 'perBillPct' : '';
+        if (!key) return '';
+        return tr(key, lang).split('{PCT}').join(String(Math.round(pct * 100) / 100)).split('{AMT}').join(fmtPts(amt));
+    }
+
     function kindKey(k) {
         return T['k_' + k] ? k : 'adjust';
     }
@@ -143,8 +168,9 @@
         html += '</section>';
         if (num(data.balance) > 0.005) {
             var year = String(data.today || hkDate(new Date().toISOString())).slice(0, 4);
+            var perBill = perBillText(data.redeem_cap, lang);
             html += '<div class="wl-remind" role="note"><p>⏰ ' + esc(tr('yearEnd', lang).split('{YEAR}').join(year)) + '</p>' +
-                '<p>💳 ' + esc(tr('perBill', lang)) + '</p></div>';
+                (perBill ? '<p>💳 ' + esc(perBill) + '</p>' : '') + '</div>';
         }
         var notes = [];
         if (num(data.earn_rate) > 0) notes.push(tr('earnRate', lang).replace('{RATE}', String(Math.round(num(data.earn_rate) * 100) / 100)));
@@ -237,6 +263,7 @@
     root.CSPoints = {
         boot: boot,
         renderHtml: renderHtml,
+        perBillText: perBillText,
         fmtPts: fmtPts,
         hkDate: hkDate,
         tokenFrom: tokenFrom,

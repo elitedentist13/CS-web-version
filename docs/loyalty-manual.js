@@ -119,8 +119,8 @@
                     { t: 'Using points on one bill', key: true, mock: capMock, list: [
                         'Set the most points one bill can use: a <b>% of the bill</b>, an amount <b>up to HK$</b>, or both. Press <b>Save</b>.',
                         'Both limits apply and the <b>smaller one wins</b>. Leave a box blank to drop that limit. The % is of the bill total.',
-                        'Default: <b>up to HK$3,000</b> per bill, no %. This matches the line on the patient’s phone page ' +
-                            '(“Maximum usage per bill is HK$3,000, unless otherwise specified.”).',
+                        'Default: <b>up to HK$3,000</b> per bill, no %. The patient’s phone page shows the limit you save here ' +
+                            '(for example “Maximum usage per bill is HK$3,000.”); with both boxes blank it shows no limit line.',
                         'It counts <b>every payment on the same bill</b>. At the payment desk the points box stops at the limit, ' +
                             'an amber note shows what is left, and <b>✓ Confirm Payment</b> refuses anything over it.'
                     ] },
@@ -369,7 +369,7 @@
                     { t: '單張賬單使用積分上限', key: true, mock: capMock, list: [
                         '設定每張賬單最多可用多少積分：<b>賬單金額 %</b>、<b>最多 HK$</b>，或兩者都設，然後按<b>儲存</b>。',
                         '兩個上限同時適用，<b>以較小者為準</b>；留空即取消該上限。百分比以賬單總額計算。',
-                        '預設：每張賬單<b>最多 HK$3,000</b>，不設百分比，與病人手機頁面所寫的「每張賬單最高使用額為 HK$3,000，另有註明除外。」一致。',
+                        '預設：每張賬單<b>最多 HK$3,000</b>，不設百分比。病人手機頁面會顯示此處儲存的上限（例如「每張賬單最高使用額為 HK$3,000。」）；兩格都留空則不顯示上限。',
                         '同一張賬單的<b>每次付款合併計算</b>。付款時積分欄不能超過上限，琥珀色提示顯示尚餘多少，超出時<b>✓ 確認付款</b>會被拒絕。'
                     ] },
                     { t: '將獎勵積分清零', danger: true, mock: zeroMock, list: [
@@ -605,7 +605,7 @@
                     { t: '单张账单使用积分上限', key: true, mock: capMock, list: [
                         '设置每张账单最多可用多少积分：<b>账单金额 %</b>、<b>最多 HK$</b>，或两者都设，然后点<b>保存</b>。',
                         '两个上限同时适用，<b>以较小者为准</b>；留空即取消该上限。百分比以账单总额计算。',
-                        '默认：每张账单<b>最多 HK$3,000</b>，不设百分比，与病人手机页面所写的「每张账单最高使用额为 HK$3,000，另有注明除外。」一致。',
+                        '默认：每张账单<b>最多 HK$3,000</b>，不设百分比。病人手机页面会显示此处保存的上限（例如「每张账单最高使用额为 HK$3,000。」）；两格都留空则不显示上限。',
                         '同一张账单的<b>每次付款合并计算</b>。付款时积分栏不能超过上限，琥珀色提示显示尚余多少，超出时<b>✓ 确认付款</b>会被拒绝。'
                     ] },
                     { t: '将奖励积分清零', danger: true, mock: zeroMock, list: [

@@ -2494,6 +2494,47 @@ var COUPONS = (function () {
             .then(function (r) { return (r && r.data && r.data.patient_no) || ''; }, function () { return ''; });
     }
 
+    /** Pure: the bill behind a history row — the bill it was used on, else the bill that issued it. */
+    function walletHistoryBillId(c) {
+        return String((c && (c.bill_id || c.origin_bill_id)) || '');
+    }
+
+    function walletBillDoctor(b) {
+        var docs = (typeof APP_DOCTORS !== 'undefined' && APP_DOCTORS) || [];
+        if (typeof DoctorAliases !== 'undefined' && DoctorAliases && typeof DoctorAliases.resolveFromBill === 'function') {
+            try {
+                var lab = String((DoctorAliases.resolveFromBill(b, docs) || {}).label || '').trim();
+                if (lab && lab !== '—') return lab;
+            } catch (e) { /* fall back to the bill text */ }
+        }
+        var name = String(b.doctor_name || '').trim();
+        if (name) return name;
+        for (var i = 0; i < docs.length; i++) {
+            if (b.doctor_id && String(docs[i].id) === String(b.doctor_id)) {
+                return String(docs[i].english_name || docs[i].chinese_name || '').trim();
+            }
+        }
+        return '';
+    }
+
+    /** Clinic and doctor of each history row's bill: { billId: { clinic, doctor } }. {} when the lookup fails. */
+    function loadWalletBillMeta(history) {
+        var ids = [];
+        (history || []).forEach(function (h) {
+            var id = walletHistoryBillId(h.coupon);
+            if (id && ids.indexOf(id) < 0) ids.push(id);
+        });
+        if (!ids.length || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve({});
+        return Promise.resolve(SB.from('bills').select('id,clinic_tag,doctor_id,doctor_name').in('id', ids))
+            .then(function (r) {
+                var map = {};
+                ((r && r.data) || []).forEach(function (b) {
+                    map[String(b.id)] = { clinic: String(b.clinic_tag || '').trim(), doctor: walletBillDoctor(b) };
+                });
+                return map;
+            }, function () { return {}; });
+    }
+
     /** Pure: coupons in a wallet that may move to another chart (live, and not new-chart / referral). */
     function walletTransferable(wallet, today) {
         return (wallet || []).filter(function (c) { return isLive(c, today) && !LOCKED_TRANSFER_KEYS[c.campaign_key]; });
@@ -2511,9 +2552,12 @@ var COUPONS = (function () {
         var token = {};
         el.__dcWalletToken = token;
         return Promise.all([loadState().then(loadUsage), loadWallet(patientId), loadPatientNo(patientId)]).then(function (res) {
+            return loadWalletBillMeta(walletLedgerRows(res[1] || []).history).then(function (meta) { return res.concat([meta]); });
+        }).then(function (res) {
             if (el.__dcWalletToken !== token) return false;
             var wallet = res[1] || [];
             var patientNo = res[2] || '';
+            var billMeta = res[3] || {};
             var today = todayIso();
             var rows = walletLedgerRows(wallet, today);
             var tab = opts.tab === 'gift' || opts.tab === 'transfer' ? opts.tab : 'wallet';
@@ -2547,6 +2591,8 @@ var COUPONS = (function () {
             } else {
                 html += '<div class="dc-log-wrap"><table class="dc-log dc-wl-table"><thead><tr>' +
                     '<th>' + esc(ct('coupons.wl.when', 'When')) + '</th>' +
+                    '<th>' + esc(ct('coupons.wl.clinic', 'Clinic')) + '</th>' +
+                    '<th>' + esc(ct('coupons.wl.doctor', 'Dr')) + '</th>' +
                     '<th>' + esc(ct('coupons.wl.coupon', 'Coupon')) + '</th>' +
                     '<th>' + esc(ct('coupons.wl.value', 'Value')) + '</th>' +
                     '<th>' + esc(ct('coupons.wl.status', 'Status')) + '</th>' +
@@ -2556,9 +2602,12 @@ var COUPONS = (function () {
                     var w = walletCoupon(c);
                     var val = h.state === 'used' && c.redeemed_amount != null
                         ? '−HK$' + round2(c.redeemed_amount).toFixed(2) : faceText(w);
+                    var bm = billMeta[walletHistoryBillId(c)] || {};
                     html += '<tr data-state="' + esc(h.state) + '"><td>' + esc(h.at.replace('T', ' ').slice(0, 16)) + '</td>' +
+                        '<td>' + esc(bm.clinic || c.clinic_code || '—') + '</td>' +
+                        '<td class="dc-wl-dr" title="' + esc(bm.doctor || '') + '">' + esc(bm.doctor || '—') + '</td>' +
                         '<td>' + esc(campLabel(w)) + (c.code ? ' <small>' + esc(c.code) + '</small>' : '') + '</td>' +
-                        '<td>' + esc(val) + '</td><td>' + esc(walletStateLabel(h.state)) + '</td>' +
+                        '<td>' + esc(val) + '</td><td class="dc-wl-state">' + esc(walletStateLabel(h.state)) + '</td>' +
                         '<td>' + esc(c.note || (h.state === 'expired' && c.expires_on ? String(c.expires_on).slice(0, 10) : '')) + '</td></tr>';
                 });
                 html += '</tbody></table></div>';

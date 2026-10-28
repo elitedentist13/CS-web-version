@@ -3575,6 +3575,8 @@
             'zh-Hant': '暫無已使用、已取消或已過期的優惠券。'
         },
         'coupons.wl.when': { en: 'When', 'zh-CN': '时间', 'zh-Hant': '時間' },
+        'coupons.wl.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
+        'coupons.wl.doctor': { en: 'Dr', 'zh-CN': '医生', 'zh-Hant': '醫生' },
         'coupons.wl.coupon': { en: 'Coupon', 'zh-CN': '优惠券', 'zh-Hant': '優惠券' },
         'coupons.wl.value': { en: 'Value', 'zh-CN': '金额', 'zh-Hant': '金額' },
         'coupons.wl.status': { en: 'Status', 'zh-CN': '状态', 'zh-Hant': '狀態' },

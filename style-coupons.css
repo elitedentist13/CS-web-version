@@ -366,6 +366,8 @@ button.dc-card.is-blocked .dc-check { display: none; }
 .dc-ref-preview.is-warn { color: #b45309; }
 .dc-notice { position: fixed; right: 18px; bottom: 18px; z-index: 100200; max-width: 380px; background: #065f46; color: #fff; border-radius: 12px; padding: 12px 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); font-size: 13px; line-height: 1.5; }
 .dc-notice--ref { background: #fffbeb; color: #78350f; border: 1px solid #fcd34d; border-left: 5px solid #f59e0b; animation: dc-notice-in .25s ease-out; }
+.dc-notice--held { background: #f8fafc; color: #334155; border-color: #cbd5e1; border-left-color: #64748b; }
+.dc-notice--held .dc-notice-title { color: #334155 !important; }
 .dc-notice--ref .dc-notice-title { display: block; font-size: 14px; color: #92400e; margin-bottom: 2px; }
 @keyframes dc-notice-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 #bdSavedRow[hidden], #bdCouponInfo[hidden] { display: none !important; }

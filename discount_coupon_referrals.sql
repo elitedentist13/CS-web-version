@@ -1,6 +1,6 @@
 -- Refer a friend: one record per referred (new) patient.
 -- The referrer is rewarded as soon as the friend's cash paid on one bill (full or part payments)
--- reaches the branch's "Min payment HK$": a discount coupon, or reward points (settings key reward_referral).
+-- reaches the branch's "Min first-visit payment HK$ (full or part payment)": a discount coupon, or reward points (settings key reward_referral).
 -- Voiding that bill, or voiding payments until it drops below the minimum, puts the record back to pending.
 -- Run once in the Supabase SQL editor after discount_coupons.sql. Safe to re-run.
 

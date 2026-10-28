@@ -1752,7 +1752,7 @@ var COUPONS = (function () {
             html += field(c.key, 'maxDiscount', ct('coupons.cfg.ceiling', 'Ceiling'), c.maxDiscount);
             html += field(c.key, 'holdLimit', ct('coupons.cfg.hold', 'Hold up to'), holdLimitFor(c));
             if (c.trigger === 'referral') {
-                html += field(c.key, 'minFirstSpend', ct('coupons.ref.minFirst', 'Min payment HK$'), c.minFirstSpend, true);
+                html += field(c.key, 'minFirstSpend', ct('coupons.ref.minFirst', 'Min first-visit payment HK$ (full or part payment)'), c.minFirstSpend, true);
             }
             html += limitFields(c);
             html += '</div>' + usageLine(c);
@@ -4326,7 +4326,7 @@ var COUPONS = (function () {
             no_referrer: ['coupons.ref.r.noReferrer', 'No chart with that number'],
             already: ['coupons.ref.r.already', 'This patient already has a referrer recorded'],
             campaign_off: ['coupons.ref.r.off', 'Refer a friend is switched off in Configuration'],
-            clinic: ['coupons.ref.r.clinic', 'This clinic or doctor is not in the coupon scheme'],
+            clinic: ['coupons.ref.r.clinic', 'This clinic or the bill’s doctor is switched off in the coupon scheme (Configuration → Discount Coupons)'],
             edit_window: ['coupons.ref.r.window', 'A referrer can only be added within 30 days of registration'],
             same_person: ['coupons.ref.r.same', 'Referrer looks like the same person (same chart, HKID or phone)'],
             referrer_newer: ['coupons.ref.r.newer', 'Referrer’s chart is newer than this patient’s'],
@@ -4340,7 +4340,7 @@ var COUPONS = (function () {
             chart_deleted: ['coupons.ref.r.deleted', 'Chart deleted'],
             insert_failed: ['coupons.ref.r.insert', 'Could not save the coupon; tries again at the next paid visit'],
             points_off: ['coupons.ref.r.pointsOff', 'Referral points are switched off in Reward Points configuration'],
-            points_clinic: ['coupons.ref.r.pointsClinic', 'This clinic or doctor is not in the reward points scheme'],
+            points_clinic: ['coupons.ref.r.pointsClinic', 'This clinic or the bill’s doctor is switched off in the reward points scheme (Configuration → Reward Points)'],
             points_spent: ['coupons.ref.r.spent', 'Referral points were already used, so they were not taken back'],
             no_scheme: ['coupons.ref.r.noScheme', 'This clinic is in neither scheme, so no referral reward']
         };
@@ -4607,6 +4607,8 @@ var COUPONS = (function () {
                     cashPaid: info.cashPaid
                 }, extra));
                 if (!plan.ok) {
+                    var held = referralHeldText(rec, plan, info.cashPaid, points ? (extra.pointsConfig || {}).minFirstSpend : camp && camp.minFirstSpend);
+                    couponNotice(held.body, held.title, 'held');
                     if (plan.reason !== rec.reason) {
                         SB.from(REF_TABLE).update({ reason: plan.reason, updated_at: nowIso() })
                             .eq('id', rec.id).eq('status', 'pending').then(function () {}, function () {});
@@ -4982,11 +4984,11 @@ var COUPONS = (function () {
             }, function () { return round2(fallback || 0); });
     }
 
-    function couponNotice(text, title) {
+    function couponNotice(text, title, tone) {
         if (typeof document === 'undefined' || !document.body) return null;
         ensureCss();
         var el = document.createElement('div');
-        el.className = 'dc-notice' + (title ? ' dc-notice--ref' : '');
+        el.className = 'dc-notice' + (title ? ' dc-notice--ref' : '') + (tone === 'held' ? ' dc-notice--held' : '');
         el.setAttribute('role', 'status');
         if (title) {
             var head = document.createElement('b');
@@ -5017,6 +5019,20 @@ var COUPONS = (function () {
             .split('{FRIEND}').join(String(rec.referred_no || ''))
             .split('{PAID}').join(round2(cashPaid).toFixed(0));
         return { title: '🤝 ' + ct('coupons.ref.bonusTitle', 'Refer a friend bonus activated'), body: gets + ' · ' + paid };
+    }
+
+    /** Pure: the "not given yet" mini-notification when a payment does not activate the pending referral. */
+    function referralHeldText(rec, plan, cashPaid, min) {
+        rec = rec || {};
+        var why = referralReason(plan && plan.reason);
+        var paid = ct('coupons.ref.bonusPaid', '#{FRIEND} paid HK${PAID} on this bill')
+            .split('{FRIEND}').join(String(rec.referred_no || ''))
+            .split('{PAID}').join(round2(cashPaid).toFixed(0));
+        if (plan && plan.reason === 'below_min' && parseFloat(min) > 0) paid += ' / ' + ct('coupons.ref.min', 'min') + ' HK$' + round2(min).toFixed(0);
+        return {
+            title: '🤝 ' + ct('coupons.ref.heldTitle', 'Refer a friend: not given yet'),
+            body: why + ' · ' + paid + ' · ' + ct('coupons.ref.heldReferrer', 'referrer') + ' #' + String(rec.referrer_no || '')
+        };
     }
 
     /** Checkout (bill step 2): show which spend coupons this bill earns and how far to the next one. */
@@ -5573,6 +5589,7 @@ var COUPONS = (function () {
         onBillFullyPaid: onBillFullyPaid,
         onBillPayment: onBillPayment,
         referralBonusText: referralBonusText,
+        referralHeldText: referralHeldText,
         couponNotice: couponNotice,
         onBillVoided: onBillVoided,
         planBillVoid: planBillVoid,

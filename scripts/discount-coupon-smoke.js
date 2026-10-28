@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261028ref';
+var BUILD = '20261028ref3';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -679,13 +679,24 @@ function loadCoupons() {
             a.body === 'Referrer #000789 gets a HK$100 coupon · #000555 paid HK$350 on this bill' &&
             b.body === 'Referrer #000789 gets +100 reward points · #000555 paid HK$300 on this bill';
     })());
-    pass('referral wording: part payments count, no "first-visit" left (screens, i18n, manual)', (function () {
+    pass('referral wording: first-visit minimum counts full or part payments (screens, i18n, manual)', (function () {
         var all = src + read('app-rewards.js') + read('app-i18n-extra.js') + read('docs/loyalty-manual.js');
         var i18n = read('app-i18n-extra.js');
-        return !/first-visit|first fully paid|first bill is fully paid|首次診症最低|首次就诊最低|首張賬單全數付清|首张账单全数付清/.test(all) &&
+        var label = "{ en: 'Min first-visit payment HK$ (full or part payment)', 'zh-CN': '首次就诊最低付款 HK$（全数或部分付款）', 'zh-Hant': '首次診症最低付款 HK$（全數或部分付款）' }";
+        return !/Min first-visit HK\$|Min payment HK\$|first fully paid|first bill is fully paid|首次診症最低 HK|首次就诊最低 HK|首張賬單全數付清|首张账单全数付清/.test(all) &&
             /'coupons\.ref\.bonusTitle': \{ en: 'Refer a friend bonus activated', 'zh-CN': '介绍新客奖赏已启动', 'zh-Hant': '介紹新客獎賞已啟動' \}/.test(i18n) &&
-            /'coupons\.ref\.minFirst': \{ en: 'Min payment HK\$'/.test(i18n) && /part payment both count/.test(read('docs/loyalty-manual.js'));
+            i18n.indexOf("'coupons.ref.minFirst': " + label) >= 0 && i18n.indexOf("'rewards.cfg.refMin': " + label) >= 0 &&
+            /part payment both count/.test(read('docs/loyalty-manual.js'));
     })());
+    pass('referral held back: mini-notification says why (doctor off / below the minimum)', (function () {
+        var a = RC.referralHeldText({ referrer_no: '001003', referred_no: '022294' }, { ok: false, reason: 'clinic' }, 300, 300);
+        var b = RC.referralHeldText({ referrer_no: '001003', referred_no: '022294' }, { ok: false, reason: 'below_min' }, 200, 300);
+        return a.title === '🤝 Refer a friend: not given yet' &&
+            a.body === 'This clinic or the bill’s doctor is switched off in the coupon scheme (Configuration → Discount Coupons) · #022294 paid HK$300 on this bill · referrer #001003' &&
+            b.body.indexOf('Paid so far on the bill is below the minimum · #022294 paid HK$200 on this bill / min HK$300') === 0;
+    })(), JSON.stringify(RC.referralHeldText({ referrer_no: '1', referred_no: '2' }, { reason: 'clinic' }, 300, 300)));
+    pass('a payment that does not activate the pending referral pops the held notice',
+        /if \(!plan\.ok\) \{\s*var held = referralHeldText\(rec, plan, info\.cashPaid,[\s\S]{0,120}couponNotice\(held\.body, held\.title, 'held'\)/.test(src));
     pass('both referral rewards pop the bonus mini-notification', /function rewardReferralCoupon[\s\S]{0,1600}referralBonusText\('coupon'[\s\S]{0,120}couponNotice\(note\.body, note\.title\)/.test(src) &&
         /function rewardReferralPoints[\s\S]{0,2000}referralBonusText\('points'[\s\S]{0,140}couponNotice\(note\.body, note\.title\)/.test(src));
     var patSrc = read('app-patient.js');
@@ -2088,7 +2099,7 @@ function loadCoupons() {
         pass('CDP sheet shows the Wallet QR button', !!(wqr && wqr.btn && wqr.overlay), JSON.stringify(wqr));
         pass('CDP coupon sheet has 📖 How to use -> coupon part of the manual in the dashboard language (new tab)',
             !!(wqr && wqr.guide && wqr.guide.shown && /^📖/.test(wqr.guide.text) && wqr.guide.target === '_blank' &&
-                wqr.guide.href === 'docs/loyalty-manual.html?v=20261028ref#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
+                wqr.guide.href === 'docs/loyalty-manual.html?v=20261028ref3#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
         pass('CDP Wallet QR explains when the link cannot be made', !!(wqr && /discount_coupon_wallet\.sql|Could not make/.test(wqr.realErr)), wqr && wqr.realErr);
         pass('CDP Esc closes the QR and keeps the sheet', !!(wqr && wqr.escClosesQrOnly));
         pass('CDP Wallet QR draws the wallet link', !!(wqr && wqr.qr && /\/wallet\.html\?t=0123456789abcdef0123456789abcdef$/.test(wqr.link) && wqr.qrUrl === wqr.link),

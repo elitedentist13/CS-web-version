@@ -4339,7 +4339,7 @@ var REWARDS = (function () {
         });
     }
 
-    var LOYALTY_MANUAL = 'docs/loyalty-manual.html?v=20261028ref';
+    var LOYALTY_MANUAL = 'docs/loyalty-manual.html?v=20261028ref3';
 
     /** Pure: manual link for one part (rewards | coupons) at the dashboard language. */
     /** Opens the manual's contents page, with the dashboard language (Traditional Chinese when unknown) and the part marked. */
@@ -4455,13 +4455,13 @@ var REWARDS = (function () {
                 html += '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">' +
                     '<label>' + esc(tr('rewards.cfg.refPoints', 'Points')) + ' <input type="number" id="rwCfgRefPoints" min="0" step="1" value="' +
                     esc(String(refCfg.points)) + '" style="width:100px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;"></label>' +
-                    '<label>' + esc(tr('rewards.cfg.refMin', 'Min payment HK$')) + ' <input type="number" id="rwCfgRefMin" min="0" step="1" value="' +
+                    '<label>' + esc(tr('rewards.cfg.refMin', 'Min first-visit payment HK$ (full or part payment)')) + ' <input type="number" id="rwCfgRefMin" min="0" step="1" value="' +
                     (refCfg.minFirstSpend > 0 ? esc(String(refCfg.minFirstSpend)) : '') + '" placeholder="—" style="width:100px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;"></label>' +
                     '<button type="button" id="rwCfgRefSave" class="btn btn--primary" style="padding:8px 14px;">' + esc(tr('common.save', 'Save')) + '</button></div>';
             } else {
                 html += '<div>' + (refCfg.enabled
                     ? esc(fmtPts(refCfg.points) + ' ' + tr('rewards.cfg.refPoints', 'Points') + ' · ' +
-                        tr('rewards.cfg.refMin', 'Min payment HK$') + ' ' + (refCfg.minFirstSpend > 0 ? fmtPts(refCfg.minFirstSpend) : '—'))
+                        tr('rewards.cfg.refMin', 'Min first-visit payment HK$ (full or part payment)') + ' ' + (refCfg.minFirstSpend > 0 ? fmtPts(refCfg.minFirstSpend) : '—'))
                     : esc(tr('common.off', 'Off'))) + '</div>';
             }
             html += '</div>';

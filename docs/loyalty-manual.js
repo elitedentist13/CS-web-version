@@ -110,7 +110,7 @@
                         'Untick to stop the SMS. It saves at once.'
                     ] },
                     { t: 'Refer a friend (points)', list: [
-                        'Tick <b>Give reward points for referrals</b>, fill in <b>Points</b> and <b>Min payment HK$</b>, then press <b>Save</b>.',
+                        'Tick <b>Give reward points for referrals</b>, fill in <b>Points</b> and <b>Min first-visit payment HK$ (full or part payment)</b>, then press <b>Save</b>.',
                         'The referrer gets the points as soon as the new patient has paid <b>at least the minimum in cash on one bill</b> — a full payment or a part payment both count. ' +
                             'A small <b>Refer a friend bonus activated</b> message then pops up at the bottom right of the screen. ' +
                             'Leave the minimum blank for any amount.',
@@ -192,7 +192,7 @@
                         'Every other offer, each with a switch, a preview ticket and its boxes: <b>HK$</b>, <b>%</b> (percentage coupons), <b>Days</b>, ' +
                             '<b>Ceiling</b> (most HK$ it can take off), <b>Hold up to</b>, <b>Issue cap</b>, <b>Budget HK$</b>.',
                         '<b>Whole-bill coupons</b>: Cash coupon (staff gift HK$1–200), New chart and Refer a friend (both issued automatically; ' +
-                            'Refer a friend has <b>Min payment HK$</b>).',
+                            'Refer a friend has <b>Min first-visit payment HK$ (full or part payment)</b>).',
                         '<b>Treatment coupons</b>: Free scaling, Free filling, Free extraction, Implant, Orthodontic, Crown and bridge, Root canal, Whitening. ' +
                             'They only cover the treatment items ticked for them (step 5).',
                         'The badge shows <b>On</b>, <b>Off</b>, <b>Needs setup</b> or <b>Limit reached</b>. Issue cap and budget are optional; voided coupons do not count.'
@@ -363,7 +363,7 @@
                         '取消剔選即停止發送，一按即儲存。'
                     ] },
                     { t: '介紹新客（積分）', list: [
-                        '剔選<b>介紹新客可獲積分</b>，填寫<b>積分</b>及<b>最低付款 HK$</b>，然後按<b>儲存</b>。',
+                        '剔選<b>介紹新客可獲積分</b>，填寫<b>積分</b>及<b>首次診症最低付款 HK$（全數或部分付款）</b>，然後按<b>儲存</b>。',
                         '新病人在<b>同一張賬單的現金付款累計達最低金額</b>（全數或部分付款均計算），介紹人即獲得積分，畫面右下角會彈出<b>介紹新客獎賞已啟動</b>的小提示。最低金額留空即不設下限。',
                         '在病人資料表的<b>轉介人</b>選擇介紹人，再選<b>積分</b>或<b>優惠券</b>。如該診所未參加某計劃，該選項會變灰。'
                     ] },
@@ -432,7 +432,7 @@
                     { t: '優惠活動', list: [
                         '其餘每項優惠都有開關、預覽票券及以下輸入格：<b>HK$</b>、<b>%</b>（百分比券）、<b>有效日數</b>、<b>上限</b>（最多扣減 HK$）、' +
                             '<b>最多持有</b>、<b>發放上限</b>、<b>預算 HK$</b>。',
-                        '<b>全單券</b>：現金券（員工可贈送 HK$1–200）、新客券及介紹新客（兩者自動發放；介紹新客設有<b>最低付款 HK$</b>）。',
+                        '<b>全單券</b>：現金券（員工可贈送 HK$1–200）、新客券及介紹新客（兩者自動發放；介紹新客設有<b>首次診症最低付款 HK$（全數或部分付款）</b>）。',
                         '<b>治療券</b>：免費洗牙、免費補牙、免費脫牙、植牙、矯齒、牙套牙橋、根管、美白優惠 — 只適用於為該券剔選的治療項目（第 5 步）。',
                         '標籤顯示<b>已開啟</b>、<b>已關閉</b>、<b>需設定</b>或<b>已達上限</b>。發放上限及預算可留空；已作廢的券不計算在內。'
                     ] },
@@ -599,7 +599,7 @@
                         '取消勾选即停止发送，一点即保存。'
                     ] },
                     { t: '介绍新客（积分）', list: [
-                        '勾选<b>介绍新客可获积分</b>，填写<b>积分</b>及<b>最低付款 HK$</b>，然后点<b>保存</b>。',
+                        '勾选<b>介绍新客可获积分</b>，填写<b>积分</b>及<b>首次就诊最低付款 HK$（全数或部分付款）</b>，然后点<b>保存</b>。',
                         '新病人在<b>同一张账单的现金付款累计达最低金额</b>（全数或部分付款均计算），介绍人即获得积分，画面右下角会弹出<b>介绍新客奖赏已启动</b>的小提示。最低金额留空即不设下限。',
                         '在病人资料表的<b>转介人</b>选择介绍人，再选<b>积分</b>或<b>优惠券</b>。如该诊所未参加某计划，该选项会变灰。'
                     ] },
@@ -668,7 +668,7 @@
                     { t: '优惠活动', list: [
                         '其余每项优惠都有开关、预览票券及以下输入框：<b>HK$</b>、<b>%</b>（百分比券）、<b>有效日数</b>、<b>上限</b>（最多扣减 HK$）、' +
                             '<b>最多持有</b>、<b>发放上限</b>、<b>预算 HK$</b>。',
-                        '<b>全单券</b>：现金券（员工可赠送 HK$1–200）、新客券及介绍新客（两者自动发放；介绍新客设有<b>最低付款 HK$</b>）。',
+                        '<b>全单券</b>：现金券（员工可赠送 HK$1–200）、新客券及介绍新客（两者自动发放；介绍新客设有<b>首次就诊最低付款 HK$（全数或部分付款）</b>）。',
                         '<b>治疗券</b>：免费洗牙、免费补牙、免费脱牙、植牙、矫齿、牙套牙桥、根管、美白优惠 — 只适用于为该券勾选的治疗项目（第 5 步）。',
                         '标签显示<b>已开启</b>、<b>已关闭</b>、<b>需设定</b>或<b>已达上限</b>。发放上限及预算可留空；已作废的券不计算在内。'
                     ] },

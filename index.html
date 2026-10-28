@@ -7624,34 +7624,38 @@
         <tbody id="rwLedgerBody"></tbody>
       </table>
     </div>
-    <div style="border-top:1px solid #e2e8f0;padding-top:14px;">
-      <div style="font-weight:700;margin-bottom:8px;" data-i18n="rewards.xfer.title">Transfer to another patient</div>
-      <div id="rwTransferSources" style="margin-bottom:10px;max-height:140px;overflow:auto;"></div>
-      <div id="rwTransferAllocPreview" style="font-size:11px;color:#0f766e;margin-bottom:8px;min-height:1.2em;"></div>
-      <div style="position:relative;margin-bottom:10px;">
-        <label for="rwTransferTo" style="font-size:12px;color:#64748b;" data-i18n="rewards.xfer.to">Destination chart no.</label>
+    <div class="rw-xfer">
+      <div class="rw-xfer-head">
+        <span class="rw-xfer-ico" aria-hidden="true">⇄</span>
+        <div>
+          <div class="rw-xfer-title" data-i18n="rewards.xfer.title">Transfer to another patient</div>
+          <div class="rw-xfer-sub" data-i18n="rewards.xfer.sub">Move points from this patient's charts to another chart no.</div>
+        </div>
+      </div>
+      <div id="rwTransferSources" class="rw-xfer-sources"></div>
+      <div id="rwTransferAllocPreview" class="rw-xfer-preview"></div>
+      <div class="rw-xfer-field" style="position:relative;">
+        <label for="rwTransferTo" data-i18n="rewards.xfer.to">Destination chart no.</label>
         <input type="text" id="rwTransferTo" autocomplete="off"
-               style="width:100%;padding:9px 10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;"
                data-i18n-placeholder="rewards.xfer.toPh" placeholder="Search name / patient no.">
         <input type="hidden" id="rwTransferToId" value="">
         <div id="rwTransferDrop" hidden></div>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-        <div style="flex:1;min-width:120px;">
-          <label for="rwTransferAmount" style="font-size:12px;color:#64748b;" data-i18n="rewards.xfer.amount">Points</label>
-          <input type="number" id="rwTransferAmount" min="0.01" step="0.01"
-                 style="width:100%;padding:9px 10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;">
+      <div class="rw-xfer-row">
+        <div class="rw-xfer-field rw-xfer-amt">
+          <label for="rwTransferAmount" data-i18n="rewards.xfer.amount">Points</label>
+          <input type="number" id="rwTransferAmount" min="0.01" step="0.01" placeholder="0.00">
         </div>
-        <div style="flex:2;min-width:160px;">
-          <label for="rwTransferNote" style="font-size:12px;color:#64748b;" data-i18n="rewards.xfer.note">Note</label>
-          <input type="text" id="rwTransferNote"
-                 style="width:100%;padding:9px 10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;">
+        <div class="rw-xfer-field rw-xfer-note">
+          <label for="rwTransferNote" data-i18n="rewards.xfer.note">Note</label>
+          <input type="text" id="rwTransferNote">
         </div>
       </div>
-      <div id="rwTransferError" style="display:none;color:#dc2626;font-size:12px;font-weight:600;margin-bottom:8px;"></div>
-      <button type="button" id="rwTransferSubmit"
-              style="padding:10px 16px;background:#0f766e;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;"
-              data-i18n="rewards.xfer.submit">Transfer points</button>
+      <div id="rwTransferError" class="rw-xfer-err" style="display:none;"></div>
+      <div class="rw-xfer-actions">
+        <button type="button" id="rwTransferSubmit" class="rw-xfer-go"><span aria-hidden="true">↗ </span><span
+                data-i18n="rewards.xfer.submit">Transfer points</span></button>
+      </div>
     </div>
     </div>
   </div>

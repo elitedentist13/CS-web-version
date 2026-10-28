@@ -386,6 +386,13 @@ function extractIifeHelpers(src) {
         panelHtml.indexOf('id="rwTabPoints"') > 0 && panelHtml.indexOf('id="rwTabCoupons"') > panelHtml.indexOf('id="rwTabPoints"') &&
         /id="rwPanePoints"[^>]*>\s*<div class="rw-hero">/.test(panelHtml) && /id="rwPaneCoupons"[^>]*hidden><\/div>/.test(panelHtml) &&
         panelHtml.indexOf('id="rwTransferSubmit"') > panelHtml.indexOf('id="rwPanePoints"'));
+    pass('transfer section is a styled card with header, preview pill and action button',
+        /<div class="rw-xfer">[\s\S]*class="rw-xfer-head"[\s\S]*id="rwTransferSources" class="rw-xfer-sources"[\s\S]*id="rwTransferAllocPreview" class="rw-xfer-preview"[\s\S]*id="rwTransferSubmit" class="rw-xfer-go"/.test(panelHtml) &&
+        /'\.rw-xfer\{/.test(rewardsSrc) && /\.rw-xfer-tile:has\(input:checked\)/.test(rewardsSrc) &&
+        /\.rw-xfer-preview\.is-short/.test(rewardsSrc) && /\.rw-xfer-go:disabled/.test(rewardsSrc));
+    pass('transfer source charts render as tick tiles with chart no., clinic tag and balance',
+        /class="rw-xfer-tile">[\s\S]{0,40}<input type="checkbox" class="rw-xfer-src"[\s\S]{0,300}rw-xfer-chart[\s\S]{0,200}rw-lg-clinic[\s\S]{0,200}rw-xfer-bal/.test(rewardsSrc) &&
+        /prev\.classList\.add\('is-short'\)/.test(rewardsSrc));
     pass('ledger balance shows clinic breakdown when multi-clinic',
         idxSrc.indexOf('id="rwPatientClinicBreakdown"') >= 0 &&
         /renderPanelClinicBreakdown/.test(rewardsSrc) &&

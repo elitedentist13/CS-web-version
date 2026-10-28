@@ -3994,6 +3994,11 @@
         'rewards.pay.hintEmpty': { en: 'No reward points available yet.', 'zh-CN': '暂无可用积分。', 'zh-Hant': '暫無可用積分。' },
         'rewards.pay.redeemNote': { en: 'Reward points discount', 'zh-CN': '积分抵扣', 'zh-Hant': '積分抵扣' },
         'rewards.xfer.title': { en: 'Transfer to another patient', 'zh-CN': '转给其他病人', 'zh-Hant': '轉給其他病人' },
+        'rewards.xfer.sub': {
+            en: 'Move points from this patient’s charts to another chart no.',
+            'zh-CN': '把此病人病历的积分转到另一个病历号',
+            'zh-Hant': '把此病人病歷的積分轉到另一個病歷號'
+        },
         'rewards.xfer.to': { en: 'Destination chart no.', 'zh-CN': '转入病历号', 'zh-Hant': '轉入病歷號' },
         'rewards.xfer.toPh': { en: 'Search name / patient no.', 'zh-CN': '搜索姓名 / 病历号', 'zh-Hant': '搜尋姓名 / 病歷號' },
         'rewards.xfer.sources': { en: 'Source charts (same person)', 'zh-CN': '来源病历（同一人）', 'zh-Hant': '來源病歷（同一人）' },

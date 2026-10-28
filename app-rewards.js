@@ -3453,21 +3453,21 @@ var REWARDS = (function () {
             return a.account_id && round2(a.balance) > 0.005;
         });
         if (!withBal.length) {
-            box.innerHTML = '<div style="font-size:12px;color:#94a3b8;">' +
+            box.innerHTML = '<div class="rw-xfer-empty">' +
                 esc(tr('rewards.xfer.noSources', 'No chart balances to transfer from.')) + '</div>';
             return;
         }
-        box.innerHTML = '<div style="font-size:12px;color:#64748b;margin-bottom:4px;">' +
+        box.innerHTML = '<div class="rw-xfer-label">' +
             esc(tr('rewards.xfer.sources', 'Source charts (same person)')) + '</div>' +
+            '<div class="rw-xfer-tiles">' +
             withBal.map(function (a) {
-                var label = '#' + (a.patient_no || '—') +
-                    (a.clinic_code ? ' · ' + a.clinic_code : '') +
-                    ' — ' + fmtPts(a.balance);
                 var checked = selectAll !== false ? ' checked' : '';
-                return '<label style="display:flex;gap:8px;align-items:center;font-size:12px;margin:3px 0;cursor:pointer;">' +
+                return '<label class="rw-xfer-tile">' +
                     '<input type="checkbox" class="rw-xfer-src" data-account-id="' + esc(a.account_id) + '"' + checked + '>' +
-                    '<span>' + esc(label) + '</span></label>';
-            }).join('');
+                    '<span class="rw-xfer-chart">#' + esc(a.patient_no || '—') + '</span>' +
+                    (a.clinic_code ? '<span class="rw-lg-clinic">' + esc(a.clinic_code) + '</span>' : '') +
+                    '<b class="rw-xfer-bal">' + esc(fmtPts(a.balance)) + '</b></label>';
+            }).join('') + '</div>';
     }
 
     function readSelectedTransferSourceIds() {
@@ -3495,12 +3495,14 @@ var REWARDS = (function () {
             return a.account_id && idSet[a.account_id];
         });
         if (!prev) return;
+        prev.classList.remove('is-short');
         if (pts <= 0 || !rows.length) {
             prev.textContent = '';
             return;
         }
         var alloc = allocateAcrossAccounts(rows, pts);
         if (!alloc.ok) {
+            prev.classList.add('is-short');
             prev.textContent = tr('rewards.pay.allocShort', 'Selected charts do not cover this amount.');
             return;
         }
@@ -5542,6 +5544,36 @@ var REWARDS = (function () {
             '.rw-gift-status{margin-top:6px;font-size:12px;color:#9d174d;min-height:1em;}' +
             '.rw-gift-status.is-err{color:#dc2626;}.rw-gift-status.is-ok{color:#15803d;}' +
             '.rw-gift-lock{margin:4px 0 0;font-size:11px;color:#92400e;}' +
+            '.rw-xfer{margin-top:14px;padding:12px 14px;border:1px solid #bae6fd;border-radius:12px;background:linear-gradient(180deg,#f0f9ff 0%,#fff 70%);}' +
+            '.rw-xfer-head{display:flex;gap:10px;align-items:center;margin:0 0 10px;}' +
+            '.rw-xfer-ico{flex:none;width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#e0f2fe;color:#075985;font-weight:800;font-size:15px;}' +
+            '.rw-xfer-title{font-weight:800;color:#0c4a6e;}' +
+            '.rw-xfer-sub{font-size:11px;color:#64748b;}' +
+            '.rw-xfer-sources{margin:0 0 8px;max-height:150px;overflow:auto;}' +
+            '.rw-xfer-label,.rw-xfer-field label{display:block;font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px;}' +
+            '.rw-xfer-tiles{display:flex;flex-wrap:wrap;gap:6px;}' +
+            '.rw-xfer-tile{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;cursor:pointer;font-size:12px;transition:border-color .15s,background .15s,box-shadow .15s;}' +
+            '.rw-xfer-tile:hover{border-color:#7dd3fc;}' +
+            '.rw-xfer-tile:has(input:checked){border-color:#0284c7;background:#f0f9ff;box-shadow:0 0 0 2px rgba(2,132,199,.12);}' +
+            '.rw-xfer-tile input{margin:0;accent-color:#0284c7;}' +
+            '.rw-xfer-chart{font-weight:700;color:#0f172a;}' +
+            '.rw-xfer-bal{margin-left:4px;color:#047857;font-variant-numeric:tabular-nums;}' +
+            '.rw-xfer-empty{font-size:12px;color:#94a3b8;padding:6px 0;}' +
+            '.rw-xfer-preview{display:inline-block;margin:0 0 10px;padding:4px 10px;border-radius:999px;background:#ecfeff;border:1px solid #a5f3fc;color:#0e7490;font-size:11px;font-weight:700;}' +
+            '.rw-xfer-preview:empty{display:none;}' +
+            '.rw-xfer-preview.is-short{background:#fffbeb;border-color:#fcd34d;color:#b45309;}' +
+            '.rw-xfer-field{margin:0 0 10px;}' +
+            '.rw-xfer-field input{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font:inherit;font-size:13px;}' +
+            '.rw-xfer-field input:focus{outline:2px solid #0284c7;outline-offset:0;border-color:#0284c7;}' +
+            '.rw-xfer-row{display:flex;gap:10px;flex-wrap:wrap;}' +
+            '.rw-xfer-amt{flex:1;min-width:120px;}.rw-xfer-amt input{font-weight:700;font-variant-numeric:tabular-nums;}' +
+            '.rw-xfer-note{flex:2;min-width:160px;}' +
+            '.rw-xfer-err{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:12px;font-weight:600;}' +
+            '.rw-xfer-actions{display:flex;justify-content:flex-end;}' +
+            '.rw-xfer-go{padding:9px 18px;border:none;border-radius:9px;background:linear-gradient(135deg,#0369a1,#0f766e);color:#fff;font-weight:800;cursor:pointer;box-shadow:0 4px 12px rgba(3,105,161,.22);transition:transform .1s,box-shadow .15s;}' +
+            '.rw-xfer-go:hover{box-shadow:0 6px 16px rgba(3,105,161,.3);}' +
+            '.rw-xfer-go:active{transform:translateY(1px);}' +
+            '.rw-xfer-go:disabled{opacity:.55;cursor:not-allowed;box-shadow:none;}' +
             '#rewardPatientModal .rw-hero{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;align-items:stretch;}' +
             '.rw-ptabs{display:flex;gap:4px;border-bottom:2px solid #e2e8f0;margin:0 0 12px;}' +
             '.rw-ptab{display:flex;align-items:center;gap:6px;padding:8px 14px;margin-bottom:-2px;border:1px solid transparent;border-bottom:2px solid transparent;' +

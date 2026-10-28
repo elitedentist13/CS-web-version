@@ -50,6 +50,9 @@ body {
 .xhg-cover-toc a { color: #1e293b; text-decoration: none; }
 .xhg-cover-toc small { display: block; margin-top: 2px; }
 .xhg-cover-toc small a { color: #92400e; margin-right: 14px; }
+.xhg-cover-toc li.is-on { border: 2px solid #f59e0b; background: #fef3c7; box-shadow: 0 4px 12px rgba(245, 158, 11, .25); }
+.xhg-cover-toc small a.is-on { font-weight: 800; text-decoration: underline; }
+@media print { .xhg-cover-toc li.is-on { border: 1px solid #fde68a; background: #fffbeb; box-shadow: none; } }
 .xhg-cover-key {
     max-width: 600px; margin: 0 auto; text-align: left;
     background: #fff7ed; border: 2px solid #fb923c; border-radius: 12px; padding: 12px 16px;
@@ -121,6 +124,6 @@ body {
     <a class="xhg-toolbar-btn" href="loyalty-manual.pdf" download="Banana-Points-and-Coupons-manual.pdf">⬇ PDF</a>
 </nav>
 <main id="manual"></main>
-<script src="loyalty-manual.js"></script>
+<script src="loyalty-manual.js?v=20261028d"></script>
 </body>
 </html>

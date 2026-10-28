@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261028manual2';
+var BUILD = '20261028zero2';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -203,10 +203,87 @@ function loadCoupons() {
         return ['REWARDS.referralAvailability', 'REWARDS.referralCredit', 'REWARDS.referralReverse', 'REWARDS.clinicCtx',
             'REWARDS.loyaltyGuideLinkHtml'].indexOf(u) >= 0;
     }), rwUses.join(','));
+    pass('set zero card reuses the reward admin gate and reset dialog', /rw\.openAdminRewardAuthGate\(\{/.test(src) &&
+        /rw\.openResetZeroFlow\(configClinics\(\), \{/.test(src) && /var rw = \(typeof REWARDS !== 'undefined' && REWARDS\) \? REWARDS : null;/.test(src));
     pass('coupon sheet header has the 📖 manual link next to Wallet QR',
         /esc\(ct\('coupons\.wqr\.btn', 'Wallet QR'\)\) \+ '<\/button>' : ''\) \+\s+\(\(typeof REWARDS !== 'undefined' && REWARDS && typeof REWARDS\.loyaltyGuideLinkHtml === 'function'\)\s+\? REWARDS\.loyaltyGuideLinkHtml\('coupons'\) : ''\) \+ '<\/div>'/.test(src));
     pass('coupon config title has the 📖 manual link (only when the reward module is loaded)',
         /REWARDS\.loyaltyGuideLinkHtml\('coupons'\) : ''/.test(src) && /'<h2 class="dc-title">'[^\n]*\+ guide \+ '<\/div>'/.test(src));
+
+    console.log('=== 3b set zero ===');
+    var zSql = read('discount_coupon_zero.sql');
+    pass('zero SQL: batch + per-coupon safety log tables', /create table if not exists public\.discount_coupon_zero_batches/.test(zSql) &&
+        /create table if not exists public\.discount_coupon_zero_rows/.test(zSql) && /note_before/.test(zSql));
+    pass('zero SQL: voids only unused, unexpired coupons, scoped by clinic and issue cutoff',
+        /status = 'unused'/.test(zSql) && /c\.expires_on >= v_today/.test(zSql) && /p_issued_before/.test(zSql) && /clinic_code/.test(zSql) && /status = 'void'/.test(zSql));
+    pass('zero SQL: step back restores only coupons still voided by that batch',
+        /create or replace function public\.dc_revert_zero_batch/.test(zSql) && /status = 'unused'/.test(zSql) && /reverted_at/.test(zSql));
+    pass('zero SQL: granted to the app and reloads the API', /grant execute on function public\.dc_zero_coupons/.test(zSql) &&
+        /grant execute on function public\.dc_revert_zero_batch/.test(zSql) && /notify pgrst, 'reload schema'/.test(zSql));
+    var zp = C.normalizeZeroPolicy(null);
+    pass('zero policy defaults to manual, 12 months', zp.zero_policy === 'manual' && zp.lifespan_months === 12 && zp.last_year_end_zero_year === null);
+    pass('zero policy rejects odd values', C.normalizeZeroPolicy({ zero_policy: 'weekly', lifespan_months: 5 }).zero_policy === 'manual' &&
+        C.normalizeZeroPolicy({ zero_policy: 'lifespan', lifespan_months: 5 }).lifespan_months === 12 &&
+        C.normalizeZeroPolicy({ zero_policy: 'LIFESPAN', lifespan_months: 24 }).lifespan_months === 24);
+    pass('zero option change: only a different option (or months for life span) counts', !C.zeroPolicyChanged(null, 'manual', 6) &&
+        C.zeroPolicyChanged(null, 'year_end', 12) && C.zeroPolicyChanged({ zero_policy: 'lifespan', lifespan_months: 12 }, 'lifespan', 6) &&
+        !C.zeroPolicyChanged({ zero_policy: 'lifespan', lifespan_months: 6 }, 'lifespan', 6) &&
+        !C.zeroPolicyChanged({ zero_policy: 'year_end', lifespan_months: 12 }, 'year_end', 24));
+    pass('zero policy Save goes through the admin SMS + Authenticator gate', /if \(!zeroPolicyChanged\(zeroPolicy\(\), policy, months\)\) return;[\s\S]{0,400}rw\.openAdminRewardAuthGate\(\{[\s\S]{0,300}onSuccess: function \(\) \{\s+saveZeroPolicy\(policy, months\)/.test(src));
+    pass('HK year start is 31 Dec 16:00 UTC', C.hkYearStartIso(2027) === '2026-12-31T16:00:00.000Z');
+    pass('manual policy schedules nothing', C.scheduledZeroJob({ zero_policy: 'manual' }, new Date('2027-01-02T00:00:00Z')) === null);
+    var yj = C.scheduledZeroJob({ zero_policy: 'year_end', last_year_end_zero_year: 2026 }, new Date('2027-01-01T00:30:00+08:00'));
+    pass('year-end runs once in the new HK year, clearing coupons issued before 1 Jan', yj && yj.source === 'year_end' &&
+        yj.issuedBefore === '2026-12-31T16:00:00.000Z' && yj.mark.last_year_end_zero_year === 2027, JSON.stringify(yj));
+    pass('year-end does not run twice in a year', C.scheduledZeroJob({ zero_policy: 'year_end', last_year_end_zero_year: 2027 }, new Date('2027-06-01T00:00:00Z')) === null &&
+        C.scheduledZeroJob({ zero_policy: 'year_end', last_year_end_zero_year: 2026 }, new Date('2026-12-31T15:59:00Z')) === null);
+    var lj = C.scheduledZeroJob({ zero_policy: 'lifespan', lifespan_months: 6 }, new Date('2027-08-15T04:00:00Z'));
+    pass('life span clears coupons older than N months', lj && lj.source === 'lifespan' && lj.issuedBefore === '2027-02-15T04:00:00.000Z', JSON.stringify(lj));
+    pass('life span runs at most once a day', C.scheduledZeroJob({ zero_policy: 'lifespan', lifespan_months: 6, last_lifespan_run_at: '2027-08-15T00:00:00Z' },
+        new Date('2027-08-15T04:00:00Z')) === null);
+    async function zeroCtx(role, rpcData) {
+        var calls = { rpc: [], insert: [] };
+        var q = function (table) {
+            var o = {
+                select: function () { return o; }, eq: function () { return o; }, is: function () { return o; },
+                order: function () { return o; }, limit: function () { return o; },
+                insert: function (rows) { calls.insert.push({ table: table, rows: rows }); return Promise.resolve({ data: rows, error: null }); },
+                then: function (res) { return Promise.resolve({ data: [], error: null }).then(res); }
+            };
+            return o;
+        };
+        var zc = { console: console, currentRole: role, currentName: 'Tester', SB: {
+            from: q,
+            rpc: function (fn, args) { calls.rpc.push({ fn: fn, args: args }); return Promise.resolve(typeof rpcData === 'function' ? rpcData(fn) : { data: rpcData, error: null }); }
+        } };
+        vm.createContext(zc);
+        vm.runInContext(src, zc, { filename: 'app-coupons.js' });
+        return { C: zc.COUPONS, calls: calls };
+    }
+    var zs = await zeroCtx('staff', { ok: true, coupons: 3 });
+    var zsr = await zs.C.zeroCoupons({ all: true });
+    pass('manual set zero is admin only', zsr.ok === false && zs.calls.rpc.length === 0);
+    var za = await zeroCtx('admin', { ok: true, batch_id: 'b-1', coupons: 4, value_cleared: 350 });
+    var zneed = await za.C.zeroCoupons({ all: false, clinicCodes: [] });
+    pass('set zero needs All or a clinic', zneed.ok === false && za.calls.rpc.length === 0);
+    var zar = await za.C.zeroCoupons({ all: false, clinicCodes: ['kt', ' pl '] });
+    var zarg = za.calls.rpc[0] && za.calls.rpc[0].args;
+    pass('set zero calls dc_zero_coupons with upper-case clinic codes', za.calls.rpc[0].fn === 'dc_zero_coupons' && zarg.p_all === false &&
+        zarg.p_clinic_codes.join(',') === 'KT,PL' && zarg.p_source === 'manual' && zarg.p_created_by === 'Tester', JSON.stringify(zarg));
+    pass('set zero result carries batch and counts', zar.ok && zar.batch_id === 'b-1' && zar.coupons === 4 && zar.value_cleared === 350);
+    var zlog = za.calls.insert.filter(function (x) { return x.table === 'audit_trail'; });
+    pass('set zero writes a CANCEL row to the coupon log', zlog.length === 1 && zlog[0].rows[0].operation === 'CANCEL' &&
+        /SET ZERO \(manual\) KT, PL: 4 coupon/.test(zlog[0].rows[0].detail || zlog[0].rows[0].details || JSON.stringify(zlog[0].rows[0])), JSON.stringify(zlog));
+    var zm = await zeroCtx('admin', function () { return { data: null, error: { message: 'Could not find the function public.dc_zero_coupons in the schema cache' } }; });
+    var zmr = await zm.C.zeroCoupons({ all: true });
+    pass('missing SQL tells the user to run discount_coupon_zero.sql', zmr.ok === false && /discount_coupon_zero\.sql/.test(zmr.error), zmr.error);
+    var zb = await zeroCtx('admin', { ok: true, batch_id: 'b-1', coupons: 4 });
+    var zbr = await zb.C.revertLastZero();
+    pass('step back calls dc_revert_zero_batch and logs RESTORE', zbr.ok && zbr.coupons === 4 && zb.calls.rpc[0].fn === 'dc_revert_zero_batch' &&
+        zb.calls.insert.some(function (x) { return x.table === 'audit_trail' && x.rows[0].operation === 'RESTORE'; }));
+    pass('set zero card sits before Referrals and is wired after the config', /html \+= zeroCardHtml\(\);\s+html \+= '<div class="dc-card" id="dcRefCard">/.test(src) &&
+        /wireConfig\(pane\);\s+wireZeroCard\(pane\);/.test(src));
+    pass('config loads the zero policy and runs a due auto clear', /loadZeroPolicy\(\)\]\)\.then/.test(src) && /maybeRunScheduledZero\(\)\.then/.test(src));
 
     console.log('=== 4 treatment wiring ===');
     var scaling = { treatment_item_id: 's1', desc: 'typed over' };
@@ -1625,6 +1702,66 @@ function loadCoupons() {
         pass('live coupon log panel', !!(paint && paint.log));
         pass('live cash-per-bill settings with % and HK$ limits', !!(paint && paint.cashRules));
         pass('live rules note in config', !!(paint && paint.rules));
+        var zLive = await cdp.js(`(async () => {
+  var pane = document.getElementById('cfgPane-coupons');
+  if (!pane) return { ok: false, reason: 'no pane' };
+  var hadRole = typeof currentRole !== 'undefined';
+  var oldRole = hadRole ? currentRole : undefined;
+  function paintAs(role) {
+    try { currentRole = role; } catch (e) { window.currentRole = role; }
+    COUPONS.renderConfigPane(pane);
+  }
+  async function waitFor(sel) {
+    var d = Date.now() + 15000;
+    while (Date.now() < d && !pane.querySelector(sel)) await new Promise(function (r) { setTimeout(r, 200); });
+    return pane.querySelector(sel);
+  }
+  var out = {};
+  paintAs('staff');
+  var ro = await waitFor('#dcZeroCard');
+  out.readOnly = !!ro && !ro.querySelector('input,button') && /Only Admin/.test(ro.textContent);
+  paintAs('admin');
+  var card = await waitFor('#dcZeroPolicySave');
+  card = pane.querySelector('#dcZeroCard');
+  var md = Date.now() + 15000;
+  while (Date.now() < md && card && !(pane.querySelector('#dcZeroLastMeta') || {}).textContent) await new Promise(function (r) { setTimeout(r, 200); });
+  var order = Array.prototype.map.call(pane.querySelectorAll('.dc-card'), function (c) { return c.id; }).filter(Boolean);
+  out.order = order;
+  out.radios = card ? Array.prototype.map.call(card.querySelectorAll('input[name="dcZeroPolicy"]'), function (r) { return r.value + (r.checked ? '*' : ''); }) : [];
+  out.months = card ? card.querySelectorAll('.dc-life-btn').length : 0;
+  out.lifeHidden = card ? card.querySelector('#dcLifespanWrap').hidden : null;
+  out.saveOffAtStart = !!(card && card.querySelector('#dcZeroPolicySave').disabled);
+  out.authNote = ((card && card.querySelector('#dcZeroPolicyNote')) || {}).textContent || '';
+  var life = card && card.querySelector('input[value="lifespan"]');
+  if (life) { life.checked = true; life.dispatchEvent(new Event('change')); }
+  out.saveOnAfterChange = !!(card && !card.querySelector('#dcZeroPolicySave').disabled);
+  var man = card && card.querySelector('input[value="manual"]');
+  if (man) { man.checked = true; man.dispatchEvent(new Event('change')); }
+  out.saveOffWhenBack = !!(card && card.querySelector('#dcZeroPolicySave').disabled);
+  if (life) { life.checked = true; life.dispatchEvent(new Event('change')); }
+  out.lifeShown = card ? card.querySelector('#dcLifespanWrap').hidden === false : false;
+  var b6 = card && card.querySelector('.dc-life-btn[data-months="6"]');
+  if (b6) b6.click();
+  out.activeMonths = card ? (card.querySelector('.dc-life-btn.is-active') || {}).getAttribute('data-months') : null;
+  out.reset = !!(card && card.querySelector('#dcZeroReset'));
+  out.step = !!(card && card.querySelector('#dcZeroStepBack'));
+  out.meta = ((pane.querySelector('#dcZeroLastMeta') || {}).textContent || '');
+  var danger = card ? getComputedStyle(card) : null;
+  out.red = !!danger && danger.backgroundColor === 'rgb(255, 247, 247)';
+  if (hadRole) { try { currentRole = oldRole; } catch (e) {} }
+  COUPONS.renderConfigPane(pane);
+  return out;
+})()`, true, 60000);
+        pass('CDP set zero card is read-only for non-admin', zLive && zLive.readOnly === true, JSON.stringify(zLive));
+        pass('CDP set zero card sits before Referrals', zLive && zLive.order && zLive.order.indexOf('dcZeroCard') >= 0 &&
+            zLive.order.indexOf('dcZeroCard') + 1 === zLive.order.indexOf('dcRefCard'), zLive && JSON.stringify(zLive.order));
+        pass('CDP set zero card: three policies, manual default, 8 month buttons', zLive && zLive.radios.join(',') === 'manual*,year_end,lifespan' &&
+            zLive.months === 8 && zLive.lifeHidden === true, zLive && JSON.stringify(zLive.radios));
+        pass('CDP set zero card: life span shows months and picks one', zLive && zLive.lifeShown && zLive.activeMonths === '6');
+        pass('CDP set zero Save is off until an option changes, and says SMS + Authenticator are needed', zLive && zLive.saveOffAtStart &&
+            zLive.saveOnAfterChange && zLive.saveOffWhenBack && /SMS/.test(zLive.authNote) && /Authenticator/.test(zLive.authNote), zLive && zLive.authNote);
+        pass('CDP set zero card: RESET ZERO, Step back, red danger styling', zLive && zLive.reset && zLive.step && zLive.red);
+        pass('CDP set zero card: safety log line filled (last batch, none yet, or run-the-SQL hint)', zLive && zLive.meta.length > 0, zLive && zLive.meta);
         pass('live treatment checklist on all 8 treatment coupons', paint && paint.pickers === 8 && paint.smart === 8 && paint.pickRows > 8,
             JSON.stringify({ pickers: paint && paint.pickers, rows: paint && paint.pickRows, smart: paint && paint.smart }));
         pass('live hold-up-to fields', paint && paint.holds >= 16, 'n=' + (paint && paint.holds));
@@ -1824,7 +1961,7 @@ function loadCoupons() {
         pass('CDP sheet shows the Wallet QR button', !!(wqr && wqr.btn && wqr.overlay), JSON.stringify(wqr));
         pass('CDP coupon sheet has 📖 How to use -> coupon part of the manual in the dashboard language (new tab)',
             !!(wqr && wqr.guide && wqr.guide.shown && /^📖/.test(wqr.guide.text) && wqr.guide.target === '_blank' &&
-                wqr.guide.href === 'docs/loyalty-manual.html?v=20261028a#coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
+                wqr.guide.href === 'docs/loyalty-manual.html?v=20261028d#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
         pass('CDP Wallet QR explains when the link cannot be made', !!(wqr && /discount_coupon_wallet\.sql|Could not make/.test(wqr.realErr)), wqr && wqr.realErr);
         pass('CDP Esc closes the QR and keeps the sheet', !!(wqr && wqr.escClosesQrOnly));
         pass('CDP Wallet QR draws the wallet link', !!(wqr && wqr.qr && /\/wallet\.html\?t=0123456789abcdef0123456789abcdef$/.test(wqr.link) && wqr.qrUrl === wqr.link),

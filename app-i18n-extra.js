@@ -3540,6 +3540,88 @@
         'coupons.notice.earned': { en: 'This bill earned', 'zh-CN': '本单获得', 'zh-Hant': '本單獲得' },
         'coupons.notice.wallet': { en: 'added to the wallet for the next visit.', 'zh-CN': '已存入钱包，下次可用。', 'zh-Hant': '已存入錢包，下次可用。' },
         'coupons.log.title': { en: 'Coupon log', 'zh-CN': '优惠券记录', 'zh-Hant': '優惠券記錄' },
+        'coupons.zero.title': { en: 'Set discount coupons to zero', 'zh-CN': '优惠券清零', 'zh-Hant': '優惠券清零' },
+        'coupons.zero.blurb': {
+            en: 'Voids every unused coupon in the chosen clinics. Choose how coupons are cleared. Saving a policy change and Manual RESET ZERO need admin SMS + Google Authenticator. Every clear keeps a safety log so you can Step back.',
+            'zh-CN': '作废所选诊所内所有未使用的优惠券。请选择清零方式。保存策略变更及手动清零均需管理员短信与 Google 验证器验证。每次清零均保留安全日志，可回退。',
+            'zh-Hant': '作廢所選診所內所有未使用的優惠券。請選擇清零方式。儲存策略變更及手動清零均需管理員短訊與 Google 驗證器驗證。每次清零均保留安全日誌，可回退。'
+        },
+        'coupons.zero.lifespan': {
+            en: 'Set each coupon’s life span to at most:',
+            'zh-CN': '设置每张优惠券有效期最长为：',
+            'zh-Hant': '設定每張優惠券有效期最長為：'
+        },
+        'coupons.zero.lifeHint': {
+            en: 'Life span clears unused coupons issued longer ago than the months picked, even if their own expiry is later. Year-end clears coupons issued before 1 Jan.',
+            'zh-CN': '有效期模式会作废发出时间早于所选月数的未使用优惠券（即使其自身到期日较后）。年终模式会作废 1 月 1 日前发出的优惠券。',
+            'zh-Hant': '有效期模式會作廢發出時間早於所選月數的未使用優惠券（即使其自身到期日較後）。年終模式會作廢 1 月 1 日前發出的優惠券。'
+        },
+        'coupons.zero.manualBlurb': {
+            en: 'Requires admin SMS + Google Authenticator. Then pick clinics and type confirm to void their unused coupons.',
+            'zh-CN': '需管理员短信与 Google 验证器验证。随后选择诊所并输入 confirm 以作废其未使用的优惠券。',
+            'zh-Hant': '需管理員短訊與 Google 驗證器驗證。其後選擇診所並輸入 confirm 以作廢其未使用的優惠券。'
+        },
+        'coupons.zero.stepBack': {
+            en: 'Step back and give back the coupons of the last set zero',
+            'zh-CN': '回退并退回上次清零的优惠券',
+            'zh-Hant': '回退並退回上次清零的優惠券'
+        },
+        'coupons.zero.stepBackAsk': {
+            en: 'Give back the coupons voided by the last set zero?',
+            'zh-CN': '要退回上次清零所作废的优惠券吗？',
+            'zh-Hant': '要退回上次清零所作廢的優惠券嗎？'
+        },
+        'coupons.zero.stepBackDone': { en: 'Gave back {N} coupon(s).', 'zh-CN': '已退回 {N} 张优惠券。', 'zh-Hant': '已退回 {N} 張優惠券。' },
+        'coupons.zero.none': {
+            en: 'No set zero safety log to step back yet.',
+            'zh-CN': '尚无可回退的清零安全日志。',
+            'zh-Hant': '尚無可回退的清零安全日誌。'
+        },
+        'coupons.zero.lastMeta': {
+            en: 'Last safety log: {when} · {source} · {scope} · {N} coupon(s)',
+            'zh-CN': '最近安全日志：{when} · {source} · {scope} · {N} 张优惠券',
+            'zh-Hant': '最近安全日誌：{when} · {source} · {scope} · {N} 張優惠券'
+        },
+        'coupons.zero.policyAuthTitle': {
+            en: 'Verify to change the coupon zero policy',
+            'zh-CN': '验证以更改优惠券清零策略',
+            'zh-Hant': '驗證以更改優惠券清零策略'
+        },
+        'coupons.zero.typeTitle': { en: 'Type confirm to void coupons', 'zh-CN': '输入 confirm 以作废优惠券', 'zh-Hant': '輸入 confirm 以作廢優惠券' },
+        'coupons.zero.typeHint': {
+            en: 'This voids every unused discount coupon issued at: {scope}. Type the word confirm below.',
+            'zh-CN': '此操作将作废以下诊所发出的所有未使用优惠券：{scope}。请在下方输入 confirm。',
+            'zh-Hant': '此操作將作廢以下診所發出的所有未使用優惠券：{scope}。請在下方輸入 confirm。'
+        },
+        'coupons.zero.wipeBtn': { en: 'Void coupons now', 'zh-CN': '立即作废优惠券', 'zh-Hant': '立即作廢優惠券' },
+        'coupons.zero.running': { en: 'Voiding coupons…', 'zh-CN': '正在作废优惠券…', 'zh-Hant': '正在作廢優惠券…' },
+        'coupons.zero.done': {
+            en: 'Voided {N} coupon(s), HK${V} face value.',
+            'zh-CN': '已作废 {N} 张优惠券，面值 HK${V}。',
+            'zh-Hant': '已作廢 {N} 張優惠券，面值 HK${V}。'
+        },
+        'coupons.zero.autoRan': {
+            en: 'Auto set zero voided {N} coupon(s).',
+            'zh-CN': '自动清零已作废 {N} 张优惠券。',
+            'zh-Hant': '自動清零已作廢 {N} 張優惠券。'
+        },
+        'coupons.zero.needClinic': { en: 'Select All or at least one clinic.', 'zh-CN': '请选择全部或至少一间诊所。', 'zh-Hant': '請選擇全部或至少一間診所。' },
+        'coupons.zero.noSql': {
+            en: 'Set zero is not set up yet. Run discount_coupon_zero.sql in Supabase first.',
+            'zh-CN': '清零尚未设置。请先在 Supabase 运行 discount_coupon_zero.sql。',
+            'zh-Hant': '清零尚未設定。請先在 Supabase 執行 discount_coupon_zero.sql。'
+        },
+        'coupons.zero.saveNeedsAuth': {
+            en: 'Changing the set zero option needs the admin SMS code and the Google Authenticator code.',
+            'zh-CN': '更改清零选项需输入管理员短信验证码及 Google 验证器验证码。',
+            'zh-Hant': '更改清零選項需輸入管理員短訊驗證碼及 Google 驗證器驗證碼。'
+        },
+        'coupons.zero.failed': { en: 'Set zero failed.', 'zh-CN': '清零失败。', 'zh-Hant': '清零失敗。' },
+        'coupons.zero.noGate': {
+            en: 'Admin verification is not available. Reload and try again.',
+            'zh-CN': '管理员验证不可用，请重新载入后再试。',
+            'zh-Hant': '管理員驗證不可用，請重新載入後再試。'
+        },
         'coupons.log.hint': {
             en: 'Every coupon issued, gifted, transferred, given back on a void, or cancelled. Gifts show the login that gave them.',
             'zh-CN': '所有发出、赠送、转让、作废退回或取消的优惠券。赠送会显示操作的登入用户。',

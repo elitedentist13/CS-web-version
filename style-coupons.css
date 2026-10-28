@@ -6,6 +6,8 @@
 .dc-blurb, .dc-hint { margin: 0 0 12px; color: #64748b; font-size: 13px; line-height: 1.45; }
 .dc-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
 .dc-card-title { font-weight: 800; margin-bottom: 8px; }
+.dc-card.rw-cfg-card--danger { border-color: #fecaca; background: #fff7f7; }
+#dcZeroCard .dc-card-title { color: #991b1b; }
 .dc-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .dc-tab { border: 1px solid #cbd5e1; background: #fff; border-radius: 999px; padding: 6px 12px; cursor: pointer; font-weight: 700; }
 .dc-tab.is-active { background: #0f766e; color: #fff; border-color: #0f766e; }

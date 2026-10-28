@@ -22,12 +22,16 @@
         '</div>';
     }
 
-    function zeroMock(m) {
+    function zeroMock(m) { return zeroMockOf(m, m.zeroTitle, m.zLife); }
+
+    function dcZeroMock(m) { return zeroMockOf(m, m.dcZeroTitle, m.dcZLife); }
+
+    function zeroMockOf(m, title, life) {
         return '<div class="lm-mock" aria-hidden="true">' +
-            '<div class="lm-mock-title">' + m.zeroTitle + '</div>' +
+            '<div class="lm-mock-title">' + title + '</div>' +
             '<span class="lm-radio">○ ' + m.zManual + '</span>' +
             '<span class="lm-radio">○ ' + m.zYear + '</span>' +
-            '<span class="lm-radio">● ' + m.zLife + '</span>' +
+            '<span class="lm-radio">● ' + life + '</span>' +
             '<div class="lm-months">' + [1, 2, 3, 4, 6, 9, 12, 24].map(function (n) {
                 return '<span' + (n === 12 ? ' class="is-on"' : '') + '>' + n + m.mo + '</span>';
             }).join('') + '</div>' +
@@ -136,7 +140,8 @@
                     'This page explains every control in <b>Configuration → 🎟️ Discount Coupons</b>.',
                 before: 'Before you start',
                 beforeList: [
-                    'There is <b>no Save button</b>: each change saves as soon as you leave the box or click the tick.',
+                    'There is <b>no Save button</b>: each change saves as soon as you leave the box or click the tick. ' +
+                        'The one exception is the red <b>Set discount coupons to zero</b> card, which has its own Save and needs the admin SMS + Google Authenticator codes.',
                     'A yellow banner at the top lists the clinics where coupons are <b>switched off</b>.',
                     '<b>Coupon rules (tap to open)</b> lists the rules staff and patients follow (see the summary at the end).'
                 ],
@@ -175,6 +180,21 @@
                             'Tags: <i>keyword</i> = ticked by keyword, <i>unticked</i> = keyword match you took out, <i>not in list</i> = no longer in the treatment list.',
                         'A line typed on the bill counts only if its name is exactly the same as the treatment list.'
                     ] },
+                    { t: 'Set discount coupons to zero', danger: true, mock: dcZeroMock, list: [
+                        'The red card above Referrals. Admin only; other logins see the option in use. Setting zero <b>voids every unused coupon</b> ' +
+                            'in the chosen clinics (a coupon belongs to the clinic that issued it). Used and expired coupons are not touched.',
+                        'Choose how coupons are cleared: <b>Manual</b> (<b>default</b> — coupons are never cleared by themselves), ' +
+                            '<b>every year on 31 Dec 23:59</b> (HK time; clears coupons issued before 1 Jan), ' +
+                            'or a <b>life span</b> of 1, 2, 3, 4, 6, 9, 12 or 24 months (clears unused coupons issued longer ago, even if their own expiry is later).',
+                        '<b>Every change of option needs the admin SMS code and the Google Authenticator code.</b> ' +
+                            '<b>Save</b> lights up only after you pick a different option or month; press it, then enter both codes. Nothing changes until both codes pass.',
+                        'Year-end and life span run by themselves when the Discount Coupons config page is opened (year-end once a year, life span at most once a day). ' +
+                            'Turning on year-end part way through a year starts with the coming 31 Dec.',
+                        '<b>Manual RESET ZERO</b>: press <b>RESET ZERO</b> → verify → tick <b>All clinics</b> or single clinics → ' +
+                            '<b>Confirm set zero</b> → type <b>confirm</b> → <b>Void coupons now</b>.',
+                        'Every clear keeps a <b>safety log</b> and a line in the Coupon log. <b>Step back and give back the coupons of the last set zero</b> ' +
+                            'makes those coupons usable again. The grey line under the buttons shows the last safety log.'
+                    ] },
                     { t: 'Referrals', list: [
                         'Each new patient with a referrer. <b>Pending</b> waits for the first fully paid visit; <b>blocked</b> shows why no coupon was given.'
                     ] },
@@ -198,7 +218,10 @@
                     ['“Coupons are switched off at …”', 'Those clinics are not joined. Open the clinic tab and tick Join.'],
                     ['A patient did not get a coupon', 'The clinic or doctor is not joined, the row is off, or the patient already holds the Hold up to number (or 20 coupons in all).'],
                     ['A coupon cannot be used on a bill', 'The clinic or doctor is not joined, the treatment is not ticked for that coupon, the coupon has expired, or a whole-bill coupon is already on the bill.'],
-                    ['Cash coupons stop short', 'The per-bill cash limit applies (default 50% of the bill, up to HK$3,000).']
+                    ['Cash coupons stop short', 'The per-bill cash limit applies (default 50% of the bill, up to HK$3,000).'],
+                    ['Coupons were set to zero by mistake', 'Press Step back… on the red card. It gives back the coupons of the last set zero from its safety log.'],
+                    ['Save on the set zero card is greyed out', 'You have not picked a different option or month yet. Every change needs the SMS and Google Authenticator codes.'],
+                    ['“Run discount_coupon_zero.sql in Supabase first.”', 'The set zero tables are not in the database yet. Ask the system admin to run discount_coupon_zero.sql once.']
                 ]
             },
             mock: {
@@ -207,6 +230,7 @@
                 capNote: 'Per-bill limit HK$3000.00 · already used on this bill 500.00 · can use now 2500.00',
                 zeroTitle: 'Reset reward points to zero', zManual: 'Manual (default)', zYear: 'Auto set zero every year on 31 Dec 23:59 (HK)',
                 zLife: 'Set each reward points life span of:', mo: ' mo', resetBtn: 'RESET ZERO',
+                dcZeroTitle: 'Set discount coupons to zero', dcZLife: 'Set each coupon’s life span to at most:',
                 spend: 'Spend',
                 cashTitle: 'Using cash coupons on one bill', cashCount: 'Cash coupons per bill', noLimit: 'No limit',
                 cashMax: 'Max cash off per bill', cashSum: 'Any number of cash coupons per bill · at most 50% of the bill up to HK$3,000'
@@ -282,7 +306,8 @@
                 intro: '優惠券與獎勵積分分開運作。病人把優惠券存入錢包，於之後的賬單使用。本頁說明 <b>設定 → 🎟️ 優惠券</b> 內每一項設定。',
                 before: '開始前',
                 beforeList: [
-                    '此頁<b>沒有儲存按鈕</b>：離開輸入格或按剔選後即自動儲存。',
+                    '此頁<b>沒有儲存按鈕</b>：離開輸入格或按剔選後即自動儲存。' +
+                        '唯一例外是紅色的<b>優惠券清零</b>卡片，它有自己的儲存按鈕，並需管理員短訊及 Google 驗證器驗證碼。',
                     '頂部的黃色橫額列出<b>未開啟</b>優惠券的診所。',
                     '<b>優惠券使用規則（點擊展開）</b>列出員工及病人須遵守的規則（摘要見本頁末）。'
                 ],
@@ -318,6 +343,19 @@
                             '標記：<i>關鍵字</i> = 由關鍵字剔選；<i>已剔除</i> = 符合關鍵字但被你取消；<i>不在項目表</i> = 已不在治療項目清單。',
                         '賬單上手動輸入的項目，名稱必須與治療項目清單完全相同才計算。'
                     ] },
+                    { t: '優惠券清零', danger: true, mock: dcZeroMock, list: [
+                        '位於「介紹記錄」上方的紅色卡片。只限管理員；其他登入只會看到現用的選項。清零會<b>作廢所選診所內所有未使用的優惠券</b>' +
+                            '（優惠券屬於發出它的診所）。已使用及已過期的券不受影響。',
+                        '選擇清零方式：<b>手動</b>（<b>預設</b>，優惠券不會自動清零）、<b>每年 12 月 31 日 23:59</b>（香港時間；作廢 1 月 1 日前發出的券），' +
+                            '或<b>有效期</b> 1、2、3、4、6、9、12 或 24 個月（作廢發出時間早於該月數的未使用券，即使其自身到期日較後）。',
+                        '<b>每次更改清零選項都需輸入管理員短訊驗證碼及 Google 驗證器驗證碼。</b>' +
+                            '只有選了不同的選項或月數，<b>儲存</b>才可按；按下後輸入兩個驗證碼，兩者通過後才會更改。',
+                        '年終及有效期清零會在開啟優惠券設定頁時自動執行（年終每年一次，有效期最多每日一次）。' +
+                            '年中才開啟年終清零，會由今年 12 月 31 日開始。',
+                        '<b>手動清零</b>：按<b>清零重置</b> → 驗證 → 剔選<b>全部診所</b>或個別診所 → ' +
+                            '<b>確認清零</b> → 輸入 <b>confirm</b> → <b>立即作廢優惠券</b>。',
+                        '每次清零都會保留<b>安全日誌</b>，並在優惠券記錄留下一行。<b>回退並退回上次清零的優惠券</b>可令該批券重新可用；按鈕下方的灰字顯示上一個安全日誌。'
+                    ] },
                     { t: '介紹記錄', list: [
                         '列出每位有介紹人的新病人。<b>待定</b>表示等待首次全數付清的診症；<b>受阻</b>顯示未發券的原因。'
                     ] },
@@ -341,7 +379,10 @@
                     ['「…未開啟優惠券」', '這些診所未加入。打開該診所分頁並剔選「加入」。'],
                     ['病人沒有獲發優惠券', '診所或醫生未加入、該行已關閉，或病人已持有「最多持有」的張數（或合共 20 張）。'],
                     ['賬單不能使用某張券', '診所或醫生未加入、該治療項目未為此券剔選、券已過期，或賬單已有一張全單券。'],
-                    ['現金券扣減不足', '受每張單現金券上限限制（預設賬單金額 50%，最多 HK$3,000）。']
+                    ['現金券扣減不足', '受每張單現金券上限限制（預設賬單金額 50%，最多 HK$3,000）。'],
+                    ['誤把優惠券清零', '在紅色卡片按「回退…」，會按安全日誌退回上次清零的優惠券。'],
+                    ['清零卡片的「儲存」是灰色', '你尚未選擇不同的選項或月數。每次更改都需短訊及 Google 驗證器驗證碼。'],
+                    ['「請先在 Supabase 執行 discount_coupon_zero.sql。」', '資料庫尚未有清零用的資料表。請系統管理員執行一次 discount_coupon_zero.sql。']
                 ]
             },
             mock: {
@@ -350,6 +391,7 @@
                 capNote: '每張賬單上限 HK$3000.00 · 此賬單已使用 500.00 · 現可使用 2500.00',
                 zeroTitle: '將獎勵積分清零', zManual: '手動（預設）', zYear: '每年 12 月 31 日 23:59（香港時間）自動清零',
                 zLife: '設定每筆獎勵積分有效期為：', mo: ' 個月', resetBtn: '清零重置',
+                dcZeroTitle: '優惠券清零', dcZLife: '設定每張優惠券有效期最長為：',
                 spend: '消費',
                 cashTitle: '同一張單使用現金券', cashCount: '每張單現金券數量', noLimit: '不限',
                 cashMax: '每張單現金券扣減上限', cashSum: '每張單現金券數量不限 · 最多賬單金額 50%，最多 HK$3,000'
@@ -425,7 +467,8 @@
                 intro: '优惠券与奖励积分分开运作。病人把优惠券存入钱包，于之后的账单使用。本页说明 <b>设置 → 🎟️ 优惠券</b> 内每一项设置。',
                 before: '开始前',
                 beforeList: [
-                    '此页<b>没有保存按钮</b>：离开输入框或点勾选后即自动保存。',
+                    '此页<b>没有保存按钮</b>：离开输入框或点勾选后即自动保存。' +
+                        '唯一例外是红色的<b>优惠券清零</b>卡片，它有自己的保存按钮，并需管理员短信及 Google 验证器验证码。',
                     '顶部的黄色横幅列出<b>未开启</b>优惠券的诊所。',
                     '<b>优惠券使用规则（点击展开）</b>列出员工及病人须遵守的规则（摘要见本页末）。'
                 ],
@@ -461,6 +504,19 @@
                             '标记：<i>关键字</i> = 由关键字勾选；<i>已剔除</i> = 符合关键字但被你取消；<i>不在项目表</i> = 已不在治疗项目清单。',
                         '账单上手动输入的项目，名称必须与治疗项目清单完全相同才计算。'
                     ] },
+                    { t: '优惠券清零', danger: true, mock: dcZeroMock, list: [
+                        '位于「介绍记录」上方的红色卡片。只限管理员；其他登录只会看到现用的选项。清零会<b>作废所选诊所内所有未使用的优惠券</b>' +
+                            '（优惠券属于发出它的诊所）。已使用及已过期的券不受影响。',
+                        '选择清零方式：<b>手动</b>（<b>默认</b>，优惠券不会自动清零）、<b>每年 12 月 31 日 23:59</b>（香港时间；作废 1 月 1 日前发出的券），' +
+                            '或<b>有效期</b> 1、2、3、4、6、9、12 或 24 个月（作废发出时间早于该月数的未使用券，即使其自身到期日较后）。',
+                        '<b>每次更改清零选项都需输入管理员短信验证码及 Google 验证器验证码。</b>' +
+                            '只有选了不同的选项或月数，<b>保存</b>才可点；点下后输入两个验证码，两者通过后才会更改。',
+                        '年终及有效期清零会在打开优惠券设置页时自动执行（年终每年一次，有效期最多每日一次）。' +
+                            '年中才开启年终清零，会由今年 12 月 31 日开始。',
+                        '<b>手动清零</b>：点<b>清零重置</b> → 验证 → 勾选<b>全部诊所</b>或个别诊所 → ' +
+                            '<b>确认清零</b> → 输入 <b>confirm</b> → <b>立即作废优惠券</b>。',
+                        '每次清零都会保留<b>安全日志</b>，并在优惠券记录留下一行。<b>回退并退回上次清零的优惠券</b>可令该批券重新可用；按钮下方的灰字显示上一个安全日志。'
+                    ] },
                     { t: '介绍记录', list: [
                         '列出每位有介绍人的新病人。<b>待定</b>表示等待首次全数付清的就诊；<b>受阻</b>显示未发券的原因。'
                     ] },
@@ -484,7 +540,10 @@
                     ['「…未开启优惠券」', '这些诊所未加入。打开该诊所标签并勾选「加入」。'],
                     ['病人没有获发优惠券', '诊所或医生未加入、该行已关闭，或病人已持有「最多持有」的张数（或合共 20 张）。'],
                     ['账单不能使用某张券', '诊所或医生未加入、该治疗项目未为此券勾选、券已过期，或账单已有一张全单券。'],
-                    ['现金券扣减不足', '受每张单现金券上限限制（默认账单金额 50%，最多 HK$3,000）。']
+                    ['现金券扣减不足', '受每张单现金券上限限制（默认账单金额 50%，最多 HK$3,000）。'],
+                    ['误把优惠券清零', '在红色卡片点「回退…」，会按安全日志退回上次清零的优惠券。'],
+                    ['清零卡片的「保存」是灰色', '你尚未选择不同的选项或月数。每次更改都需短信及 Google 验证器验证码。'],
+                    ['「请先在 Supabase 运行 discount_coupon_zero.sql。」', '数据库尚未有清零用的数据表。请系统管理员运行一次 discount_coupon_zero.sql。']
                 ]
             },
             mock: {
@@ -493,6 +552,7 @@
                 capNote: '每张账单上限 HK$3000.00 · 此账单已使用 500.00 · 现可使用 2500.00',
                 zeroTitle: '将奖励积分清零', zManual: '手动（默认）', zYear: '每年 12 月 31 日 23:59（香港时间）自动清零',
                 zLife: '设置每笔奖励积分有效期为：', mo: ' 个月', resetBtn: '清零重置',
+                dcZeroTitle: '优惠券清零', dcZLife: '设置每张优惠券有效期最长为：',
                 spend: '消费',
                 cashTitle: '同一张单使用现金券', cashCount: '每张单现金券数量', noLimit: '不限',
                 cashMax: '每张单现金券扣减上限', cashSum: '每张单现金券数量不限 · 最多账单金额 50%，最多 HK$3,000'
@@ -525,25 +585,41 @@
             '<div class="xhg-body">' + body + '</div></section>';
     }
 
-    /** #lang-x and #rewards-x open the reward points part, #coupons-x the coupon part. */
+    /** #lang-x and #rewards-x open the reward points part, #coupons-x the coupon part.
+     *  #start-rewards-x / #start-coupons-x open the cover (contents page) with that language and part marked. */
     function targetFor(hash) {
+        var s = /^#start-(rewards|coupons)-(en|zh-Hant|zh-CN)$/.exec(hash || '');
+        if (s) return { lang: s[2], id: 'manualCover', part: s[1], cover: true };
         var m = /^#(lang|rewards|coupons)-(en|zh-Hant|zh-CN)$/.exec(hash || '');
         if (!m) return null;
         return { lang: m[2], id: (m[1] === 'coupons' ? 'coupons-' : 'lang-') + m[2] };
     }
 
+    /** Pure: the language to open with no #anchor — the dashboard's saved language, else Traditional Chinese. */
+    function defaultLang(stored) {
+        var s = String(stored || '');
+        return s === 'en' || s === 'zh-CN' || s === 'zh-Hant' ? s : 'zh-Hant';
+    }
+
+    function storedDashLang() {
+        try { return localStorage.getItem('joyful_ui_lang_v1'); } catch (e) { return null; }
+    }
+
     function build() {
         var root = document.getElementById('manual');
-        var cover = '<section class="xhg-page xhg-cover">' +
+        if (!targetFor(location.hash) && history.replaceState) {
+            history.replaceState(null, '', '#start-rewards-' + defaultLang(storedDashLang()));
+        }
+        var cover = '<section class="xhg-page xhg-cover" id="manualCover">' +
             '<div class="xhg-cover-logo">🎁 🎟️</div>' +
             '<h1>Reward Points &amp; Discount Coupons<br><span>獎勵積分及優惠券 · 使用說明 · 奖励积分及优惠券 · 使用说明</span></h1>' +
             '<p class="xhg-cover-sub">User manual — English · 繁體中文 · 简体中文</p>' +
             '<ol class="xhg-cover-toc">' +
                 LANGS.map(function (l) {
                     var t = T[l.id];
-                    return '<li><a href="#lang-' + l.id + '"><b>' + l.label + '</b></a>' +
-                        '<small><a href="#rewards-' + l.id + '">🎁 ' + t.coverPart.rw + '</a>' +
-                        '<a href="#coupons-' + l.id + '">🎟️ ' + t.coverPart.dc + '</a></small></li>';
+                    return '<li data-lang="' + l.id + '"><a href="#lang-' + l.id + '"><b>' + l.label + '</b></a>' +
+                        '<small><a href="#rewards-' + l.id + '" data-part="rewards">🎁 ' + t.coverPart.rw + '</a>' +
+                        '<a href="#coupons-' + l.id + '" data-part="coupons">🎟️ ' + t.coverPart.dc + '</a></small></li>';
                 }).join('') +
             '</ol>' +
             '<div class="xhg-cover-key">' +
@@ -568,15 +644,23 @@
             document.querySelectorAll('.xhg-toolbar [data-lang]').forEach(function (a) {
                 a.classList.toggle('is-on', !!target && a.getAttribute('data-lang') === target.lang);
             });
+            document.querySelectorAll('.xhg-cover-toc li[data-lang]').forEach(function (li) {
+                var on = !!target && li.getAttribute('data-lang') === target.lang;
+                li.classList.toggle('is-on', on);
+                li.querySelectorAll('a[data-part]').forEach(function (a) {
+                    a.classList.toggle('is-on', on && !!target.part && a.getAttribute('data-part') === target.part);
+                });
+            });
             var el = target && document.getElementById(target.id);
-            if (el) el.scrollIntoView({ block: 'start' });
+            if (target && target.cover) window.scrollTo(0, 0);
+            else if (el) el.scrollIntoView({ block: 'start' });
         }
         window.addEventListener('hashchange', markLang);
         // Sections are built by this script, after the browser's own jump to the hash was attempted.
         markLang();
     }
 
-    window.LoyaltyManual = { T: T, LANGS: LANGS, targetFor: targetFor };
+    window.LoyaltyManual = { T: T, LANGS: LANGS, targetFor: targetFor, defaultLang: defaultLang };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);
     else build();
 })();

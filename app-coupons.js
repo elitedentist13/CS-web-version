@@ -1147,7 +1147,319 @@ var COUPONS = (function () {
     function renderConfigPane(pane) {
         if (!pane) return;
         pane.innerHTML = '<p style="color:#64748b;">' + esc(ct('common.loadingEllipsis', 'Loading…')) + '</p>';
-        Promise.all([loadState().then(loadUsage), ensureCatalog()]).then(function () { paintConfig(pane); });
+        Promise.all([loadState().then(loadUsage), ensureCatalog(), loadZeroPolicy()]).then(function () {
+            paintConfig(pane);
+            maybeRunScheduledZero().then(function (res) {
+                if (res && res.ok && !res.skipped && Number(res.coupons) > 0 && typeof toast === 'function') {
+                    toast(ct('coupons.zero.autoRan', 'Auto set zero voided {N} coupon(s).').replace('{N}', String(res.coupons)));
+                }
+            }, function () {});
+        });
+    }
+
+    // ── SET ZERO: void unused coupons, with a safety log and Step back (discount_coupon_zero.sql) ──
+    var ZERO_KEY = 'coupon_zero_policy';
+    var ZERO_MONTHS = [1, 2, 3, 4, 6, 9, 12, 24];
+    var _zeroPolicy = null;
+
+    /** Pure: manual (default) | year_end | lifespan; months only from the allowed list. */
+    function normalizeZeroPolicy(raw) {
+        var o = raw || {};
+        var p = String(o.zero_policy || 'manual').toLowerCase();
+        if (p !== 'year_end' && p !== 'lifespan') p = 'manual';
+        var m = Number(o.lifespan_months);
+        if (ZERO_MONTHS.indexOf(m) < 0) m = 12;
+        var y = parseInt(o.last_year_end_zero_year, 10);
+        return {
+            zero_policy: p,
+            lifespan_months: m,
+            last_year_end_zero_year: y > 0 ? y : null,
+            last_lifespan_run_at: o.last_lifespan_run_at || null
+        };
+    }
+
+    function hkYear(d) {
+        return new Date((d ? d.getTime() : Date.now()) + 8 * 3600000).getUTCFullYear();
+    }
+
+    /** Pure: 1 Jan 00:00 Hong Kong time of a year, as an ISO instant. */
+    function hkYearStartIso(year) {
+        return new Date(Date.UTC(year, 0, 1) - 8 * 3600000).toISOString();
+    }
+
+    /** Pure: the scheduled job due now, or null. year_end clears coupons issued before this HK year; lifespan clears coupons older than N months, once a day. */
+    function scheduledZeroJob(policy, now) {
+        var p = normalizeZeroPolicy(policy);
+        now = now || new Date();
+        if (p.zero_policy === 'year_end') {
+            var y = hkYear(now);
+            if (p.last_year_end_zero_year && p.last_year_end_zero_year >= y) return null;
+            return { source: 'year_end', issuedBefore: hkYearStartIso(y), mark: { last_year_end_zero_year: y },
+                note: 'Auto year-end SET ZERO (31 Dec 23:59 HK) for ' + (y - 1) };
+        }
+        if (p.zero_policy === 'lifespan') {
+            var last = p.last_lifespan_run_at ? new Date(p.last_lifespan_run_at).getTime() : 0;
+            if (last && now.getTime() - last < 86400000) return null;
+            var cut = new Date(now.getTime());
+            cut.setUTCMonth(cut.getUTCMonth() - p.lifespan_months);
+            return { source: 'lifespan', issuedBefore: cut.toISOString(), mark: { last_lifespan_run_at: now.toISOString() },
+                note: 'Auto lifespan SET ZERO: coupons older than ' + p.lifespan_months + ' months' };
+        }
+        return null;
+    }
+
+    function zeroPolicy() { return _zeroPolicy || normalizeZeroPolicy(null); }
+
+    /** Pure: true when the picked option differs from the saved one (months count only for life span). */
+    function zeroPolicyChanged(saved, policy, months) {
+        var a = normalizeZeroPolicy(saved);
+        var b = normalizeZeroPolicy({ zero_policy: policy, lifespan_months: months });
+        if (a.zero_policy !== b.zero_policy) return true;
+        return b.zero_policy === 'lifespan' && a.lifespan_months !== b.lifespan_months;
+    }
+
+    function loadZeroPolicy() {
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            _zeroPolicy = normalizeZeroPolicy(null);
+            return Promise.resolve(_zeroPolicy);
+        }
+        return Promise.resolve(SB.from('program_settings').select('setting_value').eq('setting_key', ZERO_KEY))
+            .then(function (r) {
+                var raw = r && r.data && r.data[0] && r.data[0].setting_value;
+                var parsed = null;
+                if (raw) { try { parsed = JSON.parse(raw); } catch (e) { parsed = null; } }
+                _zeroPolicy = normalizeZeroPolicy(parsed);
+                return _zeroPolicy;
+            }, function () {
+                _zeroPolicy = normalizeZeroPolicy(null);
+                return _zeroPolicy;
+            });
+    }
+
+    function writeZeroPolicy(next) {
+        var row = { setting_key: ZERO_KEY, setting_value: JSON.stringify(next) };
+        var p = typeof persistProgramSettingRow === 'function' ? persistProgramSettingRow(row)
+            : SB.from('program_settings').insert([row]);
+        return Promise.resolve(p).then(function (r) {
+            if (r && r.error) return { ok: false, error: r.error.message };
+            _zeroPolicy = next;
+            return { ok: true, policy: next };
+        });
+    }
+
+    /** Admin only. Turning on year-end mid-year marks this year done, so the first clear is the coming 31 Dec. */
+    function saveZeroPolicy(policy, months) {
+        if (!couponAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
+        var next = normalizeZeroPolicy(Object.assign({}, zeroPolicy(), { zero_policy: policy, lifespan_months: months }));
+        if (next.zero_policy === 'year_end') next.last_year_end_zero_year = hkYear();
+        if (next.zero_policy === 'lifespan') next.last_lifespan_run_at = null;
+        return writeZeroPolicy(next);
+    }
+
+    function couponAdmin() {
+        return String(typeof currentRole !== 'undefined' ? currentRole : '').toLowerCase() === 'admin';
+    }
+
+    function zeroSqlMissing(err) {
+        return /dc_zero_coupons|dc_revert_zero_batch|discount_coupon_zero|schema cache|does not exist|PGRST20[25]/i.test(String(err || ''));
+    }
+
+    function zeroErrorText(err) {
+        if (zeroSqlMissing(err)) return ct('coupons.zero.noSql', 'Set zero is not set up yet. Run discount_coupon_zero.sql in Supabase first.');
+        return String(err || ct('coupons.zero.failed', 'Set zero failed.'));
+    }
+
+    /** opts: { all, clinicCodes, source, note, issuedBefore }. Resolves { ok, batch_id, coupons, value_cleared } or { ok:false, error }. */
+    function zeroCoupons(opts) {
+        opts = opts || {};
+        var source = opts.source === 'year_end' || opts.source === 'lifespan' ? opts.source : 'manual';
+        if (source === 'manual' && !couponAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
+        var codes = (opts.clinicCodes || []).map(function (c) { return String(c || '').trim().toUpperCase(); }).filter(Boolean);
+        if (!opts.all && !codes.length) return Promise.resolve({ ok: false, error: ct('coupons.zero.needClinic', 'Select All or at least one clinic.') });
+        if (typeof SB === 'undefined' || !SB || typeof SB.rpc !== 'function') return Promise.resolve({ ok: false, error: 'Database not connected.' });
+        return Promise.resolve(SB.rpc('dc_zero_coupons', {
+            p_all: !!opts.all,
+            p_clinic_codes: opts.all ? null : codes,
+            p_created_by: actorName() || 'system',
+            p_note: opts.note || 'Admin MANUAL SET ZERO - typed confirm',
+            p_source: source,
+            p_issued_before: opts.issuedBefore || null
+        })).then(function (r) {
+            if (r && r.error) return { ok: false, error: zeroErrorText(r.error.message) };
+            var d = (r && r.data) || {};
+            if (d.ok === false) return { ok: false, error: zeroErrorText(d.error) };
+            var res = { ok: true, batch_id: d.batch_id || null, coupons: Number(d.coupons) || 0, value_cleared: round2(d.value_cleared), source: source };
+            logCoupon('CANCEL', 'SET ZERO (' + source + ') ' + (opts.all ? 'all clinics' : codes.join(', ')) + ': ' + res.coupons +
+                ' coupon(s), HK$' + res.value_cleared.toFixed(2) + (res.batch_id ? ' [batch ' + res.batch_id + ']' : ''), null, null);
+            return res;
+        }, function (e) { return { ok: false, error: zeroErrorText(e && e.message) }; });
+    }
+
+    function revertLastZero() {
+        if (!couponAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
+        return Promise.resolve(SB.rpc('dc_revert_zero_batch', { p_batch_id: null, p_created_by: actorName() || null })).then(function (r) {
+            if (r && r.error) return { ok: false, error: zeroErrorText(r.error.message) };
+            var d = (r && r.data) || {};
+            if (d.ok === false) return { ok: false, error: zeroErrorText(d.error) };
+            var res = { ok: true, batch_id: d.batch_id, coupons: Number(d.coupons) || 0 };
+            logCoupon('RESTORE', 'Step back SET ZERO: ' + res.coupons + ' coupon(s) given back [batch ' + res.batch_id + ']', null, null);
+            return res;
+        }, function (e) { return { ok: false, error: zeroErrorText(e && e.message) }; });
+    }
+
+    function loadLastZeroBatch() {
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve({ ok: false, batch: null });
+        return Promise.resolve(SB.from('discount_coupon_zero_batches')
+            .select('id,created_at,source,scope_all,clinic_codes,coupons,value_cleared')
+            .is('reverted_at', null).order('created_at', { ascending: false }).limit(1))
+            .then(function (r) {
+                if (r && r.error) return { ok: false, error: r.error.message, batch: null };
+                return { ok: true, batch: (r && r.data && r.data[0]) || null };
+            }, function (e) { return { ok: false, error: e && e.message, batch: null }; });
+    }
+
+    /** Runs a due year-end / lifespan clear once (the mark is saved first so two screens do not both run it). */
+    function maybeRunScheduledZero() {
+        var job = scheduledZeroJob(zeroPolicy(), new Date());
+        if (!job) return Promise.resolve({ ok: true, skipped: true });
+        return writeZeroPolicy(Object.assign({}, zeroPolicy(), job.mark)).then(function (w) {
+            if (!w.ok) return { ok: false, skipped: true, error: w.error };
+            return zeroCoupons({ all: true, source: job.source, note: job.note, issuedBefore: job.issuedBefore });
+        });
+    }
+
+    function zeroCardHtml() {
+        var pol = zeroPolicy();
+        var admin = couponAdmin();
+        var label = {
+            manual: ct('rewards.cfg.zeroPolicyManual', 'Manual') + ' (' + ct('rewards.cfg.zeroPolicyDefault', 'default') + ')',
+            year_end: ct('rewards.cfg.zeroPolicyYearEnd', 'Auto set zero every year on 31 Dec 23:59 (HK)'),
+            lifespan: ct('coupons.zero.lifespan', 'Set each coupon’s life span to at most:')
+        };
+        var mo = ct('rewards.cfg.monthsShort', ' mo');
+        var html = '<div class="dc-card rw-cfg-card--danger" id="dcZeroCard">' +
+            '<div class="dc-card-title">' + esc(ct('coupons.zero.title', 'Set discount coupons to zero')) + '</div>' +
+            '<p class="dc-hint" style="color:#7f1d1d;">' + esc(ct('coupons.zero.blurb',
+                'Voids every unused coupon in the chosen clinics. Choose how coupons are cleared. Saving a policy change and Manual RESET ZERO need admin SMS + Google Authenticator. Every clear keeps a safety log so you can Step back.')) + '</p>';
+        if (!admin) {
+            var cur = pol.zero_policy === 'lifespan' ? label.lifespan + ' ' + pol.lifespan_months + mo : label[pol.zero_policy];
+            return html + '<p class="dc-hint" style="color:#7f1d1d;">' + esc(ct('rewards.cfg.adminOnly', 'Only Admin can change this setting.')) +
+                ' · ' + esc(cur) + '</p></div>';
+        }
+        html += '<div class="rw-zero-policy" role="radiogroup" aria-label="Zero policy">';
+        ['manual', 'year_end', 'lifespan'].forEach(function (v) {
+            html += '<label class="rw-zero-policy-opt"><input type="radio" name="dcZeroPolicy" value="' + v + '"' +
+                (pol.zero_policy === v ? ' checked' : '') + '><span>' + esc(label[v]) + '</span></label>';
+        });
+        html += '</div><div id="dcLifespanWrap" class="rw-lifespan-months"' + (pol.zero_policy === 'lifespan' ? '' : ' hidden') + '>';
+        ZERO_MONTHS.forEach(function (m) {
+            html += '<button type="button" class="rw-lifespan-btn dc-life-btn' + (pol.lifespan_months === m ? ' is-active' : '') +
+                '" data-months="' + m + '">' + m + esc(mo) + '</button>';
+        });
+        html += '</div>';
+        html += '<p class="dc-hint">' + esc(ct('coupons.zero.lifeHint',
+            'Life span clears unused coupons issued longer ago than the months picked, even if their own expiry is later. Year-end clears coupons issued before 1 Jan.')) + '</p>';
+        html += '<div class="rw-reset-actions" style="margin:10px 0;align-items:center;"><button type="button" id="dcZeroPolicySave" class="btn btn--primary" style="padding:8px 14px;" disabled>' +
+            esc(ct('common.save', 'Save')) + '</button>' +
+            '<span id="dcZeroPolicyNote" class="dc-hint" style="margin:0;">' + esc(ct('coupons.zero.saveNeedsAuth',
+                'Changing the set zero option needs the admin SMS code and the Google Authenticator code.')) + '</span></div>';
+        html += '<div style="border-top:1px solid #fecaca;margin:12px 0 0;padding-top:12px;">' +
+            '<div style="font-weight:700;margin-bottom:8px;font-size:13px;">' + esc(ct('rewards.cfg.resetZeroManualTitle', 'Manual RESET ZERO')) + '</div>' +
+            '<p class="dc-hint" style="color:#7f1d1d;">' + esc(ct('coupons.zero.manualBlurb',
+                'Requires admin SMS + Google Authenticator. Then pick clinics and type confirm to void their unused coupons.')) + '</p>' +
+            '<div class="rw-reset-actions">' +
+            '<button type="button" id="dcZeroReset" class="btn btn--danger" style="padding:8px 14px;">' + esc(ct('rewards.cfg.resetZeroBtn', 'RESET ZERO')) + '</button>' +
+            '<button type="button" id="dcZeroStepBack" class="btn" style="padding:8px 14px;" disabled>' +
+            esc(ct('coupons.zero.stepBack', 'Step back and give back the coupons of the last set zero')) + '</button></div>' +
+            '<p id="dcZeroLastMeta" class="dc-hint" style="margin-top:10px;"></p></div>';
+        return html + '</div>';
+    }
+
+    function wireZeroCard(pane) {
+        var card = pane.querySelector('#dcZeroCard');
+        if (!card || !couponAdmin()) return;
+        function selPolicy() {
+            var c = card.querySelector('input[name="dcZeroPolicy"]:checked');
+            return c ? c.value : 'manual';
+        }
+        function selMonths() {
+            var a = card.querySelector('.dc-life-btn.is-active');
+            return a ? Number(a.getAttribute('data-months')) : 12;
+        }
+        var save = card.querySelector('#dcZeroPolicySave');
+        function syncDirty() {
+            if (save) save.disabled = !zeroPolicyChanged(zeroPolicy(), selPolicy(), selMonths());
+        }
+        card.querySelectorAll('input[name="dcZeroPolicy"]').forEach(function (r) {
+            r.addEventListener('change', function () {
+                var wrap = card.querySelector('#dcLifespanWrap');
+                if (wrap) wrap.hidden = selPolicy() !== 'lifespan';
+                syncDirty();
+            });
+        });
+        card.querySelectorAll('.dc-life-btn').forEach(function (b) {
+            b.addEventListener('click', function () {
+                card.querySelectorAll('.dc-life-btn').forEach(function (x) { x.classList.toggle('is-active', x === b); });
+                syncDirty();
+            });
+        });
+        var rw = (typeof REWARDS !== 'undefined' && REWARDS) ? REWARDS : null;
+        if (save) save.addEventListener('click', function () {
+            var policy = selPolicy(), months = selMonths();
+            if (!zeroPolicyChanged(zeroPolicy(), policy, months)) return;
+            if (!rw || typeof rw.openAdminRewardAuthGate !== 'function') { alert(ct('coupons.zero.noGate', 'Admin verification is not available. Reload and try again.')); return; }
+            rw.openAdminRewardAuthGate({
+                title: ct('coupons.zero.policyAuthTitle', 'Verify to change the coupon zero policy'),
+                keepOpen: false,
+                onSuccess: function () {
+                    saveZeroPolicy(policy, months).then(function (res) {
+                        if (!res.ok) { alert(res.error || 'Save failed'); return; }
+                        if (typeof toast === 'function') toast(ct('rewards.cfg.saved', 'Saved'));
+                        paintConfig(pane);
+                    });
+                }
+            });
+        });
+        var reset = card.querySelector('#dcZeroReset');
+        if (reset) reset.addEventListener('click', function () {
+            if (!rw || typeof rw.openResetZeroFlow !== 'function') { alert(ct('coupons.zero.noGate', 'Admin verification is not available. Reload and try again.')); return; }
+            rw.openResetZeroFlow(configClinics(), {
+                title: ct('coupons.zero.title', 'Set discount coupons to zero'),
+                typeTitle: ct('coupons.zero.typeTitle', 'Type confirm to void coupons'),
+                typeHint: ct('coupons.zero.typeHint', 'This voids every unused discount coupon issued at: {scope}. Type the word confirm below.'),
+                wipeLabel: ct('coupons.zero.wipeBtn', 'Void coupons now'),
+                running: ct('coupons.zero.running', 'Voiding coupons…'),
+                run: function (sel) { return zeroCoupons({ all: sel.all, clinicCodes: sel.clinicCodes, source: 'manual' }); },
+                doneText: function (res) {
+                    return ct('coupons.zero.done', 'Voided {N} coupon(s), HK${V} face value.')
+                        .replace('{N}', String(res.coupons || 0)).replace('{V}', round2(res.value_cleared).toFixed(2));
+                },
+                onDone: function () { renderConfigPane(pane); }
+            });
+        });
+        var step = card.querySelector('#dcZeroStepBack');
+        var meta = card.querySelector('#dcZeroLastMeta');
+        loadLastZeroBatch().then(function (res) {
+            if (!meta) return;
+            var b = res && res.batch;
+            if (!res.ok && zeroSqlMissing(res.error)) { meta.textContent = zeroErrorText(res.error); return; }
+            if (!b) { meta.textContent = ct('coupons.zero.none', 'No set zero safety log to step back yet.'); return; }
+            meta.textContent = ct('coupons.zero.lastMeta', 'Last safety log: {when} · {source} · {scope} · {N} coupon(s)')
+                .replace('{when}', String(b.created_at || '').replace('T', ' ').slice(0, 16))
+                .replace('{source}', String(b.source || 'manual'))
+                .replace('{scope}', b.scope_all ? ct('rewards.cfg.resetZeroAll', 'All clinics') : (b.clinic_codes || []).join(', '))
+                .replace('{N}', String(b.coupons || 0));
+            if (step) step.disabled = false;
+        });
+        if (step) step.addEventListener('click', function () {
+            if (!window.confirm(ct('coupons.zero.stepBackAsk', 'Give back the coupons voided by the last set zero?'))) return;
+            step.disabled = true;
+            revertLastZero().then(function (res) {
+                if (!res.ok) { alert(res.error); step.disabled = false; return; }
+                if (typeof toast === 'function') toast(ct('coupons.zero.stepBackDone', 'Gave back {N} coupon(s).').replace('{N}', String(res.coupons)));
+                renderConfigPane(pane);
+            });
+        });
     }
 
     function catalogNames() {
@@ -1453,6 +1765,7 @@ var COUPONS = (function () {
             html += '</div>';
         });
         html += '</div></div>';
+        html += zeroCardHtml();
         html += '<div class="dc-card" id="dcRefCard"><div class="dc-card-title">' + esc(ct('coupons.ref.title', 'Referrals')) + '</div>' +
             '<p class="dc-hint">' + esc(ct('coupons.ref.listHint',
                 'Each new patient with a referrer. Pending waits for the first fully paid visit; blocked shows why no coupon is given.')) + '</p>' +
@@ -1475,6 +1788,7 @@ var COUPONS = (function () {
         pane.innerHTML = html;
         ensureCss();
         wireConfig(pane);
+        wireZeroCard(pane);
         var go = document.getElementById('dcLogGo');
         if (go) go.onclick = function () { loadCouponLog(); };
         var csv = document.getElementById('dcLogCsv');
@@ -4855,6 +5169,15 @@ var COUPONS = (function () {
         couponSmsBody: couponSmsBody,
         smsExpiring: smsExpiring,
         renderConfigPane: renderConfigPane,
+        normalizeZeroPolicy: normalizeZeroPolicy,
+        scheduledZeroJob: scheduledZeroJob,
+        zeroPolicyChanged: zeroPolicyChanged,
+        hkYearStartIso: hkYearStartIso,
+        zeroCoupons: zeroCoupons,
+        revertLastZero: revertLastZero,
+        loadLastZeroBatch: loadLastZeroBatch,
+        saveZeroPolicy: saveZeroPolicy,
+        maybeRunScheduledZero: maybeRunScheduledZero,
         syncBillDetail: syncBillDetail,
         openBillSheet: openBillSheet,
         onPatientCreated: onPatientCreated,

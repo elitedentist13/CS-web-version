@@ -1520,18 +1520,23 @@ var REWARDS = (function () {
      * 3) Type the word "confirm"
      * 4) Wipe balances for selected clinics
      */
-    function openResetZeroFlow(clinics) {
+    /**
+     * opts (all optional) lets the discount coupon scheme reuse this flow:
+     * { title, typeTitle, typeHint ('{scope}'), wipeLabel, running, run(selected) -> Promise<res>, doneText(res), onDone() }
+     */
+    function openResetZeroFlow(clinics, opts) {
         if (!isAdmin()) {
             alert(tr('rewards.cfg.adminOnly', 'Only Admin can change this setting.'));
             return;
         }
+        opts = opts || {};
         clinics = (clinics || []).slice();
         var body = document.getElementById('rwResetBody');
         var title = document.getElementById('rwResetTitle');
         var selected = { all: false, ids: {}, codes: {} };
 
         openAdminRewardAuthGate({
-            title: tr('rewards.cfg.resetZeroTitle', 'Reset reward points to zero'),
+            title: opts.title || tr('rewards.cfg.resetZeroTitle', 'Reset reward points to zero'),
             keepOpen: true,
             onSuccess: function () {
                 body = document.getElementById('rwResetBody');
@@ -1632,20 +1637,20 @@ var REWARDS = (function () {
         function paintTypeConfirm() {
             body = document.getElementById('rwResetBody');
             title = document.getElementById('rwResetTitle');
-            title.textContent = tr('rewards.cfg.resetZeroTypeTitle', 'Type confirm to wipe points');
+            title.textContent = opts.typeTitle || tr('rewards.cfg.resetZeroTypeTitle', 'Type confirm to wipe points');
             var scope = selected.all
                 ? tr('rewards.cfg.resetZeroAll', 'All clinics')
                 : Object.keys(selected.codes).join(', ');
             body.innerHTML =
                 '<p class="rw-reset-hint">' +
-                esc(tr('rewards.cfg.resetZeroTypeHint',
-                    'This permanently sets reward balances to 0 for: {scope}. Type the word confirm below.').replace('{scope}', scope)) +
+                esc((opts.typeHint || tr('rewards.cfg.resetZeroTypeHint',
+                    'This permanently sets reward balances to 0 for: {scope}. Type the word confirm below.')).replace('{scope}', scope)) +
                 '</p>' +
                 '<input id="rwResetTypeConfirm" type="text" class="rw-reset-code" autocomplete="off" ' +
                 'placeholder="confirm" style="letter-spacing:normal;font-size:16px;text-align:left;">' +
                 '<div class="rw-reset-actions">' +
                 '<button type="button" class="btn btn--danger" id="rwResetDoWipe">' +
-                esc(tr('rewards.cfg.resetZeroWipeBtn', 'Wipe points now')) + '</button>' +
+                esc(opts.wipeLabel || tr('rewards.cfg.resetZeroWipeBtn', 'Wipe points now')) + '</button>' +
                 '<button type="button" class="btn" id="rwResetBackClinics">' +
                 esc(tr('common.cancel', 'Cancel')) + '</button></div>';
             setResetZeroError('');
@@ -1669,17 +1674,20 @@ var REWARDS = (function () {
             body = document.getElementById('rwResetBody');
             title = document.getElementById('rwResetTitle');
             body.innerHTML = '<p class="rw-reset-hint">' +
-                esc(tr('rewards.cfg.resetZeroRunning', 'Resetting reward points…')) + '</p>';
+                esc(opts.running || tr('rewards.cfg.resetZeroRunning', 'Resetting reward points…')) + '</p>';
             setResetZeroError('');
             var idList = Object.keys(selected.ids);
             var codeList = Object.keys(selected.codes);
-            zeroClinicBalances({
-                all: selected.all,
-                clinicIds: idList,
-                clinicCodes: codeList,
-                source: 'manual',
-                note: 'Admin MANUAL RESET ZERO - typed confirm'
-            }).then(function (res) {
+            var job = typeof opts.run === 'function'
+                ? opts.run({ all: selected.all, clinicIds: idList, clinicCodes: codeList })
+                : zeroClinicBalances({
+                    all: selected.all,
+                    clinicIds: idList,
+                    clinicCodes: codeList,
+                    source: 'manual',
+                    note: 'Admin MANUAL RESET ZERO - typed confirm'
+                });
+            Promise.resolve(job).then(function (res) {
                 body = document.getElementById('rwResetBody');
                 title = document.getElementById('rwResetTitle');
                 if (!res || !res.ok) {
@@ -1692,10 +1700,11 @@ var REWARDS = (function () {
                     return;
                 }
                 title.textContent = tr('rewards.cfg.resetZeroDoneTitle', 'Reset complete');
+                var doneText = typeof opts.doneText === 'function' ? opts.doneText(res)
+                    : tr('rewards.cfg.resetZeroDone', 'Cleared {accounts} account(s), {points} points.')
+                        .replace('{accounts}', String(res.accounts || 0)).replace('{points}', fmtPts(res.points_cleared || 0));
                 body.innerHTML =
-                    '<p class="rw-reset-hint">' +
-                    esc(tr('rewards.cfg.resetZeroDone',
-                        'Cleared {accounts} account(s), {points} points.').replace('{accounts}', String(res.accounts || 0)).replace('{points}', fmtPts(res.points_cleared || 0))) +
+                    '<p class="rw-reset-hint">' + esc(doneText) +
                     (res.batch_id
                         ? ('<br>' + esc(tr('rewards.cfg.resetZeroBatchKept',
                             'Safety log saved. You can Step Back to recover.')))
@@ -1706,6 +1715,7 @@ var REWARDS = (function () {
                     esc(tr('common.close', 'Close')) + '</button></div>';
                 document.getElementById('rwResetCloseOk').onclick = function () {
                     closeResetZeroModal();
+                    if (typeof opts.onDone === 'function') { opts.onDone(res); return; }
                     var pane = document.getElementById('cfgPane-rewards');
                     if (pane) renderConfigPane(pane);
                 };
@@ -4201,17 +4211,23 @@ var REWARDS = (function () {
         });
     }
 
-    var LOYALTY_MANUAL = 'docs/loyalty-manual.html?v=20261028a';
+    var LOYALTY_MANUAL = 'docs/loyalty-manual.html?v=20261028d';
 
     /** Pure: manual link for one part (rewards | coupons) at the dashboard language. */
+    /** Opens the manual's contents page, with the dashboard language (Traditional Chinese when unknown) and the part marked. */
     function loyaltyGuideHref(part, lang) {
-        lang = String(lang || 'en');
-        if (lang !== 'zh-Hant' && lang !== 'zh-CN') lang = lang.indexOf('zh') === 0 ? 'zh-Hant' : 'en';
-        return LOYALTY_MANUAL + '#' + (part === 'coupons' ? 'coupons' : 'rewards') + '-' + lang;
+        lang = String(lang || 'zh-Hant');
+        if (lang !== 'zh-Hant' && lang !== 'zh-CN' && lang !== 'en') lang = lang.indexOf('en') === 0 ? 'en' : 'zh-Hant';
+        return LOYALTY_MANUAL + '#start-' + (part === 'coupons' ? 'coupons' : 'rewards') + '-' + lang;
+    }
+
+    function dashboardLang() {
+        if (typeof getAppLang === 'function') return getAppLang();
+        try { return localStorage.getItem('joyful_ui_lang_v1') || 'zh-Hant'; } catch (e) { return 'zh-Hant'; }
     }
 
     function loyaltyGuideLinkHtml(part) {
-        var lang = typeof getAppLang === 'function' ? getAppLang() : 'en';
+        var lang = dashboardLang();
         return '<a class="xray-helper-guide-btn loyalty-guide-btn" data-guide-part="' + esc(part) + '" href="' +
             esc(loyaltyGuideHref(part, lang)) + '" target="_blank" rel="noopener" title="' +
             esc(tr('loyalty.guideTitle', 'Open the Reward Points & Discount Coupons manual (English / 繁體中文 / 简体中文 — printable, PDF download)')) +
@@ -4222,7 +4238,7 @@ var REWARDS = (function () {
     document.addEventListener('click', function (e) {
         var a = e.target && e.target.closest ? e.target.closest('.loyalty-guide-btn') : null;
         if (!a) return;
-        a.href = loyaltyGuideHref(a.getAttribute('data-guide-part'), typeof getAppLang === 'function' ? getAppLang() : 'en');
+        a.href = loyaltyGuideHref(a.getAttribute('data-guide-part'), dashboardLang());
     }, true);
 
     function renderConfigPane(pane) {

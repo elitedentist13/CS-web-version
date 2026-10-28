@@ -441,6 +441,10 @@ function extractIifeHelpers(src) {
     pass('doctor join SQL patch exists',
         fs.existsSync(path.join(root, 'reward_points_patch_doctor_join.sql')) &&
         /reward_program_doctors/.test(read('reward_points_patch_doctor_join.sql')));
+    pass('RESET ZERO dialog can run another job (coupons) but defaults to reward points',
+        /function openResetZeroFlow\(clinics, opts\)/.test(rewardsSrc) &&
+        /typeof opts\.run === 'function'\s*\? opts\.run\(\{ all: selected\.all, clinicIds: idList, clinicCodes: codeList \}\)\s*: zeroClinicBalances\(/.test(rewardsSrc) &&
+        /typeof opts\.onDone === 'function'/.test(rewardsSrc));
     pass('RESET ZERO + policy + step-back helpers',
         /openResetZeroFlow/.test(rewardsSrc) &&
         /openAdminRewardAuthGate/.test(rewardsSrc) &&
@@ -674,12 +678,27 @@ function extractIifeHelpers(src) {
                 'Clinics in scheme', 'Summary log'].join('|') === LM.T.en.rw.steps.map(function (s) { return s.t; }).join('|'));
         pass('manual: every coupon config card has a step',
             ['Clinics in scheme', 'Expenditure coupons', 'Campaigns', 'Using cash coupons on one bill', 'Treatment items for a treatment coupon',
-                'Referrals', 'Coupon log'].join('|') === LM.T.en.dc.steps.map(function (s) { return s.t; }).join('|'));
+                'Set discount coupons to zero', 'Referrals', 'Coupon log'].join('|') === LM.T.en.dc.steps.map(function (s) { return s.t; }).join('|'));
+        pass('manual: opens in the dashboard language, Traditional Chinese when none is saved', LM.defaultLang('en') === 'en' &&
+            LM.defaultLang('zh-CN') === 'zh-CN' && LM.defaultLang('zh-Hant') === 'zh-Hant' && LM.defaultLang(null) === 'zh-Hant' && LM.defaultLang('fr') === 'zh-Hant');
+        pass('manual: coupon set zero says Manual is the default and every change needs SMS + Authenticator',
+            /Manual<\/b> \(<b>default<\/b>/.test(LM.T.en.dc.steps[5].list.join(' ')) &&
+            /Every change of option needs the admin SMS code and the Google Authenticator code/.test(LM.T.en.dc.steps[5].list.join(' ')) &&
+            /每次更改清零選項都需輸入管理員短訊驗證碼及 Google 驗證器驗證碼/.test(LM.T['zh-Hant'].dc.steps[5].list.join(' ')) &&
+            /每次更改清零选项都需输入管理员短信验证码及 Google 验证器验证码/.test(LM.T['zh-CN'].dc.steps[5].list.join(' ')));
+        pass('manual: coupon set zero step is red with its picture in all 3 languages', LM.LANGS.every(function (l) {
+            var s = LM.T[l.id].dc.steps[5];
+            return s.danger === true && typeof s.mock === 'function' && s.mock(LM.T[l.id].mock).indexOf(LM.T[l.id].mock.dcZeroTitle) > 0 &&
+                s.list.join(' ').indexOf('confirm') >= 0;
+        }) && LM.T['zh-Hant'].dc.steps[5].t === '優惠券清零' && LM.T['zh-CN'].dc.steps[5].t === '优惠券清零');
         pass('manual: Chinese step titles match the screen',
             LM.T['zh-Hant'].rw.steps[0].t === '賺取比率' && LM.T['zh-CN'].rw.steps[3].t === '单张账单使用积分上限' &&
             LM.T['zh-Hant'].dc.steps[1].t === '消費滿額券' && LM.T['zh-CN'].dc.steps[3].t === '同一张单使用现金券');
         pass('manual: deep links #rewards-x / #lang-x / #coupons-x', LM.targetFor('#rewards-zh-CN').id === 'lang-zh-CN' &&
             LM.targetFor('#lang-en').id === 'lang-en' && LM.targetFor('#coupons-zh-Hant').id === 'coupons-zh-Hant' && LM.targetFor('#x') === null);
+        var st = LM.targetFor('#start-coupons-zh-CN');
+        pass('manual: #start-part-x opens the contents page with that language and part marked', st && st.cover === true &&
+            st.id === 'manualCover' && st.lang === 'zh-CN' && st.part === 'coupons' && LM.targetFor('#start-rewards-fr') === null, JSON.stringify(st));
         pass('manual: HK$3,000 defaults stated for points and cash coupons in all 3 languages', LM.LANGS.every(function (l) {
             var t = LM.T[l.id];
             return t.rw.steps[3].list.join(' ').indexOf('HK$3,000') >= 0 && t.dc.steps[3].list.join(' ').indexOf('HK$3,000') >= 0;
@@ -735,10 +754,12 @@ function extractIifeHelpers(src) {
                 R.redeemCapSummary({ maxPercent: 0, maxAmount: 0 }) === 'No limit on points per bill',
                 R.redeemCapSummary({ maxPercent: 0, maxAmount: 3000 }));
             pass('points cap: nothing loaded -> payRedeemCapLeft is Infinity', R.payRedeemCapLeft() === Infinity);
-            pass('manual link: part + dashboard language (zh-TW -> 繁, other -> English)',
-                R.loyaltyGuideHref('coupons', 'zh-CN') === 'docs/loyalty-manual.html?v=20261028a#coupons-zh-CN' &&
-                /#rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-Hant')) &&
-                /#rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-TW')) && /#rewards-en$/.test(R.loyaltyGuideHref('x', 'fr')));
+            pass('manual link: part + dashboard language (en / 简 / 繁 kept; unknown or missing -> 繁)',
+                R.loyaltyGuideHref('coupons', 'zh-CN') === 'docs/loyalty-manual.html?v=20261028d#start-coupons-zh-CN' &&
+                /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-Hant')) && /#start-rewards-en$/.test(R.loyaltyGuideHref('rewards', 'en')) &&
+                /#start-rewards-en$/.test(R.loyaltyGuideHref('rewards', 'en-GB')) &&
+                /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-TW')) && /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('x', 'fr')) &&
+                /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards')));
             var gl = R.loyaltyGuideLinkHtml('coupons');
             pass('manual link: opens a new tab, styled like the X-ray guide button',
                 /class="xray-helper-guide-btn loyalty-guide-btn"/.test(gl) && /target="_blank" rel="noopener"/.test(gl) && /data-guide-part="coupons"/.test(gl));
@@ -804,7 +825,7 @@ function extractIifeHelpers(src) {
         pass('HTML has rwPhoneQrBtn', idx.body.indexOf('id="rwPhoneQrBtn"') >= 0);
         pass('HTML ledger panel has the 📖 manual link (points part)',
             /id="rwGuideBtn" class="[^"]*loyalty-guide-btn[^"]*" data-guide-part="rewards"/.test(idx.body) &&
-            /href="docs\/loyalty-manual\.html\?v=20261028a#rewards-en" target="_blank"/.test(idx.body));
+            /href="docs\/loyalty-manual\.html\?v=20261028d#start-rewards-zh-Hant" target="_blank"/.test(idx.body));
         var ptsHtml = await httpGetText(PAGE_PORT, '/points.html');
         pass('GET /points.html loads points.js + wallet.css and boots', ptsHtml.status === 200 &&
             /src="points\.js\?v=/.test(ptsHtml.body) && /href="wallet\.css\?v=/.test(ptsHtml.body) &&
@@ -814,7 +835,7 @@ function extractIifeHelpers(src) {
         var manHtml = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.html');
         var manJs = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.js');
         var manPdf = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.pdf');
-        pass('GET manual html + js + pdf', manHtml.status === 200 && /src="loyalty-manual\.js"/.test(manHtml.body) &&
+        pass('GET manual html + js + pdf', manHtml.status === 200 && /src="loyalty-manual\.js\?v=20261028d"/.test(manHtml.body) &&
             /href="loyalty-manual\.pdf"/.test(manHtml.body) && manJs.status === 200 && manPdf.status === 200 &&
             manPdf.body.slice(0, 5) === '%PDF-', manHtml.status + '/' + manJs.status + '/' + manPdf.status);
         var pwSqlHttp = await httpGetText(PAGE_PORT, '/reward_points_wallet.sql');
@@ -1296,7 +1317,7 @@ function extractIifeHelpers(src) {
             pass('live config: points-per-bill card shows its limit', cfgPaint.capBeforeZero && /HK\$|limit|上限/.test(cfgPaint.capSum), cfgPaint.capSum);
             pass('live config: 📖 How to use opens the points part in the dashboard language',
                 !!cfgPaint.guide && /^📖/.test(cfgPaint.guide.text) &&
-                cfgPaint.guide.href === 'docs/loyalty-manual.html?v=20261028a#rewards-' +
+                cfgPaint.guide.href === 'docs/loyalty-manual.html?v=20261028d#start-rewards-' +
                     (['zh-Hant', 'zh-CN'].indexOf(cfgPaint.guide.lang) >= 0 ? cfgPaint.guide.lang : 'en'), JSON.stringify(cfgPaint.guide));
         }
 
@@ -1334,14 +1355,53 @@ function extractIifeHelpers(src) {
   out.onTab = d && (d.querySelector('.xhg-toolbar a.is-on') || {}).textContent;
   out.title = d && (d.querySelector('#coupons-zh-Hant .xhg-title') || {}).textContent;
   frame.remove();
+  async function bareHash() {
+    const f = document.createElement('iframe');
+    f.style.cssText = 'position:fixed;left:-2000px;top:0;width:900px;height:700px;';
+    f.src = 'docs/loyalty-manual.html?v=bare' + Date.now();
+    document.body.appendChild(f);
+    await new Promise(res => { f.onload = res; setTimeout(res, 8000); });
+    const h = f.contentWindow ? f.contentWindow.location.hash : '';
+    f.remove();
+    return h;
+  }
+  const sf = document.createElement('iframe');
+  sf.style.cssText = 'position:fixed;left:-2000px;top:0;width:900px;height:700px;';
+  sf.src = 'docs/loyalty-manual.html?v=start' + Date.now() + '#start-rewards-zh-Hant';
+  document.body.appendChild(sf);
+  await new Promise(res => { sf.onload = res; setTimeout(res, 8000); });
+  await new Promise(res => setTimeout(res, 300));
+  const sd = sf.contentDocument;
+  out.start = sd ? {
+    scrollY: sf.contentWindow.scrollY,
+    coverTop: Math.round(sd.getElementById('manualCover').getBoundingClientRect().top),
+    row: (sd.querySelector('.xhg-cover-toc li.is-on') || {}).getAttribute ? sd.querySelector('.xhg-cover-toc li.is-on').getAttribute('data-lang') : null,
+    part: (sd.querySelector('.xhg-cover-toc li.is-on a.is-on[data-part]') || { getAttribute: function () { return null; } }).getAttribute('data-part'),
+    tab: (sd.querySelector('.xhg-toolbar a.is-on') || {}).textContent
+  } : null;
+  sf.remove();
+  const keepStored = localStorage.getItem('joyful_ui_lang_v1');
+  localStorage.setItem('joyful_ui_lang_v1', 'zh-CN');
+  out.bareCn = await bareHash();
+  localStorage.setItem('joyful_ui_lang_v1', 'en');
+  out.bareEn = await bareHash();
+  localStorage.removeItem('joyful_ui_lang_v1');
+  out.bareNone = await bareHash();
+  if (keepStored === null) localStorage.removeItem('joyful_ui_lang_v1'); else localStorage.setItem('joyful_ui_lang_v1', keepStored);
   return out;
 })()`, true, 40000);
-        pass('live coupons config: 📖 How to use opens the coupon part', !!guideLive && /#coupons-(en|zh-Hant|zh-CN)$/.test(guideLive.coupons || ''),
+        pass('live coupons config: 📖 How to use opens the coupon part', !!guideLive && /#start-coupons-(en|zh-Hant|zh-CN)$/.test(guideLive.coupons || ''),
             guideLive && guideLive.coupons);
         if (guideLive && guideLive.afterSwitch !== undefined) {
-            pass('live: switching the dashboard to 简体 updates the manual link on click', /#coupons-zh-CN$/.test(guideLive.afterSwitch), guideLive.afterSwitch);
+            pass('live: switching the dashboard to 简体 updates the manual link on click', /#start-coupons-zh-CN$/.test(guideLive.afterSwitch), guideLive.afterSwitch);
         }
-        pass('live: manual page builds cover + 6 parts and opens 繁 coupons', !!guideLive && guideLive.manualOk && guideLive.pages === 6 &&
+        pass('live: 📖 link opens the manual at its first page (contents), 繁 row + Reward points marked', !!guideLive && guideLive.start &&
+            guideLive.start.scrollY === 0 && guideLive.start.row === 'zh-Hant' && guideLive.start.part === 'rewards' && guideLive.start.tab === '繁體中文',
+            JSON.stringify(guideLive && guideLive.start));
+        pass('live: manual with no anchor opens in the dashboard language (简 / English), else 繁', !!guideLive &&
+            guideLive.bareCn === '#start-rewards-zh-CN' && guideLive.bareEn === '#start-rewards-en' && guideLive.bareNone === '#start-rewards-zh-Hant',
+            JSON.stringify(guideLive && [guideLive.bareCn, guideLive.bareEn, guideLive.bareNone]));
+        pass('live: manual page builds cover + 6 parts and opens 繁 coupons', !!guideLive && guideLive.manualOk && guideLive.pages === 7 &&
             guideLive.onTab === '繁體中文' && /優惠券/.test(guideLive.title || ''), JSON.stringify(guideLive && { p: guideLive.pages, t: guideLive.onTab, h: guideLive.title }));
 
         // Admin view of the cap card; the save is stubbed so no setting is written.
@@ -1476,7 +1536,7 @@ function extractIifeHelpers(src) {
         pass('CDP ledger panel shows Points on the phone', !!(pqr && pqr.btnShown), JSON.stringify(pqr).slice(0, 300));
         pass('CDP ledger panel has 📖 How to use -> points part of the manual in the dashboard language (new tab)',
             !!(pqr && pqr.guide && pqr.guide.shown && /^📖/.test(pqr.guide.text) && pqr.guide.target === '_blank' &&
-                pqr.guide.href === 'docs/loyalty-manual.html?v=20261028a#rewards-' + pqr.guide.lang), JSON.stringify(pqr && pqr.guide));
+                pqr.guide.href === 'docs/loyalty-manual.html?v=20261028d#start-rewards-' + pqr.guide.lang), JSON.stringify(pqr && pqr.guide));
         pass('CDP points QR covers the screen above the ledger panel (not clipped by the panel box)',
             !!(pqr && pqr.inModal && pqr.onTop && pqr.fullScreen && pqr.notInBox && pqr.inView),
             pqr && JSON.stringify(pqr.topDebug || ''));

@@ -1752,14 +1752,14 @@ var COUPONS = (function () {
             html += field(c.key, 'maxDiscount', ct('coupons.cfg.ceiling', 'Ceiling'), c.maxDiscount);
             html += field(c.key, 'holdLimit', ct('coupons.cfg.hold', 'Hold up to'), holdLimitFor(c));
             if (c.trigger === 'referral') {
-                html += field(c.key, 'minFirstSpend', ct('coupons.ref.minFirst', 'Min first-visit HK$'), c.minFirstSpend, true);
+                html += field(c.key, 'minFirstSpend', ct('coupons.ref.minFirst', 'Min payment HK$'), c.minFirstSpend, true);
             }
             html += limitFields(c);
             html += '</div>' + usageLine(c);
             if (c.key === 'cash') html += cashRulesHtml();
             if (c.trigger === 'referral') {
                 html += '<p class="dc-hint">' + esc(ct('coupons.ref.cfgHint',
-                    'The referrer gets this coupon when the new patient’s first bill is fully paid and the cash paid is at least the minimum (blank = any amount). Pick the referrer in “Referred by” on the patient form and choose this coupon or reward points (set in Reward Points configuration).')) + '</p>';
+                    'The referrer gets this coupon as soon as the new patient has paid at least the minimum in cash on one bill — a full payment or a part payment both count (blank = any amount). Pick the referrer in “Referred by” on the patient form and choose this coupon or reward points (set in Reward Points configuration).')) + '</p>';
             }
             if (c.scope === 'items') html += itemPickerHtml(c);
             html += '</div>';
@@ -1768,7 +1768,7 @@ var COUPONS = (function () {
         html += zeroCardHtml();
         html += '<div class="dc-card" id="dcRefCard"><div class="dc-card-title">' + esc(ct('coupons.ref.title', 'Referrals')) + '</div>' +
             '<p class="dc-hint">' + esc(ct('coupons.ref.listHint',
-                'Each new patient with a referrer. Pending waits for the first fully paid visit; blocked shows why no coupon is given.')) + '</p>' +
+                'Each new patient with a referrer. Pending waits until the new patient has paid the minimum on a bill (full or part payment); blocked shows why no coupon is given.')) + '</p>' +
             '<div class="dc-log-wrap" id="dcRefBody"></div></div>';
         var today = new Date();
         var from = new Date(today.getTime() - 30 * 86400000);
@@ -4331,7 +4331,7 @@ var COUPONS = (function () {
             same_person: ['coupons.ref.r.same', 'Referrer looks like the same person (same chart, HKID or phone)'],
             referrer_newer: ['coupons.ref.r.newer', 'Referrer’s chart is newer than this patient’s'],
             not_new: ['coupons.ref.r.notNew', 'This patient already had an earlier chart'],
-            below_min: ['coupons.ref.r.min', 'First paid visit was below the minimum'],
+            below_min: ['coupons.ref.r.min', 'Paid so far on the bill is below the minimum'],
             wallet_full: ['coupons.ref.r.full', 'Referrer’s wallet is full'],
             already_holding: ['coupons.ref.r.holding', 'Referrer already holds the most referral coupons allowed'],
             issue_cap: ['coupons.ref.r.cap', 'Referral coupon issue limit reached'],
@@ -4378,7 +4378,7 @@ var COUPONS = (function () {
         var kind = plan.kind === 'points' ? 'points' : 'coupon';
         var min = kind === 'points' ? parseFloat(pointsCfg && pointsCfg.minFirstSpend) || 0 : parseFloat(camp && camp.minFirstSpend) || 0;
         return who.trim() + ' — ' + ct('coupons.ref.gets', 'gets') + ' ' + referralRewardText(kind, camp, pointsCfg) + ' ' +
-            ct('coupons.ref.after', 'after this patient’s first fully paid visit') +
+            ct('coupons.ref.after', 'once this patient has paid the minimum on a bill (full or part payment)') +
             (min > 0 ? ' (' + ct('coupons.ref.min', 'min') + ' HK$' + round2(min).toFixed(0) + ')' : '');
     }
 
@@ -4547,8 +4547,8 @@ var COUPONS = (function () {
                 logCoupon('ISSUE', 'Referral coupon ' + (saved.code || row.code) + ' HK$' + round2(row.face_value).toFixed(2) +
                     ' to #' + (rec.referrer_no || '') + ' for referring #' + (rec.referred_no || ''),
                     rec.referrer_no || null, saved.id || null);
-                couponNotice('🤝 ' + ct('coupons.ref.issued', 'Referral coupon sent to the referrer') + ' #' +
-                    (rec.referrer_no || '') + ' · HK$' + round2(row.face_value).toFixed(0));
+                var note = referralBonusText('coupon', rec, row.face_value, info.cashPaid);
+                couponNotice(note.body, note.title);
                 return { ok: true, kind: 'coupon', code: saved.code || row.code, couponId: saved.id };
             });
         });
@@ -4575,8 +4575,8 @@ var COUPONS = (function () {
                 if (!done) return { ok: false, reason: 'insert_failed', error: res && res.error };
                 logCoupon('ISSUE', 'Referral points +' + round2(res.points || plan.points).toFixed(2) + ' to #' + (rec.referrer_no || '') +
                     ' for referring #' + (rec.referred_no || ''), rec.referrer_no || null, res.ledger_id || null);
-                couponNotice('🤝 ' + ct('coupons.ref.issuedPts', 'Referral points sent to the referrer') + ' #' +
-                    (rec.referrer_no || '') + ' · +' + round2(res.points || plan.points).toFixed(0));
+                var note = referralBonusText('points', rec, res.points || plan.points, info.cashPaid);
+                couponNotice(note.body, note.title);
                 return { ok: true, kind: 'points', points: round2(res.points || plan.points), ledgerId: res.ledger_id };
             });
         });
@@ -4658,10 +4658,11 @@ var COUPONS = (function () {
 
     var REF_UNDO_COLS = 'id,status,coupon_id,reward_kind,points,ledger_id,referrer_patient_id,referred_patient_id,referrer_no,referred_no,clinic_code';
 
-    function reopenReferrals(billId, cancelledIds) {
+    function reopenReferrals(billId, cancelledIds, keepIds) {
         if (!sbReady() || !billId) return Promise.resolve([]);
+        var keep = (keepIds || []).map(String);
         return SB.from(REF_TABLE).select(REF_UNDO_COLS).eq('trigger_bill_id', billId).then(function (r) {
-            var rows = (r && r.data) || [];
+            var rows = ((r && r.data) || []).filter(function (rec) { return rec && keep.indexOf(String(rec.id)) < 0; });
             var ids = referralsToReopen(rows, cancelledIds);
             var reopenPatch = { status: 'pending', coupon_id: null, ledger_id: null, trigger_bill_id: null, issued_at: null, reason: 'bill_voided' };
             var jobs = ids.map(function (id) {
@@ -4981,15 +4982,41 @@ var COUPONS = (function () {
             }, function () { return round2(fallback || 0); });
     }
 
-    function couponNotice(text) {
-        if (typeof document === 'undefined' || !document.body) return;
+    function couponNotice(text, title) {
+        if (typeof document === 'undefined' || !document.body) return null;
         ensureCss();
         var el = document.createElement('div');
-        el.className = 'dc-notice';
+        el.className = 'dc-notice' + (title ? ' dc-notice--ref' : '');
         el.setAttribute('role', 'status');
-        el.textContent = text;
+        if (title) {
+            var head = document.createElement('b');
+            head.className = 'dc-notice-title';
+            head.textContent = title;
+            var body = document.createElement('span');
+            body.textContent = text;
+            el.appendChild(head);
+            el.appendChild(body);
+        } else {
+            el.textContent = text;
+        }
+        var shown = document.querySelectorAll ? document.querySelectorAll('.dc-notice').length : 0;
+        if (shown) el.style.bottom = (18 + shown * 76) + 'px';
         document.body.appendChild(el);
-        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 9000);
+        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, title ? 12000 : 9000);
+        return el;
+    }
+
+    /** Pure: the "Refer a friend bonus" mini-notification, e.g. "Referrer #1234 gets a HK$100 coupon · #5678 paid HK$300 on this bill". */
+    function referralBonusText(kind, rec, value, cashPaid) {
+        rec = rec || {};
+        var gets = kind === 'points'
+            ? ct('coupons.ref.bonusPts', 'Referrer #{REF} gets +{N} reward points').split('{N}').join(round2(value).toFixed(0))
+            : ct('coupons.ref.bonusCoupon', 'Referrer #{REF} gets a HK${N} coupon').split('{N}').join(round2(value).toFixed(0));
+        gets = gets.split('{REF}').join(String(rec.referrer_no || ''));
+        var paid = ct('coupons.ref.bonusPaid', '#{FRIEND} paid HK${PAID} on this bill')
+            .split('{FRIEND}').join(String(rec.referred_no || ''))
+            .split('{PAID}').join(round2(cashPaid).toFixed(0));
+        return { title: '🤝 ' + ct('coupons.ref.bonusTitle', 'Refer a friend bonus activated'), body: gets + ' · ' + paid };
     }
 
     /** Checkout (bill step 2): show which spend coupons this bill earns and how far to the next one. */
@@ -5050,6 +5077,27 @@ var COUPONS = (function () {
             '<div class="dc-prog-cap"><span>HK$' + amt.toFixed(0) + ' / ' + round2(scale).toFixed(0) + '</span><span>' + right + '</span></div></div>';
     }
 
+    /** Any payment saved (full or part): the friend's cash paid on this bill so far counts towards the referral minimum. */
+    function onBillPayment(info) {
+        info = info || {};
+        if (!info.patientId || !info.billId) return Promise.resolve({ ok: false, reason: 'no_bill' });
+        var clinicCode = String(info.clinicCode || '').trim() ||
+            String((typeof bdCurrentBill !== 'undefined' && bdCurrentBill && bdCurrentBill.clinic_tag) || '').trim() ||
+            clinicCodeNow();
+        return Promise.all([
+            billCashPaid(info.billId, info.cashAmount),
+            billDoctorKey(info.billId, info.doctorKey)
+        ]).then(function (res) {
+            return referralOnBillPaid({
+                patientId: info.patientId,
+                billId: info.billId,
+                cashPaid: res[0],
+                clinicCode: clinicCode,
+                doctorKey: res[1]
+            });
+        }).catch(function (e) { return { ok: false, reason: 'error', error: String(e && e.message || e) }; });
+    }
+
     function onBillFullyPaid(info) {
         info = info || {};
         var clinicCode = String(info.clinicCode || '').trim() ||
@@ -5066,13 +5114,6 @@ var COUPONS = (function () {
         ]).then(function (res) {
             var cashPaid = res[1];
             var doctorKey = res[3];
-            referralOnBillPaid({
-                patientId: info.patientId,
-                billId: info.billId,
-                cashPaid: cashPaid,
-                clinicCode: clinicCode,
-                doctorKey: doctorKey
-            }).catch(function () {});
             var already = {};
             (res[2] || []).forEach(function (c) { if (c.status !== 'void') already[c.campaign_key] = true; });
             var list = campaigns().filter(function (c) { return !already[c.key]; });
@@ -5248,6 +5289,38 @@ var COUPONS = (function () {
     }
 
     /** A payment was voided or deleted: take back the spend coupons this bill earned once it is no longer fully paid. */
+    /** Pure: after a payment void, does the cash still paid on the trigger bill meet this referral's minimum? */
+    function referralStillEarned(rec, cashLeft, mins) {
+        if (!rec || (rec.status !== 'issued' && rec.status !== 'issuing')) return false;
+        mins = mins || {};
+        var min = parseFloat(rec.reward_kind === 'points' ? mins.points : mins.coupon) || 0;
+        return min > 0 ? cents(cashLeft) >= cents(min) : cents(cashLeft) > 0;
+    }
+
+    /** Referral rewards on this bill that stay after a payment void (the rest of the cash still meets the minimum). */
+    function referralKeptOnBill(billId) {
+        var none = { recordIds: [], couponIds: [] };
+        if (!sbReady() || !billId) return Promise.resolve(none);
+        var pointsCfg = (typeof REWARDS !== 'undefined' && REWARDS && typeof REWARDS.loadReferralConfig === 'function')
+            ? Promise.resolve(REWARDS.loadReferralConfig(false)).catch(function () { return null; })
+            : Promise.resolve(null);
+        return Promise.all([
+            SB.from(REF_TABLE).select('id,status,coupon_id,reward_kind').eq('trigger_bill_id', billId),
+            billCashPaid(billId, 0),
+            (_loaded ? Promise.resolve() : loadState()),
+            pointsCfg
+        ]).then(function (res) {
+            var rows = (res[0] && !res[0].error && res[0].data) || [];
+            var camp = campaignByKey('referral');
+            var mins = { coupon: camp && camp.minFirstSpend, points: res[3] && res[3].minFirstSpend };
+            var keep = rows.filter(function (rec) { return referralStillEarned(rec, res[1], mins); });
+            return {
+                recordIds: keep.map(function (rec) { return String(rec.id); }),
+                couponIds: keep.filter(function (rec) { return rec.coupon_id; }).map(function (rec) { return String(rec.coupon_id); })
+            };
+        }, function () { return none; });
+    }
+
     function onPaymentVoided(info) {
         info = info || {};
         var billId = info.billId;
@@ -5255,9 +5328,14 @@ var COUPONS = (function () {
             return Promise.resolve({ ok: false, reason: 'no_db' });
         }
         if (!((parseFloat(info.balanceAfter) || 0) > 0.005)) return Promise.resolve({ ok: true, skipped: true });
-        return SB.from('discount_coupons').select('id,code,status,bill_id,origin_bill_id').eq('origin_bill_id', billId)
-            .then(function (r) {
+        return Promise.all([
+            SB.from('discount_coupons').select('id,code,status,bill_id,origin_bill_id').eq('origin_bill_id', billId),
+            referralKeptOnBill(billId)
+        ]).then(function (both) {
+                var r = both[0];
+                var kept = both[1];
                 var plan = planPaymentVoid({ id: billId }, (r && r.data) || [], info.balanceAfter);
+                plan.cancel = plan.cancel.filter(function (id) { return kept.couponIds.indexOf(String(id)) < 0; });
                 var jobs = plan.cancel.map(function (id) {
                     return SB.from('discount_coupons').update({ status: 'void', note: 'Voided with payment' })
                         .eq('id', id).eq('status', 'unused');
@@ -5268,8 +5346,8 @@ var COUPONS = (function () {
                         couponNotice(ct('coupons.void.payment', 'Payment voided: the spend coupon earned by this bill was taken back. It is issued again when the bill is fully paid.'));
                     }
                     flagStuck(plan.stuck, billId);
-                    reopenReferrals(billId, plan.cancel);
-                    return { ok: true, cancel: plan.cancel, stuck: plan.stuck };
+                    reopenReferrals(billId, plan.cancel, kept.recordIds);
+                    return { ok: true, cancel: plan.cancel, stuck: plan.stuck, keptReferrals: kept.recordIds };
                 });
             }, function (e) {
                 return { ok: false, error: String(e && e.message || e) };
@@ -5470,6 +5548,7 @@ var COUPONS = (function () {
         billTotalCents: billTotalCents,
         refundEffect: refundEffect,
         planPaymentVoid: planPaymentVoid,
+        referralStillEarned: referralStillEarned,
         onPaymentVoided: onPaymentVoided,
         smsIssued: smsIssued,
         couponSmsBody: couponSmsBody,
@@ -5492,6 +5571,9 @@ var COUPONS = (function () {
         openBillSheet: openBillSheet,
         onPatientCreated: onPatientCreated,
         onBillFullyPaid: onBillFullyPaid,
+        onBillPayment: onBillPayment,
+        referralBonusText: referralBonusText,
+        couponNotice: couponNotice,
         onBillVoided: onBillVoided,
         planBillVoid: planBillVoid,
         planChairsideGrant: planChairsideGrant,

@@ -4339,7 +4339,7 @@ var REWARDS = (function () {
         });
     }
 
-    var LOYALTY_MANUAL = 'docs/loyalty-manual.html?v=20261028cap';
+    var LOYALTY_MANUAL = 'docs/loyalty-manual.html?v=20261028ref';
 
     /** Pure: manual link for one part (rewards | coupons) at the dashboard language. */
     /** Opens the manual's contents page, with the dashboard language (Traditional Chinese when unknown) and the part marked. */
@@ -4447,7 +4447,7 @@ var REWARDS = (function () {
             html += '<div class="rw-cfg-card" id="rwCfgReferral">';
             html += '<div class="rw-cfg-card-title">' + esc(tr('rewards.cfg.refTitle', 'Refer a friend (points)')) + '</div>';
             html += '<p style="margin:0 0 10px;font-size:12px;color:#64748b;">' + esc(tr('rewards.cfg.refBlurb',
-                'The referrer gets these points when the new patient’s first bill is fully paid and the cash paid is at least the minimum. Staff choose points or a discount coupon under “Referred by”; a choice is greyed out where the clinic is not in that scheme.')) + '</p>';
+                'The referrer gets these points as soon as the new patient has paid at least the minimum in cash on one bill — a full payment or a part payment both count. Staff choose points or a discount coupon under “Referred by”; a choice is greyed out where the clinic is not in that scheme.')) + '</p>';
             if (admin) {
                 html += '<label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-bottom:8px;">' +
                     '<input type="checkbox" id="rwCfgRefOn"' + (refCfg.enabled ? ' checked' : '') + '> ' +
@@ -4455,13 +4455,13 @@ var REWARDS = (function () {
                 html += '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">' +
                     '<label>' + esc(tr('rewards.cfg.refPoints', 'Points')) + ' <input type="number" id="rwCfgRefPoints" min="0" step="1" value="' +
                     esc(String(refCfg.points)) + '" style="width:100px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;"></label>' +
-                    '<label>' + esc(tr('rewards.cfg.refMin', 'Min first-visit HK$')) + ' <input type="number" id="rwCfgRefMin" min="0" step="1" value="' +
+                    '<label>' + esc(tr('rewards.cfg.refMin', 'Min payment HK$')) + ' <input type="number" id="rwCfgRefMin" min="0" step="1" value="' +
                     (refCfg.minFirstSpend > 0 ? esc(String(refCfg.minFirstSpend)) : '') + '" placeholder="—" style="width:100px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;"></label>' +
                     '<button type="button" id="rwCfgRefSave" class="btn btn--primary" style="padding:8px 14px;">' + esc(tr('common.save', 'Save')) + '</button></div>';
             } else {
                 html += '<div>' + (refCfg.enabled
                     ? esc(fmtPts(refCfg.points) + ' ' + tr('rewards.cfg.refPoints', 'Points') + ' · ' +
-                        tr('rewards.cfg.refMin', 'Min first-visit HK$') + ' ' + (refCfg.minFirstSpend > 0 ? fmtPts(refCfg.minFirstSpend) : '—'))
+                        tr('rewards.cfg.refMin', 'Min payment HK$') + ' ' + (refCfg.minFirstSpend > 0 ? fmtPts(refCfg.minFirstSpend) : '—'))
                     : esc(tr('common.off', 'Off'))) + '</div>';
             }
             html += '</div>';

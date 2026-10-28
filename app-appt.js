@@ -21627,11 +21627,19 @@ function saveBill(doPrint) {
                     cashId = Array.isArray(pr.data) ? (pr.data[0] && pr.data[0].id) : pr.data.id;
                 }
                 var earnPatientId = billPatId || payload.patient_id || null;
+                var nonCashPay = (typeof isBalanceTransferPayMethod === 'function' && isBalanceTransferPayMethod(payload.bill_type)) ||
+                    (typeof REWARDS !== 'undefined' && typeof REWARDS.isRewardPayMethod === 'function' &&
+                        REWARDS.isRewardPayMethod(payload.bill_type));
+                if (earnPatientId && typeof COUPONS !== 'undefined' && typeof COUPONS.onBillPayment === 'function') {
+                    COUPONS.onBillPayment({
+                        patientId: earnPatientId,
+                        billId: savedBillId,
+                        cashAmount: nonCashPay ? 0 : paid,
+                        clinicCode: payRecord.clinic_code || payRecord.clinic_tag || ''
+                    });
+                }
                 if (bal <= 0.005 && earnPatientId && typeof COUPONS !== 'undefined' &&
                         typeof COUPONS.onBillFullyPaid === 'function') {
-                    var nonCashPay = (typeof isBalanceTransferPayMethod === 'function' && isBalanceTransferPayMethod(payload.bill_type)) ||
-                        (typeof REWARDS !== 'undefined' && typeof REWARDS.isRewardPayMethod === 'function' &&
-                            REWARDS.isRewardPayMethod(payload.bill_type));
                     COUPONS.onBillFullyPaid({
                         patientId: earnPatientId,
                         billId: savedBillId,
@@ -24110,6 +24118,14 @@ function executeAddPaymentSave(ctx) {
                 bdCurrentBill.balance     = newBalance;
                 bdCurrentBill.status      = newStatus;
                 bdCurrentBill.bill_type   = billType;
+            }
+            if (patientId && typeof COUPONS !== 'undefined' && typeof COUPONS.onBillPayment === 'function') {
+                COUPONS.onBillPayment({
+                    patientId: patientId,
+                    billId: billId,
+                    cashAmount: ctx.isBalanceTransfer ? 0 : cashAmount,
+                    clinicCode: clinicCode
+                });
             }
             if (newBalance <= 0.005 && typeof COUPONS !== 'undefined' &&
                     typeof COUPONS.onBillFullyPaid === 'function') {

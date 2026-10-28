@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261028cap';
+var BUILD = '20261028ref';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -201,7 +201,7 @@ function loadCoupons() {
     var rwUses = (src.match(/REWARDS\.[a-zA-Z]+/g) || []).filter(function (u, i, a) { return a.indexOf(u) === i; });
     pass('reward module is used only for the refer-a-friend points branch and the shared manual link', rwUses.length > 0 && rwUses.every(function (u) {
         return ['REWARDS.referralAvailability', 'REWARDS.referralCredit', 'REWARDS.referralReverse', 'REWARDS.clinicCtx',
-            'REWARDS.loyaltyGuideLinkHtml'].indexOf(u) >= 0;
+            'REWARDS.loyaltyGuideLinkHtml', 'REWARDS.loadReferralConfig'].indexOf(u) >= 0;
     }), rwUses.join(','));
     pass('set zero card reuses the reward admin gate and reset dialog', /rw\.openAdminRewardAuthGate\(\{/.test(src) &&
         /rw\.openResetZeroFlow\(configClinics\(\), \{/.test(src) && /var rw = \(typeof REWARDS !== 'undefined' && REWARDS\) \? REWARDS : null;/.test(src));
@@ -632,6 +632,62 @@ function loadCoupons() {
     pass('flow: typed chart no. resolves; same household phone is recorded as blocked', kidRec && kidRec.status === 'blocked' && kidRec.reason === 'same_person', JSON.stringify(kidRec));
     var kidPaid = await RC.referralOnBillPaid({ patientId: 'kid', billId: 'bill-K', cashPaid: 5000, clinicCode: 'KT' });
     pass('flow: a blocked referral never issues', kidPaid.skipped === true);
+    refDb.bills = [];
+    refDb.bill_payments = [];
+    refDb.patients.push({ id: 'fr2', patient_no: '000555', full_name: 'HO KA YAN', chinese_name: '何家欣', phone_number: '95550000', created_at: '2026-10-28T02:00:00Z' });
+    await RC.onPatientCreated({ id: 'fr2', patient_no: '000555' }, '000789', 'other');
+    await settle();
+    var fr2Rec = recs.filter(function (r) { return r.referred_patient_id === 'fr2'; })[0];
+    var fr2Coupons = function () { return refDb.discount_coupons.filter(function (c) { return c.patient_id === 'other' && c.campaign_key === 'referral'; }); };
+    refDb.bill_payments.push({ id: 'pp1', bill_id: 'bill-P', amount: 200, method: 'Cash' });
+    var part1 = await RC.onBillPayment({ patientId: 'fr2', billId: 'bill-P', cashAmount: 200, clinicCode: 'KT' });
+    pass('flow: a HK$200 part payment waits (below the HK$300 minimum)', fr2Rec && fr2Rec.status === 'pending' &&
+        part1.ok === false && part1.reason === 'below_min' && fr2Coupons().length === 0, JSON.stringify(part1));
+    refDb.bill_payments.push({ id: 'pp-void', bill_id: 'bill-P', amount: 500, method: 'Cash', voided_at: '2026-10-28T03:00:00Z' },
+        { id: 'pp-pts', bill_id: 'bill-P', amount: 400, method: 'Reward points' },
+        { id: 'pp2', bill_id: 'bill-P', amount: 150, method: 'Octopus' });
+    var part2 = await RC.onBillPayment({ patientId: 'fr2', billId: 'bill-P', cashAmount: 150, clinicCode: 'KT' });
+    await settle();
+    pass('flow: a second part payment brings the bill to HK$350 cash and issues the referral (voided / points rows not counted)',
+        part2.ok && part2.kind === 'coupon' && fr2Rec.status === 'issued' && fr2Rec.trigger_bill_id === 'bill-P' &&
+        fr2Coupons().length === 1 && fr2Coupons()[0].origin_bill_id === 'bill-P', JSON.stringify(part2));
+    refDb.bill_payments.push({ id: 'pp3', bill_id: 'bill-P', amount: 400, method: 'Cash' });
+    var part3 = await RC.onBillPayment({ patientId: 'fr2', billId: 'bill-P', cashAmount: 400, clinicCode: 'KT' });
+    pass('flow: more payments on the same bill do not issue it twice', part3.skipped === true && fr2Coupons().length === 1);
+    refDb.bill_payments.filter(function (p) { return p.id === 'pp3'; })[0].voided_at = '2026-10-28T04:00:00Z';
+    var keepVoid = await RC.onPaymentVoided({ billId: 'bill-P', balanceAfter: 100 });
+    await settle();
+    pass('flow: voiding a payment keeps the referral while HK$350 cash is still paid', keepVoid.ok &&
+        fr2Rec.status === 'issued' && fr2Coupons()[0].status === 'unused' && keepVoid.keptReferrals.indexOf(String(fr2Rec.id)) >= 0,
+        JSON.stringify({ rec: fr2Rec.status, c: fr2Coupons()[0].status, k: keepVoid.keptReferrals }));
+    refDb.bill_payments.filter(function (p) { return p.id === 'pp2'; })[0].voided_at = '2026-10-28T05:00:00Z';
+    var dropVoid = await RC.onPaymentVoided({ billId: 'bill-P', balanceAfter: 250 });
+    await settle();
+    pass('flow: voiding down to HK$200 takes the referral coupon back and the referral waits again', dropVoid.ok &&
+        fr2Coupons()[0].status === 'void' && fr2Rec.status === 'pending' && fr2Rec.reason === 'bill_voided',
+        JSON.stringify({ rec: fr2Rec, c: fr2Coupons()[0].status }));
+    pass('referral kept after a void only while the cash left meets its minimum',
+        RC.referralStillEarned({ status: 'issued' }, 300, { coupon: 300 }) === true &&
+        RC.referralStillEarned({ status: 'issued' }, 299.99, { coupon: 300 }) === false &&
+        RC.referralStillEarned({ status: 'issued', reward_kind: 'points' }, 250, { coupon: 300, points: 200 }) === true &&
+        RC.referralStillEarned({ status: 'issued' }, 0, { coupon: 0 }) === false &&
+        RC.referralStillEarned({ status: 'pending' }, 900, { coupon: 300 }) === false);
+    pass('referral bonus mini-notification text (coupon + points)', (function () {
+        var a = RC.referralBonusText('coupon', { referrer_no: '000789', referred_no: '000555' }, 100, 350);
+        var b = RC.referralBonusText('points', { referrer_no: '000789', referred_no: '000555' }, 100, 300);
+        return a.title === '🤝 Refer a friend bonus activated' &&
+            a.body === 'Referrer #000789 gets a HK$100 coupon · #000555 paid HK$350 on this bill' &&
+            b.body === 'Referrer #000789 gets +100 reward points · #000555 paid HK$300 on this bill';
+    })());
+    pass('referral wording: part payments count, no "first-visit" left (screens, i18n, manual)', (function () {
+        var all = src + read('app-rewards.js') + read('app-i18n-extra.js') + read('docs/loyalty-manual.js');
+        var i18n = read('app-i18n-extra.js');
+        return !/first-visit|first fully paid|first bill is fully paid|首次診症最低|首次就诊最低|首張賬單全數付清|首张账单全数付清/.test(all) &&
+            /'coupons\.ref\.bonusTitle': \{ en: 'Refer a friend bonus activated', 'zh-CN': '介绍新客奖赏已启动', 'zh-Hant': '介紹新客獎賞已啟動' \}/.test(i18n) &&
+            /'coupons\.ref\.minFirst': \{ en: 'Min payment HK\$'/.test(i18n) && /part payment both count/.test(read('docs/loyalty-manual.js'));
+    })());
+    pass('both referral rewards pop the bonus mini-notification', /function rewardReferralCoupon[\s\S]{0,1600}referralBonusText\('coupon'[\s\S]{0,120}couponNotice\(note\.body, note\.title\)/.test(src) &&
+        /function rewardReferralPoints[\s\S]{0,2000}referralBonusText\('points'[\s\S]{0,140}couponNotice\(note\.body, note\.title\)/.test(src));
     var patSrc = read('app-patient.js');
     pass('patient form passes the picked referrer id and reward kind on register',
         /COUPONS\.onPatientCreated\(row, payload\.referred_by, extra\.referrer_id, extra\.referral_kind\)/.test(patSrc));
@@ -640,7 +696,12 @@ function loadCoupons() {
     pass('patient form reads only an enabled reward-kind radio', /refKind_/.test(patSrc) && /:checked:not\(:disabled\)/.test(patSrc));
     pass('both patient forms have the reward-kind choice', (html.match(/class="dc-ref-kind"/g) || []).length === 2);
     pass('deleting a chart ends its referrals', /COUPONS\.onPatientDeleted\(deletedId\)/.test(patSrc));
-    pass('bill fully paid checks the pending referral', /function onBillFullyPaid[\s\S]{0,1600}referralOnBillPaid\(\{/.test(src));
+    pass('every payment (full or part) checks the pending referral', /function onBillPayment[\s\S]{0,900}billCashPaid\(info\.billId, info\.cashAmount\)[\s\S]{0,300}referralOnBillPaid\(\{/.test(src) &&
+        src.slice(src.indexOf('function onBillFullyPaid'), src.indexOf('function onBillFullyPaid') + 1700).indexOf('referralOnBillPaid(') < 0);
+    var apptRef = read('app-appt.js');
+    pass('bill create + pay and add payment both call onBillPayment before the fully-paid check',
+        /insertBillPaymentRecord\(payRecord, function\(pr\)[\s\S]{0,1400}COUPONS\.onBillPayment\(\{[\s\S]{0,300}cashAmount: nonCashPay \? 0 : paid[\s\S]{0,500}COUPONS\.onBillFullyPaid\(/.test(apptRef) &&
+        /function finishBillUpdate[\s\S]{0,1200}COUPONS\.onBillPayment\(\{[\s\S]{0,200}cashAmount: ctx\.isBalanceTransfer \? 0 : cashAmount[\s\S]{0,400}COUPONS\.onBillFullyPaid\(/.test(apptRef));
     pass('both patient forms use the referrer picker', /id="referredBy" data-ref-picker/.test(html) && /id="edit_referredBy" data-ref-picker/.test(html) &&
         /id="referredById" class="dc-ref-id"/.test(html) && /id="edit_referredById" class="dc-ref-id"/.test(html));
     var refSql = read('discount_coupon_referrals.sql');
@@ -1418,7 +1479,7 @@ function loadCoupons() {
     pass('spend issue shows a notice', src.indexOf('couponNotice(') >= 0);
     var apptSrc = read('app-appt.js');
     pass('checkout (bill create + pay) issues spend coupons',
-        /insertBillPaymentRecord\(payRecord, function\(pr\)[\s\S]{0,1500}COUPONS\.onBillFullyPaid\(/.test(apptSrc));
+        /insertBillPaymentRecord\(payRecord, function\(pr\)[\s\S]{0,2200}COUPONS\.onBillFullyPaid\(/.test(apptSrc));
     pass('checkout passes 0 cash for reward / balance-transfer payments', /cashAmount: nonCashPay \? 0 : paid/.test(apptSrc));
     pass('add payment still issues spend coupons', /function executeAddPaymentSave[\s\S]{0,4000}COUPONS\.onBillFullyPaid\(/.test(apptSrc));
     pass('checkout shows the spend hint', /function recalcBalance[\s\S]{0,500}COUPONS\.paintCheckoutHint\(/.test(apptSrc) &&
@@ -2027,7 +2088,7 @@ function loadCoupons() {
         pass('CDP sheet shows the Wallet QR button', !!(wqr && wqr.btn && wqr.overlay), JSON.stringify(wqr));
         pass('CDP coupon sheet has 📖 How to use -> coupon part of the manual in the dashboard language (new tab)',
             !!(wqr && wqr.guide && wqr.guide.shown && /^📖/.test(wqr.guide.text) && wqr.guide.target === '_blank' &&
-                wqr.guide.href === 'docs/loyalty-manual.html?v=20261028cap#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
+                wqr.guide.href === 'docs/loyalty-manual.html?v=20261028ref#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
         pass('CDP Wallet QR explains when the link cannot be made', !!(wqr && /discount_coupon_wallet\.sql|Could not make/.test(wqr.realErr)), wqr && wqr.realErr);
         pass('CDP Esc closes the QR and keeps the sheet', !!(wqr && wqr.escClosesQrOnly));
         pass('CDP Wallet QR draws the wallet link', !!(wqr && wqr.qr && /\/wallet\.html\?t=0123456789abcdef0123456789abcdef$/.test(wqr.link) && wqr.qrUrl === wqr.link),

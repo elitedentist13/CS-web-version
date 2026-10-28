@@ -381,6 +381,11 @@ function extractIifeHelpers(src) {
     pass('index loads app-rewards.js', /['"]app-rewards\.js(\?[^'"]*)?['"]/.test(idxSrc));
     pass('index has apRewardPanel', idxSrc.indexOf('id="apRewardPanel"') >= 0);
     pass('index has rewardPatientModal', idxSrc.indexOf('id="rewardPatientModal"') >= 0);
+    var panelHtml = idxSrc.slice(idxSrc.indexOf('id="rewardPatientModal"'), idxSrc.indexOf('id="rewardLedgerFinderModal"'));
+    pass('ledger panel has two tabs: points ledger first, coupon wallet second',
+        panelHtml.indexOf('id="rwTabPoints"') > 0 && panelHtml.indexOf('id="rwTabCoupons"') > panelHtml.indexOf('id="rwTabPoints"') &&
+        /id="rwPanePoints"[^>]*>\s*<div class="rw-hero">/.test(panelHtml) && /id="rwPaneCoupons"[^>]*hidden><\/div>/.test(panelHtml) &&
+        panelHtml.indexOf('id="rwTransferSubmit"') > panelHtml.indexOf('id="rwPanePoints"'));
     pass('ledger balance shows clinic breakdown when multi-clinic',
         idxSrc.indexOf('id="rwPatientClinicBreakdown"') >= 0 &&
         /renderPanelClinicBreakdown/.test(rewardsSrc) &&
@@ -754,6 +759,12 @@ function extractIifeHelpers(src) {
                 R.redeemCapSummary({ maxPercent: 0, maxAmount: 0 }) === 'No limit on points per bill',
                 R.redeemCapSummary({ maxPercent: 0, maxAmount: 3000 }));
             pass('points cap: nothing loaded -> payRedeemCapLeft is Infinity', R.payRedeemCapLeft() === Infinity);
+            pass('panel tabs: ledger first; a scheme that is off is skipped; neither -> nothing',
+                R.pickPanelTab('points', { points: true, coupons: true }) === 'points' &&
+                R.pickPanelTab('coupons', { points: true, coupons: true }) === 'coupons' &&
+                R.pickPanelTab('points', { points: false, coupons: true }) === 'coupons' &&
+                R.pickPanelTab('coupons', { points: true, coupons: false }) === 'points' &&
+                R.pickPanelTab('points', { points: false, coupons: false }) === '');
             pass('manual link: part + dashboard language (en / 简 / 繁 kept; unknown or missing -> 繁)',
                 R.loyaltyGuideHref('coupons', 'zh-CN') === 'docs/loyalty-manual.html?v=20261028d#start-coupons-zh-CN' &&
                 /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-Hant')) && /#start-rewards-en$/.test(R.loyaltyGuideHref('rewards', 'en')) &&
@@ -1404,6 +1415,121 @@ function extractIifeHelpers(src) {
         pass('live: manual page builds cover + 6 parts and opens 繁 coupons', !!guideLive && guideLive.manualOk && guideLive.pages === 7 &&
             guideLive.onTab === '繁體中文' && /優惠券/.test(guideLive.title || ''), JSON.stringify(guideLive && { p: guideLive.pages, t: guideLive.onTab, h: guideLive.title }));
 
+        // Ledger panel tabs: clinic context and the coupon join check are stubbed; a dummy patient id reads nothing.
+        var ptabs = await cdp.js(`(async () => {
+  const pid = '00000000-0000-0000-0000-0000000000a1';
+  const keepCtx = window.billPaymentClinicContext;
+  const keepTag = window.currentClinicCodeForTagging;
+  const keepAvail = COUPONS.walletAvailable;
+  const wait = async (fn, ms) => { const d = Date.now() + ms; while (Date.now() < d) { if (fn()) return true; await new Promise(r => setTimeout(r, 100)); } return false; };
+  function state() {
+    const tp = document.getElementById('rwTabPoints'), tc = document.getElementById('rwTabCoupons');
+    const pp = document.getElementById('rwPanePoints'), pc = document.getElementById('rwPaneCoupons');
+    return {
+      pDis: tp.disabled, cDis: tc.disabled, pOn: tp.classList.contains('is-on'), cOn: tc.classList.contains('is-on'),
+      pNote: !tp.querySelector('.rw-ptab-off').hidden, cNote: !tc.querySelector('.rw-ptab-off').hidden,
+      pPane: !pp.hidden, cPane: !pc.hidden, cHtml: pc.innerHTML.length,
+      pOpacity: getComputedStyle(tp).opacity, first: tp.parentElement.firstElementChild === tp
+    };
+  }
+  async function scene(clinic, couponsOn) {
+    window.billPaymentClinicContext = function () { return { clinic_id: null, clinic_code: clinic, clinic_tag: clinic }; };
+    window.currentClinicCodeForTagging = function () { return clinic; };
+    COUPONS.walletAvailable = function () { return Promise.resolve(couponsOn); };
+    REWARDS.closePatientPanel();
+    REWARDS.openPatientPanel(pid);
+    const tp = document.getElementById('rwTabPoints'), tc = document.getElementById('rwTabCoupons');
+    await wait(() => tp.classList.contains('is-on') || tc.classList.contains('is-on') || (tp.disabled && tc.disabled), 8000);
+    await new Promise(r => setTimeout(r, 150));
+    return state();
+  }
+  const out = {};
+  try {
+    out.both = await scene('PL', true);
+    document.getElementById('rwTabCoupons').click();
+    const pc = document.getElementById('rwPaneCoupons');
+    await wait(() => !!pc.querySelector('.dc-wsum-row'), 10000);
+    out.walletTab = state();
+    out.wallet = {
+      sum: !!pc.querySelector('.dc-wsum'), qr: !!pc.querySelector('[data-dc-wallet-qr]'),
+      guide: (pc.querySelector('.loyalty-guide-btn') || {}).getAttribute ? pc.querySelector('.loyalty-guide-btn').getAttribute('href') : '',
+      heads: pc.querySelectorAll('.dc-wl-h').length, hint: /Choose/.test(pc.textContent),
+      subTabs: Array.prototype.map.call(pc.querySelectorAll('[data-wl-tab]'), b => b.getAttribute('data-wl-tab')).join(','),
+      noApply: !pc.querySelector('#dcApply,#dcClear,.dc-sheet-foot')
+    };
+    const visible = name => { const p = pc.querySelector('[data-wl-panel="' + name + '"]'); return !!p && !p.hidden && p.offsetParent !== null; };
+    pc.querySelector('[data-wl-tab="gift"]').click();
+    out.gift = { shown: visible('gift'), walletHidden: !visible('wallet'), kind: !!pc.querySelector('[data-wl="giftKind"]'),
+      none: /Turn a cash or treatment coupon on/.test(pc.querySelector('[data-wl-panel="gift"]').textContent),
+      lock: !!pc.querySelector('[data-wl-panel="gift"] .dc-lock-note') };
+    const giftGo = pc.querySelector('[data-wl="giftGo"]');
+    if (giftGo) {
+      const kind = pc.querySelector('[data-wl="giftKind"]');
+      const cashOpt = Array.prototype.filter.call(kind.options, o => o.value === 'cash')[0];
+      if (cashOpt) { kind.value = 'cash'; kind.dispatchEvent(new Event('change')); pc.querySelector('[data-wl="giftAmount"]').value = '500'; }
+      if (cashOpt) {
+        giftGo.click();
+        out.gift.amountErr = (pc.querySelector('[data-wl="giftErr"]') || {}).textContent || '';
+        pc.querySelector('[data-wl="giftAmount"]').value = '50';
+        await new Promise(r => setTimeout(r, 800));
+      }
+      giftGo.click();
+      const modal = document.getElementById('rewardPatientModal');
+      await wait(() => !!modal.querySelector('.dc-authp form'), 3000);
+      const prompt = modal.querySelector('.dc-authp');
+      out.gift.prompt = !!prompt && getComputedStyle(prompt).position === 'fixed' && prompt.getBoundingClientRect().width >= window.innerWidth - 2;
+      out.gift.promptWhat = prompt ? (prompt.querySelector('.dc-authp-what') || {}).textContent : '';
+      if (prompt) prompt.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      out.gift.closedOnEsc = !modal.querySelector('.dc-authp');
+      out.gift.panelStillOpen = getComputedStyle(modal).display !== 'none';
+    }
+    pc.querySelector('[data-wl-tab="transfer"]').click();
+    out.xfer = { shown: visible('transfer'), pick: !!pc.querySelector('[data-wl="xferPick"]'), to: !!pc.querySelector('[data-wl="xferTo"]'),
+      goDisabled: !!(pc.querySelector('[data-wl="xferGo"]') || {}).disabled,
+      noneHint: /No coupon here can be transferred/.test(pc.querySelector('[data-wl-panel="transfer"]').textContent) };
+    pc.querySelector('[data-wl-tab="wallet"]').click();
+    out.backWallet = visible('wallet') && !visible('transfer');
+    document.getElementById('rwTabPoints').click();
+    out.backToPoints = state();
+    out.noPoints = await scene('ZZZ', true);
+    out.none = await scene('ZZZ', false);
+    out.noCoupons = await scene('PL', false);
+    document.getElementById('rwTabCoupons').click();
+    out.noCouponsClick = state();
+  } finally {
+    window.billPaymentClinicContext = keepCtx;
+    window.currentClinicCodeForTagging = keepTag;
+    COUPONS.walletAvailable = keepAvail;
+    REWARDS.closePatientPanel();
+  }
+  return out;
+})()`, true, 90000);
+        var pt = ptabs || {};
+        pass('live panel tabs: both schemes on -> ledger tab first and open, coupons tab clickable',
+            pt.both && pt.both.first && pt.both.pOn && pt.both.pPane && !pt.both.cPane && !pt.both.pDis && !pt.both.cDis, JSON.stringify(pt.both));
+        pass('live panel tabs: coupon tab shows the wallet (summary, Wallet QR, 📖 coupons manual, live + history)',
+            pt.walletTab && pt.walletTab.cOn && pt.walletTab.cPane && !pt.walletTab.pPane && pt.wallet && pt.wallet.sum && pt.wallet.qr &&
+            /#start-coupons-/.test(pt.wallet.guide || '') && pt.wallet.heads === 2 && pt.wallet.hint, JSON.stringify(pt.wallet));
+        pass('live coupon tab: Wallet / Gift / Transfer sub-tabs, no Use / Apply (not tied to a bill)', pt.wallet && pt.wallet.subTabs === 'wallet,gift,transfer' &&
+            pt.wallet.noApply && pt.backWallet === true, JSON.stringify(pt.wallet));
+        pass('live coupon tab: Gift section opens (choices or the turn-on hint, 🔒 note)', pt.gift && pt.gift.shown && pt.gift.walletHidden &&
+            (pt.gift.kind || pt.gift.none) && pt.gift.lock, JSON.stringify(pt.gift));
+        if (pt.gift && pt.gift.prompt !== undefined) {
+            pass('live coupon tab: Gift asks for the staff login over the panel; Escape closes only the prompt', pt.gift.prompt &&
+                /→/.test(pt.gift.promptWhat || '') && pt.gift.closedOnEsc && pt.gift.panelStillOpen &&
+                (pt.gift.amountErr === undefined || pt.gift.amountErr.length > 0), JSON.stringify(pt.gift));
+        }
+        pass('live coupon tab: Transfer section (coupon, to chart no., 🔒 Transfer; empty wallet -> disabled + hint)', pt.xfer && pt.xfer.shown &&
+            pt.xfer.pick && pt.xfer.to && pt.xfer.goDisabled && pt.xfer.noneHint, JSON.stringify(pt.xfer));
+        pass('live panel tabs: back to the ledger tab', pt.backToPoints && pt.backToPoints.pOn && pt.backToPoints.pPane && !pt.backToPoints.cPane);
+        pass('live panel tabs: clinic not in points -> ledger tab greyed + disabled, opens on coupons', pt.noPoints && pt.noPoints.pDis &&
+            pt.noPoints.pNote && Number(pt.noPoints.pOpacity) < 0.6 && !pt.noPoints.pPane && pt.noPoints.cOn && pt.noPoints.cPane, JSON.stringify(pt.noPoints));
+        pass('live panel tabs: clinic in neither -> both greyed, nothing shown', pt.none && pt.none.pDis && pt.none.cDis &&
+            !pt.none.pPane && !pt.none.cPane && pt.none.cHtml === 0 && pt.none.pNote && pt.none.cNote, JSON.stringify(pt.none));
+        pass('live panel tabs: clinic not in coupons -> coupon tab greyed, click does nothing', pt.noCoupons && pt.noCoupons.cDis &&
+            pt.noCoupons.cNote && pt.noCoupons.pOn && pt.noCouponsClick && pt.noCouponsClick.pOn && !pt.noCouponsClick.cPane &&
+            pt.noCouponsClick.cHtml === 0, JSON.stringify(pt.noCouponsClick));
+
         // Admin view of the cap card; the save is stubbed so no setting is written.
         var capAdm = await cdp.js(`(async () => {
   const pane = document.getElementById('cfgPane-rewards');
@@ -1471,10 +1597,13 @@ function extractIifeHelpers(src) {
   };
   window.confirm = function () { return true; };
   window.openWhatsAppPrefill = function (p, m) { sent.push({ phone: p, msg: m }); return true; };
+  const realCtx = window.billPaymentClinicContext;
+  window.billPaymentClinicContext = function () { return { clinic_id: null, clinic_code: 'PL', clinic_tag: 'PL' }; };
   try {
     REWARDS.openPatientPanel(pid);
     const modal = document.getElementById('rewardPatientModal');
     await wait(() => modal && getComputedStyle(modal).display !== 'none', 5000);
+    await wait(() => !document.getElementById('rwPanePoints').hidden, 8000);
     const btn = document.getElementById('rwPhoneQrBtn');
     out.btnShown = !!btn && !btn.hidden && btn.offsetParent !== null && /Points on the phone/.test(btn.textContent);
     const guide = document.getElementById('rwGuideBtn');
@@ -1530,6 +1659,7 @@ function extractIifeHelpers(src) {
     out.err = String(e && e.stack || e);
   } finally {
     SB.rpc = realRpc; SB.from = realFrom; window.confirm = realConfirm; window.openWhatsAppPrefill = realWa;
+    window.billPaymentClinicContext = realCtx;
   }
   return out;
 })()`, true, 40000);

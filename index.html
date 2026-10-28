@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261028zero2';
+  var BUILD = '20261028dash';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -7559,8 +7559,17 @@
   <div class="modal-box reward-points-modal-box">
     <button class="mclose" data-i18n-aria-label="common.closeAria"
             onclick="REWARDS && REWARDS.closePatientPanel()">×</button>
-    <h3 style="margin:0 0 4px;" data-i18n="rewards.panel.title">Reward points</h3>
-    <div id="rwPatientMeta" style="font-size:13px;color:#64748b;margin-bottom:10px;"></div>
+    <div id="rwPatientMeta" style="font-size:13px;color:#64748b;margin:0 28px 8px 0;"></div>
+    <div class="rw-ptabs" role="tablist" id="rwPanelTabs">
+      <button type="button" role="tab" class="rw-ptab is-on" id="rwTabPoints" data-rw-ptab="points"
+              aria-controls="rwPanePoints" aria-selected="true">🎁 <span data-i18n="rewards.panel.title">Reward points</span>
+        <small class="rw-ptab-off" data-i18n="rewards.panel.tabOff" hidden>Clinic not in scheme</small></button>
+      <button type="button" role="tab" class="rw-ptab" id="rwTabCoupons" data-rw-ptab="coupons"
+              aria-controls="rwPaneCoupons" aria-selected="false">🎟️ <span data-i18n="rewards.panel.tabCoupons">Discount coupons</span>
+        <small class="rw-ptab-off" data-i18n="rewards.panel.tabOff" hidden>Clinic not in scheme</small></button>
+    </div>
+    <div id="rwPaneCoupons" class="rw-ppane" role="tabpanel" aria-labelledby="rwTabCoupons" hidden></div>
+    <div id="rwPanePoints" class="rw-ppane" role="tabpanel" aria-labelledby="rwTabPoints">
     <div class="rw-hero">
       <div class="rw-hero-bal">
         <div class="rw-hero-label" data-i18n="rewards.panel.balance">Balance</div>
@@ -7642,6 +7651,7 @@
       <button type="button" id="rwTransferSubmit"
               style="padding:10px 16px;background:#0f766e;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;"
               data-i18n="rewards.xfer.submit">Transfer points</button>
+    </div>
     </div>
   </div>
 </div>
@@ -8282,7 +8292,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20261019reward11',
-    'app-i18n-extra.js?v=20261028zero2',
+    'app-i18n-extra.js?v=20261028dash',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20261019reward11',
@@ -8299,7 +8309,7 @@
     'app-photos.js?v=20261017ortho4',
     'app-patient.js?v=20261028referral2',
     'app-patient-advanced-search.js',
-    'app-patient-views.js?v=20261019reward12',
+    'app-patient-views.js?v=20261028dash',
     'cal-doctor-colors.js',
     'app-public-holidays.js',
     'app-appt.js?v=20261028ptscap1',
@@ -8341,8 +8351,8 @@
     'app-webbook.js',
     'app-webbook-roster.js',
     'app-mass-broadcast.js',
-'app-rewards.js?v=20261028zero2',
-            'app-coupons.js?v=20261028zero2'
+'app-rewards.js?v=20261028tabs2',
+            'app-coupons.js?v=20261028dash'
   ];
   /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {

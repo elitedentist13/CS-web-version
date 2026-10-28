@@ -365,6 +365,28 @@ function patViewLoadDashboard() {
         patViewRenderDashboard(host, patientDashData);
         patDashLoadTimeline(pid);
         patDashRefreshRewards(pid);
+        patDashRefreshCoupons(pid);
+    });
+}
+
+/** Show the coupon wallet card only when the clinic is in the coupon scheme, with the live coupon count. */
+function patDashRefreshCoupons(patientId) {
+    var card = g('patDashCouponsCard');
+    var amtEl = g('patDashCouponsAmt');
+    if (!card || !amtEl || !patientId) return;
+    if (typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.walletAvailable !== 'function' ||
+        typeof COUPONS.openWalletPhone !== 'function') return;
+    var pid = String(patientId);
+    function current() { return document.body.contains(card) && String(card.dataset.patientId) === pid; }
+    COUPONS.walletAvailable().then(function (ok) {
+        if (!current()) return;
+        card.hidden = !ok;
+        if (!ok || typeof COUPONS.walletLiveCount !== 'function') return;
+        return COUPONS.walletLiveCount(pid).then(function (n) {
+            if (current()) amtEl.textContent = patViewTrRepl('patient.view.couponsCount', { n: n });
+        });
+    }).catch(function () {
+        if (current()) amtEl.textContent = '—';
     });
 }
 
@@ -424,6 +446,13 @@ function patViewRenderDashboard(host, data) {
         '<span class="pat-dash-rewards-label">🎁 ' + esc(patViewTr('patient.view.rewardsLabel')) + '</span>' +
         '<span id="patDashRewardsAmt" class="pat-dash-rewards-amt">—</span>' +
         '<span class="pat-dash-rewards-hint">' + esc(patViewTr('patient.view.rewardsHint')) + '</span>' +
+        '</button>' +
+        '<button type="button" id="patDashCouponsCard" class="pat-dash-coupons-card" hidden data-no-click-guard="1"' +
+        ' data-act="coupon-phone" data-id="' + esc(p.id) + '" data-patient-id="' + esc(p.id) + '"' +
+        ' title="' + esc(patViewTr('patient.view.couponsTitle')) + '">' +
+        '<span class="pat-dash-coupons-label">🎟️ ' + esc(patViewTr('patient.view.couponsLabel')) + '</span>' +
+        '<span id="patDashCouponsAmt" class="pat-dash-coupons-amt">—</span>' +
+        '<span class="pat-dash-coupons-hint">📱 ' + esc(patViewTr('patient.view.couponsHint')) + '</span>' +
         '</button>' +
         '<div class="pat-dash-banana-wrap">' + patViewBananaPanelHtml(p) + '</div>' +
         (String(p.medical_alerts || '').trim()
@@ -786,6 +815,13 @@ function patViewWireHostActions(host) {
             } else {
                 alert(patViewTr('patient.dir.rewardLedgerMissing') ||
                     'Reward module not loaded.');
+            }
+            return;
+        }
+        if (act === 'coupon-phone') {
+            var cpid = id || (patientViewFullRecord && patientViewFullRecord.id) || selPatientId;
+            if (cpid && typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.openWalletPhone === 'function') {
+                COUPONS.openWalletPhone(cpid);
             }
             return;
         }

@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261028zero2';
+var BUILD = '20261028dash';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -209,6 +209,58 @@ function loadCoupons() {
         /esc\(ct\('coupons\.wqr\.btn', 'Wallet QR'\)\) \+ '<\/button>' : ''\) \+\s+\(\(typeof REWARDS !== 'undefined' && REWARDS && typeof REWARDS\.loyaltyGuideLinkHtml === 'function'\)\s+\? REWARDS\.loyaltyGuideLinkHtml\('coupons'\) : ''\) \+ '<\/div>'/.test(src));
     pass('coupon config title has the 📖 manual link (only when the reward module is loaded)',
         /REWARDS\.loyaltyGuideLinkHtml\('coupons'\) : ''/.test(src) && /'<h2 class="dc-title">'[^\n]*\+ guide \+ '<\/div>'/.test(src));
+
+    console.log('=== 3a wallet tab in the ledger panel ===');
+    var wl = C.walletLedgerRows([
+        { id: 'a', status: 'unused', expires_on: '2027-03-01', issued_at: '2026-01-01T00:00:00Z' },
+        { id: 'b', status: 'unused', expires_on: '2026-11-01', issued_at: '2026-02-01T00:00:00Z' },
+        { id: 'c', status: 'unused', expires_on: '2026-05-01', issued_at: '2026-03-01T00:00:00Z' },
+        { id: 'd', status: 'used', redeemed_at: '2026-09-01T03:00:00Z', issued_at: '2026-04-01T00:00:00Z' },
+        { id: 'e', status: 'void', issued_at: '2026-06-01T00:00:00Z' }
+    ], '2026-10-28');
+    pass('wallet tab: live coupons soonest expiry first', wl.live.map(function (c) { return c.id; }).join(',') === 'b,a');
+    pass('wallet tab: history newest first with used / cancelled / expired', wl.history.map(function (h) { return h.coupon.id + ':' + h.state; }).join(',') ===
+        'd:used,e:void,c:expired', JSON.stringify(wl.history.map(function (h) { return [h.coupon.id, h.state, h.at]; })));
+    var wlSrc = src.slice(src.indexOf('function renderWalletPane'), src.indexOf('function loadWallet('));
+    pass('wallet tab: Wallet / Gift / Transfer like the Choose sheet, but no Use / Apply (not tied to a bill)',
+        /function renderWalletPane\(el, patientId, opts\)/.test(src) && /\['wallet', ct\('coupons\.tab\.wallet', 'Wallet'\)/.test(wlSrc) &&
+        /\['gift', ct\('coupons\.tab\.gift'/.test(wlSrc) && /\['transfer', ct\('coupons\.tab\.transfer'/.test(wlSrc) &&
+        !/dcApply|dcClear|applyToBill|clearBillCoupon|(^|[^.\w])bill\.[a-z_]/.test(wlSrc));
+    pass('wallet tab gift / transfer use the same login check, wallet write and coupon log as the sheet',
+        /promptGrantor\(overlayHost, ct\('coupons\.auth\.giftTitle'/.test(wlSrc) && /grantToWallet\(patientId, kind, amt, patientNo, grantor\)/.test(wlSrc) &&
+        /promptGrantor\(overlayHost, ct\('coupons\.auth\.xferTitle'/.test(wlSrc) && /transferSelected\(chosen, to, patientNo, user\)/.test(wlSrc) &&
+        /String\(to\.id\) === String\(patientId\)/.test(wlSrc));
+    var movable = C.walletTransferable([
+        { id: 'a', status: 'unused', campaign_key: 'cash', expires_on: '2027-01-01' },
+        { id: 'b', status: 'unused', campaign_key: 'referral', expires_on: '2027-01-01' },
+        { id: 'c', status: 'unused', campaign_key: 'new_chart' },
+        { id: 'd', status: 'unused', campaign_key: 'cash', expires_on: '2026-01-01' },
+        { id: 'e', status: 'used', campaign_key: 'cash' }
+    ], '2026-10-28');
+    pass('wallet tab transfer list: live coupons only, new-chart and referral stay', movable.map(function (c) { return c.id; }).join(',') === 'a');
+    pass('login prompt can sit over the reward panel and closes on Escape without closing the panel',
+        /host\.querySelector\('\.dc-sheet'\) \|\| \(host\.nodeType === 1 && host\.id !== 'dcSheetHost' \? host : null\)/.test(src) &&
+        /if \(ev\.key !== 'Escape'\) return;\s+ev\.preventDefault\(\);\s+ev\.stopPropagation\(\);\s+finish\(null\);/.test(src));
+    pass('wallet tab checks the clinic is in the coupon scheme', /function walletAvailable\(clinicCode\)[\s\S]{0,200}clinicJoined\(code\)/.test(src));
+
+    console.log('=== 3a2 patient dashboard coupon wallet card ===');
+    var pvSrc = read('app-patient-views.js');
+    var idxDash = read('index.html');
+    var i18nSrc = read('app-i18n-extra.js');
+    pass('dashboard has a coupon wallet card next to the reward points card (hidden until the clinic check)',
+        /id="patDashRewardsCard"[\s\S]{0,900}id="patDashCouponsCard" class="pat-dash-coupons-card" hidden data-no-click-guard="1"[\s\S]{0,80}data-act="coupon-phone"/.test(pvSrc));
+    pass('dashboard coupon card shows only when the clinic is in the coupon scheme, with the live count',
+        /function patDashRefreshCoupons\(patientId\)[\s\S]{0,900}COUPONS\.walletAvailable\(\)[\s\S]{0,200}card\.hidden = !ok;[\s\S]{0,200}COUPONS\.walletLiveCount\(pid\)/.test(pvSrc) &&
+        /patDashRefreshRewards\(pid\);\s+patDashRefreshCoupons\(pid\);/.test(pvSrc));
+    pass('dashboard coupon card opens the phone wallet QR', /act === 'coupon-phone'[\s\S]{0,300}COUPONS\.openWalletPhone\(cpid\)/.test(pvSrc));
+    pass('openWalletPhone uses the coupon QR set-up over the whole page',
+        /function openWalletPhone\(patientId\)[\s\S]{0,400}host\.id = 'dcPhoneHost';[\s\S]{0,120}openPhoneQr\(host, patientId, couponQrConfig\(\)\)/.test(src) &&
+        /openWalletPhone: openWalletPhone/.test(src) && /walletLiveCount: walletLiveCount/.test(src));
+    pass('dashboard coupon card CSS: hidden really hides it', /\.pat-dash-coupons-card\[hidden\] \{ display: none; \}/.test(read('style.css')));
+    pass('dashboard coupon card i18n in 3 languages', ['couponsLabel', 'couponsTitle', 'couponsHint', 'couponsCount'].every(function (k) {
+        return new RegExp("'patient\\.view\\." + k + "': \\{ en: '[^']+', 'zh-CN': '[^']+', 'zh-Hant': '[^']+' \\}").test(i18nSrc);
+    }) && /'patient\.view\.couponsCount': \{ en: '\{n\} live'/.test(i18nSrc));
+    pass('index.html loads the new patient views build', /app-patient-views\.js\?v=20261028dash/.test(idxDash));
 
     console.log('=== 3b set zero ===');
     var zSql = read('discount_coupon_zero.sql');
@@ -2007,6 +2059,79 @@ function loadCoupons() {
 })()`, true, 20000);
         pass('CDP wallet.html opens and refuses an unknown link', !!(wpage && wpage.title === 'My coupons' && wpage.error && wpage.controls === 0),
             JSON.stringify(wpage));
+        var dash = await cdp.js(`(async function () {
+  function wait(test, ms) {
+    return new Promise(function (resolve) {
+      var t0 = Date.now();
+      (function tick() { if (test() || Date.now() - t0 > ms) resolve(test()); else setTimeout(tick, 100); })();
+    });
+  }
+  var pid = '00000000-0000-0000-0000-00000000da5h';
+  var out = {};
+  var host = document.createElement('div');
+  host.id = 'dcDashTestHost';
+  document.body.appendChild(host);
+  var realAvail = COUPONS.walletAvailable, realRpc = SB.rpc, realFrom = SB.from;
+  var joined = true;
+  COUPONS.walletAvailable = function () { return Promise.resolve(joined); };
+  var today = new Date(Date.now() + 864e5 * 60).toISOString().slice(0, 10);
+  var wallet = [
+    { id: 'w1', status: 'unused', campaign_key: 'cash', face_value: 100, patient_id: pid, expires_on: today },
+    { id: 'w2', status: 'unused', campaign_key: 'free_scaling', face_value: 0, patient_id: pid, expires_on: today },
+    { id: 'w3', status: 'used', campaign_key: 'cash', face_value: 50, patient_id: pid }
+  ];
+  var rpcCalls = [];
+  SB.rpc = function (name, args) { rpcCalls.push(name); return Promise.resolve({ data: { ok: true, token: '0123456789abcdef0123456789abcdef' }, error: null }); };
+  SB.from = function (table) {
+    if (table === 'discount_coupons') return { select: function () { return { eq: function () { return Promise.resolve({ data: wallet, error: null }); } }; } };
+    if (table === 'patients') return { select: function () { return { eq: function () { return { maybeSingle: function () {
+      return Promise.resolve({ data: { patient_no: 'T001', chinese_name: '陳大文', full_name: 'Chan Tai Man', mobile_phone: '9123 4567' }, error: null }); } }; } }; } };
+    return realFrom.apply(SB, arguments);
+  };
+  try {
+    patViewRenderDashboard(host, { patient: { id: pid, full_name: 'Dash Test' }, appts: [], notes: [], bills: [], photos: [], docs: [], rx: [], xrays: [], charts: [] });
+    var card = host.querySelector('#patDashCouponsCard');
+    out.card = !!card;
+    out.hiddenAtFirst = !!card && card.hidden;
+    out.nextToPoints = !!card && card.previousElementSibling && card.previousElementSibling.id === 'patDashRewardsCard';
+    patDashRefreshCoupons(pid);
+    await wait(function () { return !card.hidden && /2/.test(document.getElementById('patDashCouponsAmt').textContent); }, 5000);
+    out.shown = !card.hidden && card.offsetParent !== null;
+    out.amt = document.getElementById('patDashCouponsAmt').textContent;
+    out.label = card.querySelector('.pat-dash-coupons-label').textContent;
+    card.click();
+    await wait(function () { return /wallet\\.html\\?t=0123/.test((document.getElementById('dcWqrLink') || {}).value || ''); }, 8000);
+    var qr = document.querySelector('#dcPhoneHost .dc-wqr');
+    out.qr = !!qr;
+    out.qrPos = qr ? getComputedStyle(qr).position : '';
+    out.qrW = qr ? Math.round(qr.getBoundingClientRect().width) + '/' + document.documentElement.clientWidth : '';
+    out.qrFixed = !!qr && out.qrPos === 'fixed' && qr.getBoundingClientRect().width >= document.documentElement.clientWidth - 2;
+    out.link = (document.getElementById('dcWqrLink') || {}).value || '';
+    out.rpc = rpcCalls.join(',');
+    out.title = qr ? qr.querySelector('#dcWqrTitle').textContent : '';
+    if (qr) qr.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    out.closedOnEsc = !document.querySelector('#dcPhoneHost .dc-wqr');
+    joined = false;
+    patViewRenderDashboard(host, { patient: { id: pid, full_name: 'Dash Test' }, appts: [], notes: [], bills: [], photos: [], docs: [], rx: [], xrays: [], charts: [] });
+    patDashRefreshCoupons(pid);
+    await new Promise(function (r) { setTimeout(r, 400); });
+    out.offHidden = host.querySelector('#patDashCouponsCard').hidden && host.querySelector('#patDashCouponsCard').offsetParent === null;
+  } finally {
+    COUPONS.walletAvailable = realAvail; SB.rpc = realRpc; SB.from = realFrom;
+    var q = document.querySelector('#dcPhoneHost .dc-wqr'); if (q && q.__dcCancel) q.__dcCancel();
+    host.remove();
+  }
+  return out;
+})()`, true, 30000);
+        pass('CDP patient dashboard: coupon wallet card sits next to the points card, hidden until checked',
+            !!(dash && dash.card && dash.hiddenAtFirst && dash.nextToPoints), JSON.stringify(dash));
+        pass('CDP patient dashboard: clinic in the scheme -> card shows the live coupon count (2 live, used one not counted)',
+            !!(dash && dash.shown && /^2\b/.test(dash.amt) && /🎟️/.test(dash.label)), dash && (dash.amt + ' | ' + dash.label));
+        pass('CDP patient dashboard: card opens the phone wallet QR over the page with the wallet.html link',
+            !!(dash && dash.qr && dash.qrFixed && /\/wallet\.html\?t=0123456789abcdef0123456789abcdef$/.test(dash.link) && dash.rpc === 'dc_wallet_link'),
+            dash && JSON.stringify({ link: dash.link, rpc: dash.rpc, fixed: dash.qrFixed, pos: dash.qrPos, w: dash.qrW }));
+        pass('CDP patient dashboard: Escape closes the wallet QR', !!(dash && dash.closedOnEsc));
+        pass('CDP patient dashboard: clinic not in the scheme -> no coupon card', !!(dash && dash.offHidden));
         var langs = await cdp.js(`(function () {
   var before = appUiLang;
   treatmentItemsCache = ${JSON.stringify(catalog)};

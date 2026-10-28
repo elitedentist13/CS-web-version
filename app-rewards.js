@@ -3224,14 +3224,132 @@ var REWARDS = (function () {
         el.style.display = 'block';
     }
 
-    function openPatientPanel(patientId) {
+    /** The clinic in use takes part in reward points: All Doctors, or at least one doctor, is joined. */
+    function panelPointsJoined() {
+        var ctx = clinicCtx();
+        return loadJoinMaps(false).then(function (maps) {
+            if (effectiveJoinFlags(maps.clinicMap, maps.doctorMap, ctx.clinic_id, ctx.clinic_code, null).enabled) return true;
+            var bucket = lookupDoctorClinicBucket(maps.doctorMap, ctx.clinic_id, ctx.clinic_code) || {};
+            return Object.keys(bucket).some(function (k) {
+                var row = bucket[k];
+                return !!(row && (row.join_gain || row.join_redeem || row.enabled));
+            });
+        }, function () { return false; });
+    }
+
+    function panelCouponsJoined() {
+        if (typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.walletAvailable !== 'function') return Promise.resolve(false);
+        return Promise.resolve(COUPONS.walletAvailable()).then(function (ok) { return !!ok; }, function () { return false; });
+    }
+
+    var _panelTab = 'points';
+    var _panelTabsOk = { points: false, coupons: false };
+    var _panelCouponsFor = null;
+
+    /** Pure: the tab to show — the wanted one if its scheme is on, else the other one, else none. */
+    function pickPanelTab(want, ok) {
+        ok = ok || {};
+        if (want && ok[want]) return want;
+        if (ok.points) return 'points';
+        if (ok.coupons) return 'coupons';
+        return '';
+    }
+
+    function setPanelTab(name) {
+        _panelTab = name || '';
+        ['points', 'coupons'].forEach(function (k) {
+            var btn = document.getElementById(k === 'points' ? 'rwTabPoints' : 'rwTabCoupons');
+            var pane = document.getElementById(k === 'points' ? 'rwPanePoints' : 'rwPaneCoupons');
+            var on = k === _panelTab;
+            if (btn) {
+                btn.classList.toggle('is-on', on);
+                btn.setAttribute('aria-selected', on ? 'true' : 'false');
+                btn.tabIndex = on ? 0 : -1;
+            }
+            if (pane) pane.hidden = !on;
+        });
+        if (_panelTab === 'coupons' && _panelPatientId && String(_panelCouponsFor) !== String(_panelPatientId)) {
+            _panelCouponsFor = _panelPatientId;
+            var host = document.getElementById('rwPaneCoupons');
+            if (host && typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.renderWalletPane === 'function') {
+                COUPONS.renderWalletPane(host, _panelPatientId);
+            }
+        }
+    }
+
+    function paintPanelTabStates() {
+        ['points', 'coupons'].forEach(function (k) {
+            var btn = document.getElementById(k === 'points' ? 'rwTabPoints' : 'rwTabCoupons');
+            if (!btn) return;
+            var off = !_panelTabsOk[k];
+            btn.disabled = off;
+            btn.classList.toggle('is-off', off);
+            btn.setAttribute('aria-disabled', off ? 'true' : 'false');
+            btn.title = off ? tr('rewards.panel.tabOffTitle', 'This clinic has not joined this scheme.') : '';
+            var note = btn.querySelector('.rw-ptab-off');
+            if (note) note.hidden = !off;
+        });
+    }
+
+    function wirePanelTabs(modal) {
+        if (!modal || modal.__rwTabsWired) return;
+        modal.__rwTabsWired = true;
+        modal.querySelectorAll('[data-rw-ptab]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var k = btn.getAttribute('data-rw-ptab');
+                if (_panelTabsOk[k]) setPanelTab(k);
+            });
+            btn.addEventListener('keydown', function (e) {
+                if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+                var other = btn.getAttribute('data-rw-ptab') === 'points' ? 'coupons' : 'points';
+                if (!_panelTabsOk[other]) return;
+                e.preventDefault();
+                setPanelTab(other);
+                var ob = document.getElementById(other === 'points' ? 'rwTabPoints' : 'rwTabCoupons');
+                if (ob) ob.focus();
+            });
+        });
+        if (typeof window !== 'undefined') {
+            window.addEventListener('app-lang-change', function () {
+                if (_panelTab !== 'coupons' || !_panelPatientId) return;
+                _panelCouponsFor = null;
+                setPanelTab('coupons');
+            });
+        }
+    }
+
+    /** Ledger first; a scheme the clinic has not joined is greyed out and shows nothing. */
+    function syncPanelTabs(patientId, want) {
+        _panelTabsOk = { points: false, coupons: false };
+        _panelCouponsFor = null;
+        var coupons = document.getElementById('rwPaneCoupons');
+        if (coupons) {
+            coupons.__dcWalletToken = null;
+            coupons.innerHTML = '';
+        }
+        setPanelTab('');
+        paintPanelTabStates();
+        return Promise.all([panelPointsJoined(), panelCouponsJoined()]).then(function (res) {
+            if (String(_panelPatientId) !== String(patientId)) return null;
+            _panelTabsOk = { points: !!res[0], coupons: !!res[1] };
+            paintPanelTabStates();
+            var tab = pickPanelTab(want || 'points', _panelTabsOk);
+            setPanelTab(tab);
+            return tab;
+        });
+    }
+
+    function openPatientPanel(patientId, opts) {
         if (!patientId) return;
+        var sameTab = String(_panelPatientId) === String(patientId) ? _panelTab : '';
         _panelPatientId = patientId;
         var modal = document.getElementById('rewardPatientModal');
         if (!modal) {
             alert(tr('rewards.err.modalMissing', 'Reward panel not found. Reload the page.'));
             return;
         }
+        wirePanelTabs(modal);
+        syncPanelTabs(patientId, (opts && opts.tab) || sameTab || 'points');
         var meta = document.getElementById('rwPatientMeta');
         var balEl = document.getElementById('rwPatientBalance');
         var tbody = document.getElementById('rwLedgerBody');
@@ -3434,8 +3552,9 @@ var REWARDS = (function () {
     }
 
     function closePatientPanel() {
-        var qr = document.querySelector('#rewardPatientModal .dc-wqr');
-        if (qr && qr.__dcCancel) qr.__dcCancel();
+        document.querySelectorAll('#rewardPatientModal .dc-authp').forEach(function (box) {
+            if (box.__dcCancel) box.__dcCancel();
+        });
         if (typeof closeModal === 'function') closeModal('rewardPatientModal');
         else {
             var m = document.getElementById('rewardPatientModal');
@@ -4856,6 +4975,15 @@ var REWARDS = (function () {
             '.rw-kind--adjust{background:#e0e7ff;color:#3730a3;}' +
             '.rw-kind--referral{background:#fef3c7;color:#92400e;}' +
             '#rewardPatientModal .rw-hero{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;align-items:stretch;}' +
+            '.rw-ptabs{display:flex;gap:4px;border-bottom:2px solid #e2e8f0;margin:0 0 12px;}' +
+            '.rw-ptab{display:flex;align-items:center;gap:6px;padding:8px 14px;margin-bottom:-2px;border:1px solid transparent;border-bottom:2px solid transparent;' +
+            'border-radius:10px 10px 0 0;background:transparent;font:inherit;font-size:14px;font-weight:800;color:#475569;cursor:pointer;}' +
+            '.rw-ptab:hover:not(:disabled){background:#f8fafc;color:#0f172a;}' +
+            '.rw-ptab.is-on{background:#fff;border-color:#e2e8f0;border-bottom-color:#0f766e;color:#0f766e;}' +
+            '.rw-ptab:disabled,.rw-ptab.is-off{opacity:.45;cursor:not-allowed;filter:grayscale(1);}' +
+            '.rw-ptab-off{font-size:10px;font-weight:700;color:#64748b;}' +
+            '.rw-ptab-off[hidden]{display:none;}' +
+            '.rw-ppane[hidden]{display:none!important;}' +
             '.rw-hero-bal{min-width:190px;padding:12px 16px;border-radius:14px;background:linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%);border:1px solid #a7f3d0;box-shadow:inset 0 1px 0 rgba(255,255,255,.7);}' +
             '.rw-hero-started{padding:12px 16px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;display:flex;flex-direction:column;justify-content:center;}' +
             '.rw-hero-label{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;}' +
@@ -5068,6 +5196,9 @@ var REWARDS = (function () {
         applyRedeemAllOnPayment: applyRedeemAllOnPayment,
         openPatientPanel: openPatientPanel,
         closePatientPanel: closePatientPanel,
+        pickPanelTab: pickPanelTab,
+        panelPointsJoined: panelPointsJoined,
+        syncPanelTabs: syncPanelTabs,
         openPhoneQr: openPhoneQr,
         loyaltyGuideHref: loyaltyGuideHref,
         loyaltyGuideLinkHtml: loyaltyGuideLinkHtml,

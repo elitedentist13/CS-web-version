@@ -2401,6 +2401,289 @@ var COUPONS = (function () {
         });
     }
 
+    /** Resolves true when the clinic now in use is in the coupon scheme. */
+    function walletAvailable(clinicCode) {
+        var code = clinicCode != null ? clinicCode : clinicCodeNow();
+        return loadState().then(function () { return !!code && clinicJoined(code); }, function () { return false; });
+    }
+
+    /** Pure: wallet rows for the patient ledger tab — live coupons (soonest expiry first) and history (newest first). */
+    function walletLedgerRows(wallet, today) {
+        today = today || todayIso();
+        var live = [];
+        var history = [];
+        (wallet || []).forEach(function (c) {
+            if (isLive(c, today)) { live.push(c); return; }
+            var state = c.status === 'used' ? 'used' : c.status === 'void' ? 'void' : c.status === 'unused' ? 'expired' : String(c.status || '');
+            history.push({ coupon: c, state: state, at: String((state === 'used' && c.redeemed_at) || c.issued_at || '') });
+        });
+        live.sort(function (a, b) {
+            var x = String(a.expires_on || '9999'), y = String(b.expires_on || '9999');
+            return x < y ? -1 : x > y ? 1 : 0;
+        });
+        history.sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : 0; });
+        return { live: live, history: history };
+    }
+
+    function walletCardHtml(c, today) {
+        var w = walletCoupon(c);
+        var slot = couponSlot(w);
+        return '<div class="dc-card dc-ticket dc-wcard" data-kind="' + kindOf(w) + '" data-id="' + esc(w.id) + '">' +
+            stubHtml(w) +
+            '<span class="dc-body"><strong>' + esc(campLabel(w)) + '</strong>' +
+            '<small>' + esc(slot === 'items' ? ct('coupons.bill.slotItems', '治療券') : ct('coupons.bill.slotBill', '全單券')) +
+            (w.code ? ' · ' + esc(w.code) : '') + (c.clinic_code ? ' · ' + esc(c.clinic_code) : '') + '</small>' +
+            '<span class="dc-meta">' + expiryChipHtml(w.expires_on, today) + '</span></span></div>';
+    }
+
+    function walletStateLabel(state) {
+        if (state === 'used') return ct('coupons.wl.used', 'Used');
+        if (state === 'void') return ct('coupons.wl.void', 'Cancelled');
+        if (state === 'expired') return ct('coupons.reason.expired', '已過期');
+        return state;
+    }
+
+    function loadPatientNo(patientId) {
+        if (!patientId || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve('');
+        return Promise.resolve(SB.from('patients').select('patient_no').eq('id', patientId).maybeSingle())
+            .then(function (r) { return (r && r.data && r.data.patient_no) || ''; }, function () { return ''; });
+    }
+
+    /** Pure: coupons in a wallet that may move to another chart (live, and not new-chart / referral). */
+    function walletTransferable(wallet, today) {
+        return (wallet || []).filter(function (c) { return isLive(c, today) && !LOCKED_TRANSFER_KEYS[c.campaign_key]; });
+    }
+
+    /**
+     * Discount coupon wallet inside the patient's reward ledger panel: the Choose sheet without a bill.
+     * Wallet (browse, instead of Use) · Gift · Transfer. opts: { tab: 'wallet' | 'gift' | 'transfer' }.
+     */
+    function renderWalletPane(el, patientId, opts) {
+        if (!el) return Promise.resolve(false);
+        opts = opts || {};
+        ensureCss();
+        el.innerHTML = '<p class="dc-hint">' + esc(ct('common.loadingEllipsis', 'Loading…')) + '</p>';
+        var token = {};
+        el.__dcWalletToken = token;
+        return Promise.all([loadState().then(loadUsage), loadWallet(patientId), loadPatientNo(patientId)]).then(function (res) {
+            if (el.__dcWalletToken !== token) return false;
+            var wallet = res[1] || [];
+            var patientNo = res[2] || '';
+            var today = todayIso();
+            var rows = walletLedgerRows(wallet, today);
+            var tab = opts.tab === 'gift' || opts.tab === 'transfer' ? opts.tab : 'wallet';
+            function hiddenUnless(on) { return on ? '' : ' hidden'; }
+            var html = '<div class="dc-wl">';
+            html += '<div class="dc-wsum-row">' + walletSummaryHtml(wallet, today) +
+                (patientId ? '<button type="button" class="dc-wqr-btn" data-dc-wallet-qr="1" data-no-click-guard="1">📱 ' +
+                    esc(ct('coupons.wqr.btn', 'Wallet QR')) + '</button>' : '') +
+                ((typeof REWARDS !== 'undefined' && REWARDS && typeof REWARDS.loyaltyGuideLinkHtml === 'function')
+                    ? REWARDS.loyaltyGuideLinkHtml('coupons') : '') + '</div>';
+            html += '<div class="dc-stabs dc-wl-tabs" role="tablist">';
+            [
+                ['wallet', ct('coupons.tab.wallet', 'Wallet'), rows.live.length],
+                ['gift', ct('coupons.tab.gift', 'Gift'), null],
+                ['transfer', ct('coupons.tab.transfer', 'Transfer'), null]
+            ].forEach(function (t) {
+                html += '<button type="button" role="tab" class="dc-stab' + (t[0] === tab ? ' is-on' : '') + '" data-wl-tab="' + t[0] +
+                    '" aria-selected="' + (t[0] === tab) + '">' + esc(t[1]) +
+                    (t[2] != null ? ' <span class="dc-stab-n">' + t[2] + '</span>' : '') + '</button>';
+            });
+            html += '</div>';
+            html += '<section class="dc-spanel" role="tabpanel" data-wl-panel="wallet"' + hiddenUnless(tab === 'wallet') + '>';
+            html += '<p class="dc-hint">' + esc(ct('coupons.wl.hint', 'Browse only. To use a coupon, open the patient’s bill and press Choose.')) + '</p>';
+            html += '<h4 class="dc-wl-h">' + esc(ct('coupons.wl.live', 'Unused coupons')) + ' <span class="dc-stab-n">' + rows.live.length + '</span></h4>';
+            html += rows.live.length
+                ? '<div class="dc-cards dc-wl-cards">' + rows.live.map(function (c) { return walletCardHtml(c, today); }).join('') + '</div>'
+                : '<p class="dc-empty">' + esc(ct('coupons.bill.empty', 'This patient has no unused coupons.')) + '</p>';
+            html += '<h4 class="dc-wl-h">' + esc(ct('coupons.wl.history', 'Used, cancelled and expired')) + ' <span class="dc-stab-n">' + rows.history.length + '</span></h4>';
+            if (!rows.history.length) {
+                html += '<p class="dc-hint">' + esc(ct('coupons.wl.noHistory', 'No used, cancelled or expired coupons yet.')) + '</p>';
+            } else {
+                html += '<div class="dc-log-wrap"><table class="dc-log dc-wl-table"><thead><tr>' +
+                    '<th>' + esc(ct('coupons.wl.when', 'When')) + '</th>' +
+                    '<th>' + esc(ct('coupons.wl.coupon', 'Coupon')) + '</th>' +
+                    '<th>' + esc(ct('coupons.wl.value', 'Value')) + '</th>' +
+                    '<th>' + esc(ct('coupons.wl.status', 'Status')) + '</th>' +
+                    '<th>' + esc(ct('coupons.wl.note', 'Note')) + '</th></tr></thead><tbody>';
+                rows.history.forEach(function (h) {
+                    var c = h.coupon;
+                    var w = walletCoupon(c);
+                    var val = h.state === 'used' && c.redeemed_amount != null
+                        ? '−HK$' + round2(c.redeemed_amount).toFixed(2) : faceText(w);
+                    html += '<tr data-state="' + esc(h.state) + '"><td>' + esc(h.at.replace('T', ' ').slice(0, 16)) + '</td>' +
+                        '<td>' + esc(campLabel(w)) + (c.code ? ' <small>' + esc(c.code) + '</small>' : '') + '</td>' +
+                        '<td>' + esc(val) + '</td><td>' + esc(walletStateLabel(h.state)) + '</td>' +
+                        '<td>' + esc(c.note || (h.state === 'expired' && c.expires_on ? String(c.expires_on).slice(0, 10) : '')) + '</td></tr>';
+                });
+                html += '</tbody></table></div>';
+            }
+            html += '</section>';
+
+            var lockNote = '<p class="dc-lock-note">🔒 ' + esc(ct('coupons.auth.needed',
+                'Asks for your own login and password, then records it in the coupon log.')) + '</p>';
+            var giftChoices = campaigns().filter(function (c) {
+                return c && c.trigger === 'manual' && c.enabled && !AUTO_GRANT_KEYS[c.key];
+            });
+            html += '<section class="dc-spanel" role="tabpanel" data-wl-panel="gift"' + hiddenUnless(tab === 'gift') + '>';
+            html += '<div class="dc-gift"><label>' + esc(ct('coupons.grant.title', 'Gift a coupon into this wallet')) + '</label>' +
+                '<p class="dc-hint">' + esc(ct('coupons.grant.hintWallet', 'Cash and treatment coupons that are switched on. The coupon is stored unused in the wallet until someone chooses it on a bill.')) + '</p>';
+            if (!giftChoices.length) {
+                html += '<p class="dc-hint">' + esc(ct('coupons.grant.none', 'Turn a cash or treatment coupon on in Configuration before gifting.')) + '</p>';
+            } else {
+                html += '<div class="dc-gift-row"><select data-wl="giftKind">';
+                giftChoices.forEach(function (c) {
+                    html += '<option value="' + esc(c.key) + '">' + esc(campLabel(c)) + '</option>';
+                });
+                html += '</select><input type="number" data-wl="giftAmount" min="1" max="' + CASH_GRANT_MAX + '" step="1" value="100">' +
+                    '<button type="button" data-wl="giftGo">🔒 ' + esc(ct('coupons.grant.go', 'Gift to wallet')) + '</button></div>' +
+                    '<p data-wl="giftOffer" class="dc-hint"></p>';
+            }
+            html += '<p data-wl="giftErr" class="dc-err" hidden></p>' + lockNote + '</div></section>';
+
+            var movable = walletTransferable(wallet, today);
+            html += '<section class="dc-spanel" role="tabpanel" data-wl-panel="transfer"' + hiddenUnless(tab === 'transfer') + '>';
+            html += '<div class="dc-transfer"><label>' + esc(ct('coupons.xfer.which', 'Coupon to transfer')) + '</label>';
+            if (!movable.length) {
+                html += '<p class="dc-hint">' + esc(ct('coupons.xfer.noneMovableWallet',
+                    'No coupon here can be transferred. Expired coupons, and new-chart or referral coupons, stay with this patient.')) + '</p>';
+            }
+            html += '<select data-wl="xferPick"' + (movable.length ? '' : ' disabled') + '>';
+            movable.forEach(function (c) {
+                var w = walletCoupon(c);
+                html += '<option value="' + esc(String(c.id)) + '">' +
+                    esc(campLabel(w) + ' · ' + faceText(w) + (c.expires_on ? ' · ' + c.expires_on : '')) + '</option>';
+            });
+            html += '</select><label>' + esc(ct('coupons.xfer.toChart', 'To chart no.')) + '</label>' +
+                '<div class="dc-xfer-row"><input type="text" data-wl="xferTo" autocomplete="off">' +
+                '<button type="button" data-wl="xferGo"' + (movable.length ? '' : ' disabled') + '>🔒 ' +
+                esc(ct('coupons.xfer.go', 'Transfer')) + '</button></div>' +
+                '<p data-wl="xferErr" class="dc-err" hidden></p>' + lockNote + '</div></section>';
+            html += '</div>';
+            el.innerHTML = html;
+
+            function q(name) { return el.querySelector('[data-wl="' + name + '"]'); }
+            var overlayHost = el.closest('.modal') || document.body;
+            var qr = el.querySelector('[data-dc-wallet-qr]');
+            if (qr) qr.addEventListener('click', function () {
+                openPhoneQr(overlayHost, patientId, couponQrConfig());
+            });
+            function setTab(name) {
+                tab = name;
+                el.querySelectorAll('[data-wl-tab]').forEach(function (b) {
+                    var on = b.getAttribute('data-wl-tab') === name;
+                    b.classList.toggle('is-on', on);
+                    b.setAttribute('aria-selected', on ? 'true' : 'false');
+                });
+                el.querySelectorAll('[data-wl-panel]').forEach(function (p) {
+                    p.hidden = p.getAttribute('data-wl-panel') !== name;
+                });
+            }
+            el.querySelectorAll('[data-wl-tab]').forEach(function (b) {
+                b.addEventListener('click', function () { setTab(b.getAttribute('data-wl-tab')); });
+            });
+            function again(nextTab) {
+                return renderWalletPane(el, patientId, { tab: nextTab });
+            }
+            var patientLabel = patientNo || ct('coupons.auth.thisPatient', 'this patient');
+            function loggedText(grantor, logged) {
+                if (logged === false) return ' ⚠️ ' + ct('coupons.notice.logFail', 'The coupon log entry could not be saved — tell the admin.');
+                return ' ' + ct('coupons.notice.loggedUnder', 'Logged under') + ' ' + (grantorName(grantor) || '—') + '.';
+            }
+
+            var giftKind = q('giftKind');
+            function syncGiftOffer() {
+                if (!giftKind) return;
+                var camp = campaignByKey(giftKind.value);
+                var amt = q('giftAmount');
+                var cash = !!(camp && camp.key === 'cash');
+                if (amt) amt.hidden = !cash;
+                var offer = q('giftOffer');
+                if (offer) offer.textContent = camp ? giftOfferText(camp) : '';
+            }
+            if (giftKind) giftKind.onchange = syncGiftOffer;
+            syncGiftOffer();
+            var giftGo = q('giftGo');
+            if (giftGo) giftGo.onclick = function () {
+                var err = q('giftErr');
+                if (err) { err.hidden = true; err.textContent = ''; }
+                var kind = giftKind ? giftKind.value : '';
+                var amt = (q('giftAmount') || {}).value;
+                var camp = campaignByKey(kind) || {};
+                var isCash = camp.key === 'cash';
+                if (isCash && !((parseFloat(amt) || 0) >= 1 && (parseFloat(amt) || 0) <= CASH_GRANT_MAX)) {
+                    if (err) { err.hidden = false; err.textContent = grantReason('amount'); }
+                    return;
+                }
+                var what = (campLabel(camp.key ? camp : null) || kind) + (isCash ? ' HK$' + round2(amt).toFixed(0) : '') + ' → ' + patientLabel;
+                var grantor = null;
+                giftGo.disabled = true;
+                promptGrantor(overlayHost, ct('coupons.auth.giftTitle', 'Confirm gift'), what).then(function (user) {
+                    if (!user) return null;
+                    grantor = user;
+                    return grantToWallet(patientId, kind, amt, patientNo, grantor);
+                }).catch(function (e) {
+                    return { ok: false, error: String(e && e.message || e) };
+                }).then(function (res) {
+                    giftGo.disabled = false;
+                    if (res === null) return;
+                    if (!res || !res.ok) {
+                        if (err) { err.hidden = false; err.textContent = grantReason((res && (res.reason || res.error)) || ''); }
+                        return;
+                    }
+                    couponNotice('🎁 ' + what + ' — ' + ct('coupons.notice.giftedOk', 'added to the wallet.') + loggedText(grantor, res.logged));
+                    again('gift');
+                });
+            };
+
+            var xferGo = q('xferGo');
+            if (xferGo) xferGo.onclick = function () {
+                var err = q('xferErr');
+                function showErr(msg) {
+                    if (!err) return;
+                    err.hidden = !msg;
+                    err.textContent = msg || '';
+                }
+                var pickEl = q('xferPick');
+                var chosen = pickEl && pickEl.value ? movable.filter(function (c) { return String(c.id) === pickEl.value; })[0] : null;
+                if (!chosen) { showErr(ct('coupons.xfer.pick', 'Select a coupon first')); return; }
+                var chart = String((q('xferTo') || {}).value || '').trim();
+                if (!chart) { showErr(ct('coupons.xfer.need', 'Enter a chart number')); return; }
+                showErr('');
+                xferGo.disabled = true;
+                function done(msg) {
+                    xferGo.disabled = false;
+                    if (msg) showErr(msg);
+                }
+                resolveReferrer(chart).then(function (to) {
+                    if (!to) { done(ct('coupons.xfer.missing', 'Chart not found')); return null; }
+                    if (String(to.id) === String(patientId)) { done(grantReason('same_patient')); return null; }
+                    var w = walletCoupon(chosen);
+                    var what = campLabel(w) + ' ' + faceText(w) + (chosen.code ? ' (' + chosen.code + ')' : '') +
+                        ' · ' + patientLabel + ' → ' + (to.patient_no || chart);
+                    return promptGrantor(overlayHost, ct('coupons.auth.xferTitle', 'Confirm transfer'), what).then(function (user) {
+                        if (!user) { done(''); return null; }
+                        return transferSelected(chosen, to, patientNo, user).then(function (res) {
+                            if (!res || !res.ok) {
+                                done(res && res.reason ? grantReason(res.reason) : ((res && res.error) || 'Transfer failed'));
+                                return null;
+                            }
+                            done('');
+                            couponNotice('↔ ' + what + loggedText(user, res.logged));
+                            again('transfer');
+                            return null;
+                        });
+                    });
+                }).catch(function (e) { done(String(e && e.message || e)); });
+            };
+            return true;
+        }, function () {
+            if (el.__dcWalletToken !== token) return false;
+            el.innerHTML = '<p class="dc-err">' + esc(ct('coupons.wl.fail', 'Could not load the coupon wallet.')) + '</p>';
+            return false;
+        });
+    }
+
     function loadWallet(patientId) {
         if (!patientId || typeof SB === 'undefined' || !SB) return Promise.resolve([]);
         return SB.from('discount_coupons').select('*').eq('patient_id', patientId)
@@ -2477,7 +2760,7 @@ var COUPONS = (function () {
      */
     function promptGrantor(host, title, summary) {
         return new Promise(function (resolve) {
-            var sheet = host && host.querySelector('.dc-sheet');
+            var sheet = host && (host.querySelector('.dc-sheet') || (host.nodeType === 1 && host.id !== 'dcSheetHost' ? host : null));
             if (!sheet) { resolve(null); return; }
             var old = sheet.querySelector('.dc-authp');
             if (old && old.__dcCancel) old.__dcCancel();
@@ -2521,6 +2804,12 @@ var COUPONS = (function () {
             }
             wrap.__dcCancel = function () { finish(null); };
             wrap.querySelector('[data-act="cancel"]').onclick = function () { finish(null); };
+            wrap.addEventListener('keydown', function (ev) {
+                if (ev.key !== 'Escape') return;
+                ev.preventDefault();
+                ev.stopPropagation();
+                finish(null);
+            });
             form.addEventListener('submit', function (ev) {
                 ev.preventDefault();
                 if (done) return;
@@ -2682,6 +2971,23 @@ var COUPONS = (function () {
     /** QR over the sheet: the patient scans it to browse their own coupons on the phone. */
     function openWalletQr(host, patientId) {
         return openPhoneQr(host && host.querySelector('.dc-sheet'), patientId, couponQrConfig());
+    }
+
+    /** Coupon phone wallet QR over the whole page (patient dashboard card). */
+    function openWalletPhone(patientId) {
+        if (!patientId) return;
+        var host = document.getElementById('dcPhoneHost');
+        if (!host) {
+            host = document.createElement('div');
+            host.id = 'dcPhoneHost';
+            document.body.appendChild(host);
+        }
+        return openPhoneQr(host, patientId, couponQrConfig());
+    }
+
+    /** Resolves the number of live coupons in one wallet. */
+    function walletLiveCount(patientId) {
+        return loadWallet(patientId).then(function (w) { return walletLedgerRows(w).live.length; });
     }
 
     /** Phone QR box over any container: link, click-copy, PNG, print slip, WhatsApp, new code. cfg: see couponQrConfig. */
@@ -5169,6 +5475,10 @@ var COUPONS = (function () {
         couponSmsBody: couponSmsBody,
         smsExpiring: smsExpiring,
         renderConfigPane: renderConfigPane,
+        walletAvailable: walletAvailable,
+        walletLedgerRows: walletLedgerRows,
+        walletTransferable: walletTransferable,
+        renderWalletPane: renderWalletPane,
         normalizeZeroPolicy: normalizeZeroPolicy,
         scheduledZeroJob: scheduledZeroJob,
         zeroPolicyChanged: zeroPolicyChanged,
@@ -5200,6 +5510,8 @@ var COUPONS = (function () {
         normalizeCashRules: normalizeCashRules,
         cashCapCents: cashCapCents,
         openWalletQr: openWalletQr,
+        openWalletPhone: openWalletPhone,
+        walletLiveCount: walletLiveCount,
         openPhoneQr: openPhoneQr,
         walletPageBase: walletPageBase,
         walletLinkError: walletLinkError,

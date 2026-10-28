@@ -450,6 +450,10 @@
         'patient.view.rewardsLabel': { en: 'Reward points', 'zh-CN': '奖励积分', 'zh-Hant': '獎勵積分' },
         'patient.view.rewardsTitle': { en: 'Open reward points ledger', 'zh-CN': '打开奖励积分账本', 'zh-Hant': '開啟獎勵積分賬本' },
         'patient.view.rewardsHint': { en: 'Click to open ledger', 'zh-CN': '点击打开积分账本', 'zh-Hant': '點擊開啟積分賬本' },
+        'patient.view.couponsLabel': { en: 'Coupon wallet', 'zh-CN': '优惠券钱包', 'zh-Hant': '優惠券錢包' },
+        'patient.view.couponsTitle': { en: 'Show the QR / link of the patient’s coupon wallet phone page', 'zh-CN': '显示病人手机优惠券钱包的二维码 / 链接', 'zh-Hant': '顯示病人手機優惠券錢包的二維碼 / 連結' },
+        'patient.view.couponsHint': { en: 'Open phone wallet (QR / link)', 'zh-CN': '打开手机钱包（二维码 / 链接）', 'zh-Hant': '開啟手機錢包（二維碼 / 連結）' },
+        'patient.view.couponsCount': { en: '{n} live', 'zh-CN': '{n} 张可用', 'zh-Hant': '{n} 張可用' },
         'patient.view.widget.personal': { en: 'Personal info', 'zh-CN': '个人资料', 'zh-Hant': '個人資料' },
         'patient.view.widget.upcoming': { en: 'Upcoming appointments', 'zh-CN': '即将到来预约', 'zh-Hant': '即將到來預約' },
         'patient.view.widget.pastAppts': { en: 'Past visits', 'zh-CN': '过往就诊', 'zh-Hant': '過往就診' },
@@ -3540,6 +3544,37 @@
         'coupons.notice.earned': { en: 'This bill earned', 'zh-CN': '本单获得', 'zh-Hant': '本單獲得' },
         'coupons.notice.wallet': { en: 'added to the wallet for the next visit.', 'zh-CN': '已存入钱包，下次可用。', 'zh-Hant': '已存入錢包，下次可用。' },
         'coupons.log.title': { en: 'Coupon log', 'zh-CN': '优惠券记录', 'zh-Hant': '優惠券記錄' },
+        'coupons.wl.hint': {
+            en: 'Browse only. To use a coupon, open the patient’s bill and press Choose.',
+            'zh-CN': '只供浏览。如需使用优惠券，请打开病人的账单并点「选择」。',
+            'zh-Hant': '只供瀏覽。如需使用優惠券，請打開病人的賬單並按「選擇」。'
+        },
+        'coupons.tab.wallet': { en: 'Wallet', 'zh-CN': '钱包', 'zh-Hant': '錢包' },
+        'coupons.grant.hintWallet': {
+            en: 'Cash and treatment coupons that are switched on. The coupon is stored unused in the wallet until someone chooses it on a bill.',
+            'zh-CN': '已开启的现金券和治疗券。优惠券以未使用状态存入钱包，直至在账单上选择使用。',
+            'zh-Hant': '已開啟的現金券和治療券。優惠券以未使用狀態存入錢包，直至在賬單上選擇使用。'
+        },
+        'coupons.xfer.noneMovableWallet': {
+            en: 'No coupon here can be transferred. Expired coupons, and new-chart or referral coupons, stay with this patient.',
+            'zh-CN': '这里没有可转让的券。已过期，以及新症或推荐券都只属于此病人。',
+            'zh-Hant': '這裡沒有可轉讓的券。已過期，以及新症或推薦券都只屬於此病人。'
+        },
+        'coupons.wl.live': { en: 'Unused coupons', 'zh-CN': '未使用的优惠券', 'zh-Hant': '未使用的優惠券' },
+        'coupons.wl.history': { en: 'Used, cancelled and expired', 'zh-CN': '已使用、已取消及已过期', 'zh-Hant': '已使用、已取消及已過期' },
+        'coupons.wl.noHistory': {
+            en: 'No used, cancelled or expired coupons yet.',
+            'zh-CN': '暂无已使用、已取消或已过期的优惠券。',
+            'zh-Hant': '暫無已使用、已取消或已過期的優惠券。'
+        },
+        'coupons.wl.when': { en: 'When', 'zh-CN': '时间', 'zh-Hant': '時間' },
+        'coupons.wl.coupon': { en: 'Coupon', 'zh-CN': '优惠券', 'zh-Hant': '優惠券' },
+        'coupons.wl.value': { en: 'Value', 'zh-CN': '金额', 'zh-Hant': '金額' },
+        'coupons.wl.status': { en: 'Status', 'zh-CN': '状态', 'zh-Hant': '狀態' },
+        'coupons.wl.note': { en: 'Note', 'zh-CN': '备注', 'zh-Hant': '備註' },
+        'coupons.wl.used': { en: 'Used', 'zh-CN': '已使用', 'zh-Hant': '已使用' },
+        'coupons.wl.void': { en: 'Cancelled', 'zh-CN': '已取消', 'zh-Hant': '已取消' },
+        'coupons.wl.fail': { en: 'Could not load the coupon wallet.', 'zh-CN': '无法载入优惠券钱包。', 'zh-Hant': '無法載入優惠券錢包。' },
         'coupons.zero.title': { en: 'Set discount coupons to zero', 'zh-CN': '优惠券清零', 'zh-Hant': '優惠券清零' },
         'coupons.zero.blurb': {
             en: 'Voids every unused coupon in the chosen clinics. Choose how coupons are cleared. Saving a policy change and Manual RESET ZERO need admin SMS + Google Authenticator. Every clear keeps a safety log so you can Step back.',
@@ -3655,6 +3690,13 @@
         'rewards.link.label': { en: 'Rewards', 'zh-CN': '积分', 'zh-Hant': '積分' },
         'rewards.link.title': { en: 'Reward points', 'zh-CN': '奖励积分', 'zh-Hant': '獎勵積分' },
         'rewards.panel.title': { en: 'Reward points', 'zh-CN': '奖励积分', 'zh-Hant': '獎勵積分' },
+        'rewards.panel.tabCoupons': { en: 'Discount coupons', 'zh-CN': '优惠券', 'zh-Hant': '優惠券' },
+        'rewards.panel.tabOff': { en: 'Clinic not in scheme', 'zh-CN': '诊所未加入', 'zh-Hant': '診所未加入' },
+        'rewards.panel.tabOffTitle': {
+            en: 'This clinic has not joined this scheme.',
+            'zh-CN': '此诊所未加入此计划。',
+            'zh-Hant': '此診所未加入此計劃。'
+        },
         'rewards.panel.balance': { en: 'Balance', 'zh-CN': '结余', 'zh-Hant': '結餘' },
         'rewards.panel.clinicBreakdownAria': {
             en: 'Balance by clinic: {DETAIL}',

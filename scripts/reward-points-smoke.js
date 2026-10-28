@@ -488,6 +488,13 @@ function extractIifeHelpers(src) {
     pass('patient dir ⋯ has reward ledger',
         /btn-reward-ledger/.test(patientSrc) &&
         /REWARDS\.openPatientPanel/.test(patientSrc));
+    pass('patient dir ⋯ item is called Rewards and opens the same two-tab panel as the banner Rewards button',
+        /'patient\.dir\.rewardLedger': \{ en: 'Rewards', 'zh-CN': '奖赏', 'zh-Hant': '獎賞' \}/.test(i18nExtra) &&
+        /'patient\.dir\.rewardLedgerTitle': \{ en: 'Reward points and discount coupons'/.test(i18nExtra) &&
+        /'patient\.dir\.moreActions': \{ en: 'More actions \(Duplicate, Appt Reminder, Rewards\)'/.test(i18nExtra) &&
+        /btn-reward-ledger" data-id="' \+ esc\(p\.id\) \+ '"' \+\s+' title="' \+ esc\(patTr\('patient\.dir\.rewardLedgerTitle'\)\)/.test(patientSrc) &&
+        /\.btn-reward-ledger'\)\.forEach[\s\S]{0,300}REWARDS\.openPatientPanel\(pid\);/.test(patientSrc) &&
+        /if \(pid\) openPatientPanel\(pid\);/.test(rewardsSrc));
     pass('patient dashboard has rewards mini card',
         /patDashRewardsCard/.test(patientViewsSrc) &&
         /data-act="rewards"/.test(patientViewsSrc) &&
@@ -1529,6 +1536,53 @@ function extractIifeHelpers(src) {
         pass('live panel tabs: clinic not in coupons -> coupon tab greyed, click does nothing', pt.noCoupons && pt.noCoupons.cDis &&
             pt.noCoupons.cNote && pt.noCoupons.pOn && pt.noCouponsClick && pt.noCouponsClick.pOn && !pt.noCouponsClick.cPane &&
             pt.noCouponsClick.cHtml === 0, JSON.stringify(pt.noCouponsClick));
+
+        var dirMenu = await cdp.js(`(async () => {
+  const pid = '00000000-0000-0000-0000-0000000000a2';
+  const keepCtx = window.billPaymentClinicContext;
+  const keepTag = window.currentClinicCodeForTagging;
+  const keepAvail = COUPONS.walletAvailable;
+  const tb = document.getElementById('patientTableBody');
+  const keepRows = tb.innerHTML;
+  const keepCache = patientListCache;
+  const wait = async (fn, ms) => { const d = Date.now() + ms; while (Date.now() < d) { if (fn()) return true; await new Promise(r => setTimeout(r, 100)); } return false; };
+  const out = {};
+  try {
+    window.billPaymentClinicContext = function () { return { clinic_id: null, clinic_code: 'PL', clinic_tag: 'PL' }; };
+    window.currentClinicCodeForTagging = function () { return 'PL'; };
+    COUPONS.walletAvailable = function () { return Promise.resolve(true); };
+    REWARDS.closePatientPanel();
+    renderPatients([{ id: pid, patient_no: 'ZZ-TEST', full_name: 'Menu Test', chinese_name: '測試' }]);
+    const item = tb.querySelector('.btn-reward-ledger[data-id="' + pid + '"]');
+    out.item = !!item;
+    out.label = item ? item.textContent.trim() : '';
+    out.title = item ? item.title : '';
+    if (item) item.click();
+    const modal = document.getElementById('rewardPatientModal');
+    await wait(() => document.getElementById('rwTabPoints').classList.contains('is-on'), 8000);
+    out.open = getComputedStyle(modal).display !== 'none';
+    out.tabs = Array.prototype.map.call(modal.querySelectorAll('[data-rw-ptab]'), b => b.getAttribute('data-rw-ptab') + (b.disabled ? ':off' : ':on')).join(',');
+    out.pointsOpen = !document.getElementById('rwPanePoints').hidden;
+    document.getElementById('rwTabCoupons').click();
+    await wait(() => !!document.querySelector('#rwPaneCoupons .dc-wl-tabs'), 10000);
+    out.couponsOpen = !document.getElementById('rwPaneCoupons').hidden &&
+      Array.prototype.map.call(document.querySelectorAll('#rwPaneCoupons [data-wl-tab]'), b => b.getAttribute('data-wl-tab')).join(',');
+  } finally {
+    window.billPaymentClinicContext = keepCtx;
+    window.currentClinicCodeForTagging = keepTag;
+    COUPONS.walletAvailable = keepAvail;
+    REWARDS.closePatientPanel();
+    patientListCache = keepCache;
+    tb.innerHTML = keepRows;
+  }
+  return out;
+})()`, true, 40000);
+        var dm = dirMenu || {};
+        pass('live patient dir ⋯: item reads Rewards (tooltip: points and coupons)', dm.item && dm.label === 'Rewards' &&
+            /Reward points and discount coupons/.test(dm.title), JSON.stringify(dm));
+        pass('live patient dir ⋯ Rewards opens the two-tab panel (points first, coupons second)', dm.open &&
+            dm.tabs === 'points:on,coupons:on' && dm.pointsOpen, JSON.stringify(dm));
+        pass('live patient dir ⋯ Rewards: coupon tab shows Wallet / Gift / Transfer', dm.couponsOpen === 'wallet,gift,transfer', JSON.stringify(dm));
 
         // Admin view of the cap card; the save is stubbed so no setting is written.
         var capAdm = await cdp.js(`(async () => {

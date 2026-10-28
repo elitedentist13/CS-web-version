@@ -1464,7 +1464,8 @@ function renderPatients(list) {
                                 esc(patTr('patient.dup.btn')) + '</button>' +
                             '<button type="button" role="menuitem" class="pd-more-item btn-appt-reminder" data-id="' + esc(p.id) + '">' +
                                 esc(patTr('patient.apptReminder.btn')) + '</button>' +
-                            '<button type="button" role="menuitem" class="pd-more-item btn-reward-ledger" data-id="' + esc(p.id) + '">' +
+                            '<button type="button" role="menuitem" class="pd-more-item btn-reward-ledger" data-id="' + esc(p.id) + '"' +
+                                ' title="' + esc(patTr('patient.dir.rewardLedgerTitle')) + '">' +
                                 esc(patTr('patient.dir.rewardLedger')) + '</button>' +
                         '</div>' +
                     '</div>' +

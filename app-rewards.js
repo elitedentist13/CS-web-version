@@ -1736,6 +1736,7 @@ var REWARDS = (function () {
             void_redeem: { en: 'void redeem', 'zh-Hant': '撤銷使用', 'zh-CN': '撤销使用' },
             adjust: { en: 'adjust', 'zh-Hant': '調整', 'zh-CN': '调整' },
             referral: { en: 'Refer a friend', 'zh-Hant': '介紹新客', 'zh-CN': '介绍新客' },
+            gift: { en: 'gift', 'zh-Hant': '贈送', 'zh-CN': '赠送' },
             net: { en: 'update', 'zh-Hant': '更新', 'zh-CN': '更新' }
         };
         var L = lang || 'en';
@@ -2672,13 +2673,14 @@ var REWARDS = (function () {
     // ── Patient ledger modal ─────────────────────────────────
     var LEDGER_KIND_ICON = {
         earn: '⭐', redeem: '🎁', transfer_in: '↘', transfer_out: '↗',
-        void_earn: '↩', void_redeem: '↩', adjust: '✎', referral: '🤝', net: '•'
+        void_earn: '↩', void_redeem: '↩', adjust: '✎', referral: '🤝', gift: '🎀', net: '•'
     };
     var LEDGER_FILTERS = [
         { key: 'all', kinds: null, i18n: 'rewards.ledger.f.all', label: 'All' },
         { key: 'earn', kinds: ['earn'], i18n: 'rewards.ledger.f.earn', label: 'Earned' },
         { key: 'redeem', kinds: ['redeem'], i18n: 'rewards.ledger.f.redeem', label: 'Used' },
         { key: 'xfer', kinds: ['transfer_in', 'transfer_out'], i18n: 'rewards.ledger.f.xfer', label: 'Transfers' },
+        { key: 'gift', kinds: ['gift'], i18n: 'rewards.ledger.f.gift', label: 'Gifts' },
         { key: 'other', kinds: ['adjust', 'referral', 'void_earn', 'void_redeem'], i18n: 'rewards.ledger.f.other', label: 'Adjust & void' }
     ];
     var _panelLedgerRows = [];
@@ -2771,6 +2773,7 @@ var REWARDS = (function () {
             var note = String(row.note || '').trim();
             var refMain = ref || note || '—';
             var refSub = ref && note ? note : '';
+            if (kind === 'gift' && row.created_by) refSub = tr('rewards.gift.by', 'Given by') + ' ' + row.created_by;
             var dr = ledgerDoctorName(row);
             html += '<tr class="rw-lg-row rw-lg-row--' + esc(kind) + '" title="' + esc(fmtLedgerTimeHK(row.created_at)) + '">' +
                 '<td class="rw-lg-when"><div class="rw-lg-date">' + esc(fmtLedgerDateHK(row.created_at)) + '</div>' +
@@ -3356,6 +3359,7 @@ var REWARDS = (function () {
         _panelLedgerRows = [];
         _panelLedgerFilter = 'all';
         paintPanelLedger();
+        syncGiftUi(true);
         var openQr = modal.querySelector('.dc-wqr');
         if (openQr && openQr.__dcCancel) openQr.__dcCancel();
         syncPhoneQrBtn();
@@ -3423,6 +3427,7 @@ var REWARDS = (function () {
                 if (String(_panelPatientId) !== String(patientId)) return;
                 _panelLedgerRows = enriched || [];
                 paintPanelLedger();
+                syncGiftUi(false);
                 var xferErr = document.getElementById('rwTransferError');
                 if (xferErr) { xferErr.style.display = 'none'; xferErr.textContent = ''; }
                 var xferAmt = document.getElementById('rwTransferAmount');
@@ -3638,6 +3643,277 @@ var REWARDS = (function () {
             else if (t.id === 'rwAdjMinus') { ev.preventDefault(); runAdminAdjust('minus'); }
             else if (t.id === 'rwAdjReset') { ev.preventDefault(); runAdminAdjust('reset'); }
         });
+    }
+
+    // ── Staff gift (reward_gift RPC checks login, cap, reason, doctor, clinic and once a day) ──
+    var GIFT_MAX = 200;
+
+    /** Pure: Hong Kong calendar day (YYYY-MM-DD) of an ISO time. */
+    function hkDayKey(iso) {
+        var t = Date.parse(iso);
+        if (!isFinite(t)) return '';
+        return new Date(t + 8 * 3600000).toISOString().slice(0, 10);
+    }
+
+    /** Pure: validate a gift form. Points are whole numbers 1..GIFT_MAX. */
+    function giftCheck(input) {
+        input = input || {};
+        var raw = String(input.points == null ? '' : input.points).trim();
+        var pts = Number(raw);
+        if (!raw || !isFinite(pts) || pts !== Math.floor(pts) || pts < 1 || pts > GIFT_MAX) return { ok: false, reason: 'points' };
+        if (!String(input.doctor || '').trim()) return { ok: false, reason: 'doctor' };
+        if (!String(input.note || '').trim()) return { ok: false, reason: 'note' };
+        return { ok: true, points: pts, doctor: String(input.doctor).trim(), note: String(input.note).trim().slice(0, 300) };
+    }
+
+    /** Pure: the gift already given on the same HK day as nowIso, if any. */
+    function giftTodayRow(rows, nowIso) {
+        var today = hkDayKey(nowIso || new Date().toISOString());
+        return (rows || []).filter(function (r) {
+            return r && r.kind === 'gift' && hkDayKey(r.created_at) === today;
+        })[0] || null;
+    }
+
+    function giftReasonText(res) {
+        var r = res && res.reason;
+        if (r === 'auth_missing') return tr('rewards.gift.e.auth', 'Enter your login ID and password.');
+        if (r === 'creds') return tr('rewards.gift.e.creds', 'Login ID or password is incorrect.');
+        if (r === 'shared_login') return tr('rewards.gift.e.shared', 'The shared Nurse login cannot gift points. Use your own login.');
+        if (r === 'role') return tr('rewards.gift.e.role', 'This login is not allowed to gift points.');
+        if (r === 'points') return tr('rewards.gift.e.points', 'Enter whole points from 1 to 200.');
+        if (r === 'note') return tr('rewards.gift.e.note', 'Enter the reason for this gift.');
+        if (r === 'doctor') return tr('rewards.gift.e.doctor', 'Pick the doctor these points are for.');
+        if (r === 'clinic_gain_disabled' || r === 'doctor_gain_disabled') return tr('rewards.gift.e.joined', 'This clinic or doctor has not joined Gain in the reward points scheme.');
+        if (r === 'daily_limit') {
+            var who = res.last_by ? ' (' + res.last_by + (res.last_at ? ' ' + ledgerClock(res.last_at) : '') + ')' : '';
+            return tr('rewards.gift.e.daily', 'This patient already got a gift today. One gift per patient per day.') + who;
+        }
+        if (r === 'no_sql') return tr('rewards.gift.e.noSql', 'Gift points is not set up yet. Run reward_points_gift.sql in Supabase first.');
+        return (res && res.error) || tr('rewards.gift.e.fail', 'Gift failed.');
+    }
+
+    /** Gift points to a patient. Credentials go to the server; nothing is written unless every rule passes. */
+    function gift(opts) {
+        opts = opts || {};
+        var chk = giftCheck(opts);
+        if (!chk.ok) return Promise.resolve(chk);
+        if (!opts.patientId) return Promise.resolve({ ok: false, reason: 'patient', error: 'patient required' });
+        var uid = String(opts.userId || '').trim();
+        if (!uid || !opts.password) return Promise.resolve({ ok: false, reason: 'auth_missing' });
+        if (uid.toLowerCase() === 'nurse') return Promise.resolve({ ok: false, reason: 'shared_login' });
+        var ctx = clinicCtx();
+        var clinicId = opts.clinicId != null ? opts.clinicId : ctx.clinic_id;
+        var clinicCode = opts.clinicCode != null ? opts.clinicCode : ctx.clinic_code;
+        return findRelatedPatientIds(opts.patientId).catch(function () { return []; }).then(function (ids) {
+            var host = '';
+            try { if (typeof auditClientHostLabel === 'function') host = auditClientHostLabel() || ''; } catch (e) {}
+            return rewardRpc('reward_gift', {
+                p_patient_id: opts.patientId,
+                p_points: chk.points,
+                p_user_id: uid,
+                p_password: String(opts.password),
+                p_note: chk.note,
+                p_doctor_name: chk.doctor,
+                p_clinic_id: clinicId || null,
+                p_clinic_code: clinicCode || null,
+                p_related_patient_ids: (ids || []).filter(function (x) { return String(x) !== String(opts.patientId); }),
+                p_client_host: host || null
+            });
+        }).then(function (r) {
+            if (r.error) {
+                var msg = String(r.error.message || '');
+                if (r.error.code === 'PGRST202' || /could not find the function|reward_gift/i.test(msg)) return { ok: false, reason: 'no_sql', error: msg };
+                if (/reward_ledger_kind_check/i.test(msg)) return { ok: false, reason: 'no_sql', error: msg };
+                return { ok: false, error: msg };
+            }
+            return rpcResult(r.data);
+        });
+    }
+
+    function giftDoctorOptions() {
+        var ctx = clinicCtx();
+        var seen = {};
+        var out = [];
+        doctorsForRewardClinic(ctx.clinic_id).forEach(function (d) {
+            if (/^all\b/i.test(String(d.english_name || d.doctor_code || '').trim())) return;
+            // Canonical label (same key the payment desk uses), not the per-clinic login code like "Dr X_CWB".
+            var label = '';
+            [d.english_name, d.chinese_name, d].some(function (src) {
+                if (!src) return false;
+                var doc = resolveRewardDoctor(src);
+                if (isKnownRewardDoctor(doc) && doc.label) { label = doc.label; return true; }
+                return false;
+            });
+            if (!label) label = String(d.english_name || '').trim() || doctorJoinLabelFromDoctorRow(d);
+            if (!label || seen[label]) return;
+            seen[label] = true;
+            out.push(label);
+        });
+        var def = payDoctorFor({}).label || '';
+        if (def && !seen[def]) out.unshift(def);
+        return { list: out, def: def };
+    }
+
+    function setGiftStatus(text, cls) {
+        var st = document.getElementById('rwGiftStatus');
+        if (!st) return;
+        st.className = 'rw-gift-status' + (cls ? ' ' + cls : '');
+        st.textContent = text || '';
+    }
+
+    /** Paint the Gift points box for the open patient (ledger rows already loaded = today's check). */
+    function syncGiftUi(loading) {
+        var box = document.getElementById('rwGift');
+        if (!box) return;
+        if (!box.__rwBuilt) {
+            box.__rwBuilt = true;
+            box.innerHTML = '<div class="rw-gift-head">🎀 ' + esc(tr('rewards.gift.title', 'Gift points')) +
+                '<small>' + esc(tr('rewards.gift.rule', 'Up to 200 points · one gift per patient per day · reason required')) + '</small></div>' +
+                '<div class="rw-gift-row">' +
+                '<input type="number" id="rwGiftPoints" min="1" max="' + GIFT_MAX + '" step="1" placeholder="' + esc(tr('rewards.gift.pointsPh', 'Points')) + '">' +
+                '<select id="rwGiftDoctor" aria-label="' + esc(tr('rewards.gift.doctor', 'Doctor')) + '"></select>' +
+                '<input type="text" id="rwGiftNote" maxlength="300" placeholder="' + esc(tr('rewards.gift.notePh', 'Reason (required)')) + '">' +
+                '<button type="button" id="rwGiftGo">🔒 ' + esc(tr('rewards.gift.go', 'Gift points')) + '</button></div>' +
+                '<div id="rwGiftStatus" class="rw-gift-status" aria-live="polite"></div>' +
+                '<p class="rw-gift-lock">' + esc(tr('rewards.gift.lock',
+                    'Asks for your own login and password. Recorded in the points history and the gift log under your name.')) + '</p>';
+        }
+        box.hidden = false;
+        var pts = document.getElementById('rwGiftPoints');
+        var note = document.getElementById('rwGiftNote');
+        var sel = document.getElementById('rwGiftDoctor');
+        var go = document.getElementById('rwGiftGo');
+        if (loading) {
+            if (pts) pts.value = '';
+            if (note) note.value = '';
+            if (go) go.disabled = true;
+            setGiftStatus(tr('common.loadingEllipsis', 'Loading…'));
+            return;
+        }
+        if (sel) {
+            var opts = giftDoctorOptions();
+            sel.innerHTML = '<option value="">' + esc(tr('rewards.gift.pickDoctor', '— Doctor —')) + '</option>' +
+                opts.list.map(function (l) {
+                    return '<option value="' + esc(l) + '"' + (l === opts.def ? ' selected' : '') + '>' + esc(l) + '</option>';
+                }).join('');
+        }
+        var today = giftTodayRow(_panelLedgerRows);
+        if (today) {
+            if (go) go.disabled = true;
+            setGiftStatus(tr('rewards.gift.doneToday', 'Already gifted today') + ': ' + fmtSigned(today.points) +
+                (today.created_by ? ' · ' + today.created_by : '') + ' · ' + ledgerClock(today.created_at) +
+                ' — ' + tr('rewards.gift.nextDay', 'next gift tomorrow.'));
+            return;
+        }
+        if (go) go.disabled = false;
+        setGiftStatus('');
+    }
+
+    function runGift() {
+        var pid = _panelPatientId;
+        if (!pid) return;
+        var input = {
+            points: (document.getElementById('rwGiftPoints') || {}).value,
+            doctor: (document.getElementById('rwGiftDoctor') || {}).value,
+            note: (document.getElementById('rwGiftNote') || {}).value
+        };
+        var chk = giftCheck(input);
+        if (!chk.ok) { setGiftStatus(giftReasonText(chk), 'is-err'); return; }
+        var today = giftTodayRow(_panelLedgerRows);
+        if (today) { setGiftStatus(giftReasonText({ reason: 'daily_limit', last_by: today.created_by, last_at: today.created_at }), 'is-err'); return; }
+        if (typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.promptGrantor !== 'function') {
+            setGiftStatus(tr('rewards.err.modalMissing', 'Reward panel not found. Reload the page.'), 'is-err');
+            return;
+        }
+        var go = document.getElementById('rwGiftGo');
+        var ctx = clinicCtx();
+        var meta = document.getElementById('rwPatientMeta');
+        var who = meta ? String(meta.textContent || '').trim() : '';
+        isClinicJoined(ctx.clinic_id, ctx.clinic_code, chk.doctor).catch(function () { return false; }).then(function (joined) {
+            if (!joined) { setGiftStatus(giftReasonText({ reason: 'doctor_gain_disabled' }), 'is-err'); return null; }
+            if (go) go.disabled = true;
+            setGiftStatus('');
+            var summary = '🎀 +' + chk.points + ' ' + tr('rewards.gift.pts', 'points') + ' · ' + who + ' · ' + chk.doctor + ' · ' + chk.note;
+            return COUPONS.promptGrantor(document.getElementById('rewardPatientModal'), tr('rewards.gift.confirm', 'Confirm points gift'), summary, {
+                hint: tr('rewards.gift.authHint', 'Gifting points needs your own login and password. The shared Nurse login cannot be used.'),
+                logText: tr('rewards.gift.logged', 'This gift will be recorded in the points history and the gift log under your login.'),
+                verify: function (uid, pw) {
+                    return gift({ patientId: pid, points: chk.points, doctor: chk.doctor, note: chk.note, userId: uid, password: pw })
+                        .then(function (res) {
+                            if (res && res.ok) return { ok: true, user: res };
+                            return { ok: false, reason: res && res.reason, message: giftReasonText(res) };
+                        });
+                }
+            }).then(function (res) {
+                if (go) go.disabled = false;
+                if (!res) return null;
+                setGiftStatus('✓ ' + tr('rewards.gift.ok', 'Gift saved') + ': ' + fmtSigned(res.points) + ' · ' + (res.given_by || ''), 'is-ok');
+                return notifyBalanceChange({
+                    patientId: res.patient_id || pid,
+                    points: res.points,
+                    balance: res.balance,
+                    kind: 'gift',
+                    ledgerId: res.ledger_id,
+                    clinic: ctx.clinic_code || '',
+                    ref: chk.note.slice(0, 40)
+                }).catch(function () {}).then(function () {
+                    if (String(_panelPatientId) === String(pid)) openPatientPanel(pid);
+                });
+            });
+        }).catch(function (e) {
+            if (go) go.disabled = false;
+            setGiftStatus((e && e.message) || giftReasonText({}), 'is-err');
+        });
+    }
+
+    function wireGiftOnce() {
+        if (window.__REWARDS_GIFT_WIRED__) return;
+        window.__REWARDS_GIFT_WIRED__ = true;
+        document.addEventListener('click', function (ev) {
+            var t = ev.target && ev.target.closest ? ev.target.closest('#rwGiftGo') : null;
+            if (!t || t.disabled) return;
+            ev.preventDefault();
+            runGift();
+        });
+    }
+
+    /** All gifts, newest first, for the config-tab gift log. */
+    function loadGiftLog(limit) {
+        return Promise.resolve(SB.from('reward_ledger').select('*').eq('kind', 'gift')
+            .order('created_at', { ascending: false }).limit(limit || 300))
+            .then(function (r) { return (r && !r.error && r.data) || []; }, function () { return []; });
+    }
+
+    function renderGiftLogCard(rows) {
+        var th = function (k, fb, right) {
+            return '<th style="padding:8px 10px;' + (right ? 'text-align:right;' : '') + '">' + esc(tr(k, fb)) + '</th>';
+        };
+        var html = '<div class="rw-cfg-card" id="rwGiftLog">';
+        html += '<div class="rw-cfg-card-title">🎀 ' + esc(tr('rewards.gift.logTitle', 'Gift log')) + '</div>';
+        html += '<p style="margin:0 0 10px;font-size:12px;color:#64748b;">' + esc(tr('rewards.gift.logHint',
+            'Every points gift: who gave it, when, where, for which doctor and why. Up to 200 points, one per patient per day.')) + '</p>';
+        html += '<div style="overflow:auto;max-height:360px;border:1px solid #e2e8f0;border-radius:8px;">';
+        html += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#fdf2f8;text-align:left;">' +
+            th('rewards.col.when', 'When') + th('rewards.col.clinicTag', 'Clinic tags') + th('rewards.col.drName', 'Dr Name') +
+            th('rewards.col.chartNo', 'Chart no.') + th('rewards.col.patient', 'Patient') + th('rewards.col.points', 'Points', true) +
+            th('rewards.gift.by', 'Given by') + th('rewards.gift.reason', 'Reason') + '</tr></thead><tbody>';
+        if (!rows.length) {
+            html += '<tr><td colspan="8" style="padding:14px;color:#94a3b8;text-align:center;">' +
+                esc(tr('rewards.gift.logEmpty', 'No gifts yet.')) + '</td></tr>';
+        }
+        rows.forEach(function (row) {
+            html += '<tr style="border-top:1px solid #f1f5f9;">' +
+                '<td style="padding:7px 10px;color:#64748b;white-space:nowrap;">' + esc(fmtLedgerTimeHK(row.created_at)) + '</td>' +
+                '<td style="padding:7px 10px;">' + esc(row._clinic_tag || row.clinic_code || '—') + '</td>' +
+                '<td style="padding:7px 10px;">' + esc(row._doctor_name || row.doctor_name || '—') + '</td>' +
+                '<td style="padding:7px 10px;">' + esc(row._patient_no || '—') + '</td>' +
+                '<td style="padding:7px 10px;">' + esc(row._patient_name || '—') + '</td>' +
+                '<td style="padding:7px 10px;text-align:right;font-weight:700;" class="rw-pos">' + esc(fmtSigned(row.points)) + '</td>' +
+                '<td style="padding:7px 10px;">' + esc(row.created_by || '—') + '</td>' +
+                '<td style="padding:7px 10px;max-width:260px;" title="' + esc(row.note || '') + '">' + esc(row.note || '—') + '</td></tr>';
+        });
+        html += '</tbody></table></div></div>';
+        return html;
     }
 
     function openLedgerFinder() {
@@ -4381,7 +4657,8 @@ var REWARDS = (function () {
             loadDoctorJoinMap(true),
             loadLedger(null, 80),
             loadReferralConfig(true),
-            loadRedeemCap(true)
+            loadRedeemCap(true),
+            loadGiftLog(300)
         ]).then(function (parts) {
             var program = parts[0];
             var clinics = (parts[1].data || parts[1]) || [];
@@ -4389,8 +4666,11 @@ var REWARDS = (function () {
             var map = parts[2] || {};
             var docMap = parts[3] || {};
             var ledgerRaw = parts[4] || [];
-            return enrichLedgerMeta(ledgerRaw, clinics).then(function (ledger) {
-                return { program: program, clinics: clinics, map: map, docMap: docMap, ledger: ledger, referral: parts[5], cap: parts[6] };
+            return Promise.all([
+                enrichLedgerMeta(ledgerRaw, clinics),
+                enrichLedgerMeta(parts[7] || [], clinics).catch(function () { return parts[7] || []; })
+            ]).then(function (both) {
+                return { program: program, clinics: clinics, map: map, docMap: docMap, ledger: both[0], gifts: both[1] || [], referral: parts[5], cap: parts[6] };
             });
         }).then(function (ctx) {
             var program = ctx.program;
@@ -4677,6 +4957,7 @@ var REWARDS = (function () {
                 });
             }
             html += '</tbody></table></div></div>';
+            html += renderGiftLogCard(ctx.gifts || []);
             html += '</div>';
 
             pane.innerHTML = html;
@@ -4984,6 +5265,19 @@ var REWARDS = (function () {
             '.rw-kind--transfer_in,.rw-kind--transfer_out{background:#e0f2fe;color:#075985;}' +
             '.rw-kind--adjust{background:#e0e7ff;color:#3730a3;}' +
             '.rw-kind--referral{background:#fef3c7;color:#92400e;}' +
+            '.rw-kind--gift{background:#fce7f3;color:#9d174d;}' +
+            '.rw-gift{margin:0 0 12px;padding:10px 12px;border:1px solid #fbcfe8;border-radius:12px;background:#fdf2f8;}' +
+            '.rw-gift[hidden]{display:none;}' +
+            '.rw-gift-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-weight:800;color:#831843;}' +
+            '.rw-gift-head small{font-weight:600;color:#9d174d;font-size:11px;}' +
+            '.rw-gift-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;}' +
+            '.rw-gift-row input,.rw-gift-row select{padding:7px 8px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font:inherit;font-size:13px;}' +
+            '#rwGiftPoints{width:90px;}#rwGiftDoctor{min-width:150px;}#rwGiftNote{flex:1;min-width:150px;}' +
+            '#rwGiftGo{padding:7px 12px;border:none;border-radius:8px;background:#be185d;color:#fff;font-weight:700;cursor:pointer;}' +
+            '#rwGiftGo:disabled{opacity:.5;cursor:not-allowed;}' +
+            '.rw-gift-status{margin-top:6px;font-size:12px;color:#9d174d;min-height:1em;}' +
+            '.rw-gift-status.is-err{color:#dc2626;}.rw-gift-status.is-ok{color:#15803d;}' +
+            '.rw-gift-lock{margin:4px 0 0;font-size:11px;color:#92400e;}' +
             '#rewardPatientModal .rw-hero{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;align-items:stretch;}' +
             '.rw-ptabs{display:flex;gap:4px;border-bottom:2px solid #e2e8f0;margin:0 0 12px;}' +
             '.rw-ptab{display:flex;align-items:center;gap:6px;padding:8px 14px;margin-bottom:-2px;border:1px solid transparent;border-bottom:2px solid transparent;' +
@@ -5136,6 +5430,7 @@ var REWARDS = (function () {
         wireAddPaymentRewardPanelOnce();
         wireTransferSearchOnce();
         wireAdminAdjustOnce();
+        wireGiftOnce();
         wireLedgerFinderOnce();
         attachInfoLinks();
     }
@@ -5180,6 +5475,15 @@ var REWARDS = (function () {
         voidForBill: voidForBill,
         refreshActiveBannerBalances: refreshActiveBannerBalances,
         adjust: adjust,
+        GIFT_MAX: GIFT_MAX,
+        gift: gift,
+        giftCheck: giftCheck,
+        giftTodayRow: giftTodayRow,
+        giftReasonText: giftReasonText,
+        hkDayKey: hkDayKey,
+        loadGiftLog: loadGiftLog,
+        renderGiftLogCard: renderGiftLogCard,
+        syncGiftUi: syncGiftUi,
         applyRedeemForBill: applyRedeemForBill,
         applyEarnForPayment: applyEarnForPayment,
         notifyBalanceChange: notifyBalanceChange,

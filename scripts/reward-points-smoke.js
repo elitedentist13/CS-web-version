@@ -569,6 +569,44 @@ function extractIifeHelpers(src) {
     pass('i18n cfg.nav.rewards', /'cfg\.nav\.rewards'/.test(i18nExtra));
     pass('i18n rewards.pay.useLabel', /'rewards\.pay\.useLabel'/.test(i18nExtra));
 
+    console.log('\n=== smoke: gift points ===');
+    var gSql = read('reward_points_gift.sql');
+    var gFn = (gSql.split('create or replace function public.reward_gift(')[1] || '');
+    pass('gift SQL: kind gift added to the ledger check (keeps existing kinds)',
+        /reward_ledger_kind_check/.test(gSql) && /'gift'/.test(gSql) && /select distinct kind from public\.reward_ledger/.test(gSql));
+    pass('gift SQL: security definer, password checked in app_users server-side, Nurse refused',
+        /security definer\s+set search_path = public/.test(gFn) && /from public\.app_users[\s\S]{0,120}password = p_password/.test(gFn) &&
+        /lower\(v_uid\) = 'nurse'/.test(gFn) && /coalesce\(is_active, false\) = true/.test(gFn));
+    pass('gift SQL: staff roles only (same as coupon GRANT_ROLES)',
+        /\('doctor', 'dentist', 'nurse', 'receptionist', 'reception', 'staff', 'admin'\)/.test(gFn));
+    pass('gift SQL: whole points 1..200, reason + doctor required, clinic Gain joined',
+        /c_max constant numeric := 200/.test(gFn) && /v_points <> trunc\(v_points\)/.test(gFn) && /v_points < 1 or v_points > c_max/.test(gFn) &&
+        /'reason', 'note'/.test(gFn) && /'reason', 'doctor'/.test(gFn) && /reward_clinic_gain_enabled\(p_clinic_id, v_code\)/.test(gFn));
+    pass('gift SQL: one gift per patient per HK day (locked, across related charts)',
+        /pg_advisory_xact_lock/.test(gFn) && /at time zone 'Asia\/Hong_Kong'/.test(gFn) && /patient_id = any \(v_ids\)/.test(gFn) &&
+        /'daily_limit'/.test(gFn));
+    pass('gift SQL: ledger row kind gift with doctor + giver, audit_trail copy',
+        /'gift', v_points, v_new_bal/.test(gFn) && /doctor_name/.test(gFn) && /v_note, v_giver/.test(gFn) &&
+        /insert into public\.audit_trail/.test(gFn) && /'REWARD GIFT'/.test(gFn));
+    pass('gift SQL: gifts do not extend the lifespan clock',
+        !/'gift'/.test(read('reward_points_patch_zero_clinics.sql')));
+    var giftSrc = rewardsSrc.split('// ── Staff gift')[1] || '';
+    giftSrc = giftSrc.split('function loadGiftLog')[0];
+    pass('gift client: password goes to reward_gift RPC via shared prompt (no client password check)',
+        giftSrc.length > 0 && /rewardRpc\('reward_gift'/.test(giftSrc) && /COUPONS\.promptGrantor\(/.test(giftSrc) &&
+        /verify: function \(uid, pw\)/.test(giftSrc) && !/app_users|verifyGrantor/.test(giftSrc));
+    pass('gift client: shared prompt takes opts.verify / hint / logText and is exported',
+        /function promptGrantor\(host, title, summary, opts\)/.test(read('app-coupons.js')) && /promptGrantor: promptGrantor/.test(read('app-coupons.js')) &&
+        /opts\.hint \|\|/.test(read('app-coupons.js')) && /opts\.logText \|\|/.test(read('app-coupons.js')));
+    pass('gift UI: box in points pane, filter chip, gift log card, i18n',
+        /<div id="rwGift" class="rw-gift" hidden><\/div>/.test(idxSrc) && /key: 'gift', kinds: \['gift'\]/.test(rewardsSrc) &&
+        /renderGiftLogCard\(ctx\.gifts/.test(rewardsSrc) && /'rewards\.gift\.title'/.test(i18nExtra) && /'rewards\.gift\.e\.daily'/.test(i18nExtra) &&
+        /'rewards\.ledger\.f\.gift'/.test(i18nExtra));
+    pass('gift doctor list uses canonical names (not per-clinic login codes like Dr X_CWB), skips ALL rows',
+        /\[d\.english_name, d\.chinese_name, d\]\.some/.test(giftSrc) && /\^all\\b/.test(giftSrc));
+    pass('gift manual: section in all three languages',
+        (read('docs/loyalty-manual.js').match(/Gift points to a patient|贈送積分給病人|赠送积分给病人/g) || []).length === 3);
+
     console.log('\n=== smoke: points on the phone ===');
     var pwSql = read('reward_points_wallet.sql');
     var pwRet = (pwSql.match(/return jsonb_build_object\(\s*'ok', true,[\s\S]*?\);/g) || []).pop() || '';
@@ -601,7 +639,7 @@ function extractIifeHelpers(src) {
         /setting_key: REDEEM_CAP_KEY/.test(rewardsSrc));
     pass('points cap: Config card with % and HK$ boxes + Save',
         /id="rwCfgCap"/.test(rewardsSrc) && /id="rwCfgCapPct"/.test(rewardsSrc) && /id="rwCfgCapAmt"/.test(rewardsSrc) &&
-        /id="rwCfgCapSave"/.test(rewardsSrc) && /loadRedeemCap\(true\)\s*\]\)\.then/.test(rewardsSrc));
+        /id="rwCfgCapSave"/.test(rewardsSrc) && /loadRedeemCap\(true\),\s*loadGiftLog\(300\)\s*\]\)\.then/.test(rewardsSrc));
     pass('points cap: payment box max also clamped by the per-bill limit',
         /if \(_payCap && _payCap\.left !== Infinity\) max = round2\(Math\.min\(max, _payCap\.left\)\);/.test(rewardsSrc) &&
         /loadBillPointsUsed\(bill\.id\)/.test(rewardsSrc) && /id="apRewardCapNote"/.test(idxSrc));
@@ -702,7 +740,7 @@ function extractIifeHelpers(src) {
         pass('manual: English / 繁 / 简 have the same steps, tips and pictures', shape('en') === shape('zh-Hant') && shape('en') === shape('zh-CN'), shape('en'));
         pass('manual: every reward points config card has a step',
             ['Earn rate', 'SMS notify on balance change', 'Refer a friend (points)', 'Using points on one bill', 'Reset reward points to zero',
-                'Clinics in scheme', 'Summary log'].join('|') === LM.T.en.rw.steps.map(function (s) { return s.t; }).join('|'));
+                'Clinics in scheme', 'Summary log', 'Gift points to a patient'].join('|') === LM.T.en.rw.steps.map(function (s) { return s.t; }).join('|'));
         pass('manual: every coupon config card has a step',
             ['Clinics in scheme', 'Expenditure coupons', 'Campaigns', 'Using cash coupons on one bill', 'Treatment items for a treatment coupon',
                 'Set discount coupons to zero', 'Referrals', 'Coupon log'].join('|') === LM.T.en.dc.steps.map(function (s) { return s.t; }).join('|'));
@@ -785,6 +823,29 @@ function extractIifeHelpers(src) {
             var pcfg = R.phoneQrConfig();
             pass('points QR set-up: rpc, page, PNG name, centre label', pcfg.rpc === 'rw_wallet_link' && pcfg.page === 'points.html' &&
                 pcfg.pngName === 'reward-points-qr.png' && pcfg.centre === '積分' && pcfg.scheme === 'rewards');
+
+            pass('gift: max is 200', R.GIFT_MAX === 200);
+            var gc = R.giftCheck;
+            pass('gift check: 1 and 200 ok, 0 / 201 / 1.5 / blank refused',
+                gc({ points: 1, doctor: 'Dr A', note: 'x' }).ok && gc({ points: '200', doctor: 'Dr A', note: 'x' }).points === 200 &&
+                gc({ points: 0, doctor: 'Dr A', note: 'x' }).reason === 'points' && gc({ points: 201, doctor: 'Dr A', note: 'x' }).reason === 'points' &&
+                gc({ points: 1.5, doctor: 'Dr A', note: 'x' }).reason === 'points' && gc({ points: '', doctor: 'Dr A', note: 'x' }).reason === 'points');
+            pass('gift check: doctor and reason required',
+                gc({ points: 5, doctor: '', note: 'x' }).reason === 'doctor' && gc({ points: 5, doctor: 'Dr A', note: '  ' }).reason === 'note');
+            pass('gift HK day: 23:30 UTC is next HK day', R.hkDayKey('2026-10-28T16:30:00Z') === '2026-10-29' &&
+                R.hkDayKey('2026-10-28T15:59:00Z') === '2026-10-28');
+            var gRows = [{ kind: 'earn', created_at: '2026-10-28T03:00:00Z' }, { kind: 'gift', points: 50, created_by: 'Amy', created_at: '2026-10-27T17:00:00Z' }];
+            pass('gift today: same HK day found, other days / kinds ignored',
+                R.giftTodayRow(gRows, '2026-10-28T10:00:00Z') === gRows[1] && R.giftTodayRow(gRows, '2026-10-29T10:00:00Z') === null &&
+                R.giftTodayRow([gRows[0]], '2026-10-28T10:00:00Z') === null);
+            pass('gift reasons: daily limit names who gave it, nurse refused text',
+                /Amy/.test(R.giftReasonText({ reason: 'daily_limit', last_by: 'Amy' })) && /Nurse/.test(R.giftReasonText({ reason: 'shared_login' })) &&
+                /reward_points_gift\.sql/.test(R.giftReasonText({ reason: 'no_sql' })));
+            pass('gift kind: SMS label 贈送/gift, filter chip counts gifts',
+                R.kindLabelBilingual('gift') === '贈送/gift' && R.ledgerFilterRows(gRows, 'gift').length === 1);
+            var glog = R.renderGiftLogCard([{ kind: 'gift', points: 20, created_by: 'Amy <b>', note: 'Birthday', doctor_name: 'Dr A', created_at: '2026-10-28T03:00:00Z' }]);
+            pass('gift log card: giver escaped, reason and points shown',
+                /Amy &lt;b&gt;/.test(glog) && /Birthday/.test(glog) && /\+20\.00/.test(glog) && /id="rwGiftLog"/.test(glog));
 
             var nc = R.normalizeRedeemCap;
             pass('points cap: default HK$3,000, no %', JSON.stringify(nc(null)) === '{"maxPercent":0,"maxAmount":3000}');
@@ -906,6 +967,8 @@ function extractIifeHelpers(src) {
         var sqlPatchHttp = await httpGetText(PAGE_PORT, '/reward_points_patch_chart_ledgers.sql');
         pass('GET /reward_points_patch_chart_ledgers.sql', sqlPatchHttp.status === 200 &&
             sqlPatchHttp.body.indexOf('reward_redeem_multi') >= 0);
+        var giftHttp = await httpGetText(PAGE_PORT, '/reward_points_gift.sql');
+        pass('GET /reward_points_gift.sql', giftHttp.status === 200 && giftHttp.body.indexOf('function public.reward_gift(') >= 0);
     } catch (e) {
         pass('HTTP spot server', false, e && e.message);
     }
@@ -969,6 +1032,18 @@ function extractIifeHelpers(src) {
         }
 
         // Safe RPC: earn with 0 eligible → skipped, no balance change
+        // Shared Nurse login is refused before any password lookup or write.
+        var giftRpc = await restRpc(sb.url, sb.key, 'reward_gift', {
+            p_patient_id: '00000000-0000-0000-0000-000000000001', p_points: 10,
+            p_user_id: 'nurse', p_password: 'x', p_note: 'smoke', p_doctor_name: 'Dr Smoke'
+        });
+        if (/Could not find the function|PGRST202|does not exist/i.test(giftRpc.raw || '') || giftRpc.status === 404) {
+            warn('RPC reward_gift not deployed yet — run reward_points_gift.sql in Supabase', String(giftRpc.raw || '').slice(0, 160));
+        } else {
+            pass('RPC reward_gift refuses the shared Nurse login (no write)', giftRpc.status < 300 && giftRpc.json &&
+                giftRpc.json.ok === false && giftRpc.json.reason === 'shared_login', giftRpc.raw);
+        }
+
         var rpc = await restRpc(sb.url, sb.key, 'reward_earn', {
             p_patient_id: '00000000-0000-0000-0000-000000000001',
             p_eligible_amount: 0,

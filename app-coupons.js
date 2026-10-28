@@ -2857,8 +2857,12 @@ var COUPONS = (function () {
     /**
      * Ask for a staff login + password on top of the sheet before a gift or transfer.
      * Resolves with the verified app_users row, or null when cancelled.
+     * opts.verify(uid, pw) replaces the login check (resolve { ok, user } or { ok: false, reason, message });
+     * opts.hint / opts.logText replace the coupon wording.
      */
-    function promptGrantor(host, title, summary) {
+    function promptGrantor(host, title, summary, opts) {
+        opts = opts || {};
+        var verify = typeof opts.verify === 'function' ? opts.verify : verifyGrantor;
         return new Promise(function (resolve) {
             var sheet = host && (host.querySelector('.dc-sheet') || (host.nodeType === 1 && host.id !== 'dcSheetHost' ? host : null));
             if (!sheet) { resolve(null); return; }
@@ -2875,14 +2879,14 @@ var COUPONS = (function () {
             wrap.innerHTML = '<form class="dc-authp-card dc-auth" id="dcAuthBox" autocomplete="off">' +
                 '<h4 id="dcAuthTitle">🔒 ' + esc(title) + '</h4>' +
                 '<p class="dc-authp-what">' + esc(summary) + '</p>' +
-                '<p class="dc-hint">' + esc(ct('coupons.auth.hint',
+                '<p class="dc-hint">' + esc(opts.hint || ct('coupons.auth.hint',
                     'Gifting or transferring a coupon needs your own login and password. The shared Nurse login cannot be used.')) + '</p>' +
                 '<label class="dc-authp-field"><span>' + esc(ct('coupons.auth.user', 'Login ID')) + '</span>' +
                 '<input type="text" id="dcAuthUser" autocomplete="off" spellcheck="false" value="' + esc(prefill) + '"></label>' +
                 '<label class="dc-authp-field"><span>' + esc(ct('coupons.auth.pw', 'Password')) + '</span>' +
                 '<input type="password" id="dcAuthPw" autocomplete="new-password"></label>' +
                 '<p class="dc-err" id="dcAuthErr" hidden></p>' +
-                '<p class="dc-hint dc-authp-log">' + esc(ct('coupons.auth.logged', 'This will be recorded in the coupon log under your login.')) + '</p>' +
+                '<p class="dc-hint dc-authp-log">' + esc(opts.logText || ct('coupons.auth.logged', 'This will be recorded in the coupon log under your login.')) + '</p>' +
                 '<div class="dc-actions">' +
                 '<button type="button" class="dc-clear" data-act="cancel">' + esc(ct('common.cancel', 'Cancel')) + '</button>' +
                 '<button type="submit" class="dc-apply" id="dcAuthGo">' + esc(ct('coupons.auth.confirm', 'Confirm')) + '</button>' +
@@ -2917,12 +2921,14 @@ var COUPONS = (function () {
                 go.disabled = true;
                 var pw = p.value;
                 p.value = '';
-                verifyGrantor(u.value, pw).then(function (auth) {
+                Promise.resolve().then(function () { return verify(u.value, pw); }).catch(function (e) {
+                    return { ok: false, message: String((e && e.message) || e) };
+                }).then(function (auth) {
                     if (done) return;
                     go.disabled = false;
-                    if (auth && auth.ok) { finish(auth.user); return; }
+                    if (auth && auth.ok) { finish(auth.user || auth); return; }
                     err.hidden = false;
-                    err.textContent = grantReason(auth && auth.reason);
+                    err.textContent = (auth && auth.message) || grantReason(auth && auth.reason);
                     try { p.focus(); } catch (e) {}
                 });
             });
@@ -5740,6 +5746,7 @@ var COUPONS = (function () {
         CASH_GRANT_MAX: CASH_GRANT_MAX,
         SHARED_LOGIN_IDS: SHARED_LOGIN_IDS,
         verifyGrantor: verifyGrantor,
+        promptGrantor: promptGrantor,
         openGrantSheet: openGrantSheet,
         loadState: loadState,
         snapshot: snapshot,

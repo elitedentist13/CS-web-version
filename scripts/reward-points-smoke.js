@@ -577,11 +577,24 @@ function extractIifeHelpers(src) {
     pass('gift SQL: security definer, password checked in app_users server-side, Nurse refused',
         /security definer\s+set search_path = public/.test(gFn) && /from public\.app_users[\s\S]{0,120}password = p_password/.test(gFn) &&
         /lower\(v_uid\) = 'nurse'/.test(gFn) && /coalesce\(is_active, false\) = true/.test(gFn));
-    pass('gift SQL: staff roles only (same as coupon GRANT_ROLES)',
-        /\('doctor', 'dentist', 'nurse', 'receptionist', 'reception', 'staff', 'admin'\)/.test(gFn));
-    pass('gift SQL: whole points 1..200, reason + doctor required, clinic Gain joined',
-        /c_max constant numeric := 200/.test(gFn) && /v_points <> trunc\(v_points\)/.test(gFn) && /v_points < 1 or v_points > c_max/.test(gFn) &&
-        /'reason', 'note'/.test(gFn) && /'reason', 'doctor'/.test(gFn) && /reward_clinic_gain_enabled\(p_clinic_id, v_code\)/.test(gFn));
+    var gSet = (gSql.split('create or replace function public.reward_gift_settings(')[1] || '').split('create or replace function public.reward_gift(')[0];
+    pass('gift SQL: settings read from program_settings reward_gift_config with the app defaults',
+        /setting_key = 'reward_gift_config'/.test(gSet) && /v_max := 200/.test(gSet) && /v_daily := 1/.test(gSet) && /v_max > 10000/.test(gSet) &&
+        /'requireLogin', coalesce\(\(v_raw->>'requireLogin'\)::boolean, true\)/.test(gSet) &&
+        /'requireReason', coalesce\(\(v_raw->>'requireReason'\)::boolean, true\)/.test(gSet) &&
+        /\["doctor","dentist","nurse","receptionist","reception","staff","admin"\]/.test(gSet) && /security definer/.test(gSet));
+    pass('gift SQL: switched off -> refused; roles from settings',
+        /'reason', 'gift_off'/.test(gFn) && /jsonb_array_elements_text\(v_cfg->'roles'\)/.test(gFn) && /public\.reward_gift_settings\(\)/.test(gFn));
+    pass('gift SQL: password checked only when required; Nurse never the giver',
+        /if v_need_login then[\s\S]{0,200}password = p_password/.test(gFn) && /lower\(v_uid\) = 'nurse'/.test(gFn) &&
+        /v_need_login and coalesce\(p_password, ''\) = ''/.test(gFn));
+    pass('gift SQL: whole points 1..max, reason (if required) + doctor, clinic Gain joined',
+        /v_points <> trunc\(v_points\)/.test(gFn) && /v_points < 1 or v_points > v_max/.test(gFn) &&
+        /if v_need_reason then[\s\S]{0,120}'reason', 'note'/.test(gFn) && /'reason', 'doctor'/.test(gFn) &&
+        /reward_clinic_gain_enabled\(p_clinic_id, v_code\)/.test(gFn));
+    pass('gift SQL: per-patient daily count and per-staff daily points (0 = no limit), staff lock',
+        /if v_daily > 0 then[\s\S]{0,300}v_count >= v_daily/.test(gFn) && /if v_staff_max > 0 then[\s\S]{0,400}v_staff_sum \+ v_points > v_staff_max/.test(gFn) &&
+        /'reason', 'staff_daily'/.test(gFn) && /reward_gift_staff:/.test(gFn) && /add column if not exists actor_user_id text/.test(gSql));
     pass('gift SQL: one gift per patient per HK day (locked, across related charts)',
         /pg_advisory_xact_lock/.test(gFn) && /at time zone 'Asia\/Hong_Kong'/.test(gFn) && /patient_id = any \(v_ids\)/.test(gFn) &&
         /'daily_limit'/.test(gFn));
@@ -600,7 +613,8 @@ function extractIifeHelpers(src) {
         /opts\.hint \|\|/.test(read('app-coupons.js')) && /opts\.logText \|\|/.test(read('app-coupons.js')));
     pass('gift UI: box in points pane, filter chip, gift log card, i18n',
         /<div id="rwGift" class="rw-gift" hidden><\/div>/.test(idxSrc) && /key: 'gift', kinds: \['gift'\]/.test(rewardsSrc) &&
-        /renderGiftLogCard\(ctx\.gifts/.test(rewardsSrc) && /'rewards\.gift\.title'/.test(i18nExtra) && /'rewards\.gift\.e\.daily'/.test(i18nExtra) &&
+        /renderGiftLogCard\(ctx\.gifts/.test(rewardsSrc) && /'rewards\.gift\.title'/.test(i18nExtra) && /'rewards\.gift\.e\.dailyN'/.test(i18nExtra) && /'rewards\.gift\.cfgLogin'/.test(i18nExtra) &&
+        /renderGiftConfigCard\(ctx\.giftCfg, admin\)/.test(rewardsSrc) && /wireGiftConfigCard\(pane\)/.test(rewardsSrc) &&
         /'rewards\.ledger\.f\.gift'/.test(i18nExtra));
     pass('gift doctor list uses canonical names (not per-clinic login codes like Dr X_CWB), skips ALL rows',
         /\[d\.english_name, d\.chinese_name, d\]\.some/.test(giftSrc) && /\^all\\b/.test(giftSrc));
@@ -639,7 +653,7 @@ function extractIifeHelpers(src) {
         /setting_key: REDEEM_CAP_KEY/.test(rewardsSrc));
     pass('points cap: Config card with % and HK$ boxes + Save',
         /id="rwCfgCap"/.test(rewardsSrc) && /id="rwCfgCapPct"/.test(rewardsSrc) && /id="rwCfgCapAmt"/.test(rewardsSrc) &&
-        /id="rwCfgCapSave"/.test(rewardsSrc) && /loadRedeemCap\(true\),\s*loadGiftLog\(300\)\s*\]\)\.then/.test(rewardsSrc));
+        /id="rwCfgCapSave"/.test(rewardsSrc) && /loadRedeemCap\(true\),\s*loadGiftLog\(300\),\s*loadGiftConfig\(true\)\s*\]\)\.then/.test(rewardsSrc));
     pass('points cap: payment box max also clamped by the per-bill limit',
         /if \(_payCap && _payCap\.left !== Infinity\) max = round2\(Math\.min\(max, _payCap\.left\)\);/.test(rewardsSrc) &&
         /loadBillPointsUsed\(bill\.id\)/.test(rewardsSrc) && /id="apRewardCapNote"/.test(idxSrc));
@@ -843,6 +857,41 @@ function extractIifeHelpers(src) {
                 /reward_points_gift\.sql/.test(R.giftReasonText({ reason: 'no_sql' })));
             pass('gift kind: SMS label 贈送/gift, filter chip counts gifts',
                 R.kindLabelBilingual('gift') === '贈送/gift' && R.ledgerFilterRows(gRows, 'gift').length === 1);
+            var ngc = R.normalizeGiftConfig;
+            pass('gift settings: defaults on, 200, 1 a day, no staff cap, login + reason, all roles',
+                JSON.stringify(ngc(null)) === JSON.stringify({ enabled: true, maxPoints: 200, perPatientDaily: 1, staffDailyMax: 0,
+                    requireLogin: true, requireReason: true, roles: ['doctor', 'dentist', 'nurse', 'receptionist', 'reception', 'staff', 'admin'] }),
+                JSON.stringify(ngc(null)));
+            var ngx = ngc({ enabled: false, maxPoints: '50000', perPatientDaily: '0', staffDailyMax: 'x', requireLogin: false, roles: ['Admin', 'hacker', 'admin'] });
+            pass('gift settings: max capped at 10,000, 0 a day kept, junk -> default, unknown roles dropped',
+                ngx.enabled === false && ngx.maxPoints === 10000 && ngx.perPatientDaily === 0 && ngx.staffDailyMax === 0 &&
+                ngx.requireLogin === false && ngx.roles.join(',') === 'admin' && ngc({ maxPoints: 0 }).maxPoints === 200 &&
+                ngc({ roles: [] }).roles.length === 7, JSON.stringify(ngx));
+            pass('gift check follows settings: max 50, reason optional, off',
+                gc({ points: 60, doctor: 'Dr A', note: 'x' }, { maxPoints: 50 }).reason === 'points' &&
+                gc({ points: 50, doctor: 'Dr A', note: '' }, { maxPoints: 50, requireReason: false }).note === 'Gift' &&
+                gc({ points: 5, doctor: 'Dr A', note: 'x' }, { enabled: false }).reason === 'gift_off');
+            var gToday = [{ kind: 'gift', created_at: '2026-10-28T02:00:00Z' }, { kind: 'gift', created_at: '2026-10-28T03:00:00Z' }];
+            pass('gift daily count: 2 a day allows the second, blocks the third; 0 = no limit',
+                !R.giftDailyReached(gToday.slice(0, 1), { perPatientDaily: 2 }, '2026-10-28T10:00:00Z') &&
+                R.giftDailyReached(gToday, { perPatientDaily: 2 }, '2026-10-28T10:00:00Z') &&
+                !R.giftDailyReached(gToday, { perPatientDaily: 0 }, '2026-10-28T10:00:00Z') &&
+                R.giftTodayRows(gToday, '2026-10-28T10:00:00Z')[0] === gToday[1]);
+            pass('gift without password only when switched off, never for Nurse or a role not allowed',
+                !R.giftScreenLoginOk({}, 'amy', 'staff') && R.giftScreenLoginOk({ requireLogin: false }, 'amy', 'staff') &&
+                !R.giftScreenLoginOk({ requireLogin: false }, 'nurse', 'nurse') &&
+                !R.giftScreenLoginOk({ requireLogin: false, roles: ['admin'] }, 'amy', 'staff'));
+            pass('gift settings summary: default and off',
+                /200/.test(R.giftConfigSummary(null)) && /own login/.test(R.giftConfigSummary(null)) &&
+                R.giftConfigSummary({ enabled: false }) === 'Gift points is off.');
+            var gcard = R.renderGiftConfigCard(null, true);
+            var gcardRo = R.renderGiftConfigCard({ requireLogin: false }, false);
+            pass('gift settings card: toggle, max, daily, staff, login, reason, roles + Save for Admin; read-only otherwise',
+                /id="rwCfgGiftOn" checked/.test(gcard) && /id="rwCfgGiftMax"[^>]*value="200"/.test(gcard) && /id="rwCfgGiftDaily"[^>]*value="1"/.test(gcard) &&
+                /id="rwCfgGiftStaff"/.test(gcard) && /id="rwCfgGiftLogin" checked/.test(gcard) && /id="rwCfgGiftReason" checked/.test(gcard) &&
+                (gcard.match(/class="rw-cfg-gift-role"/g) || []).length === 7 && /id="rwCfgGiftSave"/.test(gcard) &&
+                !/rwCfgGiftSave/.test(gcardRo) && /id="rwCfgGiftLogin" disabled/.test(gcardRo) && /Only Admin/.test(gcardRo));
+
             var glog = R.renderGiftLogCard([{ kind: 'gift', points: 20, created_by: 'Amy <b>', note: 'Birthday', doctor_name: 'Dr A', created_at: '2026-10-28T03:00:00Z' }]);
             pass('gift log card: giver escaped, reason and points shown',
                 /Amy &lt;b&gt;/.test(glog) && /Birthday/.test(glog) && /\+20\.00/.test(glog) && /id="rwGiftLog"/.test(glog));

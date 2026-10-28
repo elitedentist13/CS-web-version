@@ -3645,8 +3645,86 @@ var REWARDS = (function () {
         });
     }
 
-    // ── Staff gift (reward_gift RPC checks login, cap, reason, doctor, clinic and once a day) ──
+    // ── Staff gift (reward_gift RPC checks the settings below, login, doctor, clinic and daily limits) ──
     var GIFT_MAX = 200;
+    var GIFT_MAX_CEILING = 10000;
+    var GIFT_CONFIG_KEY = 'reward_gift_config';
+    var GIFT_ROLES = ['doctor', 'dentist', 'nurse', 'receptionist', 'reception', 'staff', 'admin'];
+    var GIFT_DEFAULTS = {
+        enabled: true, maxPoints: GIFT_MAX, perPatientDaily: 1, staffDailyMax: 0,
+        requireLogin: true, requireReason: true, roles: GIFT_ROLES.slice()
+    };
+    var _giftCfg = null;
+    var _giftCfgAt = 0;
+
+    /** Pure: clean gift settings. Same defaults and limits as reward_gift_settings() in SQL. */
+    function normalizeGiftConfig(raw) {
+        var o = raw || {};
+        function whole(v, dflt, min, max) {
+            var n = Number(v);
+            if (v == null || v === '' || !isFinite(n)) return dflt;
+            n = Math.floor(n);
+            if (n < min) return dflt;
+            return max != null ? Math.min(max, n) : n;
+        }
+        function flag(v, dflt) { return v == null ? dflt : (v === true || v === 'true' || v === 1); }
+        var roles = Array.isArray(o.roles) ? o.roles.map(function (r) { return String(r || '').trim().toLowerCase(); })
+            .filter(function (r, i, a) { return GIFT_ROLES.indexOf(r) >= 0 && a.indexOf(r) === i; }) : [];
+        return {
+            enabled: flag(o.enabled, true),
+            maxPoints: whole(o.maxPoints, GIFT_MAX, 1, GIFT_MAX_CEILING),
+            perPatientDaily: whole(o.perPatientDaily, 1, 0, 50),
+            staffDailyMax: whole(o.staffDailyMax, 0, 0, 1000000),
+            requireLogin: flag(o.requireLogin, true),
+            requireReason: flag(o.requireReason, true),
+            roles: roles.length ? roles : GIFT_ROLES.slice()
+        };
+    }
+
+    function loadGiftConfig(force) {
+        if (!force && _giftCfg && (Date.now() - _giftCfgAt) < 30000) return Promise.resolve(_giftCfg);
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve(normalizeGiftConfig(null));
+        return Promise.resolve(SB.from('program_settings').select('setting_value').eq('setting_key', GIFT_CONFIG_KEY))
+            .then(function (r) {
+                var raw = r && r.data && r.data[0] && r.data[0].setting_value;
+                var parsed = null;
+                if (raw) { try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { parsed = null; } }
+                _giftCfg = normalizeGiftConfig(parsed);
+                _giftCfgAt = Date.now();
+                return _giftCfg;
+            }, function () { return normalizeGiftConfig(null); });
+    }
+
+    function saveGiftConfig(patch) {
+        if (!isAdmin()) return Promise.resolve({ ok: false, error: 'admin only' });
+        return loadGiftConfig(true).then(function (cur) {
+            var next = normalizeGiftConfig(Object.assign({}, cur, patch || {}));
+            var row = { setting_key: GIFT_CONFIG_KEY, setting_value: JSON.stringify(next) };
+            var p = typeof persistProgramSettingRow === 'function'
+                ? persistProgramSettingRow(row)
+                : SB.from('program_settings').insert([row]);
+            return Promise.resolve(p).then(function (r) {
+                if (r && r.error) return { ok: false, error: r.error.message };
+                _giftCfg = next;
+                _giftCfgAt = Date.now();
+                return { ok: true, config: next };
+            });
+        });
+    }
+
+    /** Pure: one-line summary of the gift settings (config card + panel box). */
+    function giftConfigSummary(cfg) {
+        cfg = normalizeGiftConfig(cfg);
+        if (!cfg.enabled) return tr('rewards.gift.cfgOff', 'Gift points is off.');
+        var parts = [tr('rewards.gift.sUpTo', 'Up to') + ' ' + cfg.maxPoints + ' ' + tr('rewards.gift.pts', 'points')];
+        parts.push(cfg.perPatientDaily > 0
+            ? cfg.perPatientDaily + ' ' + tr('rewards.gift.sPerDay', 'gift(s) per patient per day')
+            : tr('rewards.gift.sNoDaily', 'no daily limit per patient'));
+        if (cfg.staffDailyMax > 0) parts.push(tr('rewards.gift.sStaff', 'staff max') + ' ' + cfg.staffDailyMax + ' ' + tr('rewards.gift.sStaffDay', 'points a day'));
+        parts.push(cfg.requireLogin ? tr('rewards.gift.sLogin', 'own login + password') : tr('rewards.gift.sNoLogin', 'no password (screen login)'));
+        if (cfg.requireReason) parts.push(tr('rewards.gift.sReason', 'reason required'));
+        return parts.join(' · ');
+    }
 
     /** Pure: Hong Kong calendar day (YYYY-MM-DD) of an ISO time. */
     function hkDayKey(iso) {
@@ -3655,23 +3733,45 @@ var REWARDS = (function () {
         return new Date(t + 8 * 3600000).toISOString().slice(0, 10);
     }
 
-    /** Pure: validate a gift form. Points are whole numbers 1..GIFT_MAX. */
-    function giftCheck(input) {
+    /** Pure: validate a gift form against the settings. Points are whole numbers 1..cfg.maxPoints. */
+    function giftCheck(input, cfg) {
         input = input || {};
+        cfg = normalizeGiftConfig(cfg);
+        if (!cfg.enabled) return { ok: false, reason: 'gift_off' };
         var raw = String(input.points == null ? '' : input.points).trim();
         var pts = Number(raw);
-        if (!raw || !isFinite(pts) || pts !== Math.floor(pts) || pts < 1 || pts > GIFT_MAX) return { ok: false, reason: 'points' };
+        if (!raw || !isFinite(pts) || pts !== Math.floor(pts) || pts < 1 || pts > cfg.maxPoints) return { ok: false, reason: 'points', max: cfg.maxPoints };
         if (!String(input.doctor || '').trim()) return { ok: false, reason: 'doctor' };
-        if (!String(input.note || '').trim()) return { ok: false, reason: 'note' };
-        return { ok: true, points: pts, doctor: String(input.doctor).trim(), note: String(input.note).trim().slice(0, 300) };
+        var note = String(input.note || '').trim();
+        if (!note && cfg.requireReason) return { ok: false, reason: 'note' };
+        return { ok: true, points: pts, doctor: String(input.doctor).trim(), note: (note || 'Gift').slice(0, 300) };
     }
 
-    /** Pure: the gift already given on the same HK day as nowIso, if any. */
-    function giftTodayRow(rows, nowIso) {
+    /** Pure: gifts given on the same HK day as nowIso, newest first. */
+    function giftTodayRows(rows, nowIso) {
         var today = hkDayKey(nowIso || new Date().toISOString());
         return (rows || []).filter(function (r) {
             return r && r.kind === 'gift' && hkDayKey(r.created_at) === today;
-        })[0] || null;
+        }).sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); });
+    }
+
+    /** Pure: latest gift today, or null. */
+    function giftTodayRow(rows, nowIso) {
+        return giftTodayRows(rows, nowIso)[0] || null;
+    }
+
+    /** Pure: has this patient reached the per-day gift count? (0 = no limit) */
+    function giftDailyReached(rows, cfg, nowIso) {
+        cfg = normalizeGiftConfig(cfg);
+        return cfg.perPatientDaily > 0 && giftTodayRows(rows, nowIso).length >= cfg.perPatientDaily;
+    }
+
+    /** Pure: may the login on screen gift without typing a password? */
+    function giftScreenLoginOk(cfg, uid, role) {
+        cfg = normalizeGiftConfig(cfg);
+        var u = String(uid || '').trim().toLowerCase();
+        if (cfg.requireLogin || !u || u === 'nurse') return false;
+        return cfg.roles.indexOf(String(role || '').trim().toLowerCase()) >= 0;
     }
 
     function giftReasonText(res) {
@@ -3680,13 +3780,18 @@ var REWARDS = (function () {
         if (r === 'creds') return tr('rewards.gift.e.creds', 'Login ID or password is incorrect.');
         if (r === 'shared_login') return tr('rewards.gift.e.shared', 'The shared Nurse login cannot gift points. Use your own login.');
         if (r === 'role') return tr('rewards.gift.e.role', 'This login is not allowed to gift points.');
-        if (r === 'points') return tr('rewards.gift.e.points', 'Enter whole points from 1 to 200.');
+        if (r === 'gift_off') return tr('rewards.gift.cfgOff', 'Gift points is off.');
+        if (r === 'points') return tr('rewards.gift.e.pointsMax', 'Enter whole points from 1 to') + ' ' + ((res && res.max) || GIFT_MAX) + '.';
+        if (r === 'staff_daily') {
+            return tr('rewards.gift.e.staff', 'You reached your daily gift limit.') +
+                (res && res.left != null ? ' ' + tr('rewards.gift.e.staffLeft', 'Points left today:') + ' ' + res.left : '');
+        }
         if (r === 'note') return tr('rewards.gift.e.note', 'Enter the reason for this gift.');
         if (r === 'doctor') return tr('rewards.gift.e.doctor', 'Pick the doctor these points are for.');
         if (r === 'clinic_gain_disabled' || r === 'doctor_gain_disabled') return tr('rewards.gift.e.joined', 'This clinic or doctor has not joined Gain in the reward points scheme.');
         if (r === 'daily_limit') {
             var who = res.last_by ? ' (' + res.last_by + (res.last_at ? ' ' + ledgerClock(res.last_at) : '') + ')' : '';
-            return tr('rewards.gift.e.daily', 'This patient already got a gift today. One gift per patient per day.') + who;
+            return tr('rewards.gift.e.dailyN', 'This patient reached today’s gift limit.') + who;
         }
         if (r === 'no_sql') return tr('rewards.gift.e.noSql', 'Gift points is not set up yet. Run reward_points_gift.sql in Supabase first.');
         return (res && res.error) || tr('rewards.gift.e.fail', 'Gift failed.');
@@ -3695,11 +3800,15 @@ var REWARDS = (function () {
     /** Gift points to a patient. Credentials go to the server; nothing is written unless every rule passes. */
     function gift(opts) {
         opts = opts || {};
-        var chk = giftCheck(opts);
+        return loadGiftConfig(false).then(function (cfg) { return giftSend(opts, cfg); });
+    }
+
+    function giftSend(opts, cfg) {
+        var chk = giftCheck(opts, cfg);
         if (!chk.ok) return Promise.resolve(chk);
         if (!opts.patientId) return Promise.resolve({ ok: false, reason: 'patient', error: 'patient required' });
         var uid = String(opts.userId || '').trim();
-        if (!uid || !opts.password) return Promise.resolve({ ok: false, reason: 'auth_missing' });
+        if (!uid || (cfg.requireLogin && !opts.password)) return Promise.resolve({ ok: false, reason: 'auth_missing' });
         if (uid.toLowerCase() === 'nurse') return Promise.resolve({ ok: false, reason: 'shared_login' });
         var ctx = clinicCtx();
         var clinicId = opts.clinicId != null ? opts.clinicId : ctx.clinic_id;
@@ -3711,7 +3820,7 @@ var REWARDS = (function () {
                 p_patient_id: opts.patientId,
                 p_points: chk.points,
                 p_user_id: uid,
-                p_password: String(opts.password),
+                p_password: opts.password ? String(opts.password) : null,
                 p_note: chk.note,
                 p_doctor_name: chk.doctor,
                 p_clinic_id: clinicId || null,
@@ -3768,17 +3877,15 @@ var REWARDS = (function () {
         if (!box.__rwBuilt) {
             box.__rwBuilt = true;
             box.innerHTML = '<div class="rw-gift-head">🎀 ' + esc(tr('rewards.gift.title', 'Gift points')) +
-                '<small>' + esc(tr('rewards.gift.rule', 'Up to 200 points · one gift per patient per day · reason required')) + '</small></div>' +
+                '<small id="rwGiftRule"></small></div>' +
                 '<div class="rw-gift-row">' +
                 '<input type="number" id="rwGiftPoints" min="1" max="' + GIFT_MAX + '" step="1" placeholder="' + esc(tr('rewards.gift.pointsPh', 'Points')) + '">' +
                 '<select id="rwGiftDoctor" aria-label="' + esc(tr('rewards.gift.doctor', 'Doctor')) + '"></select>' +
-                '<input type="text" id="rwGiftNote" maxlength="300" placeholder="' + esc(tr('rewards.gift.notePh', 'Reason (required)')) + '">' +
-                '<button type="button" id="rwGiftGo">🔒 ' + esc(tr('rewards.gift.go', 'Gift points')) + '</button></div>' +
+                '<input type="text" id="rwGiftNote" maxlength="300">' +
+                '<button type="button" id="rwGiftGo"></button></div>' +
                 '<div id="rwGiftStatus" class="rw-gift-status" aria-live="polite"></div>' +
-                '<p class="rw-gift-lock">' + esc(tr('rewards.gift.lock',
-                    'Asks for your own login and password. Recorded in the points history and the gift log under your name.')) + '</p>';
+                '<p class="rw-gift-lock" id="rwGiftLock"></p>';
         }
-        box.hidden = false;
         var pts = document.getElementById('rwGiftPoints');
         var note = document.getElementById('rwGiftNote');
         var sel = document.getElementById('rwGiftDoctor');
@@ -3788,8 +3895,41 @@ var REWARDS = (function () {
             if (note) note.value = '';
             if (go) go.disabled = true;
             setGiftStatus(tr('common.loadingEllipsis', 'Loading…'));
-            return;
+            return loadGiftConfig(false).then(function (cfg) { paintGiftRules(cfg); return cfg; });
         }
+        return loadGiftConfig(false).then(function (cfg) {
+            paintGiftRules(cfg);
+            if (cfg.enabled) syncGiftForm(cfg);
+            return cfg;
+        });
+    }
+
+    /** Box visibility, rule line, points max, reason placeholder, button and lock wording from the settings. */
+    function paintGiftRules(cfg) {
+        cfg = normalizeGiftConfig(cfg);
+        var box = document.getElementById('rwGift');
+        if (!box) return;
+        box.hidden = !cfg.enabled;
+        var rule = document.getElementById('rwGiftRule');
+        if (rule) rule.textContent = giftConfigSummary(cfg);
+        var pts = document.getElementById('rwGiftPoints');
+        if (pts) pts.max = String(cfg.maxPoints);
+        var note = document.getElementById('rwGiftNote');
+        if (note) note.placeholder = cfg.requireReason ? tr('rewards.gift.notePh', 'Reason (required)') : tr('rewards.gift.notePhOpt', 'Reason (optional)');
+        var screen = giftScreenLoginOk(cfg, typeof currentUserId !== 'undefined' ? currentUserId : '', typeof currentRole !== 'undefined' ? currentRole : '');
+        var go = document.getElementById('rwGiftGo');
+        if (go) go.textContent = (screen ? '🎀 ' : '🔒 ') + tr('rewards.gift.go', 'Gift points');
+        var lock = document.getElementById('rwGiftLock');
+        if (lock) {
+            lock.textContent = screen
+                ? tr('rewards.gift.lockScreen', 'Recorded under the login on this screen (no password asked). Shown in the points history and the gift log.')
+                : tr('rewards.gift.lock', 'Asks for your own login and password. Recorded in the points history and the gift log under your name.');
+        }
+    }
+
+    function syncGiftForm(cfg) {
+        var sel = document.getElementById('rwGiftDoctor');
+        var go = document.getElementById('rwGiftGo');
         if (sel) {
             var opts = giftDoctorOptions();
             sel.innerHTML = '<option value="">' + esc(tr('rewards.gift.pickDoctor', '— Doctor —')) + '</option>' +
@@ -3798,7 +3938,7 @@ var REWARDS = (function () {
                 }).join('');
         }
         var today = giftTodayRow(_panelLedgerRows);
-        if (today) {
+        if (today && giftDailyReached(_panelLedgerRows, cfg)) {
             if (go) go.disabled = true;
             setGiftStatus(tr('rewards.gift.doneToday', 'Already gifted today') + ': ' + fmtSigned(today.points) +
                 (today.created_by ? ' · ' + today.created_by : '') + ' · ' + ledgerClock(today.created_at) +
@@ -3806,7 +3946,9 @@ var REWARDS = (function () {
             return;
         }
         if (go) go.disabled = false;
-        setGiftStatus('');
+        setGiftStatus(today
+            ? tr('rewards.gift.todayN', 'Gifts today') + ': ' + giftTodayRows(_panelLedgerRows).length + ' / ' + (cfg.perPatientDaily || '∞')
+            : '');
     }
 
     function runGift() {
@@ -3817,48 +3959,73 @@ var REWARDS = (function () {
             doctor: (document.getElementById('rwGiftDoctor') || {}).value,
             note: (document.getElementById('rwGiftNote') || {}).value
         };
-        var chk = giftCheck(input);
-        if (!chk.ok) { setGiftStatus(giftReasonText(chk), 'is-err'); return; }
-        var today = giftTodayRow(_panelLedgerRows);
-        if (today) { setGiftStatus(giftReasonText({ reason: 'daily_limit', last_by: today.created_by, last_at: today.created_at }), 'is-err'); return; }
-        if (typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.promptGrantor !== 'function') {
-            setGiftStatus(tr('rewards.err.modalMissing', 'Reward panel not found. Reload the page.'), 'is-err');
-            return;
-        }
         var go = document.getElementById('rwGiftGo');
         var ctx = clinicCtx();
         var meta = document.getElementById('rwPatientMeta');
         var who = meta ? String(meta.textContent || '').trim() : '';
-        isClinicJoined(ctx.clinic_id, ctx.clinic_code, chk.doctor).catch(function () { return false; }).then(function (joined) {
+        var cfg = null;
+        var chk = null;
+        loadGiftConfig(true).then(function (c) {
+            cfg = c;
+            paintGiftRules(cfg);
+            chk = giftCheck(input, cfg);
+            if (!chk.ok) { setGiftStatus(giftReasonText(chk), 'is-err'); return null; }
+            if (giftDailyReached(_panelLedgerRows, cfg)) {
+                var today = giftTodayRow(_panelLedgerRows) || {};
+                setGiftStatus(giftReasonText({ reason: 'daily_limit', last_by: today.created_by, last_at: today.created_at }), 'is-err');
+                return null;
+            }
+            return isClinicJoined(ctx.clinic_id, ctx.clinic_code, chk.doctor).catch(function () { return false; });
+        }).then(function (joined) {
+            if (joined === null || !chk || !chk.ok) return null;
             if (!joined) { setGiftStatus(giftReasonText({ reason: 'doctor_gain_disabled' }), 'is-err'); return null; }
+            var summary = '🎀 +' + chk.points + ' ' + tr('rewards.gift.pts', 'points') + ' · ' + who + ' · ' + chk.doctor + ' · ' + chk.note;
+            var screenUid = String((typeof currentUserId !== 'undefined' && currentUserId) || '').trim();
+            var screenRole = typeof currentRole !== 'undefined' ? currentRole : '';
+            if (giftScreenLoginOk(cfg, screenUid, screenRole)) {
+                if (!window.confirm(tr('rewards.gift.confirm', 'Confirm points gift') + '\n' + summary + '\n' +
+                    tr('rewards.gift.by', 'Given by') + ' ' + ((typeof currentName !== 'undefined' && currentName) || screenUid))) return null;
+                if (go) go.disabled = true;
+                setGiftStatus('');
+                return giftSend({ patientId: pid, points: chk.points, doctor: chk.doctor, note: chk.note, userId: screenUid }, cfg)
+                    .then(function (res) {
+                        if (go) go.disabled = false;
+                        if (res && res.ok) return res;
+                        setGiftStatus(giftReasonText(res), 'is-err');
+                        return null;
+                    });
+            }
+            if (typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.promptGrantor !== 'function') {
+                setGiftStatus(tr('rewards.err.modalMissing', 'Reward panel not found. Reload the page.'), 'is-err');
+                return null;
+            }
             if (go) go.disabled = true;
             setGiftStatus('');
-            var summary = '🎀 +' + chk.points + ' ' + tr('rewards.gift.pts', 'points') + ' · ' + who + ' · ' + chk.doctor + ' · ' + chk.note;
             return COUPONS.promptGrantor(document.getElementById('rewardPatientModal'), tr('rewards.gift.confirm', 'Confirm points gift'), summary, {
                 hint: tr('rewards.gift.authHint', 'Gifting points needs your own login and password. The shared Nurse login cannot be used.'),
                 logText: tr('rewards.gift.logged', 'This gift will be recorded in the points history and the gift log under your login.'),
                 verify: function (uid, pw) {
-                    return gift({ patientId: pid, points: chk.points, doctor: chk.doctor, note: chk.note, userId: uid, password: pw })
+                    return giftSend({ patientId: pid, points: chk.points, doctor: chk.doctor, note: chk.note, userId: uid, password: pw }, cfg)
                         .then(function (res) {
                             if (res && res.ok) return { ok: true, user: res };
                             return { ok: false, reason: res && res.reason, message: giftReasonText(res) };
                         });
                 }
-            }).then(function (res) {
-                if (go) go.disabled = false;
-                if (!res) return null;
-                setGiftStatus('✓ ' + tr('rewards.gift.ok', 'Gift saved') + ': ' + fmtSigned(res.points) + ' · ' + (res.given_by || ''), 'is-ok');
-                return notifyBalanceChange({
-                    patientId: res.patient_id || pid,
-                    points: res.points,
-                    balance: res.balance,
-                    kind: 'gift',
-                    ledgerId: res.ledger_id,
-                    clinic: ctx.clinic_code || '',
-                    ref: chk.note.slice(0, 40)
-                }).catch(function () {}).then(function () {
-                    if (String(_panelPatientId) === String(pid)) openPatientPanel(pid);
-                });
+            });
+        }).then(function (res) {
+            if (go) go.disabled = false;
+            if (!res) return null;
+            setGiftStatus('✓ ' + tr('rewards.gift.ok', 'Gift saved') + ': ' + fmtSigned(res.points) + ' · ' + (res.given_by || ''), 'is-ok');
+            return notifyBalanceChange({
+                patientId: res.patient_id || pid,
+                points: res.points,
+                balance: res.balance,
+                kind: 'gift',
+                ledgerId: res.ledger_id,
+                clinic: ctx.clinic_code || '',
+                ref: chk.note.slice(0, 40)
+            }).catch(function () {}).then(function () {
+                if (String(_panelPatientId) === String(pid)) openPatientPanel(pid);
             });
         }).catch(function (e) {
             if (go) go.disabled = false;
@@ -3874,6 +4041,99 @@ var REWARDS = (function () {
             if (!t || t.disabled) return;
             ev.preventDefault();
             runGift();
+        });
+    }
+
+    /** Config-tab Gift points settings card (Admin edits; others read). */
+    function renderGiftConfigCard(cfg, admin) {
+        cfg = normalizeGiftConfig(cfg);
+        var inp = 'width:90px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;';
+        var row = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px;font-size:13px;';
+        var dis = admin ? '' : ' disabled';
+        var roleNames = {
+            doctor: tr('rewards.gift.role.doctor', 'Doctor'), dentist: tr('rewards.gift.role.dentist', 'Dentist'),
+            nurse: tr('rewards.gift.role.nurse', 'Nurse (own login)'), receptionist: tr('rewards.gift.role.receptionist', 'Receptionist'),
+            reception: tr('rewards.gift.role.reception', 'Reception'), staff: tr('rewards.gift.role.staff', 'Staff'), admin: 'Admin'
+        };
+        var html = '<div class="rw-cfg-card" id="rwCfgGift">';
+        html += '<div class="rw-cfg-card-title">🎀 ' + esc(tr('rewards.gift.cfgTitle', 'Gift points')) + '</div>';
+        html += '<p style="margin:0 0 10px;font-size:12px;color:#64748b;">' + esc(tr('rewards.gift.cfgHint',
+            'Staff can gift points to a patient from the patient’s points ledger. Gifted points belong to the chosen doctor, follow the per-bill limit and RESET ZERO, and are listed in the Gift log below.')) + '</p>';
+        html += '<label style="' + row + 'font-weight:700;"><input type="checkbox" id="rwCfgGiftOn"' + (cfg.enabled ? ' checked' : '') + dis + '> ' +
+            esc(tr('rewards.gift.cfgOn', 'Allow staff to gift reward points')) + '</label>';
+        html += '<div style="' + row + '"><span>' + esc(tr('rewards.gift.cfgMax', 'Max points per gift')) + '</span>' +
+            '<input type="number" id="rwCfgGiftMax" min="1" max="' + GIFT_MAX_CEILING + '" step="1" value="' + cfg.maxPoints + '" style="' + inp + '"' + dis + '></div>';
+        html += '<div style="' + row + '"><span>' + esc(tr('rewards.gift.cfgDaily', 'Gifts per patient per day')) + '</span>' +
+            '<input type="number" id="rwCfgGiftDaily" min="0" max="50" step="1" value="' + cfg.perPatientDaily + '" style="' + inp + '"' + dis + '>' +
+            '<small style="color:#64748b;">' + esc(tr('rewards.gift.cfgZero', '0 = no limit')) + '</small></div>';
+        html += '<div style="' + row + '"><span>' + esc(tr('rewards.gift.cfgStaff', 'Max points one staff login can gift per day')) + '</span>' +
+            '<input type="number" id="rwCfgGiftStaff" min="0" step="10" value="' + (cfg.staffDailyMax || '') + '" placeholder="—" style="' + inp + '"' + dis + '>' +
+            '<small style="color:#64748b;">' + esc(tr('rewards.gift.cfgBlank', 'blank = no limit')) + '</small></div>';
+        html += '<label style="' + row + '"><input type="checkbox" id="rwCfgGiftLogin"' + (cfg.requireLogin ? ' checked' : '') + dis + '> ' +
+            esc(tr('rewards.gift.cfgLogin', 'Ask for the giver’s own login and password')) + '</label>';
+        html += '<p style="margin:-4px 0 8px 24px;font-size:11px;color:#92400e;">' + esc(tr('rewards.gift.cfgLoginHint',
+            'Untick to record the gift under the login on screen without a password. The shared Nurse login always has to type a personal login.')) + '</p>';
+        html += '<label style="' + row + '"><input type="checkbox" id="rwCfgGiftReason"' + (cfg.requireReason ? ' checked' : '') + dis + '> ' +
+            esc(tr('rewards.gift.cfgReason', 'Reason required')) + '</label>';
+        html += '<div style="' + row + '"><span style="font-weight:600;">' + esc(tr('rewards.gift.cfgRoles', 'Who can gift')) + '</span>' +
+            GIFT_ROLES.map(function (r) {
+                return '<label style="display:inline-flex;gap:4px;align-items:center;"><input type="checkbox" class="rw-cfg-gift-role" value="' + r + '"' +
+                    (cfg.roles.indexOf(r) >= 0 ? ' checked' : '') + dis + '>' + esc(roleNames[r] || r) + '</label>';
+            }).join('') + '</div>';
+        if (admin) {
+            html += '<button type="button" id="rwCfgGiftSave" class="btn btn--primary" style="padding:8px 14px;">' + esc(tr('common.save', 'Save')) + '</button>';
+        }
+        html += '<p id="rwCfgGiftSum" style="margin:8px 0 0;font-size:13px;font-weight:700;color:#9d174d;">' + esc(giftConfigSummary(cfg)) + '</p>';
+        if (!admin) {
+            html += '<div style="font-size:12px;color:#94a3b8;margin-top:4px;">' + esc(tr('rewards.cfg.adminOnly', 'Only Admin can change this setting.')) + '</div>';
+        }
+        html += '</div>';
+        return html;
+    }
+
+    /** Pure-ish: read the card inputs into a settings patch. */
+    function readGiftConfigCard(root) {
+        root = root || document;
+        function val(id) { var el = root.querySelector('#' + id); return el ? el.value : ''; }
+        function on(id) { var el = root.querySelector('#' + id); return !!(el && el.checked); }
+        var roles = [];
+        root.querySelectorAll('.rw-cfg-gift-role').forEach(function (cb) { if (cb.checked) roles.push(cb.value); });
+        return {
+            enabled: on('rwCfgGiftOn'),
+            maxPoints: val('rwCfgGiftMax'),
+            perPatientDaily: val('rwCfgGiftDaily'),
+            staffDailyMax: val('rwCfgGiftStaff') || 0,
+            requireLogin: on('rwCfgGiftLogin'),
+            requireReason: on('rwCfgGiftReason'),
+            roles: roles
+        };
+    }
+
+    function wireGiftConfigCard(root) {
+        var btn = (root || document).querySelector('#rwCfgGiftSave');
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+            var patch = readGiftConfigCard(root);
+            if (!patch.roles.length) { alert(tr('rewards.gift.cfgNoRoles', 'Tick at least one role.')); return; }
+            if (!patch.requireLogin && !window.confirm(tr('rewards.gift.cfgLoginOffConfirm',
+                'Gifts will be recorded under the login on screen without asking for a password. Continue?'))) return;
+            btn.disabled = true;
+            saveGiftConfig(patch).then(function (res) {
+                btn.disabled = false;
+                if (!res.ok) { alert(res.error || 'Save failed'); return; }
+                var c = res.config;
+                var set = function (id, v) { var el = (root || document).querySelector('#' + id); if (el) el.value = v; };
+                set('rwCfgGiftMax', String(c.maxPoints));
+                set('rwCfgGiftDaily', String(c.perPatientDaily));
+                set('rwCfgGiftStaff', c.staffDailyMax ? String(c.staffDailyMax) : '');
+                var sum = (root || document).querySelector('#rwCfgGiftSum');
+                if (sum) sum.textContent = giftConfigSummary(c);
+                if (typeof toast === 'function') toast(tr('rewards.cfg.saved', 'Saved'));
+                else alert(tr('rewards.cfg.saved', 'Saved'));
+            }, function (e) {
+                btn.disabled = false;
+                alert((e && e.message) || 'Save failed');
+            });
         });
     }
 
@@ -4658,7 +4918,8 @@ var REWARDS = (function () {
             loadLedger(null, 80),
             loadReferralConfig(true),
             loadRedeemCap(true),
-            loadGiftLog(300)
+            loadGiftLog(300),
+            loadGiftConfig(true)
         ]).then(function (parts) {
             var program = parts[0];
             var clinics = (parts[1].data || parts[1]) || [];
@@ -4670,7 +4931,7 @@ var REWARDS = (function () {
                 enrichLedgerMeta(ledgerRaw, clinics),
                 enrichLedgerMeta(parts[7] || [], clinics).catch(function () { return parts[7] || []; })
             ]).then(function (both) {
-                return { program: program, clinics: clinics, map: map, docMap: docMap, ledger: both[0], gifts: both[1] || [], referral: parts[5], cap: parts[6] };
+                return { program: program, clinics: clinics, map: map, docMap: docMap, ledger: both[0], gifts: both[1] || [], referral: parts[5], cap: parts[6], giftCfg: parts[8] };
             });
         }).then(function (ctx) {
             var program = ctx.program;
@@ -4769,6 +5030,8 @@ var REWARDS = (function () {
                     esc(tr('rewards.cfg.adminOnly', 'Only Admin can change this setting.')) + '</div>';
             }
             html += '</div>';
+
+            html += renderGiftConfigCard(ctx.giftCfg, admin);
 
             // Zero policy + manual RESET ZERO + Step Back recover
             var zeroNorm = normalizeZeroPolicy(program);
@@ -4963,6 +5226,7 @@ var REWARDS = (function () {
             pane.innerHTML = html;
 
             if (admin) {
+                wireGiftConfigCard(pane);
                 var saveBtn = document.getElementById('rwCfgRateSave');
                 if (saveBtn) {
                     saveBtn.addEventListener('click', function () {
@@ -5476,6 +5740,16 @@ var REWARDS = (function () {
         refreshActiveBannerBalances: refreshActiveBannerBalances,
         adjust: adjust,
         GIFT_MAX: GIFT_MAX,
+        GIFT_CONFIG_KEY: GIFT_CONFIG_KEY,
+        normalizeGiftConfig: normalizeGiftConfig,
+        loadGiftConfig: loadGiftConfig,
+        saveGiftConfig: saveGiftConfig,
+        giftConfigSummary: giftConfigSummary,
+        renderGiftConfigCard: renderGiftConfigCard,
+        readGiftConfigCard: readGiftConfigCard,
+        giftDailyReached: giftDailyReached,
+        giftScreenLoginOk: giftScreenLoginOk,
+        giftTodayRows: giftTodayRows,
         gift: gift,
         giftCheck: giftCheck,
         giftTodayRow: giftTodayRow,

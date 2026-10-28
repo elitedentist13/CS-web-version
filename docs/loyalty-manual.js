@@ -147,7 +147,9 @@
                     ] },
                     { t: 'Gift points to a patient', key: true, list: [
                         'Open the patient’s points ledger. In <b>🎀 Gift points</b> type the <b>points (1–200)</b>, pick the <b>doctor</b> and type the <b>reason</b>, then press <b>🔒 Gift points</b> and enter <b>your own login and password</b>.',
-                        'Rules: up to <b>200 points</b> per gift, <b>one gift per patient per day</b> (HK time, all the patient’s charts), reason required. The shared <b>Nurse</b> login cannot gift. The clinic and doctor must be joined.',
+                        'Default rules: up to <b>200 points</b> per gift, <b>one gift per patient per day</b> (HK time, all the patient’s charts), reason required, own login and password. The shared <b>Nurse</b> login cannot gift. The clinic and doctor must be joined.',
+                        'Admin changes these in the <b>🎀 Gift points</b> card on this page: switch gifting on or off, <b>Max points per gift</b>, <b>Gifts per patient per day</b> (0 = no limit), <b>Max points one staff login can gift per day</b>, ' +
+                            '<b>Ask for the giver’s own login and password</b>, <b>Reason required</b> and <b>Who can gift</b>. Press <b>Save</b>.',
                         'Gifted points belong to the chosen doctor (used only on that doctor’s bills), follow the per-bill limit and RESET ZERO, and expire with the rest of the balance. They do not restart the life span.',
                         'Every gift shows as <b>🎀 gift</b> in the ledger (with <b>Given by</b>) and in the <b>🎀 Gift log</b> card on this page. To take a gift back, Admin uses <b>Admin adjust −</b> with a note.'
                     ] }
@@ -398,7 +400,9 @@
                     ] },
                     { t: '贈送積分給病人', key: true, list: [
                         '打開病人的積分紀錄，在 <b>🎀 贈送積分</b> 輸入<b>積分（1–200）</b>、選擇<b>醫生</b>及填寫<b>原因</b>，按 <b>🔒 贈送積分</b>，再輸入<b>你自己的登入名稱及密碼</b>。',
-                        '規則：每次最多 <b>200 分</b>，<b>每位病人每天一次</b>（香港時間，包括同一病人的所有病歷），須填寫原因。共用的 <b>Nurse</b> 登入不可贈送。診所及醫生須已參加。',
+                        '預設規則：每次最多 <b>200 分</b>，<b>每位病人每天一次</b>（香港時間，包括同一病人的所有病歷），須填寫原因及輸入本人登入及密碼。共用的 <b>Nurse</b> 登入不可贈送。診所及醫生須已參加。',
+                        'Admin 可在本頁的 <b>🎀 贈送積分</b> 卡更改：開啟或關閉贈送、<b>每次贈送最多積分</b>、<b>每位病人每天贈送次數</b>（0 = 不限）、<b>每位職員每天最多可贈送積分</b>、' +
+                            '<b>須輸入贈送人本人的登入及密碼</b>、<b>須填寫原因</b>及<b>可贈送的職位</b>，然後按 <b>Save</b>。',
                         '贈送的積分屬於所選醫生（只可在該醫生的賬單使用），同樣受每張賬單上限及 RESET ZERO 規限，並與其他結餘一同到期，不會重新計算有效期。',
                         '每次贈送會以 <b>🎀 贈送</b> 顯示在積分紀錄（附<b>贈送人</b>）及本頁的 <b>🎀 贈送紀錄</b>。如需收回，由 Admin 用 <b>Admin adjust −</b> 並填寫備註。'
                     ] }
@@ -640,7 +644,9 @@
                     ] },
                     { t: '赠送积分给病人', key: true, list: [
                         '打开病人的积分纪录，在 <b>🎀 赠送积分</b> 输入<b>积分（1–200）</b>、选择<b>医生</b>及填写<b>原因</b>，按 <b>🔒 赠送积分</b>，再输入<b>你自己的登录名称及密码</b>。',
-                        '规则：每次最多 <b>200 分</b>，<b>每位病人每天一次</b>（香港时间，包括同一病人的所有病历），须填写原因。共用的 <b>Nurse</b> 登录不可赠送。诊所及医生须已参加。',
+                        '默认规则：每次最多 <b>200 分</b>，<b>每位病人每天一次</b>（香港时间，包括同一病人的所有病历），须填写原因及输入本人登录及密码。共用的 <b>Nurse</b> 登录不可赠送。诊所及医生须已参加。',
+                        'Admin 可在本页的 <b>🎀 赠送积分</b> 卡更改：开启或关闭赠送、<b>每次赠送最多积分</b>、<b>每位病人每天赠送次数</b>（0 = 不限）、<b>每位职员每天最多可赠送积分</b>、' +
+                            '<b>须输入赠送人本人的登录及密码</b>、<b>须填写原因</b>及<b>可赠送的职位</b>，然后按 <b>Save</b>。',
                         '赠送的积分属于所选医生（只可在该医生的账单使用），同样受每张账单上限及 RESET ZERO 规限，并与其他余额一同到期，不会重新计算有效期。',
                         '每次赠送会以 <b>🎀 赠送</b> 显示在积分纪录（附<b>赠送人</b>）及本页的 <b>🎀 赠送纪录</b>。如需收回，由 Admin 用 <b>Admin adjust −</b> 并填写备注。'
                     ] }

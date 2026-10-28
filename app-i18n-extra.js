@@ -3805,10 +3805,61 @@
         'rewards.ledger.f.other': { en: 'Adjust & void', 'zh-CN': '调整及撤销', 'zh-Hant': '調整及撤銷' },
         'rewards.ledger.f.gift': { en: 'Gifts', 'zh-CN': '赠送', 'zh-Hant': '贈送' },
         'rewards.gift.title': { en: 'Gift points', 'zh-CN': '赠送积分', 'zh-Hant': '贈送積分' },
-        'rewards.gift.rule': {
-            en: 'Up to 200 points · one gift per patient per day · reason required',
-            'zh-CN': '最多 200 分 · 每位病人每天一次 · 须填写原因',
-            'zh-Hant': '最多 200 分 · 每位病人每天一次 · 須填寫原因'
+        'rewards.gift.sUpTo': { en: 'Up to', 'zh-CN': '最多', 'zh-Hant': '最多' },
+        'rewards.gift.sPerDay': { en: 'gift(s) per patient per day', 'zh-CN': '次／每位病人每天', 'zh-Hant': '次／每位病人每天' },
+        'rewards.gift.sNoDaily': { en: 'no daily limit per patient', 'zh-CN': '每位病人每天不限次数', 'zh-Hant': '每位病人每天不限次數' },
+        'rewards.gift.sStaff': { en: 'staff max', 'zh-CN': '每位职员最多', 'zh-Hant': '每位職員最多' },
+        'rewards.gift.sStaffDay': { en: 'points a day', 'zh-CN': '分／天', 'zh-Hant': '分／天' },
+        'rewards.gift.sLogin': { en: 'own login + password', 'zh-CN': '须本人登录及密码', 'zh-Hant': '須本人登入及密碼' },
+        'rewards.gift.sNoLogin': { en: 'no password (screen login)', 'zh-CN': '不需密码（以画面登录记录）', 'zh-Hant': '不需密碼（以畫面登入記錄）' },
+        'rewards.gift.sReason': { en: 'reason required', 'zh-CN': '须填写原因', 'zh-Hant': '須填寫原因' },
+        'rewards.gift.cfgOff': { en: 'Gift points is off.', 'zh-CN': '赠送积分已关闭。', 'zh-Hant': '贈送積分已關閉。' },
+        'rewards.gift.cfgTitle': { en: 'Gift points', 'zh-CN': '赠送积分', 'zh-Hant': '贈送積分' },
+        'rewards.gift.cfgHint': {
+            en: 'Staff can gift points to a patient from the patient’s points ledger. Gifted points belong to the chosen doctor, follow the per-bill limit and RESET ZERO, and are listed in the Gift log below.',
+            'zh-CN': '职员可在病人的积分纪录赠送积分。赠送的积分属于所选医生，受每张账单上限及 RESET ZERO 规限，并列于下方的赠送纪录。',
+            'zh-Hant': '職員可在病人的積分紀錄贈送積分。贈送的積分屬於所選醫生，受每張賬單上限及 RESET ZERO 規限，並列於下方的贈送紀錄。'
+        },
+        'rewards.gift.cfgOn': { en: 'Allow staff to gift reward points', 'zh-CN': '允许职员赠送积分', 'zh-Hant': '允許職員贈送積分' },
+        'rewards.gift.cfgMax': { en: 'Max points per gift', 'zh-CN': '每次赠送最多积分', 'zh-Hant': '每次贈送最多積分' },
+        'rewards.gift.cfgDaily': { en: 'Gifts per patient per day', 'zh-CN': '每位病人每天赠送次数', 'zh-Hant': '每位病人每天贈送次數' },
+        'rewards.gift.cfgZero': { en: '0 = no limit', 'zh-CN': '0 = 不限', 'zh-Hant': '0 = 不限' },
+        'rewards.gift.cfgStaff': { en: 'Max points one staff login can gift per day', 'zh-CN': '每位职员每天最多可赠送积分', 'zh-Hant': '每位職員每天最多可贈送積分' },
+        'rewards.gift.cfgBlank': { en: 'blank = no limit', 'zh-CN': '留空 = 不限', 'zh-Hant': '留空 = 不限' },
+        'rewards.gift.cfgLogin': { en: 'Ask for the giver’s own login and password', 'zh-CN': '须输入赠送人本人的登录及密码', 'zh-Hant': '須輸入贈送人本人的登入及密碼' },
+        'rewards.gift.cfgLoginHint': {
+            en: 'Untick to record the gift under the login on screen without a password. The shared Nurse login always has to type a personal login.',
+            'zh-CN': '取消勾选即以画面上的登录记录，不需密码。共用的 Nurse 登录仍须输入个人登录。',
+            'zh-Hant': '取消勾選即以畫面上的登入記錄，不需密碼。共用的 Nurse 登入仍須輸入個人登入。'
+        },
+        'rewards.gift.cfgReason': { en: 'Reason required', 'zh-CN': '须填写原因', 'zh-Hant': '須填寫原因' },
+        'rewards.gift.cfgRoles': { en: 'Who can gift', 'zh-CN': '可赠送的职位', 'zh-Hant': '可贈送的職位' },
+        'rewards.gift.cfgNoRoles': { en: 'Tick at least one role.', 'zh-CN': '请至少勾选一个职位。', 'zh-Hant': '請至少勾選一個職位。' },
+        'rewards.gift.cfgLoginOffConfirm': {
+            en: 'Gifts will be recorded under the login on screen without asking for a password. Continue?',
+            'zh-CN': '赠送将以画面上的登录记录，不会要求密码。继续？',
+            'zh-Hant': '贈送將以畫面上的登入記錄，不會要求密碼。繼續？'
+        },
+        'rewards.gift.role.doctor': { en: 'Doctor', 'zh-CN': '医生', 'zh-Hant': '醫生' },
+        'rewards.gift.role.dentist': { en: 'Dentist', 'zh-CN': '牙医', 'zh-Hant': '牙醫' },
+        'rewards.gift.role.nurse': { en: 'Nurse (own login)', 'zh-CN': '护士（个人登录）', 'zh-Hant': '護士（個人登入）' },
+        'rewards.gift.role.receptionist': { en: 'Receptionist', 'zh-CN': '接待员', 'zh-Hant': '接待員' },
+        'rewards.gift.role.reception': { en: 'Reception', 'zh-CN': '前台', 'zh-Hant': '前台' },
+        'rewards.gift.role.staff': { en: 'Staff', 'zh-CN': '职员', 'zh-Hant': '職員' },
+        'rewards.gift.notePhOpt': { en: 'Reason (optional)', 'zh-CN': '原因（选填）', 'zh-Hant': '原因（選填）' },
+        'rewards.gift.lockScreen': {
+            en: 'Recorded under the login on this screen (no password asked). Shown in the points history and the gift log.',
+            'zh-CN': '以此画面的登录记录（不需密码），并显示于积分纪录及赠送纪录。',
+            'zh-Hant': '以此畫面的登入記錄（不需密碼），並顯示於積分紀錄及贈送紀錄。'
+        },
+        'rewards.gift.todayN': { en: 'Gifts today', 'zh-CN': '今天已赠送', 'zh-Hant': '今天已贈送' },
+        'rewards.gift.e.pointsMax': { en: 'Enter whole points from 1 to', 'zh-CN': '请输入整数积分，1 至', 'zh-Hant': '請輸入整數積分，1 至' },
+        'rewards.gift.e.staff': { en: 'You reached your daily gift limit.', 'zh-CN': '你今天的赠送额度已用完。', 'zh-Hant': '你今天的贈送額度已用完。' },
+        'rewards.gift.e.staffLeft': { en: 'Points left today:', 'zh-CN': '今天尚余：', 'zh-Hant': '今天尚餘：' },
+        'rewards.gift.e.dailyN': {
+            en: 'This patient reached today’s gift limit.',
+            'zh-CN': '此病人今天的赠送次数已满。',
+            'zh-Hant': '此病人今天的贈送次數已滿。'
         },
         'rewards.gift.pointsPh': { en: 'Points', 'zh-CN': '积分', 'zh-Hant': '積分' },
         'rewards.gift.pts': { en: 'points', 'zh-CN': '积分', 'zh-Hant': '積分' },
@@ -3852,18 +3903,12 @@
             'zh-Hant': '共用的 Nurse 登入不可贈送積分，請使用你自己的登入。'
         },
         'rewards.gift.e.role': { en: 'This login is not allowed to gift points.', 'zh-CN': '此登入不可赠送积分。', 'zh-Hant': '此登入不可贈送積分。' },
-        'rewards.gift.e.points': { en: 'Enter whole points from 1 to 200.', 'zh-CN': '请输入 1 至 200 的整数积分。', 'zh-Hant': '請輸入 1 至 200 的整數積分。' },
         'rewards.gift.e.note': { en: 'Enter the reason for this gift.', 'zh-CN': '请填写赠送原因。', 'zh-Hant': '請填寫贈送原因。' },
         'rewards.gift.e.doctor': { en: 'Pick the doctor these points are for.', 'zh-CN': '请选择积分所属医生。', 'zh-Hant': '請選擇積分所屬醫生。' },
         'rewards.gift.e.joined': {
             en: 'This clinic or doctor has not joined Gain in the reward points scheme.',
             'zh-CN': '此诊所或医生未参加积分赚取。',
             'zh-Hant': '此診所或醫生未參加積分賺取。'
-        },
-        'rewards.gift.e.daily': {
-            en: 'This patient already got a gift today. One gift per patient per day.',
-            'zh-CN': '此病人今天已获赠送。每位病人每天只可赠送一次。',
-            'zh-Hant': '此病人今天已獲贈送。每位病人每天只可贈送一次。'
         },
         'rewards.gift.e.noSql': {
             en: 'Gift points is not set up yet. Run reward_points_gift.sql in Supabase first.',

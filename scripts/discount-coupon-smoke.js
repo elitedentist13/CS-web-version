@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261028manual1';
+var BUILD = '20261028manual2';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -203,6 +203,8 @@ function loadCoupons() {
         return ['REWARDS.referralAvailability', 'REWARDS.referralCredit', 'REWARDS.referralReverse', 'REWARDS.clinicCtx',
             'REWARDS.loyaltyGuideLinkHtml'].indexOf(u) >= 0;
     }), rwUses.join(','));
+    pass('coupon sheet header has the 📖 manual link next to Wallet QR',
+        /esc\(ct\('coupons\.wqr\.btn', 'Wallet QR'\)\) \+ '<\/button>' : ''\) \+\s+\(\(typeof REWARDS !== 'undefined' && REWARDS && typeof REWARDS\.loyaltyGuideLinkHtml === 'function'\)\s+\? REWARDS\.loyaltyGuideLinkHtml\('coupons'\) : ''\) \+ '<\/div>'/.test(src));
     pass('coupon config title has the 📖 manual link (only when the reward module is loaded)',
         /REWARDS\.loyaltyGuideLinkHtml\('coupons'\) : ''/.test(src) && /'<h2 class="dc-title">'[^\n]*\+ guide \+ '<\/div>'/.test(src));
 
@@ -1716,6 +1718,14 @@ function loadCoupons() {
   var out = {};
   var btn = document.getElementById('dcWalletQrBtn');
   out.btn = !!btn;
+  var guide = host.querySelector('.dc-wsum-row .loyalty-guide-btn');
+  if (guide) {
+    guide.addEventListener('click', function (e) { e.preventDefault(); }, { once: true });
+    guide.click();
+    var gl = typeof getAppLang === 'function' ? getAppLang() : 'en';
+    out.guide = { shown: guide.offsetParent !== null, text: guide.textContent, href: guide.getAttribute('href'), target: guide.target,
+      lang: ['zh-Hant', 'zh-CN'].indexOf(gl) >= 0 ? gl : 'en' };
+  }
   function wait(test, ms) {
     return new Promise(function (resolve) {
       var t0 = Date.now();
@@ -1812,6 +1822,9 @@ function loadCoupons() {
   return out;
 })()`, true, 30000);
         pass('CDP sheet shows the Wallet QR button', !!(wqr && wqr.btn && wqr.overlay), JSON.stringify(wqr));
+        pass('CDP coupon sheet has 📖 How to use -> coupon part of the manual in the dashboard language (new tab)',
+            !!(wqr && wqr.guide && wqr.guide.shown && /^📖/.test(wqr.guide.text) && wqr.guide.target === '_blank' &&
+                wqr.guide.href === 'docs/loyalty-manual.html?v=20261028a#coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
         pass('CDP Wallet QR explains when the link cannot be made', !!(wqr && /discount_coupon_wallet\.sql|Could not make/.test(wqr.realErr)), wqr && wqr.realErr);
         pass('CDP Esc closes the QR and keeps the sheet', !!(wqr && wqr.escClosesQrOnly));
         pass('CDP Wallet QR draws the wallet link', !!(wqr && wqr.qr && /\/wallet\.html\?t=0123456789abcdef0123456789abcdef$/.test(wqr.link) && wqr.qrUrl === wqr.link),

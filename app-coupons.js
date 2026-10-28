@@ -2645,7 +2645,9 @@ var COUPONS = (function () {
             '<button type="button" class="dc-x" id="dcSheetClose" aria-label="' + esc(ct('common.close', 'Close')) + '">×</button>' +
             '<div class="dc-wsum-row">' + walletSummaryHtml(wallet, today) +
             (bill.patient_id ? '<button type="button" class="dc-wqr-btn" id="dcWalletQrBtn" data-no-click-guard="1">📱 ' +
-                esc(ct('coupons.wqr.btn', 'Wallet QR')) + '</button>' : '') + '</div>' +
+                esc(ct('coupons.wqr.btn', 'Wallet QR')) + '</button>' : '') +
+            ((typeof REWARDS !== 'undefined' && REWARDS && typeof REWARDS.loyaltyGuideLinkHtml === 'function')
+                ? REWARDS.loyaltyGuideLinkHtml('coupons') : '') + '</div>' +
             '<div class="dc-stabs" role="tablist">';
         [
             ['use', ct('coupons.tab.use', 'Use'), usable.length],

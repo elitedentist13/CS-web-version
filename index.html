@@ -15,7 +15,7 @@
 <script>
 (function () {
   /* Bump BUILD whenever CSS/JS change to force a fresh fetch past any cache. */
-  var BUILD = '20261028manual1';
+  var BUILD = '20261028manual2';
   var bust = '';
   try {
     var q = new URLSearchParams(window.location.search);
@@ -7575,6 +7575,10 @@
                 onclick="REWARDS && REWARDS.openPhoneQr()"
                 data-i18n-title="rewards.pqr.btnTitle" title="Show a QR code the patient scans to see their points on the phone">📱 <span
                 data-i18n="rewards.pqr.btn">Points on the phone</span></button>
+        <a id="rwGuideBtn" class="xray-helper-guide-btn loyalty-guide-btn rw-guide-btn" data-guide-part="rewards"
+           href="docs/loyalty-manual.html?v=20261028a#rewards-en" target="_blank" rel="noopener"
+           data-i18n="loyalty.guideBtn" data-i18n-title="loyalty.guideTitle"
+           title="Open the Reward Points &amp; Discount Coupons manual">📖 How to use</a>
       </div>
       <div id="rwAdminAdjust" style="display:none;flex:1;min-width:240px;">
         <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;" data-i18n="rewards.adj.title">Admin adjust</div>
@@ -8337,8 +8341,8 @@
     'app-webbook.js',
     'app-webbook-roster.js',
     'app-mass-broadcast.js',
-'app-rewards.js?v=20261028manual1',
-            'app-coupons.js?v=20261028manual1'
+'app-rewards.js?v=20261028manual2',
+            'app-coupons.js?v=20261028manual2'
   ];
   /* entertainment section is injected inline above the script block */
   for (var i = 0; i < files.length; i++) {

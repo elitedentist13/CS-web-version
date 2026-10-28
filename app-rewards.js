@@ -4848,6 +4848,7 @@ var REWARDS = (function () {
             '#rwPatientStarted{font-size:16px;font-weight:700;color:#334155;margin-top:2px;}' +
             '#rewardPatientModal .rw-pqr-btn{margin-top:8px;align-self:flex-start;white-space:nowrap;}' +
             '#rewardPatientModal .rw-pqr-btn[hidden]{display:none;}' +
+            '#rewardPatientModal .rw-guide-btn{margin-top:6px;align-self:flex-start;}' +
             '#rwAdminAdjust{padding:10px 12px;border-radius:14px;border:1px dashed #cbd5e1;background:#fff;}' +
             '.rw-lg-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px;}' +
             '.rw-lg-summary:empty,.rw-lg-filters:empty{display:none;}' +

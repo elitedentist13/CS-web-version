@@ -802,6 +802,9 @@ function extractIifeHelpers(src) {
             js.body.indexOf('redeemMulti') >= 0);
 
         pass('HTML has rwPhoneQrBtn', idx.body.indexOf('id="rwPhoneQrBtn"') >= 0);
+        pass('HTML ledger panel has the 📖 manual link (points part)',
+            /id="rwGuideBtn" class="[^"]*loyalty-guide-btn[^"]*" data-guide-part="rewards"/.test(idx.body) &&
+            /href="docs\/loyalty-manual\.html\?v=20261028a#rewards-en" target="_blank"/.test(idx.body));
         var ptsHtml = await httpGetText(PAGE_PORT, '/points.html');
         pass('GET /points.html loads points.js + wallet.css and boots', ptsHtml.status === 200 &&
             /src="points\.js\?v=/.test(ptsHtml.body) && /href="wallet\.css\?v=/.test(ptsHtml.body) &&
@@ -1414,6 +1417,14 @@ function extractIifeHelpers(src) {
     await wait(() => modal && getComputedStyle(modal).display !== 'none', 5000);
     const btn = document.getElementById('rwPhoneQrBtn');
     out.btnShown = !!btn && !btn.hidden && btn.offsetParent !== null && /Points on the phone/.test(btn.textContent);
+    const guide = document.getElementById('rwGuideBtn');
+    if (guide) {
+      guide.addEventListener('click', e => e.preventDefault(), { once: true });
+      guide.click();
+      const lang = typeof getAppLang === 'function' ? getAppLang() : 'en';
+      out.guide = { shown: guide.offsetParent !== null, text: guide.textContent, href: guide.getAttribute('href'), target: guide.target,
+        lang: ['zh-Hant', 'zh-CN'].indexOf(lang) >= 0 ? lang : 'en' };
+    }
     btn.click();
     await wait(() => !!modal.querySelector('.dc-wqr #dcWqrCode canvas, .dc-wqr #dcWqrCode img'), 10000);
     const wrap = modal.querySelector('.dc-wqr');
@@ -1463,6 +1474,9 @@ function extractIifeHelpers(src) {
   return out;
 })()`, true, 40000);
         pass('CDP ledger panel shows Points on the phone', !!(pqr && pqr.btnShown), JSON.stringify(pqr).slice(0, 300));
+        pass('CDP ledger panel has 📖 How to use -> points part of the manual in the dashboard language (new tab)',
+            !!(pqr && pqr.guide && pqr.guide.shown && /^📖/.test(pqr.guide.text) && pqr.guide.target === '_blank' &&
+                pqr.guide.href === 'docs/loyalty-manual.html?v=20261028a#rewards-' + pqr.guide.lang), JSON.stringify(pqr && pqr.guide));
         pass('CDP points QR covers the screen above the ledger panel (not clipped by the panel box)',
             !!(pqr && pqr.inModal && pqr.onTop && pqr.fullScreen && pqr.notInBox && pqr.inView),
             pqr && JSON.stringify(pqr.topDebug || ''));

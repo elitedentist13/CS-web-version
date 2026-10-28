@@ -146,7 +146,7 @@ begin
         'today', (now() at time zone 'Asia/Hong_Kong')::date,
         'coupons', v_coupons,
         'campaigns', coalesce(v_names, '[]'::jsonb),
-        'cash_rules', coalesce(nullif(v_cash, 'null'::jsonb), '{"maxCount": 0, "maxPercent": 50, "maxAmount": 3000}'::jsonb)
+        'cash_rules', coalesce(nullif(v_cash, 'null'::jsonb), '{"maxCount": 0, "maxPercent": 0, "maxAmount": 3000}'::jsonb)
     );
 end;
 $$;

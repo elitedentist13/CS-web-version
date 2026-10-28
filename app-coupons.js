@@ -123,7 +123,7 @@ var COUPONS = (function () {
     var _campaigns = null;
     var _loaded = false;
     /** Cash coupons that can stack on one bill. Both limits apply together (the smaller wins); 0 = no such limit. */
-    var DEFAULT_CASH_RULES = { maxCount: 0, maxPercent: 50, maxAmount: 3000 };
+    var DEFAULT_CASH_RULES = { maxCount: 0, maxPercent: 0, maxAmount: 3000 };
     var CASH_STACK_MAX = 10;
     var _cashRules = clone(DEFAULT_CASH_RULES);
 
@@ -1681,7 +1681,7 @@ var COUPONS = (function () {
             '</span></label></div>' +
             '<p class="dc-hint dc-cash-sum" id="dcCashSum">' + esc(cashRulesSummary(r)) + '</p>' +
             '<p class="dc-hint">' + esc(ct('coupons.cash.hint',
-                'Only cash coupons stack. Spend, new-chart and referral coupons stay one per bill and are not combined with cash. Default: any number of cash coupons, 50% of the bill up to HK$3,000 — both limits apply and the smaller one wins. Leave a box blank to drop that limit. The percentage is of the whole bill before coupons.')) + '</p>' +
+                'Only cash coupons stack. Spend, new-chart and referral coupons stay one per bill and are not combined with cash. Default: any number of cash coupons, up to HK$3,000 per bill, no % limit. If you also set a %, both limits apply and the smaller one wins. Leave a box blank to drop that limit. The percentage is of the whole bill before coupons.')) + '</p>' +
             '</div>';
     }
 
@@ -3873,7 +3873,7 @@ var COUPONS = (function () {
 
     function rulesNoteHtml() {
         var rules = [
-            ['r1', 'Per bill: one treatment coupon plus either one whole-bill coupon (spend, new chart, referral) or any number of cash coupons (by default 50% of the bill up to HK$3,000; change it in Configuration). The treatment coupon comes off first; the rest comes off what is left.'],
+            ['r1', 'Per bill: one treatment coupon plus either one whole-bill coupon (spend, new chart, referral) or any number of cash coupons (by default up to HK$3,000 per bill, no % limit; change it in Configuration). The treatment coupon comes off first; the rest comes off what is left.'],
             ['r2', 'Treatment coupons only cover treatment-list items ticked for that coupon. A typed line counts only if its name is exactly the same as the treatment list.'],
             ['r3', 'No change and no cash back: if a coupon is worth more than the bill, the rest is lost.'],
             ['r4', 'Spend coupons count all cash paid on the bill (not reward points, balance transfer or voided payments). A coupon earned on a bill can be used from the next bill.'],

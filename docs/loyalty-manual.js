@@ -52,7 +52,7 @@
             '<div class="lm-mock-title">' + m.cashTitle + '</div>' +
             '<div class="lm-mock-row"><b>' + m.cashCount + '</b><span class="lm-box">' + m.noLimit + ' ▾</span></div>' +
             '<div class="lm-mock-row" style="margin-top:4px"><b>' + m.cashMax + '</b>' +
-                '<span class="lm-box">50</span><span>% ' + m.ofBill + '</span><span>' + m.upTo + ' HK$</span><span class="lm-box">3000</span></div>' +
+                '<span class="lm-box is-empty">—</span><span>% ' + m.ofBill + '</span><span>' + m.upTo + ' HK$</span><span class="lm-box">3000</span></div>' +
             '<div class="lm-sum">' + m.cashSum + '</div>' +
         '</div>';
     }
@@ -201,7 +201,7 @@
                     { t: 'Using cash coupons on one bill', key: true, mock: cashMock, list: [
                         'Inside the Cash coupon card. <b>Cash coupons per bill</b>: No limit, or 1–10.',
                         '<b>Max cash off per bill</b>: a <b>% of the bill</b> and/or <b>up to HK$</b>. Both apply and the smaller one wins; blank drops that limit.',
-                        'Default: any number of cash coupons, <b>50% of the bill up to HK$3,000</b>. The % is of the whole bill before coupons.',
+                        'Default: any number of cash coupons, <b>up to HK$3,000 per bill</b>, with <b>no % limit</b> (the % box is blank). If you fill in a %, it is of the whole bill before coupons.',
                         'Only cash coupons stack. Spend, new-chart and referral coupons stay one per bill and are not combined with cash.'
                     ] },
                     { t: 'Treatment items for a treatment coupon', list: [
@@ -248,7 +248,7 @@
                     ['“Coupons are switched off at …”', 'Those clinics are not joined. Open the clinic tab and tick Join.'],
                     ['A patient did not get a coupon', 'The clinic or doctor is not joined, the row is off, or the patient already holds the Hold up to number (or 20 coupons in all).'],
                     ['A coupon cannot be used on a bill', 'The clinic or doctor is not joined, the treatment is not ticked for that coupon, the coupon has expired, or a whole-bill coupon is already on the bill.'],
-                    ['Cash coupons stop short', 'The per-bill cash limit applies (default 50% of the bill, up to HK$3,000).'],
+                    ['Cash coupons stop short', 'The per-bill cash limit applies (default HK$3,000 per bill, no % limit).'],
                     ['Coupons were set to zero by mistake', 'Press Step back… on the red card. It gives back the coupons of the last set zero from its safety log.'],
                     ['Save on the set zero card is greyed out', 'You have not picked a different option or month yet. Every change needs the SMS and Google Authenticator codes.'],
                     ['“Run discount_coupon_zero.sql in Supabase first.”', 'The set zero tables are not in the database yet. Ask the system admin to run discount_coupon_zero.sql once.']
@@ -339,7 +339,7 @@
                 dcZeroTitle: 'Set discount coupons to zero', dcZLife: 'Set each coupon’s life span to at most:',
                 spend: 'Spend',
                 cashTitle: 'Using cash coupons on one bill', cashCount: 'Cash coupons per bill', noLimit: 'No limit',
-                cashMax: 'Max cash off per bill', cashSum: 'Any number of cash coupons per bill · at most 50% of the bill up to HK$3,000'
+                cashMax: 'Max cash off per bill', cashSum: 'Any number of cash coupons per bill · at most HK$3,000'
             }
         },
         'zh-Hant': {
@@ -440,7 +440,7 @@
                     { t: '同一張單使用現金券', key: true, mock: cashMock, list: [
                         '位於「現金券」設定卡內。<b>每張單現金券數量</b>：不限，或 1–10 張。',
                         '<b>每張單現金券扣減上限</b>：<b>賬單金額 %</b> 及／或<b>最多 HK$</b>。兩者同時適用，以較小者為準；留空即取消該上限。',
-                        '預設：現金券數量不限，<b>賬單金額 50%，最多 HK$3,000</b>。百分比以使用優惠券前的整張賬單計算。',
+                        '預設：現金券數量不限，<b>每張單最多 HK$3,000</b>，<b>不設百分比上限</b>（% 欄留空）。如填寫百分比，以使用優惠券前的整張賬單計算。',
                         '只有現金券可以疊加。消費滿額券、新客券及介紹新客券每張單只限一張，且不可與現金券同用。'
                     ] },
                     { t: '治療券的治療項目', list: [
@@ -485,7 +485,7 @@
                     ['「…未開啟優惠券」', '這些診所未加入。打開該診所分頁並剔選「加入」。'],
                     ['病人沒有獲發優惠券', '診所或醫生未加入、該行已關閉，或病人已持有「最多持有」的張數（或合共 20 張）。'],
                     ['賬單不能使用某張券', '診所或醫生未加入、該治療項目未為此券剔選、券已過期，或賬單已有一張全單券。'],
-                    ['現金券扣減不足', '受每張單現金券上限限制（預設賬單金額 50%，最多 HK$3,000）。'],
+                    ['現金券扣減不足', '受每張單現金券上限限制（預設每張單最多 HK$3,000，不設百分比上限）。'],
                     ['誤把優惠券清零', '在紅色卡片按「回退…」，會按安全日誌退回上次清零的優惠券。'],
                     ['清零卡片的「儲存」是灰色', '你尚未選擇不同的選項或月數。每次更改都需短訊及 Google 驗證器驗證碼。'],
                     ['「請先在 Supabase 執行 discount_coupon_zero.sql。」', '資料庫尚未有清零用的資料表。請系統管理員執行一次 discount_coupon_zero.sql。']
@@ -575,7 +575,7 @@
                 dcZeroTitle: '優惠券清零', dcZLife: '設定每張優惠券有效期最長為：',
                 spend: '消費',
                 cashTitle: '同一張單使用現金券', cashCount: '每張單現金券數量', noLimit: '不限',
-                cashMax: '每張單現金券扣減上限', cashSum: '每張單現金券數量不限 · 最多賬單金額 50%，最多 HK$3,000'
+                cashMax: '每張單現金券扣減上限', cashSum: '每張單現金券數量不限 · 最多扣 HK$3,000'
             }
         },
         'zh-CN': {
@@ -676,7 +676,7 @@
                     { t: '同一张单使用现金券', key: true, mock: cashMock, list: [
                         '位于「现金券」设置卡内。<b>每张单现金券数量</b>：不限，或 1–10 张。',
                         '<b>每张单现金券扣减上限</b>：<b>账单金额 %</b> 及／或<b>最多 HK$</b>。两者同时适用，以较小者为准；留空即取消该上限。',
-                        '默认：现金券数量不限，<b>账单金额 50%，最多 HK$3,000</b>。百分比以使用优惠券前的整张账单计算。',
+                        '默认：现金券数量不限，<b>每张单最多 HK$3,000</b>，<b>不设百分比上限</b>（% 栏留空）。如填写百分比，以使用优惠券前的整张账单计算。',
                         '只有现金券可以叠加。消费满额券、新客券及介绍新客券每张单只限一张，且不可与现金券同用。'
                     ] },
                     { t: '治疗券的治疗项目', list: [
@@ -721,7 +721,7 @@
                     ['「…未开启优惠券」', '这些诊所未加入。打开该诊所标签并勾选「加入」。'],
                     ['病人没有获发优惠券', '诊所或医生未加入、该行已关闭，或病人已持有「最多持有」的张数（或合共 20 张）。'],
                     ['账单不能使用某张券', '诊所或医生未加入、该治疗项目未为此券勾选、券已过期，或账单已有一张全单券。'],
-                    ['现金券扣减不足', '受每张单现金券上限限制（默认账单金额 50%，最多 HK$3,000）。'],
+                    ['现金券扣减不足', '受每张单现金券上限限制（默认每张单最多 HK$3,000，不设百分比上限）。'],
                     ['误把优惠券清零', '在红色卡片点「回退…」，会按安全日志退回上次清零的优惠券。'],
                     ['清零卡片的「保存」是灰色', '你尚未选择不同的选项或月数。每次更改都需短信及 Google 验证器验证码。'],
                     ['「请先在 Supabase 运行 discount_coupon_zero.sql。」', '数据库尚未有清零用的数据表。请系统管理员运行一次 discount_coupon_zero.sql。']
@@ -811,7 +811,7 @@
                 dcZeroTitle: '优惠券清零', dcZLife: '设置每张优惠券有效期最长为：',
                 spend: '消费',
                 cashTitle: '同一张单使用现金券', cashCount: '每张单现金券数量', noLimit: '不限',
-                cashMax: '每张单现金券扣减上限', cashSum: '每张单现金券数量不限 · 最多账单金额 50%，最多 HK$3,000'
+                cashMax: '每张单现金券扣减上限', cashSum: '每张单现金券数量不限 · 最多扣 HK$3,000'
             }
         }
     };

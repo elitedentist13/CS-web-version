@@ -229,7 +229,7 @@
             pctRaw = rules.limitMode === 'percent' ? rules.limitValue : 0;
             amtRaw = rules.limitMode === 'amount' ? rules.limitValue : 0;
         }
-        var pct = Math.min(100, part(pctRaw, 50));
+        var pct = Math.min(100, part(pctRaw, 0));
         var amt = part(amtRaw, 3000);
         var count = parseInt(rules.maxCount, 10);
         var lines = [];

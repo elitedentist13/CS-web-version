@@ -1419,23 +1419,30 @@ function loadCoupons() {
         C.normalizeCashRules({ maxCount: 0 }).maxCount === 0 && C.normalizeCashRules({ maxCount: -4 }).maxCount === 0 &&
         C.normalizeCashRules({ maxPercent: 0 }).maxPercent === 0 && C.normalizeCashRules({ maxPercent: 0 }).maxAmount === 3000);
     var dflt = C.normalizeCashRules({});
-    pass('cash rules default to any number, 50% of the bill up to HK$3,000',
-        dflt.maxCount === 0 && dflt.maxPercent === 50 && dflt.maxAmount === 3000, JSON.stringify(dflt));
+    pass('cash rules default to any number, no % limit, up to HK$3,000',
+        dflt.maxCount === 0 && dflt.maxPercent === 0 && dflt.maxAmount === 3000, JSON.stringify(dflt));
     var legacy = C.normalizeCashRules({ maxCount: 2, limitMode: 'percent', limitValue: 30 });
     pass('older single-limit cash rules are read', legacy.maxPercent === 30 && legacy.maxAmount === 0, JSON.stringify(legacy));
-    pass('cash cap is 50% of a small bill', C.cashCapCents(4000, {}) === 200000);
-    pass('cash cap stops at HK$3,000 on a big bill', C.cashCapCents(10000, {}) === 300000 && C.cashCapCents(6000, {}) === 300000);
-    pass('cash cap with only one limit set', C.cashCapCents(10000, { maxAmount: 0 }) === 500000 && C.cashCapCents(10000, { maxPercent: 0 }) === 300000);
+    pass('default cash cap is HK$3,000 on any bill (no % of the bill)', C.cashCapCents(4000, {}) === 300000 &&
+        C.cashCapCents(1000, {}) === 300000 && C.cashCapCents(10000, {}) === 300000);
+    pass('a % set in Configuration still caps a small bill', C.cashCapCents(4000, { maxPercent: 50 }) === 200000 &&
+        C.cashCapCents(10000, { maxPercent: 50 }) === 300000 && C.cashCapCents(6000, { maxPercent: 50 }) === 300000);
+    pass('cash cap with only one limit set', C.cashCapCents(10000, { maxPercent: 50, maxAmount: 0 }) === 500000 &&
+        C.cashCapCents(10000, { maxPercent: 0 }) === 300000 && C.cashCapCents(10000, { maxAmount: 0 }) === Infinity);
     var many = [];
     for (var mi = 0; mi < 14; mi++) {
         many.push({ id: 'm' + mi, campaign_key: 'cash', scope: 'bill', mode: 'amount', face: 100, status: 'unused', patient_id: 'p', expires_on: '2027-01-' + String(10 + mi) });
     }
     var manyAll = C.combineCoupons(Object.assign({ coupons: many }, cashOpts({ maxCount: 0 })));
     pass('any number of cash coupons can stack', manyAll.cashCount === 14 && manyAll.save === 1400, JSON.stringify({ n: manyAll.cashCount, s: manyAll.save }));
-    var halfOpts = { lines: comboLines, catalog: catalog, eligibleCents: 1000, patientId: 'p', billId: 'bx', cashRules: {} };
-    var half = C.combineCoupons(Object.assign({ coupons: [kC, kC, kC].map(function (k, i) { return Object.assign({}, k, { id: 'h' + i }); }) }, halfOpts));
-    pass('default limit stops cash at 50% of the whole bill', half.save === 500 && half.capHit && half.capCents === 50000 && half.lost === 100,
+    var halfOpts = { lines: comboLines, catalog: catalog, eligibleCents: 1000, patientId: 'p', billId: 'bx', cashRules: { maxPercent: 50, maxAmount: 3000 } };
+    var halfCoupons = [kC, kC, kC].map(function (k, i) { return Object.assign({}, k, { id: 'h' + i }); });
+    var half = C.combineCoupons(Object.assign({ coupons: halfCoupons }, halfOpts));
+    pass('a 50% limit stops cash at half of the whole bill', half.save === 500 && half.capHit && half.capCents === 50000 && half.lost === 100,
         JSON.stringify({ s: half.save, cap: half.capCents, lost: half.lost }));
+    var dfltBill = C.combineCoupons(Object.assign({ coupons: halfCoupons }, halfOpts, { cashRules: {} }));
+    pass('default limit has no %: the same coupons cover more of a small bill', dfltBill.save > 500 && dfltBill.capCents === 300000 && !dfltBill.capHit,
+        JSON.stringify({ s: dfltBill.save, cap: dfltBill.capCents, hit: dfltBill.capHit, lost: dfltBill.lost }));
     var halfBest = C.bestCombination(many, halfOpts);
     pass('best pick at the 50% limit uses just enough coupons', halfBest.save === 500 && halfBest.cashCount === 5 && halfBest.lost === 0 &&
         halfBest.rows.map(function (r) { return r.coupon.id; }).join(',') === 'm0,m1,m2,m3,m4',
@@ -1466,8 +1473,8 @@ function loadCoupons() {
     var snapRules = C.snapshot().cashRules;
     pass('cash rules are saved with the scheme', snapRules.maxCount === 2 && snapRules.maxPercent === 20 && snapRules.maxAmount === 800);
     C.mergeSaved(null);
-    pass('cash rules start at any number, 50% up to HK$3,000',
-        C.cashRules().maxCount === 0 && C.cashRules().maxPercent === 50 && C.cashRules().maxAmount === 3000);
+    pass('cash rules start at any number, no %, up to HK$3,000',
+        C.cashRules().maxCount === 0 && C.cashRules().maxPercent === 0 && C.cashRules().maxAmount === 3000);
     var bestCombo = C.bestCombination([cCash50, cScale, cCash100], comboOpts);
     pass('best combination picks scaling + the larger cash',
         bestCombo.rows.length === 2 && bestCombo.save === 660 &&
@@ -1586,7 +1593,7 @@ function loadCoupons() {
     pass('wallet SQL sends the saved cash rules to the phone', (function () {
         var s = read('discount_coupon_wallet.sql');
         return /setting_value::jsonb -> 'cashRules' into v_cash/.test(s) &&
-            /'cash_rules', coalesce\(nullif\(v_cash, 'null'::jsonb\), '\{"maxCount": 0, "maxPercent": 50, "maxAmount": 3000\}'::jsonb\)/.test(s);
+            /'cash_rules', coalesce\(nullif\(v_cash, 'null'::jsonb\), '\{"maxCount": 0, "maxPercent": 0, "maxAmount": 3000\}'::jsonb\)/.test(s);
     })());
     pass('wallet page address follows the phone-scan public address',
         C.walletPageBase({ href: 'http://127.0.0.1:8080/index.html?x=1' }, 'https://clinic.example.com/app/scan.html') === 'https://clinic.example.com/app/wallet.html' &&

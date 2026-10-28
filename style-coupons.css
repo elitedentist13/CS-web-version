@@ -166,9 +166,28 @@
 .dc-wl-h { margin: 14px 0 6px; font-size: 13px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px; }
 .dc-wl-cards { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); display: grid; }
 div.dc-card.dc-wcard { margin-bottom: 0; grid-template-columns: var(--stub) 1fr; }
-.dc-wl-table tr[data-state="used"] td.dc-wl-state { color: #166534; font-weight: 700; }
-.dc-wl-table tr[data-state="void"] td.dc-wl-state, .dc-wl-table tr[data-state="expired"] td.dc-wl-state { color: #94a3b8; font-weight: 700; }
-.dc-wl-table td.dc-wl-dr { max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dc-wl-table th { font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: .03em; border-bottom: 1px solid #e2e8f0; }
+.dc-wl-table td { vertical-align: middle; padding: 7px 8px; }
+.dc-wl-table tbody tr:nth-child(even) td { background: #fbfcfe; }
+.dc-wl-table tbody tr:hover td { background: #f1f5f9; }
+.dc-wl-table .dc-wl-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dc-wl-when { white-space: nowrap; }
+.dc-wl-date { display: block; font-weight: 600; color: #0f172a; font-variant-numeric: tabular-nums; }
+.dc-wl-time { display: block; font-size: 11px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+.dc-wl-clinic { display: inline-block; padding: 1px 7px; border-radius: 6px; background: #e0f2fe; color: #075985; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+.dc-wl-table td.dc-wl-dr { max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #334155; }
+.dc-wl-coupon { font-weight: 600; color: #0f172a; }
+.dc-wl-code { display: block; margin-top: 1px; font: 500 10.5px/1.3 ui-monospace, Consolas, monospace; color: #94a3b8; }
+.dc-wl-val { font-weight: 700; color: #334155; }
+.dc-wl-table tr[data-state="used"] .dc-wl-val { color: #b91c1c; }
+.dc-wl-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; white-space: nowrap; background: #f1f5f9; color: #64748b; }
+.dc-wl-table tr[data-state="used"] .dc-wl-badge { background: #dcfce7; color: #166534; }
+.dc-wl-table tr[data-state="void"] .dc-wl-badge { background: #fee2e2; color: #991b1b; }
+.dc-wl-table tr[data-state="expired"] .dc-wl-badge { background: #fef3c7; color: #92400e; }
+.dc-wl-table tr[data-state="void"] .dc-wl-coupon, .dc-wl-table tr[data-state="expired"] .dc-wl-coupon,
+.dc-wl-table tr[data-state="void"] .dc-wl-val, .dc-wl-table tr[data-state="expired"] .dc-wl-val { color: #94a3b8; }
+.dc-wl-table tr[data-state="void"] .dc-wl-val, .dc-wl-table tr[data-state="expired"] .dc-wl-val { text-decoration: line-through; }
+.dc-wl-note { max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #64748b; }
 .dc-empty { margin: 8px 0; padding: 18px; text-align: center; color: #64748b; background: #fff; border: 1px dashed #cbd5e1; border-radius: 12px; }
 
 /* Ticket cards (wallet sheet + configuration preview) */

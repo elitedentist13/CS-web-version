@@ -2594,7 +2594,7 @@ var COUPONS = (function () {
                     '<th>' + esc(ct('coupons.wl.clinic', 'Clinic')) + '</th>' +
                     '<th>' + esc(ct('coupons.wl.doctor', 'Dr')) + '</th>' +
                     '<th>' + esc(ct('coupons.wl.coupon', 'Coupon')) + '</th>' +
-                    '<th>' + esc(ct('coupons.wl.value', 'Value')) + '</th>' +
+                    '<th class="dc-wl-num">' + esc(ct('coupons.wl.value', 'Value')) + '</th>' +
                     '<th>' + esc(ct('coupons.wl.status', 'Status')) + '</th>' +
                     '<th>' + esc(ct('coupons.wl.note', 'Note')) + '</th></tr></thead><tbody>';
                 rows.history.forEach(function (h) {
@@ -2603,12 +2603,18 @@ var COUPONS = (function () {
                     var val = h.state === 'used' && c.redeemed_amount != null
                         ? '−HK$' + round2(c.redeemed_amount).toFixed(2) : faceText(w);
                     var bm = billMeta[walletHistoryBillId(c)] || {};
-                    html += '<tr data-state="' + esc(h.state) + '"><td>' + esc(h.at.replace('T', ' ').slice(0, 16)) + '</td>' +
-                        '<td>' + esc(bm.clinic || c.clinic_code || '—') + '</td>' +
+                    var clinic = bm.clinic || c.clinic_code || '';
+                    var note = c.note || (h.state === 'expired' && c.expires_on ? String(c.expires_on).slice(0, 10) : '');
+                    var stamp = h.at.replace('T', ' ');
+                    html += '<tr data-state="' + esc(h.state) + '">' +
+                        '<td class="dc-wl-when"><span class="dc-wl-date">' + esc(stamp.slice(0, 10)) + '</span>' +
+                        '<span class="dc-wl-time">' + esc(stamp.slice(11, 16)) + '</span></td>' +
+                        '<td>' + (clinic ? '<span class="dc-wl-clinic">' + esc(clinic) + '</span>' : '—') + '</td>' +
                         '<td class="dc-wl-dr" title="' + esc(bm.doctor || '') + '">' + esc(bm.doctor || '—') + '</td>' +
-                        '<td>' + esc(campLabel(w)) + (c.code ? ' <small>' + esc(c.code) + '</small>' : '') + '</td>' +
-                        '<td>' + esc(val) + '</td><td class="dc-wl-state">' + esc(walletStateLabel(h.state)) + '</td>' +
-                        '<td>' + esc(c.note || (h.state === 'expired' && c.expires_on ? String(c.expires_on).slice(0, 10) : '')) + '</td></tr>';
+                        '<td class="dc-wl-coupon">' + esc(campLabel(w)) + (c.code ? '<small class="dc-wl-code">' + esc(c.code) + '</small>' : '') + '</td>' +
+                        '<td class="dc-wl-num dc-wl-val">' + esc(val) + '</td>' +
+                        '<td class="dc-wl-state"><span class="dc-wl-badge">' + esc(walletStateLabel(h.state)) + '</span></td>' +
+                        '<td class="dc-wl-note" title="' + esc(note) + '">' + esc(note) + '</td></tr>';
                 });
                 html += '</tbody></table></div>';
             }

@@ -225,17 +225,56 @@ var COUPONS = (function () {
         return defaultClinicJoined(c);
     }
 
+    /** Pure: the clinic's "All Doctors" switch; null when never set (counts as on). */
+    function allDoctorsSetting(docs, clinicCode) {
+        var allKey = String(clinicCode || '').trim().toUpperCase() + '|__all__';
+        return docs && Object.prototype.hasOwnProperty.call(docs, allKey) ? !!docs[allKey].joined : null;
+    }
+
+    /** "All Doctors" ticked = every doctor of that clinic is in; otherwise each doctor's own switch (clinic by clinic). */
     function doctorJoined(clinicCode, doctorKey, maps) {
         if (!clinicJoined(clinicCode, maps && maps.clinics)) return false;
         var c = String(clinicCode || '').trim().toUpperCase();
         var docs = (maps && maps.doctors) || _doctors;
+        var all = allDoctorsSetting(docs, c);
+        if (!doctorKey || doctorKey === '__all__') return all !== false;
+        if (all !== false) return true;
+        var oneKey = c + '|' + String(doctorKey);
+        return !!(docs && Object.prototype.hasOwnProperty.call(docs, oneKey) && docs[oneKey].joined);
+    }
+
+    /**
+     * Pure: doctor switches after one tick in a clinic's list (select-all style).
+     * listKeys = the doctors shown for that clinic. Returns a new map; other clinics are untouched.
+     */
+    function planDoctorToggle(docs, clinicCode, doctorKey, joined, listKeys) {
+        var c = String(clinicCode || '').trim().toUpperCase();
         var allKey = c + '|__all__';
-        var oneKey = c + '|' + String(doctorKey || '');
-        if (docs && Object.prototype.hasOwnProperty.call(docs, oneKey) && doctorKey && doctorKey !== '__all__') {
-            return !!docs[oneKey].joined;
+        var out = {};
+        Object.keys(docs || {}).forEach(function (k) { out[k] = docs[k]; });
+        var keys = (listKeys || []).map(String).filter(function (k) { return k && k !== '__all__'; });
+        function clearClinic() {
+            Object.keys(out).forEach(function (k) { if (k.indexOf(c + '|') === 0 && k !== allKey) delete out[k]; });
         }
-        if (docs && Object.prototype.hasOwnProperty.call(docs, allKey)) return !!docs[allKey].joined;
-        return true;
+        if (doctorKey === '__all__') {
+            clearClinic();
+            out[allKey] = { joined: !!joined };
+            return out;
+        }
+        var key = String(doctorKey || '');
+        if (!joined && allDoctorsSetting(out, c) !== false) {
+            clearClinic();
+            out[allKey] = { joined: false };
+            keys.forEach(function (k) { out[c + '|' + k] = { joined: k !== key }; });
+            out[c + '|' + key] = { joined: false };
+            return out;
+        }
+        out[c + '|' + key] = { joined: !!joined };
+        if (joined && keys.length && keys.every(function (k) { return out[c + '|' + k] && out[c + '|' + k].joined; })) {
+            clearClinic();
+            out[allKey] = { joined: true };
+        }
+        return out;
     }
 
     function catalogName(line, catalog) {
@@ -1124,9 +1163,8 @@ var COUPONS = (function () {
         return persist();
     }
 
-    function setDoctorJoined(code, doctorKey, joined) {
-        var c = String(code || '').trim().toUpperCase();
-        _doctors[c + '|' + doctorKey] = { joined: !!joined };
+    function setDoctorJoined(code, doctorKey, joined, listKeys) {
+        _doctors = planDoctorToggle(_doctors, code, doctorKey, joined, listKeys);
         return persist();
     }
 
@@ -2117,7 +2155,14 @@ var COUPONS = (function () {
         });
         pane.querySelectorAll('.dc-doc-join').forEach(function (box) {
             box.addEventListener('change', function () {
-                setDoctorJoined(box.getAttribute('data-code'), box.getAttribute('data-doctor'), box.checked);
+                var code = box.getAttribute('data-code');
+                var panel = box.closest('.dc-panel') || pane;
+                var boxes = [].slice.call(panel.querySelectorAll('.dc-doc-join')).filter(function (b) {
+                    return b.getAttribute('data-code') === code;
+                });
+                var keys = boxes.map(function (b) { return b.getAttribute('data-doctor'); }).filter(function (k) { return k !== '__all__'; });
+                setDoctorJoined(code, box.getAttribute('data-doctor'), box.checked, keys);
+                boxes.forEach(function (b) { b.checked = doctorJoined(code, b.getAttribute('data-doctor')); });
             });
         });
         pane.querySelectorAll('.dc-cash-rule').forEach(function (el) {
@@ -5555,6 +5600,7 @@ var COUPONS = (function () {
         defaultClinicJoined: defaultClinicJoined,
         clinicJoined: clinicJoined,
         doctorJoined: doctorJoined,
+        planDoctorToggle: planDoctorToggle,
         lineMatchesGroup: lineMatchesGroup,
         assessCoupon: assessCoupon,
         pickBest: pickBest,

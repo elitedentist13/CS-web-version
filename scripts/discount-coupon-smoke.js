@@ -10,7 +10,7 @@ var vm = require('vm');
 var child_process = require('child_process');
 var os = require('os');
 
-var BUILD = '20261028ref3';
+var BUILD = '20261028doc';
 var PAGE_PORT = 8836;
 var CDP_PORT = 9436;
 var CHROME = process.env.CHROME_PATH ||
@@ -186,6 +186,30 @@ function loadCoupons() {
     pass('other clinics default off', C.clinicJoined('PL', {}) === false && C.clinicJoined('MK', {}) === false);
     pass('doctor follows a joined clinic', C.doctorJoined('KT', 'doc-1', { clinics: {}, doctors: {} }) === true);
     pass('doctor blocked when clinic is off', C.doctorJoined('PL', 'doc-1', { clinics: { PL: { joined: false } }, doctors: {} }) === false);
+    (function () {
+        var on = { KT: { joined: true }, PL: { joined: true } };
+        var liveKt = { 'KT|__all__': { joined: true }, 'KT|d-off': { joined: false }, 'KT|d-on': { joined: true }, 'PL|__all__': { joined: false }, 'PL|p1': { joined: true } };
+        var j = function (map, c, d) { return C.doctorJoined(c, d, { clinics: on, doctors: map }); };
+        pass('All Doctors ticked = every doctor of that clinic, even one switched off before',
+            j(liveKt, 'KT', 'd-off') === true && j(liveKt, 'KT', 'd-on') === true && j(liveKt, 'KT', 'never-set') === true);
+        pass('All Doctors is clinic by clinic (PL off: only its ticked doctor)',
+            j(liveKt, 'PL', 'p1') === true && j(liveKt, 'PL', 'd-on') === false && j(liveKt, 'PL', 'other') === false && j(liveKt, 'PL', '__all__') === false);
+        var keys = ['d1', 'd2', 'd3'];
+        var m1 = C.planDoctorToggle({ 'KT|__all__': { joined: false }, 'KT|d1': { joined: false }, 'PL|p1': { joined: true } }, 'KT', '__all__', true, keys);
+        pass('tick All Doctors: every KT doctor on, old KT switches cleared, PL untouched',
+            keys.every(function (k) { return j(m1, 'KT', k); }) && !m1['KT|d1'] && m1['PL|p1'].joined === true, JSON.stringify(m1));
+        var m2 = C.planDoctorToggle(m1, 'KT', 'd2', false, keys);
+        pass('untick one doctor: All Doctors goes off, the others stay on',
+            j(m2, 'KT', 'd1') && !j(m2, 'KT', 'd2') && j(m2, 'KT', 'd3') && !j(m2, 'KT', '__all__') && !j(m2, 'KT', 'someone-else'), JSON.stringify(m2));
+        var m3 = C.planDoctorToggle(m2, 'KT', 'd2', true, keys);
+        pass('tick the last one back: All Doctors on again', j(m3, 'KT', '__all__') && m3['KT|__all__'].joined === true && !m3['KT|d1'], JSON.stringify(m3));
+        var m4 = C.planDoctorToggle(m3, 'KT', '__all__', false, keys);
+        pass('untick All Doctors: every KT doctor off', keys.every(function (k) { return !j(m4, 'KT', k); }) && m4['PL|p1'].joined === true);
+        var m5 = C.planDoctorToggle(m4, 'KT', 'd3', true, keys);
+        pass('then tick one doctor: only that one is in', j(m5, 'KT', 'd3') && !j(m5, 'KT', 'd1') && !j(m5, 'KT', '__all__'));
+        pass('config list repaints every switch of that clinic after a tick',
+            /setDoctorJoined\(code, box\.getAttribute\('data-doctor'\), box\.checked, keys\);\s*boxes\.forEach\(function \(b\) \{ b\.checked = doctorJoined\(code, b\.getAttribute\('data-doctor'\)\); \}\)/.test(src));
+    })();
 
     console.log('=== 3 campaigns ===');
     pass('16 coupon rows', camps.length === 16, 'n=' + camps.length);
@@ -1084,7 +1108,7 @@ function loadCoupons() {
     spendCamps.forEach(function (c) { if (c.key === 'spend_1') c.enabled = true; });
     var spendCtx = {
         clinicCode: 'KT', clinics: { KT: { joined: true } },
-        doctors: { 'KT|__all__': { joined: true }, 'KT|doc-out': { joined: false } },
+        doctors: { 'KT|__all__': { joined: false }, 'KT|doc-in': { joined: true }, 'KT|doc-out': { joined: false } },
         campaigns: spendCamps, wallet: [], cashAmount: 1200, patientId: 'p', billId: 'b'
     };
     pass('spend coupon issues for a joined doctor', !!(C.planTargetSpend(Object.assign({}, spendCtx, { doctorKey: 'doc-in' })) || {}).ok);
@@ -2099,7 +2123,7 @@ function loadCoupons() {
         pass('CDP sheet shows the Wallet QR button', !!(wqr && wqr.btn && wqr.overlay), JSON.stringify(wqr));
         pass('CDP coupon sheet has 📖 How to use -> coupon part of the manual in the dashboard language (new tab)',
             !!(wqr && wqr.guide && wqr.guide.shown && /^📖/.test(wqr.guide.text) && wqr.guide.target === '_blank' &&
-                wqr.guide.href === 'docs/loyalty-manual.html?v=20261028ref3#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
+                wqr.guide.href === 'docs/loyalty-manual.html?v=20261028doc#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
         pass('CDP Wallet QR explains when the link cannot be made', !!(wqr && /discount_coupon_wallet\.sql|Could not make/.test(wqr.realErr)), wqr && wqr.realErr);
         pass('CDP Esc closes the QR and keeps the sheet', !!(wqr && wqr.escClosesQrOnly));
         pass('CDP Wallet QR draws the wallet link', !!(wqr && wqr.qr && /\/wallet\.html\?t=0123456789abcdef0123456789abcdef$/.test(wqr.link) && wqr.qrUrl === wqr.link),

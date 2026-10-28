@@ -814,7 +814,7 @@ function extractIifeHelpers(src) {
                 R.pickPanelTab('coupons', { points: true, coupons: false }) === 'points' &&
                 R.pickPanelTab('points', { points: false, coupons: false }) === '');
             pass('manual link: part + dashboard language (en / 简 / 繁 kept; unknown or missing -> 繁)',
-                R.loyaltyGuideHref('coupons', 'zh-CN') === 'docs/loyalty-manual.html?v=20261028ref3#start-coupons-zh-CN' &&
+                R.loyaltyGuideHref('coupons', 'zh-CN') === 'docs/loyalty-manual.html?v=20261028doc#start-coupons-zh-CN' &&
                 /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-Hant')) && /#start-rewards-en$/.test(R.loyaltyGuideHref('rewards', 'en')) &&
                 /#start-rewards-en$/.test(R.loyaltyGuideHref('rewards', 'en-GB')) &&
                 /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-TW')) && /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('x', 'fr')) &&
@@ -884,7 +884,7 @@ function extractIifeHelpers(src) {
         pass('HTML has rwPhoneQrBtn', idx.body.indexOf('id="rwPhoneQrBtn"') >= 0);
         pass('HTML ledger panel has the 📖 manual link (points part)',
             /id="rwGuideBtn" class="[^"]*loyalty-guide-btn[^"]*" data-guide-part="rewards"/.test(idx.body) &&
-            /href="docs\/loyalty-manual\.html\?v=20261028ref3#start-rewards-zh-Hant" target="_blank"/.test(idx.body));
+            /href="docs\/loyalty-manual\.html\?v=20261028doc#start-rewards-zh-Hant" target="_blank"/.test(idx.body));
         var ptsHtml = await httpGetText(PAGE_PORT, '/points.html');
         pass('GET /points.html loads points.js + wallet.css and boots', ptsHtml.status === 200 &&
             /src="points\.js\?v=/.test(ptsHtml.body) && /href="wallet\.css\?v=/.test(ptsHtml.body) &&
@@ -894,7 +894,7 @@ function extractIifeHelpers(src) {
         var manHtml = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.html');
         var manJs = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.js');
         var manPdf = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.pdf');
-        pass('GET manual html + js + pdf', manHtml.status === 200 && /src="loyalty-manual\.js\?v=20261028ref3"/.test(manHtml.body) &&
+        pass('GET manual html + js + pdf', manHtml.status === 200 && /src="loyalty-manual\.js\?v=20261028doc"/.test(manHtml.body) &&
             /href="loyalty-manual\.pdf"/.test(manHtml.body) && manJs.status === 200 && manPdf.status === 200 &&
             manPdf.body.slice(0, 5) === '%PDF-', manHtml.status + '/' + manJs.status + '/' + manPdf.status);
         var pwSqlHttp = await httpGetText(PAGE_PORT, '/reward_points_wallet.sql');
@@ -1376,7 +1376,7 @@ function extractIifeHelpers(src) {
             pass('live config: points-per-bill card shows its limit', cfgPaint.capBeforeZero && /HK\$|limit|上限/.test(cfgPaint.capSum), cfgPaint.capSum);
             pass('live config: 📖 How to use opens the points part in the dashboard language',
                 !!cfgPaint.guide && /^📖/.test(cfgPaint.guide.text) &&
-                cfgPaint.guide.href === 'docs/loyalty-manual.html?v=20261028ref3#start-rewards-' +
+                cfgPaint.guide.href === 'docs/loyalty-manual.html?v=20261028doc#start-rewards-' +
                     (['zh-Hant', 'zh-CN'].indexOf(cfgPaint.guide.lang) >= 0 ? cfgPaint.guide.lang : 'en'), JSON.stringify(cfgPaint.guide));
         }
 
@@ -1672,7 +1672,7 @@ function extractIifeHelpers(src) {
             bg.con && bg.con.btn && bg.con.guide && bg.con.next && bg.appt && bg.appt.guide && bg.appt.next &&
             /^📖/.test(bg.con.text) && bg.con.target === '_blank' && /rw-banner-guide/.test(bg.con.cls), JSON.stringify(bg.con) + ' ' + JSON.stringify(bg.appt));
         pass('live banner: 📖 opens the manual contents with the payment desk part marked, in the dashboard language',
-            /^docs\/loyalty-manual\.html\?v=20261028ref3#start-desk-(en|zh-Hant|zh-CN)$/.test((bg.con || {}).href || '') && /#start-desk-zh-CN$/.test(bg.afterCn || ''),
+            /^docs\/loyalty-manual\.html\?v=20261028doc#start-desk-(en|zh-Hant|zh-CN)$/.test((bg.con || {}).href || '') && /#start-desk-zh-CN$/.test(bg.afterCn || ''),
             (bg.con || {}).href + ' / ' + bg.afterCn);
         pass('live manual: #start-desk-x opens the contents page with 🧾 desk marked (3 desk links)', bg.start && bg.start.part === 'desk' &&
             bg.start.scrollY === 0 && bg.start.deskLinks === 3, JSON.stringify(bg.start));
@@ -1815,7 +1815,7 @@ function extractIifeHelpers(src) {
         pass('CDP ledger panel shows Points on the phone', !!(pqr && pqr.btnShown), JSON.stringify(pqr).slice(0, 300));
         pass('CDP ledger panel has 📖 How to use -> points part of the manual in the dashboard language (new tab)',
             !!(pqr && pqr.guide && pqr.guide.shown && /^📖/.test(pqr.guide.text) && pqr.guide.target === '_blank' &&
-                pqr.guide.href === 'docs/loyalty-manual.html?v=20261028ref3#start-rewards-' + pqr.guide.lang), JSON.stringify(pqr && pqr.guide));
+                pqr.guide.href === 'docs/loyalty-manual.html?v=20261028doc#start-rewards-' + pqr.guide.lang), JSON.stringify(pqr && pqr.guide));
         pass('CDP points QR covers the screen above the ledger panel (not clipped by the panel box)',
             !!(pqr && pqr.inModal && pqr.onTop && pqr.fullScreen && pqr.notInBox && pqr.inView),
             pqr && JSON.stringify(pqr.topDebug || ''));

@@ -178,7 +178,8 @@
                     { t: 'Clinics in scheme', list: [
                         'One tab per clinic; a <b>dot</b> means joined. <b>Join</b> on the clinic row switches the whole clinic. ' +
                             'KT is joined by default; other clinics stay off until you tick them.',
-                        'Under it, <b>All Doctors</b> and each doctor have their own <b>Join</b>.',
+                        'Under it, <b>All Doctors</b> and each doctor have their own <b>Join</b>. <b>All Doctors</b> ticked means every doctor of that clinic is in (only that clinic). ' +
+                            'Untick one doctor and <b>All Doctors</b> turns off while the others stay in; tick the last one back and <b>All Doctors</b> turns on again.',
                         'Bills at a clinic that is off neither use nor earn coupons.'
                     ] },
                     { t: 'Expenditure coupons', mock: ladderMock, list: [
@@ -419,7 +420,7 @@
                 steps: [
                     { t: '參與診所', list: [
                         '每間診所一個分頁，<b>圓點</b>表示已加入。診所行的<b>加入</b>開關整間診所。KT 預設已加入，其他診所須剔選後才開啟。',
-                        '下方<b>全部醫生</b>及每位醫生各有<b>加入</b>剔選。',
+                        '下方<b>全部醫生</b>及每位醫生各有<b>加入</b>剔選。剔選<b>全部醫生</b>即該診所（只限該診所）所有醫生均參與；取消剔選其中一位醫生，<b>全部醫生</b>會自動取消，其他醫生維持參與；再剔回最後一位，<b>全部醫生</b>會重新剔選。',
                         '未加入的診所，賬單既不能使用、也不會獲發優惠券。'
                     ] },
                     { t: '消費滿額券', mock: ladderMock, list: [
@@ -655,7 +656,7 @@
                 steps: [
                     { t: '参与诊所', list: [
                         '每间诊所一个标签，<b>圆点</b>表示已加入。诊所行的<b>加入</b>开关整间诊所。KT 默认已加入，其他诊所须勾选后才开启。',
-                        '下方<b>全部医生</b>及每位医生各有<b>加入</b>勾选。',
+                        '下方<b>全部医生</b>及每位医生各有<b>加入</b>勾选。勾选<b>全部医生</b>即该诊所（只限该诊所）所有医生均参与；取消勾选其中一位医生，<b>全部医生</b>会自动取消，其他医生维持参与；再勾回最后一位，<b>全部医生</b>会重新勾选。',
                         '未加入的诊所，账单既不能使用、也不会获发优惠券。'
                     ] },
                     { t: '消费满额券', mock: ladderMock, list: [

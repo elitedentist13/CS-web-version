@@ -1712,6 +1712,7 @@
         'mb.field.dobMonth': { en: 'DOB month', 'zh-CN': '出生月', 'zh-Hant': '出生月' },
         'mb.field.phone': { en: 'Phone', 'zh-CN': '电话', 'zh-Hant': '電話' },
         'mb.field.optOut': { en: 'Opt-out', 'zh-CN': '退订', 'zh-Hant': '退訂' },
+        'mb.field.loyalty': { en: 'Loyalty', 'zh-CN': '积分优惠券', 'zh-Hant': '積分優惠券' },
         'mb.field.tagWindow': { en: 'Tag window', 'zh-CN': '标记窗口', 'zh-Hant': '標記視窗' },
         'mb.field.sentStatus': { en: 'Messaged', 'zh-CN': '发送状态', 'zh-Hant': '傳送狀態' },
         'mb.field.sortBy': { en: 'Sort by', 'zh-CN': '排序字段', 'zh-Hant': '排序欄位' },
@@ -1798,6 +1799,10 @@
         'mb.filter.optExclude': { en: 'Hide opt-out', 'zh-CN': '隐藏退订', 'zh-Hant': '隱藏退訂' },
         'mb.filter.optAll': { en: 'Opt-out: All', 'zh-CN': '退订：全部', 'zh-Hant': '退訂：全部' },
         'mb.filter.optOnly': { en: 'Opt-out only', 'zh-CN': '仅退订', 'zh-Hant': '僅退訂' },
+        'mb.filter.loyCoupon': { en: 'Unused coupon', 'zh-CN': '未用优惠券', 'zh-Hant': '未用優惠券' },
+        'mb.filter.loyExpiring': { en: 'Coupon in 30 days', 'zh-CN': '30天内到期', 'zh-Hant': '30天內到期' },
+        'mb.filter.loyPoints500': { en: 'Points ≥ 500', 'zh-CN': '积分 ≥ 500', 'zh-Hant': '積分 ≥ 500' },
+        'mb.filter.loyaltyLoading': { en: 'Loading coupons and points…', 'zh-CN': '正在载入优惠券和积分…', 'zh-Hant': '正在載入優惠券和積分…' },
         'mb.cols.edit': { en: 'Columns', 'zh-CN': '列', 'zh-Hant': '欄' },
         'mb.cols.save': { en: 'Save columns', 'zh-CN': '保存列', 'zh-Hant': '儲存欄' },
         'mb.refresh': { en: 'Refresh', 'zh-CN': '刷新', 'zh-Hant': '重新整理' },
@@ -3667,6 +3672,9 @@
         'coupons.info.willEarn': { en: 'Paid in full by cash, this bill earns', 'zh-CN': '以现金付清后，本单可获得', 'zh-Hant': '以現金付清後，本單可獲得' },
         'coupons.info.short': { en: 'Spend', 'zh-CN': '再消费', 'zh-Hant': '再消費' },
         'coupons.info.more': { en: 'more for', 'zh-CN': '即可获得', 'zh-Hant': '即可獲得' },
+        'coupons.info.itemFit': { en: 'Treatment coupons that fit this bill', 'zh-CN': '适合本单项目的治疗券', 'zh-Hant': '適合本單項目的治療券' },
+        'coupons.appt.coupons': { en: 'Unused coupons', 'zh-CN': '未用优惠券', 'zh-Hant': '未用優惠券' },
+        'coupons.appt.points': { en: 'Reward points', 'zh-CN': '积分', 'zh-Hant': '積分' },
         'coupons.notice.earned': { en: 'This bill earned', 'zh-CN': '本单获得', 'zh-Hant': '本單獲得' },
         'coupons.notice.wallet': { en: 'added to the wallet for the next visit.', 'zh-CN': '已存入钱包，下次可用。', 'zh-Hant': '已存入錢包，下次可用。' },
         'coupons.log.title': { en: 'Coupon log', 'zh-CN': '优惠券记录', 'zh-Hant': '優惠券記錄' },
@@ -3674,6 +3682,11 @@
             en: 'Browse only. To use a coupon, open the patient’s bill and press Choose.',
             'zh-CN': '只供浏览。如需使用优惠券，请打开病人的账单并点「选择」。',
             'zh-Hant': '只供瀏覽。如需使用優惠券，請打開病人的賬單並按「選擇」。'
+        },
+        'coupons.wl.hintHousehold': {
+            en: 'This chart and other charts of the same person. Use a coupon from that patient’s bill. Household coupons stay on their own chart.',
+            'zh-CN': '此病历及同一人的其他病历。请在该病人的账单上使用优惠券。家庭券留在原病历。',
+            'zh-Hant': '此病歷及同一人的其他病歷。請在該病人的賬單上使用優惠券。家庭券留在原病歷。'
         },
         'coupons.tab.wallet': { en: 'Wallet', 'zh-CN': '钱包', 'zh-Hant': '錢包' },
         'coupons.grant.hintWallet': {

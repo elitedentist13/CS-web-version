@@ -411,3 +411,14 @@ button.dc-card.is-blocked .dc-check { display: none; }
 .lyr-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
 .lyr-table tfoot td { font-weight: 900; background: #f8fafc; border-top: 2px solid #e2e8f0; }
 .lyr-table .lyr-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }#bSpendHint .dc-hint-pts { font-weight: 700; color: #92400e; }
+
+.loy-appt { display: inline-flex; margin-left: 5px; vertical-align: middle; }
+.loy-appt[hidden] { display: none; }
+.loy-appt-badges { display: inline-flex; gap: 3px; align-items: center; }
+.loy-appt-c, .loy-appt-p {
+  display: inline-block; font-size: 10px; font-weight: 800; line-height: 1.35;
+  padding: 1px 5px; border-radius: 8px; white-space: nowrap;
+}
+.loy-appt-c { background: #fef3c7; color: #92400e; }
+.loy-appt-p { background: #dbeafe; color: #1e40af; }
+.dc-wl-hh { display: inline-block; margin-left: 6px; color: #64748b; font-size: 11px; }

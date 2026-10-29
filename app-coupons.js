@@ -375,6 +375,24 @@ var COUPONS = (function () {
         return nameFitsRule(catalogName(line, catalog), rule);
     }
 
+    function itemLineName(line, catalog) {
+        return catalogName(line, catalog) || String((line && (line.item_name || line.desc || line.name)) || '').trim();
+    }
+
+    /** Live treatment coupons whose item rule hits a bill or plan line. Own chart only. */
+    function matchingItemCoupons(wallet, items, today, catalog) {
+        today = today || todayIso();
+        items = Array.isArray(items) ? items : [];
+        return (wallet || []).filter(function (c) {
+            if (!isLive(c, today) || c.household_id) return false;
+            var rule = itemRule(c);
+            if (!ruleHasItems(rule)) return false;
+            return items.some(function (line) {
+                return nameFitsRule(itemLineName(line, catalog), rule);
+            });
+        });
+    }
+
     function lineNetCents(line) {
         var qty = parseFloat(line && line.qty);
         if (!isFinite(qty) || qty <= 0) qty = 1;
@@ -753,6 +771,162 @@ var COUPONS = (function () {
         return (wallet || []).filter(function (c) {
             return isLive(c, today) && (c.campaign_key === key || c.key === key);
         }).length;
+    }
+
+    function loyaltySnapFromRows(coupons, accounts, today) {
+        today = today || todayIso();
+        var in30 = addDaysIso(today, 30);
+        var map = {};
+        function snap(id) {
+            id = String(id || '');
+            if (!id) return null;
+            if (!map[id]) map[id] = { live: 0, points: 0, expiring: 0 };
+            return map[id];
+        }
+        (coupons || []).forEach(function (c) {
+            var s = snap(c.patient_id);
+            if (!s) return;
+            if (isLive(c, today)) {
+                s.live++;
+                if (c.expires_on && String(c.expires_on) <= in30) s.expiring++;
+            }
+        });
+        (accounts || []).forEach(function (a) {
+            var s = snap(a.patient_id);
+            if (s) s.points += Math.max(0, parseFloat(a.balance) || 0);
+        });
+        return map;
+    }
+
+    function loyaltySnapMatches(snap, filter) {
+        snap = snap || { live: 0, points: 0, expiring: 0 };
+        if (!filter) return true;
+        if (filter === 'coupon') return (snap.live || 0) > 0;
+        if (filter === 'expiring') return (snap.expiring || 0) > 0;
+        if (filter === 'points500') return (snap.points || 0) >= 500;
+        return true;
+    }
+
+    function loyaltyBadgeHtml(snap) {
+        snap = snap || {};
+        var bits = [];
+        if ((snap.live || 0) > 0) {
+            bits.push('<span class="loy-appt-c" title="' + esc(ct('coupons.appt.coupons', 'Unused coupons')) + '">' +
+                snap.live + '</span>');
+        }
+        var pts = Math.floor(Number(snap.points) || 0);
+        if (pts > 0) {
+            bits.push('<span class="loy-appt-p" title="' + esc(ct('coupons.appt.points', 'Reward points')) + '">' +
+                pts + 'pt</span>');
+        }
+        if (!bits.length) return '';
+        return '<span class="loy-appt-badges">' + bits.join('') + '</span>';
+    }
+
+    function loyaltyDaySnapshots(patientIds) {
+        var ids = [];
+        (patientIds || []).forEach(function (id) {
+            id = String(id || '');
+            if (id && ids.indexOf(id) < 0) ids.push(id);
+        });
+        var empty = {};
+        ids.forEach(function (id) { empty[id] = { live: 0, points: 0, expiring: 0 }; });
+        if (!ids.length || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            return Promise.resolve(empty);
+        }
+        var today = todayIso();
+        return Promise.all([
+            SB.from('discount_coupons').select('patient_id,status,expires_on,issued_at').in('patient_id', ids)
+                .then(function (r) { return (r && r.data) || []; }, function () { return []; }),
+            SB.from('reward_accounts').select('patient_id,balance').in('patient_id', ids)
+                .then(function (r) { return (r && r.data) || []; }, function () { return []; }),
+            freshZeroPolicy()
+        ]).then(function (both) {
+            var coupons = applyZeroExpiry(both[0] || [], both[2]);
+            var map = loyaltySnapFromRows(coupons, both[1] || [], today);
+            ids.forEach(function (id) { if (!map[id]) map[id] = empty[id]; });
+            return map;
+        });
+    }
+
+    function paintApptLoyalty(root) {
+        var host = root || document;
+        if (!host || !host.querySelectorAll) return Promise.resolve(0);
+        var nodes = host.querySelectorAll('.loy-appt[data-pid]');
+        if (!nodes.length) return Promise.resolve(0);
+        var ids = [];
+        for (var i = 0; i < nodes.length; i++) {
+            var pid = nodes[i].getAttribute('data-pid');
+            if (pid && ids.indexOf(pid) < 0) ids.push(pid);
+        }
+        return loyaltyDaySnapshots(ids).then(function (map) {
+            for (var j = 0; j < nodes.length; j++) {
+                var n = nodes[j];
+                var html = loyaltyBadgeHtml(map[n.getAttribute('data-pid')] || {});
+                n.innerHTML = html;
+                if (html) n.removeAttribute('hidden');
+                else n.setAttribute('hidden', '');
+            }
+            return ids.length;
+        });
+    }
+
+    function fetchLoyaltyPages(table, select, extraFn) {
+        var all = [];
+        function page(from) {
+            if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve(all);
+            var q = SB.from(table).select(select);
+            if (typeof extraFn === 'function') q = extraFn(q) || q;
+            if (q && typeof q.range === 'function') q = q.range(from, from + 999);
+            return Promise.resolve(q).then(function (r) {
+                var rows = (r && r.data) || [];
+                all = all.concat(rows);
+                if (rows.length === 1000 && all.length < 8000) return page(from + 1000);
+                return all;
+            }, function () { return all; });
+        }
+        return page(0);
+    }
+
+    function loyaltyBroadcastIndex() {
+        var today = todayIso();
+        return Promise.all([
+            fetchLoyaltyPages('discount_coupons', 'patient_id,status,expires_on,issued_at', function (q) {
+                return q.eq('status', 'unused');
+            }),
+            fetchLoyaltyPages('reward_accounts', 'patient_id,balance', function (q) {
+                return q.gt('balance', 0);
+            }),
+            freshZeroPolicy()
+        ]).then(function (both) {
+            return loyaltySnapFromRows(applyZeroExpiry(both[0] || [], both[2]), both[1] || [], today);
+        });
+    }
+
+    function tagHouseholdCoupons(rows, patientId, nos) {
+        nos = nos || {};
+        var pid = String(patientId || '');
+        return (rows || []).map(function (c) {
+            var id = String(c.patient_id || '');
+            if (id && id !== pid) {
+                var tagged = {};
+                Object.keys(c).forEach(function (k) { tagged[k] = c[k]; });
+                tagged.household_id = id;
+                tagged.household_no = nos[id] || '';
+                return tagged;
+            }
+            return c;
+        });
+    }
+
+    function householdPatientIds(patientId) {
+        if (!patientId) return Promise.resolve([]);
+        if (typeof REWARDS !== 'undefined' && REWARDS && typeof REWARDS.relatedPatientIds === 'function') {
+            return Promise.resolve(REWARDS.relatedPatientIds(patientId)).then(function (ids) {
+                return (ids && ids.length) ? ids : [patientId];
+            }, function () { return [patientId]; });
+        }
+        return Promise.resolve([patientId]);
     }
 
     function holdLimitFor(campaign) {
@@ -2516,7 +2690,11 @@ var COUPONS = (function () {
                 .eq('bill_id', bill.id).eq('status', 'used');
             var earnedQ = SB.from('discount_coupons').select('id,campaign_key,face_value,expires_on,issued_at,status')
                 .eq('origin_bill_id', bill.id);
-            return Promise.all([usedQ, earnedQ, billExcluded(bill.id), freshZeroPolicy()]).then(function (res) {
+            var walletP = bill.patient_id ? loadWallet(bill.patient_id) : Promise.resolve([]);
+            var catP = ensureCatalog().then(function () {
+                return (typeof treatmentItemsCache !== 'undefined' && treatmentItemsCache) || [];
+            });
+            return Promise.all([usedQ, earnedQ, billExcluded(bill.id), freshZeroPolicy(), walletP, catP]).then(function (res) {
                 if (info.getAttribute('data-bill') !== billId) return;
                 var used = (res[0] && res[0].data) || [];
                 var excluded = !!res[2];
@@ -2551,6 +2729,13 @@ var COUPONS = (function () {
                             ct('coupons.info.more', 'more for') + ' ' + campLabel(prog.next));
                     }
                     bar = spendBarHtml(due, prog);
+                }
+                if (!voided) {
+                    var fit = matchingItemCoupons(res[4] || [], parseItems(bill), todayIso(), res[5] || []);
+                    if (fit.length) {
+                        lines.push('🦷 ' + ct('coupons.info.itemFit', 'Treatment coupons that fit this bill') + ': ' +
+                            fit.map(function (c) { return campLabel(c); }).join(' · '));
+                    }
                 }
                 info.hidden = !lines.length;
                 info.innerHTML = lines.map(function (t) { return '<div>' + esc(t) + '</div>'; }).join('') + bar;
@@ -2618,7 +2803,8 @@ var COUPONS = (function () {
             stubHtml(w) +
             '<span class="dc-body"><strong>' + esc(campLabel(w)) + '</strong>' +
             '<small>' + esc(slot === 'items' ? ct('coupons.bill.slotItems', '治療券') : ct('coupons.bill.slotBill', '全單券')) +
-            (w.code ? ' · ' + esc(w.code) : '') + (c.clinic_code ? ' · ' + esc(c.clinic_code) : '') + '</small>' +
+            (w.code ? ' · ' + esc(w.code) : '') + (c.clinic_code ? ' · ' + esc(c.clinic_code) : '') +
+            (c.household_no ? ' · #' + esc(c.household_no) : '') + '</small>' +
             '<span class="dc-meta">' + expiryChipHtml(w.expires_on, today) + '</span></span></div>';
     }
 
@@ -2678,7 +2864,9 @@ var COUPONS = (function () {
 
     /** Pure: coupons in a wallet that may move to another chart (live, and not new-chart / referral). */
     function walletTransferable(wallet, today) {
-        return (wallet || []).filter(function (c) { return isLive(c, today) && !LOCKED_TRANSFER_KEYS[c.campaign_key]; });
+        return (wallet || []).filter(function (c) {
+            return isLive(c, today) && !c.household_id && !LOCKED_TRANSFER_KEYS[c.campaign_key];
+        });
     }
 
     /**
@@ -2692,7 +2880,7 @@ var COUPONS = (function () {
         el.innerHTML = '<p class="dc-hint">' + esc(ct('common.loadingEllipsis', 'Loading…')) + '</p>';
         var token = {};
         el.__dcWalletToken = token;
-        return Promise.all([loadState().then(loadUsage), loadWallet(patientId), loadPatientNo(patientId)]).then(function (res) {
+        return Promise.all([loadState().then(loadUsage), loadWallet(patientId, { household: true }), loadPatientNo(patientId)]).then(function (res) {
             return loadWalletBillMeta(walletLedgerRows(res[1] || []).history).then(function (meta) { return res.concat([meta]); });
         }).then(function (res) {
             if (el.__dcWalletToken !== token) return false;
@@ -2721,7 +2909,10 @@ var COUPONS = (function () {
             });
             html += '</div>';
             html += '<section class="dc-spanel" role="tabpanel" data-wl-panel="wallet"' + hiddenUnless(tab === 'wallet') + '>';
-            html += '<p class="dc-hint">' + esc(ct('coupons.wl.hint', 'Browse only. To use a coupon, open the patient’s bill and press Choose.')) + '</p>';
+            var hasHh = wallet.some(function (c) { return c.household_id; });
+            html += '<p class="dc-hint">' + esc(hasHh
+                ? ct('coupons.wl.hintHousehold', 'This chart and other charts of the same person. Use a coupon from that patient’s bill. Household coupons stay on their own chart.')
+                : ct('coupons.wl.hint', 'Browse only. To use a coupon, open the patient’s bill and press Choose.')) + '</p>';
             html += '<h4 class="dc-wl-h">' + esc(ct('coupons.wl.live', 'Unused coupons')) + ' <span class="dc-stab-n">' + rows.live.length + '</span></h4>';
             html += rows.live.length
                 ? '<div class="dc-cards dc-wl-cards">' + rows.live.map(function (c) { return walletCardHtml(c, today); }).join('') + '</div>'
@@ -2752,7 +2943,8 @@ var COUPONS = (function () {
                         '<span class="dc-wl-time">' + esc(stamp.slice(11, 16)) + '</span></td>' +
                         '<td>' + (clinic ? '<span class="dc-wl-clinic">' + esc(clinic) + '</span>' : '—') + '</td>' +
                         '<td class="dc-wl-dr" title="' + esc(bm.doctor || '') + '">' + esc(bm.doctor || '—') + '</td>' +
-                        '<td class="dc-wl-coupon">' + esc(campLabel(w)) + (c.code ? '<small class="dc-wl-code">' + esc(c.code) + '</small>' : '') + '</td>' +
+                        '<td class="dc-wl-coupon">' + esc(campLabel(w)) + (c.code ? '<small class="dc-wl-code">' + esc(c.code) + '</small>' : '') +
+                        (c.household_no ? '<small class="dc-wl-hh">#' + esc(c.household_no) + '</small>' : '') + '</td>' +
                         '<td class="dc-wl-num dc-wl-val">' + esc(val) + '</td>' +
                         '<td class="dc-wl-state"><span class="dc-wl-badge">' + esc(walletStateLabel(h.state)) + '</span></td>' +
                         '<td class="dc-wl-note" title="' + esc(note) + '">' + esc(note) + '</td></tr>';
@@ -2925,17 +3117,36 @@ var COUPONS = (function () {
         });
     }
 
-    function loadWallet(patientId) {
+    function loadWallet(patientId, opts) {
         if (!patientId || typeof SB === 'undefined' || !SB) return Promise.resolve([]);
-        return Promise.all([
-            SB.from('discount_coupons').select('*').eq('patient_id', patientId)
-                .then(function (r) { return (r && r.data) || []; }, function () { return []; }),
-            freshZeroPolicy()
-        ]).then(function (both) {
-            var rows = both[0].slice().sort(function (a, b) {
-                return String(a.issued_at || '').localeCompare(String(b.issued_at || '')) || String(a.code || '').localeCompare(String(b.code || ''));
+        opts = opts || {};
+        var idsP = opts.household ? householdPatientIds(patientId) : Promise.resolve([patientId]);
+        return idsP.then(function (ids) {
+            if (!ids || !ids.length) ids = [patientId];
+            var coupQ = ids.length === 1
+                ? SB.from('discount_coupons').select('*').eq('patient_id', ids[0])
+                : SB.from('discount_coupons').select('*').in('patient_id', ids);
+            var nosQ = (opts.household && ids.length > 1)
+                ? SB.from('patients').select('id,patient_no').in('id', ids)
+                : Promise.resolve({ data: [] });
+            return Promise.all([
+                coupQ.then(function (r) { return (r && r.data) || []; }, function () { return []; }),
+                freshZeroPolicy(),
+                nosQ.then(function (r) {
+                    var map = {};
+                    ((r && r.data) || []).forEach(function (p) {
+                        map[String(p.id)] = String(p.patient_no || '').trim();
+                    });
+                    return map;
+                }, function () { return {}; })
+            ]).then(function (both) {
+                var rows = both[0].slice().sort(function (a, b) {
+                    return String(a.issued_at || '').localeCompare(String(b.issued_at || '')) || String(a.code || '').localeCompare(String(b.code || ''));
+                });
+                rows = applyZeroExpiry(rows, both[1]);
+                if (opts.household) rows = tagHouseholdCoupons(rows, patientId, both[2]);
+                return rows;
             });
-            return applyZeroExpiry(rows, both[1]);
         });
     }
 
@@ -6453,6 +6664,14 @@ var COUPONS = (function () {
         keywordHit: keywordHit,
         itemRule: itemRule,
         nameFitsRule: nameFitsRule,
+        matchingItemCoupons: matchingItemCoupons,
+        loyaltySnapFromRows: loyaltySnapFromRows,
+        loyaltySnapMatches: loyaltySnapMatches,
+        loyaltyBadgeHtml: loyaltyBadgeHtml,
+        loyaltyDaySnapshots: loyaltyDaySnapshots,
+        paintApptLoyalty: paintApptLoyalty,
+        loyaltyBroadcastIndex: loyaltyBroadcastIndex,
+        tagHouseholdCoupons: tagHouseholdCoupons,
         itemPickerRows: itemPickerRows,
         CASH_GRANT_MAX: CASH_GRANT_MAX,
         SHARED_LOGIN_IDS: SHARED_LOGIN_IDS,

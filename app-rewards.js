@@ -6032,6 +6032,7 @@ var REWARDS = (function () {
         renderLedgerFilters: renderLedgerFilters,
         buildSmsBody: buildSmsBody,
         smsBalances: smsBalances,
+        relatedPatientIds: findRelatedPatientIds,
         notifyFromRpcResult: notifyFromRpcResult,
         notifyNetChange: notifyNetChange,
         refreshAddPaymentRewardPanel: refreshAddPaymentRewardPanel,

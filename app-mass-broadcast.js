@@ -1237,7 +1237,7 @@ var MASSBC = (function () {
             });
         }
         ['mbFilterSex', 'mbFilterDobMonth', 'mbFilterHasPhone', 'mbFilterOptOut',
-            'mbFilterSent', 'mbFilterClinic'].forEach(function (id) {
+            'mbFilterSent', 'mbFilterClinic', 'mbFilterLoyalty'].forEach(function (id) {
             var el = pick(id);
             if (el) el.addEventListener('change', function () { applyFilters(); });
         });
@@ -2595,6 +2595,7 @@ var MASSBC = (function () {
             optOut: (pick('mbFilterOptOut') && pick('mbFilterOptOut').value) || '',
             sent: (pick('mbFilterSent') && pick('mbFilterSent').value) || '',
             clinic: (pick('mbFilterClinic') && pick('mbFilterClinic').value) || '',
+            loyalty: (pick('mbFilterLoyalty') && pick('mbFilterLoyalty').value) || '',
             extras: _conditions.slice()
         };
     }
@@ -2613,6 +2614,7 @@ var MASSBC = (function () {
         setVal('mbFilterOptOut', cond.optOut || '');
         setVal('mbFilterSent', cond.sent || '');
         setVal('mbFilterClinic', cond.clinic || '');
+        setVal('mbFilterLoyalty', cond.loyalty || '');
         _conditions = Array.isArray(cond.extras) ? cond.extras.slice() : [];
         renderConditionChips();
     }
@@ -2630,7 +2632,7 @@ var MASSBC = (function () {
                 (Array.isArray(seg.patientIds) && seg.patientIds.length))) {
                 restoreConditionsToUi({
                     search: '', sex: '', dobMonth: '', hasPhone: '',
-                    optOut: '', sent: '', clinic: '', extras: []
+                    optOut: '', sent: '', clinic: '', loyalty: '', extras: []
                 });
             } else if (seg && seg.conditions) {
                 restoreConditionsToUi(seg.conditions);
@@ -3018,6 +3020,34 @@ var MASSBC = (function () {
         return false;
     }
 
+    var _loyIndex = null;
+    var _loyIndexP = null;
+
+    function loyaltyIndexReady() {
+        if (_loyIndex) return Promise.resolve(_loyIndex);
+        if (_loyIndexP) return _loyIndexP;
+        var loader = (typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.loyaltyBroadcastIndex === 'function')
+            ? COUPONS.loyaltyBroadcastIndex()
+            : Promise.resolve({});
+        _loyIndexP = Promise.resolve(loader).then(function (idx) {
+            _loyIndex = idx || {};
+            return _loyIndex;
+        }, function () {
+            _loyIndex = {};
+            return _loyIndex;
+        });
+        return _loyIndexP;
+    }
+
+    function patientMatchesLoyalty(p, loy) {
+        if (!loy) return true;
+        var snap = (_loyIndex && _loyIndex[String(p.id)]) || { live: 0, points: 0, expiring: 0 };
+        if (typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.loyaltySnapMatches === 'function') {
+            return COUPONS.loyaltySnapMatches(snap, loy);
+        }
+        return true;
+    }
+
     // ── Filter / sort / render ───────────────────────────────────
     function applyFilters() {
         var search = String((pick('mbSearch') && pick('mbSearch').value) || '').trim().toLowerCase();
@@ -3027,7 +3057,14 @@ var MASSBC = (function () {
         var optOut = (pick('mbFilterOptOut') && pick('mbFilterOptOut').value) || '';
         var sentFilter = (pick('mbFilterSent') && pick('mbFilterSent').value) || '';
         var clinicFilter = (pick('mbFilterClinic') && pick('mbFilterClinic').value) || '';
+        var loy = (pick('mbFilterLoyalty') && pick('mbFilterLoyalty').value) || '';
         var clinicTag = clinicFilter;
+        if (loy && !_loyIndex) {
+            var loading = pick('mbStatus');
+            if (loading) loading.textContent = tr('mb.filter.loyaltyLoading', 'Loading coupons and points…');
+            loyaltyIndexReady().then(function () { applyFilters(); });
+            return;
+        }
 
         // Custom saved list / folder with fixed membership (preferred)
         var membershipSet = null;
@@ -3138,6 +3175,7 @@ var MASSBC = (function () {
                 if (!membershipSet[String(p.id)]) return false;
                 if (optOut === 'exclude' && p.messaging_opt_out) return false;
                 if (optOut === 'only' && !p.messaging_opt_out) return false;
+                if (!patientMatchesLoyalty(p, loy)) return false;
                 return true;
             }
 
@@ -3164,6 +3202,7 @@ var MASSBC = (function () {
             var sentInfo = getSentInfo(p);
             if (sentFilter === 'yes' && !sentInfo) return false;
             if (sentFilter === 'no' && sentInfo) return false;
+            if (!patientMatchesLoyalty(p, loy)) return false;
 
             if (search) {
                 var blob = [
@@ -3877,6 +3916,7 @@ var MASSBC = (function () {
             optOut: '',
             sent: '',
             clinic: '',
+            loyalty: '',
             extras: []
         });
         var condVal = pick('mbCondValue');

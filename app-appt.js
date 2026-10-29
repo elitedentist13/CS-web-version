@@ -3453,6 +3453,17 @@ function plusApptClearModeNameHtml(a, opts) {
     return html;
 }
 
+function apptLoyaltyMarkHtml(a) {
+    if (!a || !a.patient_id) return '';
+    return '<span class="loy-appt" data-pid="' + esc(a.patient_id) + '" hidden></span>';
+}
+
+function paintApptLoyaltySoon(root) {
+    if (typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.paintApptLoyalty === 'function') {
+        try { COUPONS.paintApptLoyalty(root || document); } catch (e) { /* desk still lists without badges */ }
+    }
+}
+
 /** Queue clear mode: patient no + Chinese always full; English uses leftover width. */
 function queueClearModeNameHtml(a, opts) {
     opts = opts || {};
@@ -5973,6 +5984,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             if (clearMode) {
                 nameHtml = plusApptClearModeNameHtml(a, { skipPatNo: true }) + webBadge;
                 nameHtml += apptRsvpBadgeHtml(a);
+                nameHtml += apptLoyaltyMarkHtml(a);
                 treatHtml = plusApptTreatmentInlineHtml(a, true);
                 remHtml = plusApptRemarksScrollerHtml(a.remarks, a.id);
                 durHtml = (a.duration != null && a.duration !== '')
@@ -5986,6 +5998,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             nameHtml += webBadge;
             nameHtml += apptRsvpBadgeHtml(a);
             nameHtml += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--plus');
+            nameHtml += apptLoyaltyMarkHtml(a);
             remHtml = plusApptRemarksScrollerHtml(a.remarks, a.id);
             durHtml = (a.duration != null && a.duration !== '')
                 ? esc(apptDurationDisplay(a.duration))
@@ -6229,6 +6242,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         if (a) bindPlusApptRemarksDblclick(row, a);
         }); // rowPlans
     });
+    paintApptLoyaltySoon(tb);
 
     if (!slots.length) {
         tb.innerHTML =
@@ -13469,6 +13483,7 @@ function loadToday(opts) {
                 if (typeof todayApplyClearModeCompactLayout === 'function') {
                     todayApplyClearModeCompactLayout();
                 }
+                paintApptLoyaltySoon(tb);
                 apptFinishScrollPreserve(opts, savedScroll);
                 hydrateApptUnpaidBalances(todayRows, function(changed) {
                     if (!changed) return;
@@ -13667,6 +13682,7 @@ function buildTodayRow(tb, a, dotCtx) {
             '</td>' +
             '<td class="today-name-cell plusappt-name-cell plusappt-row-data-cell--clear">' +
                 queueClearModeNameHtml(a, { skipPatNo: true }) +
+                apptLoyaltyMarkHtml(a) +
             '</td>' +
             '<td class="today-treatment-cell plusappt-treat-cell plusappt-row-data-cell--clear">' +
                 plusApptTreatmentInlineHtml(a, true) +
@@ -13709,6 +13725,7 @@ function buildTodayRow(tb, a, dotCtx) {
                     drDot +
                     apptPatientDisplayNameHTML(a, { walkIn: true }) +
                     apptRsvpBadgeHtml(a) +
+                    apptLoyaltyMarkHtml(a) +
                 '</span>' +
             '</td>' +
             '<td class="today-treatment-cell">' +
@@ -15204,6 +15221,7 @@ function loadQueue(opts) {
                 setQueueRefreshMeta({ stampNow: true });
                 ensureQueueElapsedTicker();
                 queueRefreshElapsedBadges();
+                paintApptLoyaltySoon(tb);
                 queueScheduleCompactFit(function() {
                     apptFinishScrollPreserve(opts, savedScroll);
                 });
@@ -15351,6 +15369,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
         nameCellHtml =
             '<td class="queue-name-cell plusappt-name-cell plusappt-row-data-cell--clear">' +
                 queueClearModeNameHtml(q, { skipPatNo: true }) +
+                apptLoyaltyMarkHtml(q) +
             '</td>';
         treatCellHtml =
             '<td class="queue-treatment-cell plusappt-treat-cell plusappt-row-data-cell--clear">' +
@@ -15382,6 +15401,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
                     '<span class="appt-row-name-stack">' +
                         apptPatientDisplayNameHTML(q, { walkIn: true }) +
                     '</span>' +
+                    apptLoyaltyMarkHtml(q) +
                 '</span>' +
             '</td>';
         treatCellHtml =

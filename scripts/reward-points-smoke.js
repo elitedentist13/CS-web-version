@@ -935,6 +935,8 @@ function fakeBillSb(tables, rpcLog) {
             pass('points SMS at each balance change ends with the one points-and-coupons page link',
                 /COUPONS\.loyaltyLinkForSms\(info\.patientId\)/.test(rewardsSrc) &&
                 /if \(hasLink\) body = COUPONS\.smsWithPhoneLink\(body, both\[2\], 'loyalty'\);/.test(rewardsSrc));
+            pass('related charts exported for household coupon display',
+                /relatedPatientIds: findRelatedPatientIds/.test(rewardsSrc));
             var ye = R.pointsYearEndSms('2026-11-30', 1234.5, 'PL').split('\n');
             pass('year-end points SMS: heading, all-clinic total, 31 Dec 23:59 with days left, clinic, note',
                 ye[0] === '[Joyful Smile Dental Clinic 樂意牙科中心] 積分到期提醒 / Reward points expiry reminder' &&

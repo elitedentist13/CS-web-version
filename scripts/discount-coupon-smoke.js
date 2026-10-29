@@ -226,7 +226,7 @@ function loadCoupons() {
     pass('reward module is used only for the refer-a-friend points branch, the shared manual link and the checkout points line', rwUses.length > 0 && rwUses.every(function (u) {
         return ['REWARDS.referralAvailability', 'REWARDS.referralCredit', 'REWARDS.referralReverse', 'REWARDS.clinicCtx',
             'REWARDS.loyaltyGuideLinkHtml', 'REWARDS.loadReferralConfig', 'REWARDS.billLoyaltyExcluded',
-            'REWARDS.currentClinicJoined', 'REWARDS.earnRatePercent'].indexOf(u) >= 0;
+            'REWARDS.currentClinicJoined', 'REWARDS.earnRatePercent', 'REWARDS.relatedPatientIds'].indexOf(u) >= 0;
     }), rwUses.join(','));
     pass('set zero card reuses the reward admin gate and reset dialog', /rw\.openAdminRewardAuthGate\(\{/.test(src) &&
         /rw\.openResetZeroFlow\(configClinics\(\), \{/.test(src) && /var rw = \(typeof REWARDS !== 'undefined' && REWARDS\) \? REWARDS : null;/.test(src));
@@ -260,7 +260,8 @@ function loadCoupons() {
         { id: 'b', status: 'unused', campaign_key: 'referral', expires_on: '2027-01-01' },
         { id: 'c', status: 'unused', campaign_key: 'new_chart' },
         { id: 'd', status: 'unused', campaign_key: 'cash', expires_on: '2026-01-01' },
-        { id: 'e', status: 'used', campaign_key: 'cash' }
+        { id: 'e', status: 'used', campaign_key: 'cash' },
+        { id: 'f', status: 'unused', campaign_key: 'cash', expires_on: '2027-01-01', household_id: 'other' }
     ], '2026-10-28');
     pass('wallet tab transfer list: live coupons only, new-chart and referral stay', movable.map(function (c) { return c.id; }).join(',') === 'a');
     pass('login prompt can sit over the reward panel and closes on Escape without closing the panel',
@@ -1716,8 +1717,8 @@ function loadCoupons() {
     pass('capped coupon is no longer live on 1 Jan', C.isLive(C.applyZeroExpiry([{ expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z', status: 'unused' }], YE)[0], '2027-01-01') === false &&
         C.isLive(C.applyZeroExpiry([{ expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z', status: 'unused' }], YE)[0], '2026-12-31') === true);
     pass('desk wallet, bill info and issue notice use the effective date',
-        /function loadWallet[\s\S]{0,400}freshZeroPolicy\(\)[\s\S]{0,400}applyZeroExpiry\(rows, both\[1\]\)/.test(src) &&
-        /earnedQ = SB\.from\('discount_coupons'\)\.select\('[^']*issued_at[^']*'\)[\s\S]{0,400}applyZeroExpiry\(/.test(src) &&
+        /function loadWallet\(patientId, opts\)[\s\S]{0,1400}freshZeroPolicy\(\)[\s\S]{0,800}applyZeroExpiry\(rows, both\[1\]\)/.test(src) &&
+        /earnedQ = SB\.from\('discount_coupons'\)\.select\('[^']*issued_at[^']*'\)[\s\S]{0,900}applyZeroExpiry\(/.test(src) &&
         /coupons\.info\.expires', 'expires'\) \+ ' ' \+\s*effectiveExpiry\(/.test(src));
     var wCap = W.capYearEnd([{ code: 'A', expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z' }, { code: 'B', expires_on: '2026-11-15', issued_at: '2026-08-15T02:00:00Z' }], 'year_end');
     pass('phone wallet caps at 31 Dec of the issue year, keeps earlier dates',
@@ -1831,6 +1832,8 @@ function loadCoupons() {
         pass('served coupon script', js.status === 200 && js.body.indexOf('DEFAULT_JOIN_CODE') >= 0);
         pass('served page has the coupon tab and bill row',
             idx.body.indexOf('cfgPane-coupons') >= 0 && idx.body.indexOf('bdCouponRow') >= 0);
+        pass('served page has the mass-broadcast loyalty filter',
+            idx.body.indexOf('id="mbFilterLoyalty"') >= 0);
     } catch (e) {
         pass('HTML spot', false, e && e.message);
     }
@@ -2262,6 +2265,63 @@ function loadCoupons() {
         /id="rwPhoneQrBtn"[\s\S]{0,600}id="rwLoyaltyQrBtn"[^>]*>?[\s\S]{0,80}onclick="REWARDS && REWARDS\.openLoyaltyQr\(\)"/.test(read('index.html')) &&
         /function openLoyaltyQr\(patientId\)[\s\S]{0,400}COUPONS\.openLoyaltyQr\(modal, pid\)/.test(read('app-rewards.js')));
     pass('tab CSS in wallet.css', /\.ly-tab\.is-on \{/.test(read('wallet.css')));
+
+    console.log('\n=== Banana: appointments, bill fit, broadcast, household ===');
+    pass('node --check appt / mass-broadcast / rewards / i18n',
+        child_process.spawnSync(process.execPath, ['--check', path.join(root, 'app-appt.js')]).status === 0 &&
+        child_process.spawnSync(process.execPath, ['--check', path.join(root, 'app-mass-broadcast.js')]).status === 0 &&
+        child_process.spawnSync(process.execPath, ['--check', path.join(root, 'app-rewards.js')]).status === 0 &&
+        child_process.spawnSync(process.execPath, ['--check', path.join(root, 'app-i18n-extra.js')]).status === 0);
+    var apptSrc = read('app-appt.js');
+    pass('appointment rows mark the patient and paint after the day / today / queue lists',
+        /function apptLoyaltyMarkHtml/.test(apptSrc) && /nameHtml \+= apptLoyaltyMarkHtml\(a\)/.test(apptSrc) &&
+        (apptSrc.match(/paintApptLoyaltySoon\(tb\)/g) || []).length >= 3);
+    var snapMap = C.loyaltySnapFromRows([
+        { patient_id: 'p1', status: 'unused', expires_on: '2026-11-10' },
+        { patient_id: 'p1', status: 'unused', expires_on: '2027-01-01' },
+        { patient_id: 'p1', status: 'used', expires_on: '2027-01-01' },
+        { patient_id: 'p2', status: 'unused', expires_on: '2026-10-01' }
+    ], [{ patient_id: 'p1', balance: 255 }, { patient_id: 'p3', balance: 500 }], '2026-10-30');
+    pass('loyalty snapshot: live, expiring in 30 days, points; expired unused is not live',
+        snapMap.p1.live === 2 && snapMap.p1.expiring === 1 && snapMap.p1.points === 255 &&
+        snapMap.p2.live === 0 && snapMap.p3.points === 500 && C.loyaltySnapMatches(snapMap.p1, 'coupon') &&
+        C.loyaltySnapMatches(snapMap.p1, 'expiring') && !C.loyaltySnapMatches(snapMap.p1, 'points500') &&
+        C.loyaltySnapMatches(snapMap.p3, 'points500') && !C.loyaltySnapMatches({}, 'coupon'), JSON.stringify(snapMap));
+    var badge = C.loyaltyBadgeHtml(snapMap.p1);
+    pass('appointment badge: coupon count and points, empty when none',
+        /loy-appt-c/.test(badge) && />2</.test(badge) && /255pt/.test(badge) &&
+        C.loyaltyBadgeHtml({ live: 0, points: 0 }) === '', badge);
+    var fitWallet = [
+        { id: 's', status: 'unused', campaign_key: 'free_scaling', discount_mode: 'free_line', patient_id: 'p', expires_on: '2027-01-01' },
+        { id: 'i', status: 'unused', campaign_key: 'implant', discount_mode: 'amount', face_value: 1000, patient_id: 'p', expires_on: '2027-01-01' },
+        { id: 'c', status: 'unused', campaign_key: 'cash', discount_mode: 'amount', face_value: 100, patient_id: 'p', expires_on: '2027-01-01' },
+        { id: 'h', status: 'unused', campaign_key: 'free_scaling', discount_mode: 'free_line', patient_id: 'other', household_id: 'other', expires_on: '2027-01-01' }
+    ];
+    var fit = C.matchingItemCoupons(fitWallet, [{ desc: 'SCALING & POLISHING - 洗牙', item_name: 'SCALING & POLISHING - 洗牙', qty: 1, price: 560 }], '2026-10-30', catalog);
+    pass('bill fit: scaling coupon matches the scaling line; implant, cash and household left out',
+        fit.length === 1 && fit[0].id === 's', JSON.stringify(fit.map(function (c) { return c.id; })));
+    var hh = C.tagHouseholdCoupons([
+        { id: 'mine', patient_id: 'p1', status: 'unused' },
+        { id: 'cousin', patient_id: 'p2', status: 'unused' }
+    ], 'p1', { p1: '001003', p2: '001004' });
+    pass('household tag: other chart marked, this chart left alone',
+        !hh[0].household_id && hh[1].household_id === 'p2' && hh[1].household_no === '001004');
+    pass('wallet pane loads household coupons; transfer skips them; bill uses this chart only',
+        /loadWallet\(patientId, \{ household: true \}\)/.test(src) &&
+        /!c\.household_id && !LOCKED_TRANSFER_KEYS/.test(src) &&
+        /function loadWallet\(patientId, opts\)/.test(src) &&
+        /var walletP = bill\.patient_id \? loadWallet\(bill\.patient_id\) :/.test(src));
+    var mbSrc = read('app-mass-broadcast.js');
+    pass('mass broadcast loyalty filter dropdown and preload',
+        /id="mbFilterLoyalty"/.test(html) &&
+        /mbFilterLoyalty/.test(mbSrc) &&
+        /loyaltyBroadcastIndex/.test(mbSrc) &&
+        /patientMatchesLoyalty/.test(mbSrc) &&
+        /loyalty: \(pick\('mbFilterLoyalty'\)/.test(mbSrc));
+    pass('related charts exported for household coupons',
+        /relatedPatientIds: findRelatedPatientIds/.test(read('app-rewards.js')));
+    pass('appointment badge CSS in style-coupons.css',
+        /\.loy-appt-c \{/.test(read('style-coupons.css')) && /\.loy-appt-p \{/.test(read('style-coupons.css')));
 
     if (sb) {
         try {
@@ -3273,6 +3333,62 @@ function loadCoupons() {
         pass('live #001003 referral preview and config ladder', !!(refLive && refLive.ok && refLive.preview.indexOf('#001003') === 0 &&
             refLive.preview.indexOf('10% of the bill') > 0 && /fully paid/.test(refLive.preview) && refLive.ladder.indexOf('+HK$1000') > 0),
             refLive && refLive.preview);
+        var wire = await cdp.js(`(async () => {
+  var out = { ok: false };
+  try {
+    var pr = await SB.from('patients').select('id,patient_no,full_name,chinese_name').eq('patient_no', '001003').limit(1);
+    var p = pr.data && pr.data[0];
+    if (!p) return { ok: false, reason: 'no 001003' };
+    out.name = p.full_name;
+    out.no = p.patient_no;
+    var snap = await COUPONS.loyaltyDaySnapshots([p.id]);
+    var mine = snap[p.id] || {};
+    out.live = mine.live;
+    out.points = mine.points;
+    out.badge = COUPONS.loyaltyBadgeHtml(mine);
+    var span = document.createElement('span');
+    span.className = 'loy-appt';
+    span.setAttribute('data-pid', p.id);
+    span.setAttribute('hidden', '');
+    document.body.appendChild(span);
+    await COUPONS.paintApptLoyalty(document.body);
+    out.painted = span.innerHTML;
+    out.hidden = span.hasAttribute('hidden');
+    span.remove();
+    var own = await COUPONS.loadWallet(p.id);
+    var house = await COUPONS.loadWallet(p.id, { household: true });
+    var related = (REWARDS && typeof REWARDS.relatedPatientIds === 'function')
+      ? await REWARDS.relatedPatientIds(p.id) : [p.id];
+    out.own = own.length;
+    out.house = house.length;
+    out.related = related.length;
+    out.houseTagged = house.filter(function (c) { return c.household_id; }).length;
+    var fit = COUPONS.matchingItemCoupons(own, [
+      { desc: 'SCALING & POLISHING - 洗牙', item_name: 'SCALING & POLISHING - 洗牙', qty: 1, price: 560 }
+    ], undefined, (typeof treatmentItemsCache !== 'undefined' && treatmentItemsCache) || []);
+    out.fit = fit.map(function (c) { return c.campaign_key; });
+    out.itemFitWired = /coupons\\.info\\.itemFit/.test(String(COUPONS.refreshBillCouponInfo));
+    out.mbFilter = !!document.getElementById('mbFilterLoyalty');
+    out.ok = true;
+  } catch (e) { out.err = String(e && e.message || e); }
+  return out;
+})()`, true, 35000);
+        pass('live #001003 is NG PUI CHING', !!(wire && wire.ok && /NG PUI CHING/i.test(String(wire.name || '')) && wire.no === '001003'),
+            wire && JSON.stringify({ name: wire.name, no: wire.no, err: wire.err }));
+        pass('live #001003 appointment badge paints unused coupons and points', !!(wire && wire.ok &&
+            typeof wire.live === 'number' && typeof wire.points === 'number' &&
+            ((wire.live > 0 || wire.points > 0) ? /loy-appt-badges/.test(wire.painted) && wire.hidden === false : wire.painted === '') &&
+            (wire.live > 0 ? String(wire.badge).indexOf(String(wire.live)) >= 0 : true) &&
+            (wire.points > 0 ? /pt/.test(wire.badge) : true)),
+            wire && JSON.stringify({ live: wire.live, points: wire.points, badge: wire.badge, painted: wire.painted, hidden: wire.hidden }));
+        pass('live #001003 household wallet: related charts merged, other-chart coupons tagged, this chart still loads alone',
+            !!(wire && wire.ok && wire.related >= 1 && wire.house >= wire.own &&
+                (wire.related === 1 ? wire.houseTagged === 0 : wire.house >= wire.own)),
+            wire && JSON.stringify({ own: wire.own, house: wire.house, related: wire.related, houseTagged: wire.houseTagged }));
+        pass('live #001003 treatment-coupon fit against a scaling line (own wallet only)',
+            !!(wire && wire.ok && Array.isArray(wire.fit)), wire && JSON.stringify(wire && wire.fit));
+        pass('live page: mass-broadcast loyalty filter is on the contacts pane',
+            !!(wire && wire.ok && wire.mbFilter), wire && JSON.stringify(wire));
         var langs = await cdp.js(`(function () {
   var before = appUiLang;
   treatmentItemsCache = ${JSON.stringify(catalog)};

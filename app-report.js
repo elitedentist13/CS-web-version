@@ -1817,6 +1817,12 @@ var REPORT = (function () {
       return;
     }
 
+    if (tabKey === 'loyalty') {
+      var tl = todayISO();
+      setDateInputs(tl.slice(0, 4) + '-01-01', tl);
+      return;
+    }
+
     if (tabKey === 'weeklyIncome') {
       // latest 4 blocks: Fri → Thu repeating 7-day blocks
       // Determine the current block start (most recent Friday <= today)
@@ -7811,6 +7817,30 @@ var REPORT = (function () {
       if (g('rptPrintTableBtn')) g('rptPrintTableBtn').style.display = '';
       if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = '';
 
+      if (_tab === 'loyalty') {
+        setHeader(tr('report.title.loyalty'), tr('report.hint.loyalty'));
+        if (g('rptPrintChartBtn')) g('rptPrintChartBtn').style.display = 'none';
+        if (grid2) grid2.style.gridTemplateColumns = '1fr';
+        if (col2) col2.style.display = 'none';
+        if (typeof LOYALTY_REPORT === 'undefined') {
+          renderTable([{ key: 'err', label: tr('report.col.error') }], [{ err: 'app-loyalty-report.js not loaded' }]);
+          return;
+        }
+        var lyr = await LOYALTY_REPORT.render(null, {
+          from: from,
+          to: to,
+          today: todayISO(),
+          clinic: isReportAllClinicsSelected() ? '' : clinicCodeFromStoredTag(reportClinicTag()),
+          fetchBills: loadBillsByIdsRaw,
+          filterBills: filterBillsForReportClinic
+        });
+        if (mySeq !== _refreshSeq) return;
+        if (g('rptTableWrap')) g('rptTableWrap').innerHTML = LOYALTY_REPORT.html(lyr.model);
+        _rows = lyr.rows;
+        setChartNote('—');
+        return;
+      }
+
       // Treatments: each line is that item's share of money received in the period.
       if (_tab === 'txStats') {
         setHeader(tr('report.title.txStats'), tr('report.hint.txStats'));
@@ -7871,8 +7901,35 @@ var REPORT = (function () {
           return;
         }
         var grouped = groupPaymentSlicesBy(paymentSlices, dailyKeyFn);
-        _rows = grouped.map(function (g) { return { date: g.key, total: g.value.toFixed(2) }; });
-        renderTable([{ key: 'date', label: tr('report.col.date') }, { key: 'total', label: tr('report.col.paidHkd') }], _rows);
+        var loyaltyDays = {};
+        if (typeof LOYALTY_REPORT !== 'undefined') {
+          try {
+            loyaltyDays = (await LOYALTY_REPORT.usedByDay(from, to, {
+              fetchBills: loadBillsByIdsRaw,
+              filterBills: filterBillsForReportClinic
+            })).byDay || {};
+          } catch (eLoy) { loyaltyDays = {}; }
+          if (mySeq !== _refreshSeq) return;
+        }
+        var incomeCols = [{ key: 'date', label: tr('report.col.date') }, { key: 'total', label: tr('report.col.paidHkd') }];
+        var dayKeys = {};
+        grouped.forEach(function (g) { dayKeys[g.key] = g.value; });
+        var hasLoyalty = Object.keys(loyaltyDays).length > 0;
+        if (hasLoyalty) {
+          Object.keys(loyaltyDays).forEach(function (d) { if (!(d in dayKeys)) dayKeys[d] = 0; });
+          incomeCols.push({ key: 'coupons', label: tr('report.col.couponsNotIncome') });
+          incomeCols.push({ key: 'points', label: tr('report.col.pointsNotIncome') });
+        }
+        _rows = Object.keys(dayKeys).sort().map(function (d) {
+          var row = { date: d, total: Number(dayKeys[d] || 0).toFixed(2) };
+          if (hasLoyalty) {
+            var ly = loyaltyDays[d] || { coupon: 0, points: 0 };
+            row.coupons = Number(ly.coupon || 0).toFixed(2);
+            row.points = Number(ly.points || 0).toFixed(2);
+          }
+          return row;
+        });
+        renderTable(incomeCols, _rows);
         renderChartFromRows('date', 'total');
         return;
       }

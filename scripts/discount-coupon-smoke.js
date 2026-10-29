@@ -2084,6 +2084,91 @@ function loadCoupons() {
         /var rows = both\[0\]\.slice\(\)\.sort\(function \(a, b\) \{\s*return String\(a\.issued_at \|\| ''\)\.localeCompare/.test(src) &&
         /order by coalesce\(public\.dc_eff_expiry\(c\.expires_on, c\.issued_at, p_policy\), '9999-12-31'::date\), c\.issued_at, c\.code/.test(jobsSql));
 
+    console.log('\n=== Loyalty reports (Reports → Coupons & points) ===');
+    var lyrSrc = read('app-loyalty-report.js');
+    pass('node --check app-loyalty-report.js', (function () {
+        try { child_process.execFileSync(process.execPath, ['--check', path.join(root, 'app-loyalty-report.js')], { stdio: 'pipe' }); return true; } catch (e) { return false; }
+    })());
+    var lyrCtx = { console: console };
+    lyrCtx.window = lyrCtx;
+    vm.createContext(lyrCtx);
+    vm.runInContext(src + '\n' + lyrSrc + '\nthis.L = LOYALTY_REPORT; this.C = COUPONS;', lyrCtx, { filename: 'loyalty-report' });
+    var LR = lyrCtx.L;
+    var lyrCoupons = [
+        { id: 'a', campaign_key: 'spend_1', clinic_code: 'KT', face_value: 100, status: 'unused', expires_on: '2027-03-01', issued_at: '2026-10-01T02:00:00Z' },
+        { id: 'b', campaign_key: 'spend_1', clinic_code: 'KT', face_value: 100, status: 'used', redeemed_amount: 100, redeemed_at: '2026-10-20T17:00:00Z', bill_id: 'B1', issued_at: '2026-10-02T02:00:00Z' },
+        { id: 'c', campaign_key: 'pct', clinic_code: 'PL', discount_mode: 'percent', face_value: 0, status: 'unused', expires_on: null, issued_at: '2026-10-03T02:00:00Z' },
+        { id: 'd', campaign_key: 'spend_1', clinic_code: 'KT', face_value: 100, status: 'unused', expires_on: '2026-10-01', issued_at: '2026-09-01T02:00:00Z' },
+        { id: 'e', campaign_key: 'referral', clinic_code: 'KT', face_value: 230, status: 'unused', expires_on: '2027-01-01', issued_at: '2026-10-05T02:00:00Z' },
+        { id: 'f', campaign_key: 'spend_1', clinic_code: 'KT', face_value: 100, status: 'void', issued_at: '2026-10-06T02:00:00Z' }
+    ];
+    var lyrOut = LR.outstanding(lyrCoupons, [{ clinic_code: 'KT', balance: 50 }, { clinic_code: 'PL', balance: 0 }, { clinic_code: 'kt', balance: 25.5 }], { today: '2026-10-30' });
+    pass('unused value: live coupons + unspent points per clinic; expired, used, cancelled and % value left out',
+        lyrOut.rows.length === 2 && lyrOut.rows[0].clinic === 'KT' && lyrOut.rows[0].coupons === 2 && lyrOut.rows[0].coupon_value === 330 &&
+        lyrOut.rows[0].points_people === 2 && lyrOut.rows[0].points === 75.5 && lyrOut.rows[0].total === 405.5 &&
+        lyrOut.rows[1].percent_coupons === 1 && lyrOut.rows[1].coupon_value === 0 && lyrOut.total.total === 405.5, JSON.stringify(lyrOut));
+    var lyrYe = LR.outstanding(lyrCoupons, [], { today: '2027-01-02', policy: { zero_policy: 'year_end' } });
+    pass('unused value follows Set zero: 31 Dec cap ends 2026 coupons on 1 Jan', lyrYe.rows.filter(function (r) { return r.clinic === 'KT'; }).length === 0, JSON.stringify(lyrYe));
+    var lyrOneClinic = LR.outstanding(lyrCoupons, [{ clinic_code: 'KT', balance: 50 }], { today: '2026-10-30', clinic: 'pl' });
+    pass('unused value: one clinic picked shows only that clinic', lyrOneClinic.rows.length === 1 && lyrOneClinic.rows[0].clinic === 'PL');
+    var lyrCamp = LR.campaigns(lyrCoupons, { from: '2026-10-01', to: '2026-10-31', today: '2026-10-30', label: function (k) { return 'N:' + k; } });
+    var lyrS1 = lyrCamp.filter(function (r) { return r.key === 'spend_1'; })[0];
+    pass('issued vs used: per coupon, issued in the period, use rate and value used',
+        lyrS1 && lyrS1.name === 'N:spend_1' && lyrS1.issued === 3 && lyrS1.used === 1 && lyrS1.used_value === 100 && lyrS1.live === 1 &&
+        lyrS1.voided === 1 && lyrS1.expired === 0 && lyrS1.use_rate === 33.3 && lyrS1.issued_value === 300 && lyrCamp[0].key === 'spend_1', JSON.stringify(lyrCamp));
+    var lyrRef = LR.referrals([
+        { created_at: '2026-10-04T01:00:00Z', clinic_code: 'KT', status: 'issued', reward_kind: 'coupon', coupon_id: 'e', referred_patient_id: 'F' },
+        { created_at: '2026-10-04T01:00:00Z', clinic_code: 'KT', status: 'issued', reward_kind: 'points', points: 100, referred_patient_id: 'G' },
+        { created_at: '2026-10-04', clinic_code: 'KT', status: 'pending', referred_patient_id: 'H' },
+        { created_at: '2026-10-04', clinic_code: 'KT', status: 'void', referred_patient_id: 'I' },
+        { created_at: '2026-08-04', clinic_code: 'KT', status: 'issued', reward_kind: 'points', points: 999, referred_patient_id: 'J' }
+    ], [{ patient_id: 'F', amount_paid: 2300 }, { patient_id: 'G', amount_paid: 1000 }, { patient_id: 'G', amount_paid: 999, voided_at: 'x' }, { patient_id: 'I', amount_paid: 500 }],
+    lyrCoupons, { from: '2026-10-01', to: '2026-10-31' });
+    pass('referral return: friends\u2019 paid bills vs coupon + points bonus; cancelled and older referrals left out',
+        lyrRef.length === 1 && lyrRef[0].referred === 4 && lyrRef[0].rewarded === 2 && lyrRef[0].waiting === 1 && lyrRef[0].voided === 1 &&
+        lyrRef[0].friend_spend === 3300 && lyrRef[0].bonus_coupons === 230 && lyrRef[0].bonus_points === 100 && lyrRef[0].return_x === 10, JSON.stringify(lyrRef));
+    var lyrBill = LR.perBill(lyrCoupons, [
+        { kind: 'redeem', points: -25, bill_id: 'B1', created_at: '2026-10-21T03:00:00Z' },
+        { kind: 'redeem', points: -40, bill_id: 'B2', created_at: '2026-10-21T03:00:00Z' },
+        { kind: 'void_redeem', points: 40, bill_id: 'B2', created_at: '2026-10-22T03:00:00Z' },
+        { kind: 'earn', points: 90, bill_id: 'B1', created_at: '2026-10-21T03:00:00Z' }
+    ], [{ id: 'B1', bill_date: '2026-10-21', total: 875, amount_paid: 800, balance: 75, patient_no: '001003', patient_name: 'NG PUI CHING' },
+        { id: 'B2', bill_date: '2026-10-21', total: 100, amount_paid: 100, balance: 0 }], { from: '2026-10-01', to: '2026-10-31' });
+    var lb = lyrBill.rows[0];
+    pass('per bill: before coupons = coupons + points + paid (income) + balance; HK date of use; voided points netted',
+        lyrBill.rows.length === 1 && lb.date === '2026-10-21' && lb.coupon === 100 && lb.points === 25 && lb.paid === 775 && lb.balance === 75 &&
+        lb.before === 975 && Math.abs(lb.coupon + lb.points + lb.paid + lb.balance - lb.before) < 0.01 &&
+        lyrBill.byDay['2026-10-21'].coupon === 100 && lyrBill.byDay['2026-10-21'].points === 65 && lyrBill.byDay['2026-10-22'].points === -40, JSON.stringify(lyrBill));
+    pass('per bill: a voided bill drops out', LR.perBill(lyrCoupons, [], [{ id: 'B1', total: 875, voided_at: '2026-10-22' }], {}).rows.length === 0);
+    var lyrModel = { outstanding: lyrOut, campaigns: lyrCamp, referrals: lyrRef, bills: lyrBill };
+    var lyrHtml = LR.html(lyrModel);
+    pass('report page: four sections, totals row, money right-aligned, text escaped',
+        (lyrHtml.match(/class="lyr-sec"/g) || []).length === 4 && /<tfoot>/.test(lyrHtml) && /class="lyr-num">HK\$405\.50</.test(lyrHtml) &&
+        LR.html({ outstanding: { rows: [], total: {} }, campaigns: [{ name: '<b>x', issued: 1 }], referrals: [], bills: { rows: [] } }).indexOf('&lt;b&gt;x') >= 0);
+    var lyrCsv = LR.csvRows(lyrModel);
+    pass('CSV: every line has the same columns, first is the section',
+        lyrCsv.length === 2 + lyrCamp.length + 1 + 1 && Object.keys(lyrCsv[0])[0] === 'section' &&
+        lyrCsv.every(function (r) { return Object.keys(r).join() === Object.keys(lyrCsv[0]).join(); }));
+    var rptSrc = read('app-report.js');
+    pass('Reports: Loyalty tab loads the report with the clinic filter and bill lookups',
+        /_tab === 'loyalty'[\s\S]{0,900}LOYALTY_REPORT\.render\(null, \{[\s\S]{0,300}fetchBills: loadBillsByIdsRaw,\s*filterBills: filterBillsForReportClinic/.test(rptSrc) &&
+        /tabKey === 'loyalty'[\s\S]{0,120}-01-01', tl\)/.test(rptSrc));
+    pass('Daily income: coupons and points used shown beside cash (not income)',
+        /LOYALTY_REPORT\.usedByDay\(from, to,[\s\S]{0,1400}report\.col\.couponsNotIncome[\s\S]{0,120}report\.col\.pointsNotIncome/.test(rptSrc));
+    var lyrIdx = read('index.html');
+    pass('index.html: Loyalty tab button, report script before app-report.js',
+        /data-rpt="loyalty" onclick="REPORT\.switchTab\('loyalty'\)" data-i18n="report\.tab\.loyalty"/.test(lyrIdx) &&
+        /'app-loyalty-report\.js\?v=[^']+',\s*'app-report\.js\?v=/.test(lyrIdx));
+    var i18nSrc = read('app-i18n-extra.js');
+    var lyrKeys = (lyrSrc.match(/tt\('loyaltyReport\.[^']+'/g) || []).map(function (s) { return s.slice(4, -1); })
+        .concat(['report.tab.loyalty', 'report.tabGroup.loyalty', 'report.title.loyalty', 'report.hint.loyalty', 'report.col.couponsNotIncome', 'report.col.pointsNotIncome']);
+    var lyrMissing = lyrKeys.filter(function (k) {
+        var re = new RegExp("'" + k.replace(/\./g, '\\.') + "': \\{[\\s\\S]{0,40}en: [\\s\\S]{0,400}'zh-CN': [\\s\\S]{0,200}'zh-Hant': ");
+        return !re.test(i18nSrc);
+    });
+    pass('every report label has English, Simplified and Traditional Chinese', lyrKeys.length > 30 && lyrMissing.length === 0, lyrMissing.join(', '));
+    pass('report CSS in style-coupons.css', /\.lyr-table \.lyr-num \{/.test(read('style-coupons.css')));
+
     if (sb) {
         try {
             var jobsProbe = await restGet(sb.url, sb.key, 'loyalty_job_runs', 'select=job,run_on,finished_at,result&order=run_on.desc&limit=3');
@@ -2818,6 +2903,88 @@ function loadCoupons() {
             !!(jobLive && jobLive.ok && jobLive.ordered && jobLive.n > 0 && (jobOn
                 ? (jobLive.state.ran ? jobLive.calls === 0 : true)
                 : jobLive.calls === 1 && jobLive.day === jobLive.today && jobLive.second.skipped === 'done')), JSON.stringify(jobLive));
+        var lyrLive = await cdp.js(`(async function () {
+  var out = { ok: false };
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  async function until(fn, ms) { var end = Date.now() + ms; while (Date.now() < end) { var v = fn(); if (v) return v; await sleep(250); } return null; }
+  try {
+    var today = COUPONS.todayIso();
+    var from = today.slice(0, 4) + '-01-01';
+    var pr = await SB.from('patients').select('id,patient_no').eq('patient_no', '001003').limit(1);
+    var pid = pr.data[0].id;
+    var all = await SB.from('discount_coupons').select('id,patient_id,status,bill_id,redeemed_amount,redeemed_at,expires_on,issued_at,clinic_code,discount_mode,face_value');
+    var policy = await COUPONS.freshZeroPolicy();
+    var live = COUPONS.applyZeroExpiry(all.data.map(function (c) { return Object.assign({}, c); }), policy).filter(function (c) { return COUPONS.isLive(c, today); });
+    out.expLive = live.length;
+    out.expLiveValue = Math.round(live.reduce(function (s, c) { return s + (c.discount_mode === 'percent' ? 0 : Number(c.face_value || 0)); }, 0) * 100) / 100;
+    var mine = all.data.filter(function (c) { return c.patient_id === pid && c.status === 'used' && c.bill_id && LOYALTY_REPORT.hkDay(c.redeemed_at) >= from; });
+    var billIds = mine.map(function (c) { return c.bill_id; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
+    var br = billIds.length ? await SB.from('bills').select('id,voided_at,clinic_tag').in('id', billIds) : { data: [] };
+    var okBills = {};
+    (br.data || []).forEach(function (b) { if (!b.voided_at) okBills[b.id] = b; });
+    out.expMineCoupon = Math.round(mine.filter(function (c) { return okBills[c.bill_id]; }).reduce(function (s, c) { return s + Number(c.redeemed_amount || 0); }, 0) * 100) / 100;
+    out.mineBillClinic = (br.data || []).map(function (b) { return b.clinic_tag; })[0] || '';
+
+    if (typeof showOnly === 'function') showOnly('reportSection');
+    REPORT.init();
+    var sel = document.getElementById('reportClinicSelect');
+    if (sel) { sel.value = ''; }
+    REPORT.switchTab('loyalty');
+    var rep = await until(function () { return document.querySelector('#rptTableWrap .lyr-report'); }, 45000);
+    if (!rep) { out.err = 'no report: ' + (document.getElementById('rptTableWrap') || {}).textContent; return out; }
+    out.from = document.getElementById('rptFrom').value;
+    out.title = document.getElementById('rptTitle').textContent;
+    out.sections = rep.querySelectorAll('.lyr-sec').length;
+    out.chartHidden = document.getElementById('rptChartCol') ? document.getElementById('rptChartCol').style.display === 'none' : true;
+    var model = (await LOYALTY_REPORT.render(null, { from: from, to: today, today: today, clinic: '',
+      fetchBills: function (ids) { return SB.from('bills').select('id,bill_date,total,amount_paid,balance,patient_id,patient_no,patient_name,voided_at,created_at').in('id', ids).then(function (r) { return r.data || []; }); } })).model;
+    out.repLive = model.outstanding.total.coupons;
+    out.repLiveValue = model.outstanding.total.coupon_value;
+    out.repPoints = model.outstanding.total.points;
+    var myRows = model.bills.rows.filter(function (r) { return String(r.patient).indexOf('001003') === 0; });
+    out.repMineCoupon = Math.round(myRows.reduce(function (s, r) { return s + r.coupon; }, 0) * 100) / 100;
+    out.mineAddsUp = myRows.every(function (r) { return Math.abs(r.coupon + r.points + r.paid + r.balance - r.before) < 0.01; });
+    out.pageHasMine = out.repMineCoupon > 0 ? rep.textContent.indexOf('001003') >= 0 : true;
+    out.campaigns = model.campaigns.length;
+    out.referrals = model.referrals.reduce(function (s, r) { return s + r.referred; }, 0);
+
+    if (sel && out.mineBillClinic) {
+      var opt = Array.prototype.slice.call(sel.options).filter(function (o) {
+        var rec = typeof clinicRecordFromId === 'function' ? clinicRecordFromId(o.value) : null;
+        return o.value && ((rec && String(rec.clinic_code || '').toUpperCase() === String(out.mineBillClinic).toUpperCase()) || o.value === out.mineBillClinic);
+      })[0];
+      if (opt) {
+        sel.value = opt.value;
+        REPORT.switchTab('dailyIncome');
+        await sleep(300);
+        document.getElementById('rptFrom').value = today.slice(0, 7) + '-01';
+        document.getElementById('rptTo').value = today;
+        document.getElementById('rptFrom').dispatchEvent(new Event('change'));
+        var head = await until(function () {
+          var th = Array.prototype.map.call(document.querySelectorAll('#rptTableWrap th'), function (x) { return x.textContent; });
+          return th.length && document.getElementById('rptTableWrap').textContent.indexOf('…') < 0 ? th : null;
+        }, 45000);
+        out.dailyHead = head;
+        out.dailyClinic = opt.value;
+      }
+      sel.value = '';
+    }
+    out.ok = true;
+  } catch (e) { out.err = String(e && e.message || e); }
+  return out;
+})()`, true, 120000);
+        pass('live Reports → Coupons & points opens: 4 sections, year-to-date, no chart',
+            !!(lyrLive && lyrLive.ok && lyrLive.sections === 4 && lyrLive.chartHidden && /-01-01$/.test(lyrLive.from)), JSON.stringify(lyrLive));
+        pass('live unused coupons = every live coupon in the database (Set zero applied)',
+            !!(lyrLive && lyrLive.repLive === lyrLive.expLive && Math.abs(lyrLive.repLiveValue - lyrLive.expLiveValue) < 0.01),
+            lyrLive && (lyrLive.repLive + ' / ' + lyrLive.expLive + ', HK$' + lyrLive.repLiveValue + ' / ' + lyrLive.expLiveValue + ', points HK$' + lyrLive.repPoints));
+        pass('live #001003 per bill: coupon value used this year matches the coupons, and each bill adds up',
+            !!(lyrLive && lyrLive.repMineCoupon === lyrLive.expMineCoupon && lyrLive.mineAddsUp && lyrLive.pageHasMine),
+            lyrLive && ('report HK$' + lyrLive.repMineCoupon + ' vs coupons HK$' + lyrLive.expMineCoupon));
+        if (lyrLive && lyrLive.dailyHead) {
+            pass('live Daily income (' + lyrLive.mineBillClinic + ', this month): coupon and points columns beside cash',
+                lyrLive.expMineCoupon > 0 ? lyrLive.dailyHead.some(function (h) { return /Coupons used|已用優惠券|已用优惠券/.test(h); }) : true, JSON.stringify(lyrLive.dailyHead));
+        }
         var smsLink = await cdp.js(`(async function () {
   var out = { ok: false };
   var BASE_KEY = 'csPhoneScanBase';

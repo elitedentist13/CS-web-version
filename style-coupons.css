@@ -399,3 +399,15 @@ button.dc-card.is-blocked .dc-check { display: none; }
 .dc-prog.is-top .dc-prog-fill { background: linear-gradient(90deg, #fbbf24, #d97706); }
 .dc-prog-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; }
 .dc-prog-cap { display: flex; justify-content: space-between; gap: 8px; margin-top: 3px; font-size: 11px; font-weight: 700; opacity: .85; }
+
+/* Reports → Loyalty */
+.lyr-report { display: flex; flex-direction: column; gap: 18px; }
+.lyr-sec h3 { margin: 0 0 4px; font-size: 15px; font-weight: 900; color: #0f172a; }
+.lyr-hint { margin: 0 0 8px; font-size: 12px; color: #64748b; }
+.lyr-empty { padding: 10px 12px; color: #888; font-size: 13px; border: 1px dashed #e2e8f0; border-radius: 10px; }
+.lyr-table-wrap { overflow: auto; max-height: 420px; border: 1px solid #eef2f7; border-radius: 10px; }
+.lyr-table { width: 100%; border-collapse: collapse; min-width: 640px; font-size: 13px; }
+.lyr-table th { position: sticky; top: 0; padding: 9px 10px; background: #f0f7ff; color: #0d6efd; font-size: 12px; font-weight: 900; text-align: left; border-bottom: 2px solid #dde8f5; }
+.lyr-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
+.lyr-table tfoot td { font-weight: 900; background: #f8fafc; border-top: 2px solid #e2e8f0; }
+.lyr-table .lyr-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }

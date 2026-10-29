@@ -6256,6 +6256,7 @@ var COUPONS = (function () {
         walletLedgerRows: walletLedgerRows,
         effectiveExpiry: effectiveExpiry,
         applyZeroExpiry: applyZeroExpiry,
+        freshZeroPolicy: freshZeroPolicy,
         walletTransferable: walletTransferable,
         renderWalletPane: renderWalletPane,
         normalizeZeroPolicy: normalizeZeroPolicy,

@@ -1892,9 +1892,11 @@ var REWARDS = (function () {
                     return { ok: true, skipped: true, reason: 'disabled' };
                 });
             }
+            var hasLink = typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.phoneLinkForSms === 'function';
             return Promise.all([
                 loadPatientLite(info.patientId),
-                listPersonAccountsFresh(info.patientId).catch(function () { return []; })
+                listPersonAccountsFresh(info.patientId).catch(function () { return []; }),
+                hasLink ? COUPONS.phoneLinkForSms(info.patientId, 'rw_wallet_link', 'points.html') : ''
             ]).then(function (both) {
                 var pat = both[0];
                 var bal = smsBalances(both[1], info.patientId, info.balance);
@@ -1916,6 +1918,7 @@ var REWARDS = (function () {
                     clinic: info.clinic || '',
                     ref: info.ref || ''
                 });
+                if (hasLink) body = COUPONS.smsWithPhoneLink(body, both[2], 'rewards');
                 if (typeof AIHELPER === 'undefined' || typeof AIHELPER.sendTwilioOutreach !== 'function') {
                     return logSms({
                         ledger_id: info.ledgerId || null,

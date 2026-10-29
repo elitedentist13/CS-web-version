@@ -3047,6 +3047,30 @@ var COUPONS = (function () {
         try { return (window.localStorage && localStorage.getItem(PHONE_BASE_KEY)) || ''; } catch (e) { return ''; }
     }
 
+    /**
+     * The patient's current phone page link for an SMS ('' when it cannot be made in time or only works on this
+     * computer). Never resets the link, so a QR the patient already holds keeps working.
+     */
+    function phoneLinkForSms(patientId, rpc, page, waitMs) {
+        if (!patientId) return Promise.resolve('');
+        var link = walletLinkToken(patientId, false, rpc).then(function (res) {
+            if (!res || !res.ok || !res.token) return '';
+            var url = walletUrl(res.token, '', page);
+            return isLocalAddress(url) ? '' : url;
+        }, function () { return ''; });
+        var late = new Promise(function (resolve) { setTimeout(function () { resolve(''); }, waitMs || 5000); });
+        return Promise.race([link, late]);
+    }
+
+    /** Pure: the SMS with the phone page link added as its last line. scheme: 'coupons' | 'rewards'. */
+    function smsWithPhoneLink(body, url, scheme) {
+        if (!body || !url) return body;
+        var label = scheme === 'rewards'
+            ? '手機查看積分/See your points on the phone: '
+            : '手機查看優惠券/See your coupons on the phone: ';
+        return body + '\n' + label + url;
+    }
+
     function isLocalAddress(url) {
         var m = /^(https?:)\/\/([^\/:?#]+)/i.exec(String(url || ''));
         if (!m) return true;
@@ -4192,7 +4216,7 @@ var COUPONS = (function () {
                 var issued = Object.assign({}, row, { code: saved.code || row.code });
                 sendCouponSms(row.patient_id, function (wallet) {
                     return smsIssued(issued, wallet, Object.assign({ clinic: row.clinic_code || clinicCodeNow() }, smsOpts || {}));
-                });
+                }, { phoneLink: true });
             }
             return { ok: true, id: saved.id, code: saved.code || row.code };
         }, function (e) {
@@ -4200,13 +4224,18 @@ var COUPONS = (function () {
         });
     }
 
-    /** body is the text, or a function(wallet) that builds it from the patient's coupons at send time. */
-    function sendCouponSms(patientId, body) {
+    /**
+     * body is the text, or a function(wallet) that builds it from the patient's coupons at send time.
+     * opts.phoneLink adds the patient's phone coupon page link.
+     */
+    function sendCouponSms(patientId, body, opts) {
         if (!body || !patientId || typeof SB === 'undefined' || !SB) return Promise.resolve({ ok: false, reason: 'no_db' });
         var walletP = typeof body === 'function' ? loadWallet(patientId) : Promise.resolve(null);
+        var linkP = opts && opts.phoneLink ? phoneLinkForSms(patientId, 'dc_wallet_link', 'wallet.html') : Promise.resolve('');
         return Promise.all([
             SB.from('patients').select('phone_number,mobile_phone,full_name,chinese_name,patient_no').eq('id', patientId).maybeSingle(),
-            walletP
+            walletP,
+            linkP
         ])
             .then(function (both) {
                 var r = both[0];
@@ -4215,6 +4244,7 @@ var COUPONS = (function () {
                 if (!phone) return { ok: false, reason: 'no_phone' };
                 var text = typeof body === 'function' ? body(both[1] || []) : body;
                 if (!text) return { ok: false, reason: 'no_text' };
+                text = smsWithPhoneLink(text, both[2], 'coupons');
                 if (typeof AIHELPER === 'undefined' || typeof AIHELPER.sendTwilioOutreach !== 'function') {
                     return { ok: false, reason: 'no_sms' };
                 }
@@ -5953,6 +5983,9 @@ var COUPONS = (function () {
         walletSlipHtml: walletSlipHtml,
         walletWhatsAppText: walletWhatsAppText,
         walletUrl: walletUrl,
+        phoneLinkForSms: phoneLinkForSms,
+        smsWithPhoneLink: smsWithPhoneLink,
+        sendCouponSms: sendCouponSms,
         isLocalAddress: isLocalAddress,
         cashRules: cashRules,
         couponLabelFor: couponLabelFor,

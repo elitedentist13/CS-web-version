@@ -871,7 +871,7 @@ function loadCoupons() {
     pass('points flow: HK$299 below the points minimum waits', pLow.reason === 'below_min' && pRecs[0].status === 'pending' &&
         ptDb.reward_accounts[0].balance === 50, JSON.stringify(pLow));
     var pPaid = await PC.referralOnBillPaid({ patientId: 'pf', billId: 'bill-P1', cashPaid: 680, clinicCode: 'KT' });
-    var credit = ptSb.log.filter(function (l) { return l.t === 'rpc'; });
+    var credit = ptSb.log.filter(function (l) { return l.t === 'rpc' && l.fn !== 'rw_wallet_link'; });
     pass('points flow: paid HK$680 credits +100 via reward_adjust with a note', pPaid.ok && pPaid.kind === 'points' && credit.length === 1 &&
         credit[0].args.p_patient_id === 'old' && credit[0].args.p_points_delta === 100 && credit[0].args.p_note === 'Referral: #000555' &&
         ptDb.reward_accounts[0].balance === 150, JSON.stringify(pPaid));
@@ -885,10 +885,10 @@ function loadCoupons() {
         ptLines[2] === '結餘/Balance (KT): 150.00' && ptLines[3] === '總結餘/All-clinic total: 150.00' &&
         ptLines.indexOf('參考/Ref: 多謝介紹 張** / thanks for referring 張**') > 0, ptLines.join(' | '));
     pass('points flow: a second paid visit does not credit again', (await PC.referralOnBillPaid({ patientId: 'pf', billId: 'bill-P2', cashPaid: 900, clinicCode: 'KT' })).skipped === true &&
-        ptSb.log.filter(function (l) { return l.t === 'rpc'; }).length === 1);
+        ptSb.log.filter(function (l) { return l.t === 'rpc' && l.fn !== 'rw_wallet_link'; }).length === 1);
     await PC.onBillVoided({ id: 'bill-P1', patient_id: 'pf' });
     await settle();
-    var rev = ptSb.log.filter(function (l) { return l.t === 'rpc'; })[1];
+    var rev = ptSb.log.filter(function (l) { return l.t === 'rpc' && l.fn !== 'rw_wallet_link'; })[1];
     pass('points flow: voiding the friend’s bill takes the 100 points back', rev && rev.args.p_points_delta === -100 && /bill voided/.test(rev.args.p_note) &&
         ptDb.reward_accounts[0].balance === 50, JSON.stringify(rev && rev.args));
     pass('points flow: and the referral goes back to pending', pRecs[0].status === 'pending' && !pRecs[0].ledger_id && pRecs[0].reason === 'bill_voided',
@@ -1005,6 +1005,61 @@ function loadCoupons() {
         remind.indexOf('(DC-A1)') >= 0 && remind.indexOf('備註/Note:') >= 0, remind);
     pass('coupon SMS reads the wallet at send time', /sendCouponSms\(row\.patient_id, function \(wallet\)/.test(src) &&
         /typeof body === 'function' \? loadWallet\(patientId\)/.test(src));
+    pass('SMS phone link line: coupons and points wording, nothing added without a link',
+        C.smsWithPhoneLink('A\nB', 'https://a.example/wallet.html?t=x', 'coupons') === 'A\nB\n手機查看優惠券/See your coupons on the phone: https://a.example/wallet.html?t=x' &&
+        C.smsWithPhoneLink('A', 'https://a.example/points.html?t=y', 'rewards') === 'A\n手機查看積分/See your points on the phone: https://a.example/points.html?t=y' &&
+        C.smsWithPhoneLink('A', '', 'coupons') === 'A' && C.smsWithPhoneLink('', 'https://a.example/w', 'coupons') === '');
+    pass('coupon issue SMS asks for the phone link; expiry and year-end reminders do not',
+        /sendCouponSms\(row\.patient_id, function \(wallet\) \{[\s\S]{0,200}\}, \{ phoneLink: true \}\)/.test(src) &&
+        /sendCouponSms\(c\.patient_id, body\)/.test(src) && /phoneLinkForSms\(patientId, 'dc_wallet_link', 'wallet\.html'\)/.test(src));
+    var linkCalls = [];
+    var linkMode = 'ok';
+    var linkCtx = {
+        console: console, setTimeout: setTimeout, clearTimeout: clearTimeout,
+        localStorage: { getItem: function (k) { return k === 'csPhoneScanBase' ? 'https://clinic.example.com/app/scan.html?x=1' : null; } },
+        SB: {
+            from: function () {
+                var q = { select: function () { return q; }, eq: function () { return q; },
+                    maybeSingle: function () { return Promise.resolve({ data: { phone_number: '91234567', full_name: 'CHAN' }, error: null }); } };
+                return q;
+            },
+            rpc: function (fn, args) {
+                linkCalls.push({ fn: fn, args: args });
+                if (linkMode === 'hang') return new Promise(function () {});
+                if (linkMode === 'missing') return Promise.resolve({ data: null, error: { message: 'Could not find the function public.dc_wallet_link' } });
+                return Promise.resolve({ data: { ok: true, token: fn === 'rw_wallet_link' ? 'rwtok' : 'dctok' }, error: null });
+            }
+        }
+    };
+    var linkSms = [];
+    linkCtx.AIHELPER = { sendTwilioOutreach: function (o) { linkSms.push(o); return Promise.resolve({ ok: true }); } };
+    linkCtx.window = linkCtx;
+    vm.createContext(linkCtx);
+    vm.runInContext(src, linkCtx, { filename: 'app-coupons.js' });
+    var LC = linkCtx.COUPONS;
+    var dcLink = await LC.phoneLinkForSms('p1', 'dc_wallet_link', 'wallet.html');
+    var rwLink = await LC.phoneLinkForSms('p1', 'rw_wallet_link', 'points.html');
+    pass('SMS phone link: public page address with the patient token, never a new QR',
+        dcLink === 'https://clinic.example.com/app/wallet.html?t=dctok' && rwLink === 'https://clinic.example.com/app/points.html?t=rwtok' &&
+        linkCalls.length === 2 && linkCalls.every(function (c) { return c.args.p_patient_id === 'p1' && c.args.p_reset === false; }),
+        JSON.stringify({ dcLink: dcLink, rwLink: rwLink, calls: linkCalls }));
+    await LC.sendCouponSms('p1', 'Body', { phoneLink: true });
+    await LC.sendCouponSms('p1', 'Plain');
+    pass('coupon SMS with phoneLink ends with the link; without it the text is unchanged',
+        linkSms.length === 2 && linkSms[0].body === 'Body\n手機查看優惠券/See your coupons on the phone: https://clinic.example.com/app/wallet.html?t=dctok' &&
+        linkSms[1].body === 'Plain', JSON.stringify(linkSms.map(function (s) { return s.body; })));
+    linkMode = 'missing';
+    var noSqlLink = await LC.phoneLinkForSms('p1', 'dc_wallet_link', 'wallet.html');
+    linkMode = 'hang';
+    var t0 = Date.now();
+    var slowLink = await LC.phoneLinkForSms('p1', 'dc_wallet_link', 'wallet.html', 60);
+    await LC.sendCouponSms('p1', 'Late', { phoneLink: true });
+    pass('SMS still goes without a link when the link cannot be made (not set up / too slow)',
+        noSqlLink === '' && slowLink === '' && Date.now() - t0 < 6500 && linkSms[2] && linkSms[2].body === 'Late', JSON.stringify(linkSms[2]));
+    linkCtx.localStorage = { getItem: function () { return null; } };
+    linkMode = 'ok';
+    pass('SMS phone link left out when the address only works on this computer',
+        (await LC.phoneLinkForSms('p1', 'dc_wallet_link', 'wallet.html')) === '');
     pass('no expiry SMS on other days', C.smsExpiring({ status: 'unused', expires_on: '2026-12-31' }, '2026-10-26') === '' &&
         C.smsExpiring({ status: 'unused', expires_on: '2026-12-31' }, '2026-11-29') === '');
     pass('1 month before 31 Dec is 30 Nov', C.addMonthsIso('2026-12-31', -1) === '2026-11-30' && C.addMonthsIso('2027-03-31', -1) === '2027-02-28' &&
@@ -2389,6 +2444,58 @@ function loadCoupons() {
         pass('live #001003 phone wallet: same dates as the desk, from the live Set zero option', !!(yeLive && yeLive.ok && yeLive.phonePolicy === yeLive.policy &&
             yeLive.policyCalls === 1 && capOk(yeLive.phone) && yeLive.phone.length === yeLive.desk.length && yeLive.htmlHasOwn2027 === false),
             yeLive && JSON.stringify({ policy: yeLive.phonePolicy, calls: yeLive.policyCalls, phone: yeLive.phone }));
+        var smsLink = await cdp.js(`(async function () {
+  var out = { ok: false };
+  var BASE_KEY = 'csPhoneScanBase';
+  var keepBase = localStorage.getItem(BASE_KEY);
+  var keepSend = AIHELPER.sendTwilioOutreach;
+  var keepFrom = SB.from;
+  var sent = [];
+  try {
+    var pr = await SB.from('patients').select('id').eq('patient_no', '001003').limit(1);
+    var pid = pr && pr.data && pr.data[0] && pr.data[0].id;
+    if (!pid) return { ok: false, reason: 'no 001003' };
+    localStorage.setItem(BASE_KEY, 'https://elitedentist13.github.io/CS-web-version/scan.html');
+    var dc1 = await SB.rpc('dc_wallet_link', { p_patient_id: pid, p_by: null, p_reset: false });
+    var rw1 = await SB.rpc('rw_wallet_link', { p_patient_id: pid, p_by: null, p_reset: false });
+    out.dcToken = dc1 && dc1.data && dc1.data.token;
+    out.rwToken = rw1 && rw1.data && rw1.data.token;
+    AIHELPER.sendTwilioOutreach = function (o) { sent.push(o); return Promise.resolve({ ok: true, result: { sid: 'SMOKE' } }); };
+    SB.from = function (t) {
+      if (t === 'reward_sms_log') return { insert: function () { return Promise.resolve({ data: null, error: null }); } };
+      return keepFrom.apply(SB, arguments);
+    };
+    out.couponRes = await COUPONS.sendCouponSms(pid, function (w) { return 'SMOKE coupon body (' + w.length + ')'; }, { phoneLink: true });
+    out.couponBody = sent[0] && sent[0].body;
+    var prog = await SB.from('reward_program').select('sms_notify_enabled').eq('id', 1).maybeSingle();
+    out.pointsSmsOn = !(prog && prog.data && prog.data.sms_notify_enabled === false);
+    out.pointsRes = await REWARDS.notifyBalanceChange({ patientId: pid, points: 0, kind: 'net', clinic: 'SMOKE', ref: 'SMOKE' });
+    out.pointsBody = sent[1] && sent[1].body;
+    var dc2 = await SB.rpc('dc_wallet_link', { p_patient_id: pid, p_by: null, p_reset: false });
+    var rw2 = await SB.rpc('rw_wallet_link', { p_patient_id: pid, p_by: null, p_reset: false });
+    out.sameTokens = dc2.data.token === out.dcToken && rw2.data.token === out.rwToken;
+    var view = await SB.rpc('rw_wallet_view', { p_token: out.rwToken });
+    out.rwViewOk = !!(view && view.data && view.data.ok !== false);
+    out.sends = sent.length;
+    out.ok = true;
+  } catch (e) { out.err = String(e && e.message || e); }
+  finally {
+    AIHELPER.sendTwilioOutreach = keepSend;
+    SB.from = keepFrom;
+    if (keepBase == null) localStorage.removeItem(BASE_KEY); else localStorage.setItem(BASE_KEY, keepBase);
+  }
+  return out;
+})()`, true, 30000);
+        var lastLine = function (s) { var l = String(s || '').split('\n'); return l[l.length - 1]; };
+        pass('live #001003 coupon SMS ends with the phone coupon page link (no SMS really sent)', !!(smsLink && smsLink.ok && smsLink.couponRes && smsLink.couponRes.ok &&
+            lastLine(smsLink.couponBody) === '手機查看優惠券/See your coupons on the phone: https://elitedentist13.github.io/CS-web-version/wallet.html?t=' + smsLink.dcToken),
+            smsLink && (smsLink.err || smsLink.reason || lastLine(smsLink.couponBody)));
+        pass('live #001003 points SMS ends with the phone points page link (no SMS really sent)', !!(smsLink && smsLink.ok && (smsLink.pointsSmsOn ?
+            lastLine(smsLink.pointsBody) === '手機查看積分/See your points on the phone: https://elitedentist13.github.io/CS-web-version/points.html?t=' + smsLink.rwToken &&
+            smsLink.pointsBody.indexOf('變動/Change') > 0 : smsLink.sends === 1)),
+            smsLink && (smsLink.err || (smsLink.pointsSmsOn ? lastLine(smsLink.pointsBody) : 'points SMS switched off')));
+        pass('live #001003 SMS links reuse the patient’s current QR (no new code) and open the points page', !!(smsLink && smsLink.ok && smsLink.sameTokens && smsLink.rwViewOk),
+            smsLink && JSON.stringify({ same: smsLink.sameTokens, view: smsLink.rwViewOk }));
         var langs = await cdp.js(`(function () {
   var before = appUiLang;
   treatmentItemsCache = ${JSON.stringify(catalog)};

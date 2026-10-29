@@ -1005,7 +1005,23 @@ function loadCoupons() {
         remind.indexOf('(DC-A1)') >= 0 && remind.indexOf('備註/Note:') >= 0, remind);
     pass('coupon SMS reads the wallet at send time', /sendCouponSms\(row\.patient_id, function \(wallet\)/.test(src) &&
         /typeof body === 'function' \? loadWallet\(patientId\)/.test(src));
-    pass('no expiry SMS on other days', C.smsExpiring({ status: 'unused', expires_on: '2026-11-03' }, '2026-10-26') === '');
+    pass('no expiry SMS on other days', C.smsExpiring({ status: 'unused', expires_on: '2026-12-31' }, '2026-10-26') === '' &&
+        C.smsExpiring({ status: 'unused', expires_on: '2026-12-31' }, '2026-11-29') === '');
+    pass('1 month before 31 Dec is 30 Nov', C.addMonthsIso('2026-12-31', -1) === '2026-11-30' && C.addMonthsIso('2027-03-31', -1) === '2027-02-28' &&
+        C.addMonthsIso('2026-01-15', -1) === '2025-12-15');
+    var yearEnd = { status: 'unused', expires_on: '2026-12-31', issued_on: '2026-03-01' };
+    pass('month reminder starts 30 Nov for a 31 Dec expiry', C.expiryReminderStage(yearEnd, '2026-11-29') === '' &&
+        C.expiryReminderStage(yearEnd, '2026-11-30') === 'month' && C.expiryReminderStage(yearEnd, '2026-12-23') === 'month' &&
+        C.expiryReminderStage(yearEnd, '2026-12-24') === 'week' && C.expiryReminderStage(yearEnd, '2026-12-31') === '');
+    var monthSms = C.smsExpiring(yearEnd, '2026-11-30');
+    pass('month reminder text counts the days left', monthSms.indexOf('31日內到期 (2026-12-31)') >= 0 && monthSms.indexOf('expires in 31 days') >= 0, monthSms);
+    pass('no month reminder for a coupon issued inside the month window',
+        C.expiryReminderStage({ status: 'unused', expires_on: '2026-12-31', issued_on: '2026-12-05' }, '2026-12-10') === '' &&
+        C.expiryReminderStage({ status: 'unused', expires_on: '2026-12-31', issued_on: '2026-12-05' }, '2026-12-25') === 'week');
+    pass('month reminder claims its own column and skips coupons already week-reminded',
+        /sendExpiryStage\('month', 'expiry_sms_month_at', today\)/.test(src) && /q\.is\('expiry_sms_at', null\)/.test(src) &&
+        read('discount_coupons_expiry_sms.sql').indexOf('expiry_sms_month_at') >= 0);
+    pass('coupon "today" is the Hong Kong date', /function todayIso\(\) \{ return new Date\(Date\.now\(\) \+ 8 \* 3600000\)/.test(src));
 
     console.log('=== 9b gift / transfer login ===');
     var authUsers = [
@@ -1630,7 +1646,7 @@ function loadCoupons() {
         waText.split('\n')[1].indexOf('你好！') === 0 && waText.split('\n')[2].indexOf('Hi! ') === 0, waNamed.slice(1, 3).join(' | '));
     pass('wallet WhatsApp sends to the phone field via the shared WhatsApp opener', /var phone = waPhone\(\);/.test(src) &&
         /openWhatsAppPrefill\(phone, cfg\.waText\(url, patient\)\)/.test(src) && /waText: walletWhatsAppText/.test(src) && src.indexOf('id="dcWqrPhone"') > 0 &&
-        /phone_number,mobile_phone/.test(src) && src.indexOf('QRTOOL.openWith') < 0);
+        /phoneEl\.value = String\(p\.phone_number \|\| ''\)\.trim\(\)/.test(src) && src.indexOf('QRTOOL.openWith') < 0);
     var toolsSrc = read('app-tools.js');
     pass('Tools QR generator offers draw() and openWith() to other modules', /return \{ open: open, draw: draw, openWith: openWith \}/.test(toolsSrc) &&
         /function draw\(container, text, opts\)/.test(toolsSrc));
@@ -2058,8 +2074,8 @@ function loadCoupons() {
   SB.from = function (table) {
     if (table !== 'patients') return realFrom.apply(SB, arguments);
     return { select: function (cols) {
-      if (String(cols).indexOf('mobile_phone') < 0) return realFrom.call(SB, table).select(cols);
-      var row = { patient_no: 'T001', chinese_name: '陳大文', full_name: 'Chan Tai Man', phone_number: '', mobile_phone: '9123 4567' };
+      if (String(cols) !== 'patient_no,chinese_name,full_name,phone_number') return realFrom.call(SB, table).select(cols);
+      var row = { patient_no: 'T001', chinese_name: '陳大文', full_name: 'Chan Tai Man', phone_number: '9123 4567', mobile_phone: '6000 0000' };
       return { eq: function () { return { maybeSingle: function () { return Promise.resolve({ data: row, error: null }); } }; } };
     } };
   };

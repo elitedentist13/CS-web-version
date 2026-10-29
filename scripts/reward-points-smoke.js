@@ -1870,8 +1870,8 @@ function extractIifeHelpers(src) {
   SB.from = function (table) {
     if (table !== 'patients') return realFrom.apply(SB, arguments);
     return { select: function (cols) {
-      if (cols !== 'patient_no,chinese_name,full_name,phone_number,mobile_phone') return realFrom.call(SB, table).select(cols);
-      const row = { patient_no: 'T001', chinese_name: '陳大文', full_name: 'Chan Tai Man', phone_number: '', mobile_phone: '9123 4567' };
+      if (cols !== 'patient_no,chinese_name,full_name,phone_number') return realFrom.call(SB, table).select(cols);
+      const row = { patient_no: 'T001', chinese_name: '陳大文', full_name: 'Chan Tai Man', phone_number: '9123 4567', mobile_phone: '6000 0000' };
       return { eq: function () { return { maybeSingle: function () { return Promise.resolve({ data: row, error: null }); } }; } };
     } };
   };
@@ -1955,7 +1955,7 @@ function extractIifeHelpers(src) {
         pass('CDP points QR asks rw_wallet_link and links to points.html', !!(pqr && pqr.qr && pqr.calls.length >= 1 &&
             pqr.calls[0].name === 'rw_wallet_link' && pqr.calls[0].reset === false && pqr.calls[0].pid === '00000000-0000-0000-0000-0000000000aa' &&
             /\/points\.html\?t=abcdefabcdefabcdefabcdefabcdef12$/.test(pqr.link)), pqr && pqr.link);
-        pass('CDP points QR fills the chart phone and WhatsApps the points message', !!(pqr && pqr.phone === '9123 4567' && pqr.wa &&
+        pass('CDP points QR fills the main phone (not Other Phone Numbers) and WhatsApps the points message', !!(pqr && pqr.phone === '9123 4567' && pqr.wa &&
             pqr.wa.phone === '9123 4567' && pqr.wa.msg.indexOf(pqr.link) > 0 && pqr.wa.msg.indexOf('陳大文 你好！') > 0 &&
             /reward points balance/.test(pqr.wa.msg)), pqr && pqr.wa && pqr.wa.msg.replace(/\n/g, ' | '));
         pass('CDP points New QR code asks for a fresh token', !!(pqr && /t=e{32}$/.test(pqr.resetLink)), pqr && pqr.resetLink);

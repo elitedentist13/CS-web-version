@@ -247,7 +247,7 @@
                     'No change and no cash back: if a coupon is worth more than the bill, the rest is lost.',
                     'New-chart and referral coupons stay with the patient; other coupons can be transferred to another chart no.',
                     'Voiding a bill returns the coupons used on it and cancels coupons it issued.',
-                    'Expired coupons cannot be used; patients get an SMS 7 days before expiry. A wallet holds up to 20 unused coupons.'
+                    'Expired coupons cannot be used; patients get an SMS 1 month and again 7 days before expiry. A wallet holds up to 20 unused coupons.'
                 ],
                 tips: 'Problems?',
                 tipList: [
@@ -492,7 +492,7 @@
                     '不設找贖、不退現金：券面值高於賬單時，餘額作廢。',
                     '新客券及介紹券只限本人使用；其他券可轉給另一病歷號。',
                     '作廢賬單會退回該單已用的券，並取消該單發出的券。',
-                    '過期券不能使用；到期前 7 天會以短訊提醒病人。每個錢包最多持有 20 張未用的券。'
+                    '過期券不能使用；到期前 1 個月及 7 天會以短訊提醒病人。每個錢包最多持有 20 張未用的券。'
                 ],
                 tips: '遇到問題？',
                 tipList: [
@@ -736,7 +736,7 @@
                     '不设找零、不退现金：券面值高于账单时，余额作废。',
                     '新客券及介绍券只限本人使用；其他券可转给另一病历号。',
                     '作废账单会退回该单已用的券，并取消该单发出的券。',
-                    '过期券不能使用；到期前 7 天会以短信提醒病人。每个钱包最多持有 20 张未用的券。'
+                    '过期券不能使用；到期前 1 个月及 7 天会以短信提醒病人。每个钱包最多持有 20 张未用的券。'
                 ],
                 tips: '遇到问题？',
                 tipList: [

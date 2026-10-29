@@ -18,6 +18,7 @@ var COUPONS = (function () {
     var SETTING_KEY = 'discount_coupon_scheme';
     var SMS_HEADING = '[Joyful Smile Dental Clinic 樂意牙科中心]';
     var EXPIRY_SMS_DAYS = 7;
+    var EXPIRY_SMS_MONTHS = 1;
     var EXPIRY_RUN_KEY = 'dc_expiry_sms_run';
 
     var ITEM_GROUPS = {
@@ -732,7 +733,8 @@ var COUPONS = (function () {
         return best;
     }
 
-    function todayIso() { return new Date().toISOString().slice(0, 10); }
+    /** Today's date in Hong Kong (UTC+8), whatever the station clock zone. */
+    function todayIso() { return new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10); }
 
     /** Unused and not past expiry. Expired coupons keep status 'unused' in the table. */
     function isLive(c, today) {
@@ -1034,14 +1036,36 @@ var COUPONS = (function () {
         });
     }
 
-    /** Reminder text for a coupon 1–7 days from expiry (late runs still remind once). */
-    function smsExpiring(coupon, today, wallet, opts) {
+    /** Pure: the same day n calendar months away, clamped to month end (2026-12-31 −1 → 2026-11-30). */
+    function addMonthsIso(iso, n) {
+        var p = String(iso || '').split('-');
+        var y = parseInt(p[0], 10), m = parseInt(p[1], 10) - 1 + n, d = parseInt(p[2], 10);
+        var first = new Date(Date.UTC(y, m, 1));
+        var last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+        first.setUTCDate(Math.min(d, last));
+        return first.toISOString().slice(0, 10);
+    }
+
+    /**
+     * Pure: which expiry reminder is due today — 'week' (1–7 days left), 'month' (from 1 calendar month
+     * before expiry until 8 days left), or ''. Late runs still remind once inside each window.
+     * No week reminder on the issue day; no month reminder for a coupon issued inside the month window.
+     */
+    function expiryReminderStage(coupon, today) {
         if (!coupon || coupon.status !== 'unused' || !coupon.expires_on || !today) return '';
-        var exp = new Date(coupon.expires_on + 'T00:00:00');
-        var now = new Date(today + 'T00:00:00');
-        var days = Math.round((exp.getTime() - now.getTime()) / 86400000);
-        if (days < 1 || days > EXPIRY_SMS_DAYS) return '';
-        if (coupon.issued_on === today) return '';
+        var days = Math.round((new Date(coupon.expires_on + 'T00:00:00Z') - new Date(today + 'T00:00:00Z')) / 86400000);
+        if (days < 1) return '';
+        if (days <= EXPIRY_SMS_DAYS) return coupon.issued_on === today ? '' : 'week';
+        var monthFrom = addMonthsIso(coupon.expires_on, -EXPIRY_SMS_MONTHS);
+        if (today < monthFrom) return '';
+        if (coupon.issued_on && coupon.issued_on >= monthFrom) return '';
+        return 'month';
+    }
+
+    /** Reminder text for a coupon in a reminder window (see expiryReminderStage). */
+    function smsExpiring(coupon, today, wallet, opts) {
+        if (!expiryReminderStage(coupon, today)) return '';
+        var days = Math.round((new Date(coupon.expires_on + 'T00:00:00Z') - new Date(today + 'T00:00:00Z')) / 86400000);
         opts = opts || {};
         var list = (wallet || []).slice();
         var mine = coupon.code && list.some(function (c) { return c.code === coupon.code; });
@@ -3051,7 +3075,7 @@ var COUPONS = (function () {
 
     function loadWalletPatient(patientId) {
         if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve(null);
-        return Promise.resolve(SB.from('patients').select('patient_no,chinese_name,full_name,phone_number,mobile_phone').eq('id', patientId).maybeSingle())
+        return Promise.resolve(SB.from('patients').select('patient_no,chinese_name,full_name,phone_number').eq('id', patientId).maybeSingle())
             .then(function (r) { return (r && !r.error && r.data) || null; }, function () { return null; });
     }
 
@@ -3171,7 +3195,7 @@ var COUPONS = (function () {
             who = [maskName(p), clinic].filter(Boolean).join(' · ');
             whoEl.textContent = who;
             whoEl.hidden = !who;
-            if (!waPhone()) phoneEl.value = String(p.mobile_phone || p.phone_number || '').trim();
+            if (!waPhone()) phoneEl.value = String(p.phone_number || '').trim();
             syncWa();
         });
         function setReady(linkOk, imageReady) {
@@ -3886,7 +3910,7 @@ var COUPONS = (function () {
             ['r5', 'New-chart and referral coupons stay with the patient. Other coupons can be transferred to another chart no.'],
             ['r6', 'Dr / reception / nurses can gift a cash coupon (HK$1–200) or a switched-on treatment coupon. Spend, new-chart and referral coupons are issued automatically only. Every gift and transfer is logged under your login.'],
             ['r7', 'Voiding a bill returns the coupons used on it and cancels coupons it issued. A refund after payment does not create a new coupon.'],
-            ['r8', 'Expired coupons cannot be used. Patients get an SMS 7 days before expiry.']
+            ['r8', 'Expired coupons cannot be used. Patients get an SMS 1 month and again 7 days before expiry.']
         ];
         var holds = campaigns().filter(function (c) {
             if (!c) return false;
@@ -4146,48 +4170,69 @@ var COUPONS = (function () {
         return d.toISOString().slice(0, 10);
     }
 
+    /** UTC ISO instant → Hong Kong calendar date. */
+    function hkDateOf(ts) {
+        var t = Date.parse(ts || '');
+        return isNaN(t) ? '' : new Date(t + 8 * 3600000).toISOString().slice(0, 10);
+    }
+
     /**
-     * Text every unused coupon that expires within 7 days and has not been reminded.
-     * Each coupon is claimed (expiry_sms_at) before sending, so two stations never both text.
-     * Without the expiry_sms_at column (discount_coupons_expiry_sms.sql) nothing is sent.
+     * One reminder window: text every unused coupon whose stage today is `stage` and that has not been
+     * reminded in it. Each coupon is claimed (claimCol) before sending, so two stations never both text.
+     * Without the claim column (discount_coupons_expiry_sms.sql) nothing is sent for that window.
      */
-    function sendExpiryReminders() {
-        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
-            return Promise.resolve({ ok: false, reason: 'no_db' });
-        }
-        var today = todayIso();
-        return loadState().then(function () {
-            return SB.from('discount_coupons')
-                .select('id,code,campaign_key,patient_id,expires_on,status,issued_at,clinic_code,discount_mode,face_value,percent,max_discount')
-                .eq('status', 'unused')
-                .is('expiry_sms_at', null)
-                .gt('expires_on', today)
-                .lte('expires_on', addDaysIso(today, EXPIRY_SMS_DAYS))
-                .order('expires_on', { ascending: true })
-                .limit(50);
-        }).then(function (r) {
+    function sendExpiryStage(stage, claimCol, today) {
+        var q = SB.from('discount_coupons')
+            .select('id,code,campaign_key,patient_id,expires_on,status,issued_at,clinic_code,discount_mode,face_value,percent,max_discount')
+            .eq('status', 'unused')
+            .is(claimCol, null);
+        q = stage === 'week'
+            ? q.gt('expires_on', today).lte('expires_on', addDaysIso(today, EXPIRY_SMS_DAYS))
+            : q.is('expiry_sms_at', null).gt('expires_on', addDaysIso(today, EXPIRY_SMS_DAYS))
+                .lte('expires_on', addDaysIso(today, 31 * EXPIRY_SMS_MONTHS));
+        return q.order('expires_on', { ascending: true }).limit(50).then(function (r) {
             if (!r || r.error) return { ok: false, reason: 'query', error: r && r.error && r.error.message };
             var rows = (r.data || []).filter(function (c) { return !c.clinic_code || clinicJoined(c.clinic_code); });
             var sent = 0;
             var seq = Promise.resolve();
             rows.forEach(function (c) {
                 seq = seq.then(function () {
-                    var due = Object.assign({}, c, { issued_on: String(c.issued_at || '').slice(0, 10) });
-                    if (!smsExpiring(due, today)) return null;
+                    var due = Object.assign({}, c, { issued_on: hkDateOf(c.issued_at) });
+                    if (expiryReminderStage(due, today) !== stage) return null;
                     var body = function (wallet) { return smsExpiring(due, today, wallet, { clinic: c.clinic_code || clinicCodeNow() }); };
-                    return SB.from('discount_coupons').update({ expiry_sms_at: new Date().toISOString() })
-                        .eq('id', c.id).is('expiry_sms_at', null).select('id')
+                    var claim = {}; claim[claimCol] = new Date().toISOString();
+                    var unclaim = {}; unclaim[claimCol] = null;
+                    return SB.from('discount_coupons').update(claim)
+                        .eq('id', c.id).is(claimCol, null).select('id')
                         .then(function (u) {
                             if (!u || u.error || !u.data || !u.data.length) return null;
                             return sendCouponSms(c.patient_id, body).then(function (res) {
                                 if (res && res.ok) { sent++; return null; }
                                 if (res && (res.reason === 'no_phone')) return null;
-                                return SB.from('discount_coupons').update({ expiry_sms_at: null }).eq('id', c.id);
+                                return SB.from('discount_coupons').update(unclaim).eq('id', c.id);
                             });
                         });
                 });
             });
             return seq.then(function () { return { ok: true, checked: rows.length, sent: sent }; });
+        });
+    }
+
+    /** Expiry reminders, Hong Kong date: 7 days before (expiry_sms_at), then 1 month before (expiry_sms_month_at). */
+    function sendExpiryReminders() {
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            return Promise.resolve({ ok: false, reason: 'no_db' });
+        }
+        var today = todayIso();
+        var week = null;
+        return loadState().then(function () {
+            return sendExpiryStage('week', 'expiry_sms_at', today);
+        }).then(function (w) {
+            week = w;
+            return sendExpiryStage('month', 'expiry_sms_month_at', today)
+                .catch(function (e) { return { ok: false, error: String(e && e.message || e) }; });
+        }).then(function (month) {
+            return Object.assign({}, week, { month: month });
         }).catch(function (e) { return { ok: false, error: String(e && e.message || e) }; });
     }
 
@@ -5676,6 +5721,8 @@ var COUPONS = (function () {
         smsIssued: smsIssued,
         couponSmsBody: couponSmsBody,
         smsExpiring: smsExpiring,
+        expiryReminderStage: expiryReminderStage,
+        addMonthsIso: addMonthsIso,
         renderConfigPane: renderConfigPane,
         walletAvailable: walletAvailable,
         walletLedgerRows: walletLedgerRows,

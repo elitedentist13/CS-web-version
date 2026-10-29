@@ -397,7 +397,182 @@ var LOYALTY_REPORT = (function () {
         return o;
     }
 
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+    function ymOf(day) { return String(day || '').slice(0, 7); }
+    function addMonthsYm(ym, n) {
+        var s = String(ym || '');
+        var y = parseInt(s.slice(0, 4), 10);
+        var m = parseInt(s.slice(5, 7), 10) - 1;
+        if (!isFinite(y) || !isFinite(m)) {
+            var t = new Date();
+            y = t.getFullYear();
+            m = t.getMonth();
+        }
+        var d = new Date(y, m + n, 1);
+        return d.getFullYear() + '-' + pad2(d.getMonth() + 1);
+    }
+    function addDaysIso(day, n) {
+        var s = String(day || '').slice(0, 10);
+        var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+        var d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date();
+        d.setDate(d.getDate() + n);
+        return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+    }
+    function calState(opts) {
+        opts = opts || {};
+        var today = opts.today || hkDay(new Date().toISOString());
+        var from = String(opts.from || '').slice(0, 10);
+        var to = String(opts.to || '').slice(0, 10);
+        if (from && to && from > to) { var sw = from; from = to; to = sw; }
+        return {
+            from: from,
+            to: to,
+            pick: String(opts.pick || '').slice(0, 10),
+            viewMonth: String(opts.viewMonth || ymOf(to || today) || ymOf(today)).slice(0, 7),
+            today: today
+        };
+    }
+    /** First tap = that day; second tap = the other end. Tables follow at once. */
+    function calClickDay(state, day) {
+        var s = calState(state);
+        day = String(day || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return s;
+        if (s.pick && s.pick !== day) {
+            return { from: s.pick < day ? s.pick : day, to: s.pick < day ? day : s.pick, pick: '', viewMonth: ymOf(day), today: s.today };
+        }
+        return { from: day, to: day, pick: day, viewMonth: ymOf(day), today: s.today };
+    }
+    function calPreset(name, today) {
+        today = String(today || hkDay(new Date().toISOString())).slice(0, 10);
+        if (name === 'today') return { from: today, to: today, pick: '', viewMonth: ymOf(today), today: today };
+        if (name === 'month') return { from: today.slice(0, 7) + '-01', to: today, pick: '', viewMonth: ymOf(today), today: today };
+        if (name === 'ytd') return { from: today.slice(0, 4) + '-01-01', to: today, pick: '', viewMonth: ymOf(today), today: today };
+        if (name === '30') return { from: addDaysIso(today, -30), to: today, pick: '', viewMonth: ymOf(today), today: today };
+        return { from: today, to: today, pick: '', viewMonth: ymOf(today), today: today };
+    }
+    function calMonthTitle(ym) {
+        var y = parseInt(String(ym || '').slice(0, 4), 10);
+        var m = parseInt(String(ym || '').slice(5, 7), 10) - 1;
+        if (!isFinite(y) || !isFinite(m)) return String(ym || '');
+        var loc = 'en-HK';
+        try {
+            if (typeof appUiLocale === 'function') loc = appUiLocale() || loc;
+        } catch (e) {}
+        return new Date(y, m, 1).toLocaleDateString(loc, { month: 'long', year: 'numeric' });
+    }
+    function calWeekdays() {
+        var raw = tt('loyaltyReport.cal.wd', 'S,M,T,W,T,F,S');
+        var parts = String(raw).split(',');
+        if (parts.length !== 7) parts = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+        return parts;
+    }
+    function calInner(opts) {
+        var s = calState(opts);
+        var y = parseInt(s.viewMonth.slice(0, 4), 10);
+        var mo = parseInt(s.viewMonth.slice(5, 7), 10) - 1;
+        if (!isFinite(y) || !isFinite(mo)) {
+            var now = new Date();
+            y = now.getFullYear();
+            mo = now.getMonth();
+            s.viewMonth = y + '-' + pad2(mo + 1);
+        }
+        var first = new Date(y, mo, 1);
+        var daysIn = new Date(y, mo + 1, 0).getDate();
+        var startPad = first.getDay();
+        var wd = calWeekdays();
+        var html = '<div class="lyr-cal-mini">' +
+            '<div class="lyr-cal-head">' +
+            '<button type="button" class="lyr-cal-nav" data-lyr-nav="prev" aria-label="Previous month">‹</button>' +
+            '<span class="lyr-cal-title">' + esc(calMonthTitle(s.viewMonth)) + '</span>' +
+            '<button type="button" class="lyr-cal-nav" data-lyr-nav="next" aria-label="Next month">›</button>' +
+            '</div><div class="lyr-cal-wd">';
+        wd.forEach(function (d) { html += '<span>' + esc(d) + '</span>'; });
+        html += '</div><div class="lyr-cal-grid">';
+        var i;
+        for (i = 0; i < startPad; i++) html += '<span class="lyr-cal-pad"></span>';
+        for (var day = 1; day <= daysIn; day++) {
+            var iso = y + '-' + pad2(mo + 1) + '-' + pad2(day);
+            var cls = 'lyr-cal-day';
+            if (s.from && s.to && iso >= s.from && iso <= s.to) cls += ' is-in';
+            if (iso === s.from) cls += ' is-from';
+            if (iso === s.to) cls += ' is-to';
+            if (iso === s.today) cls += ' is-today';
+            if (s.pick && iso === s.pick) cls += ' is-pick';
+            html += '<button type="button" class="' + cls + '" data-lyr-day="' + iso + '">' + day + '</button>';
+        }
+        html += '</div></div>';
+        function presetBtn(key, label) {
+            var p = calPreset(key, s.today);
+            var on = s.from === p.from && s.to === p.to;
+            return '<button type="button" class="lyr-cal-preset' + (on ? ' is-on' : '') + '" data-lyr-preset="' + key + '">' + esc(label) + '</button>';
+        }
+        var rangeTxt = (s.from && s.to)
+            ? (s.from === s.to ? s.from : s.from + ' – ' + s.to)
+            : '—';
+        html += '<div class="lyr-cal-side">' +
+            '<div class="lyr-cal-range-lbl">' + esc(tt('loyaltyReport.cal.range', 'Dates')) + '</div>' +
+            '<div class="lyr-cal-range" data-lyr-range>' + esc(rangeTxt) + '</div>' +
+            '<div class="lyr-cal-presets">' +
+            presetBtn('today', tt('loyaltyReport.cal.today', 'Today')) +
+            presetBtn('month', tt('loyaltyReport.cal.month', 'This month')) +
+            presetBtn('ytd', tt('loyaltyReport.cal.ytd', 'Year to date')) +
+            presetBtn('30', tt('loyaltyReport.cal.days30', 'Last 30 days')) +
+            '</div>' +
+            '<p class="lyr-cal-hint">' + esc(s.pick
+                ? tt('loyaltyReport.cal.hintEnd', 'Tap the end date.')
+                : tt('loyaltyReport.cal.hint', 'Tap a date, then another, to filter.')) + '</p>' +
+            '</div>';
+        return html;
+    }
+    function calHtml(opts) {
+        return '<div class="lyr-cal">' + calInner(opts) + '</div>';
+    }
+    function bindCal(host, opts) {
+        if (!host) return;
+        opts = opts || {};
+        function current() {
+            return calState(opts);
+        }
+        function apply(next, refresh) {
+            opts.from = next.from;
+            opts.to = next.to;
+            opts.pick = next.pick;
+            opts.viewMonth = next.viewMonth;
+            opts.today = next.today || opts.today;
+            if (refresh) {
+                if (typeof opts.onChange === 'function') opts.onChange(next);
+                return;
+            }
+            if (typeof opts.onView === 'function') opts.onView(next.viewMonth);
+            host.innerHTML = calInner(opts);
+            bindCal(host, opts);
+        }
+        host.onclick = function (e) {
+            var t = e.target;
+            if (!t || !t.closest) return;
+            var dayBtn = t.closest('[data-lyr-day]');
+            if (dayBtn) {
+                apply(calClickDay(current(), dayBtn.getAttribute('data-lyr-day')), true);
+                return;
+            }
+            var preBtn = t.closest('[data-lyr-preset]');
+            if (preBtn) {
+                apply(calPreset(preBtn.getAttribute('data-lyr-preset'), opts.today || current().today), true);
+                return;
+            }
+            var navBtn = t.closest('[data-lyr-nav]');
+            if (navBtn) {
+                var dir = navBtn.getAttribute('data-lyr-nav');
+                if (dir !== 'prev' && dir !== 'next') return;
+                var next = current();
+                next.viewMonth = addMonthsYm(next.viewMonth, dir === 'prev' ? -1 : 1);
+                apply(next, false);
+            }
+        };
+    }
+
     function html(model, opts) {
+        opts = opts || {};
         var totalLabel = tt('loyaltyReport.total', 'Total');
         var out = model.outstanding;
         var outFoot = out.rows.length > 1 ? Object.assign({}, out.total, { clinic: totalLabel }) : null;
@@ -408,6 +583,7 @@ var LOYALTY_REPORT = (function () {
                 (hint ? '<p class="lyr-hint">' + esc(hint) + '</p>' : '') + body + '</section>';
         }
         return '<div class="lyr-report">' +
+            calHtml(opts) +
             section('outstanding', tt('loyaltyReport.outstanding', 'Unused coupons and unspent points (today)'),
                 tt('loyaltyReport.outstandingHint', 'What the clinic would give away if every live coupon and point were used. % coupons have no fixed value and are counted only.'),
                 table(COLS.outstanding(), out.rows, outFoot)) +
@@ -465,6 +641,10 @@ var LOYALTY_REPORT = (function () {
         csvRows: csvRows,
         load: load,
         render: render,
-        usedByDay: usedByDay
+        usedByDay: usedByDay,
+        calClickDay: calClickDay,
+        calPreset: calPreset,
+        calHtml: calHtml,
+        bindCal: bindCal
     };
 })();

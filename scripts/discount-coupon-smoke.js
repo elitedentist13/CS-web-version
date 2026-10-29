@@ -2149,10 +2149,26 @@ function loadCoupons() {
         lyrBill.byDay['2026-10-21'].coupon === 100 && lyrBill.byDay['2026-10-21'].points === 65 && lyrBill.byDay['2026-10-22'].points === -40, JSON.stringify(lyrBill));
     pass('per bill: a voided bill drops out', LR.perBill(lyrCoupons, [], [{ id: 'B1', total: 875, voided_at: '2026-10-22' }], {}).rows.length === 0);
     var lyrModel = { outstanding: lyrOut, campaigns: lyrCamp, referrals: lyrRef, bills: lyrBill };
-    var lyrHtml = LR.html(lyrModel);
+    var lyrHtml = LR.html(lyrModel, { from: '2026-10-01', to: '2026-10-30', today: '2026-10-30', viewMonth: '2026-10' });
     pass('report page: four sections, totals row, money right-aligned, text escaped',
         (lyrHtml.match(/class="lyr-sec"/g) || []).length === 4 && /<tfoot>/.test(lyrHtml) && /class="lyr-num">HK\$405\.50</.test(lyrHtml) &&
         LR.html({ outstanding: { rows: [], total: {} }, campaigns: [{ name: '<b>x', issued: 1 }], referrals: [], bills: { rows: [] } }).indexOf('&lt;b&gt;x') >= 0);
+    var lyrCal = LR.calHtml({ from: '2026-10-01', to: '2026-10-15', today: '2026-10-30', viewMonth: '2026-10' });
+    pass('loyalty report mini-calendar sits on the content panel with the selected range marked',
+        /class="lyr-cal"/.test(lyrHtml) && /data-lyr-day="2026-10-01"/.test(lyrCal) &&
+        /class="[^"]*is-from[^"]*" data-lyr-day="2026-10-01"/.test(lyrCal) &&
+        /class="[^"]*is-to[^"]*" data-lyr-day="2026-10-15"/.test(lyrCal) &&
+        /class="[^"]*is-in[^"]*" data-lyr-day="2026-10-08"/.test(lyrCal) &&
+        /data-lyr-preset="ytd"/.test(lyrCal));
+    var lyrTap1 = LR.calClickDay({ from: '2026-01-01', to: '2026-10-30', today: '2026-10-30' }, '2026-10-12');
+    var lyrTap2 = LR.calClickDay(lyrTap1, '2026-10-20');
+    var lyrYtd = LR.calPreset('ytd', '2026-10-30');
+    var lyrMon = LR.calPreset('month', '2026-10-30');
+    pass('mini-calendar: first tap is that day, second tap sets the end, presets jump the range',
+        lyrTap1.from === '2026-10-12' && lyrTap1.to === '2026-10-12' && lyrTap1.pick === '2026-10-12' &&
+        lyrTap2.from === '2026-10-12' && lyrTap2.to === '2026-10-20' && lyrTap2.pick === '' &&
+        lyrYtd.from === '2026-01-01' && lyrYtd.to === '2026-10-30' &&
+        lyrMon.from === '2026-10-01' && lyrMon.to === '2026-10-30');
     var lyrCsv = LR.csvRows(lyrModel);
     pass('CSV: every line has the same columns, first is the section',
         lyrCsv.length === 2 + lyrCamp.length + 1 + 1 && Object.keys(lyrCsv[0])[0] === 'section' &&
@@ -2160,7 +2176,10 @@ function loadCoupons() {
     var rptSrc = read('app-report.js');
     pass('Reports: Loyalty tab loads the report with the clinic filter and bill lookups',
         /_tab === 'loyalty'[\s\S]{0,900}LOYALTY_REPORT\.render\(null, \{[\s\S]{0,300}fetchBills: loadBillsByIdsRaw,\s*filterBills: filterBillsForReportClinic/.test(rptSrc) &&
-        /tabKey === 'loyalty'[\s\S]{0,120}-01-01', tl\)/.test(rptSrc));
+        /tabKey === 'loyalty'[\s\S]{0,220}-01-01', tl\)/.test(rptSrc));
+    pass('Reports: Loyalty content binds the mini-calendar and a tap refreshes From / To',
+        /LOYALTY_REPORT\.bindCal\(/.test(rptSrc) && /_loyaltyCalPick/.test(rptSrc) &&
+        /setDateInputs\(r\.from, r\.to\)/.test(rptSrc) && /data-lyr-preset/.test(lyrSrc));
     pass('Daily income: coupons and points used shown beside cash (not income)',
         /LOYALTY_REPORT\.usedByDay\(from, to,[\s\S]{0,1400}report\.col\.couponsNotIncome[\s\S]{0,120}report\.col\.pointsNotIncome/.test(rptSrc));
     var lyrIdx = read('index.html');
@@ -2175,7 +2194,10 @@ function loadCoupons() {
         return !re.test(i18nSrc);
     });
     pass('every report label has English, Simplified and Traditional Chinese', lyrKeys.length > 30 && lyrMissing.length === 0, lyrMissing.join(', '));
-    pass('report CSS in style-coupons.css', /\.lyr-table \.lyr-num \{/.test(read('style-coupons.css')));
+    pass('report CSS in style-coupons.css',
+        /\.lyr-table \.lyr-num \{/.test(read('style-coupons.css')) &&
+        /\.lyr-cal \{/.test(read('style-coupons.css')) &&
+        /\.lyr-cal-day\.is-from/.test(read('style-coupons.css')));
 
     console.log('\n=== One phone page for points + coupons, combined checkout hint ===');
     var LC = lyrCtx.C;
@@ -3095,9 +3117,13 @@ function loadCoupons() {
     REPORT.switchTab('loyalty');
     var rep = await until(function () { return document.querySelector('#rptTableWrap .lyr-report'); }, 45000);
     if (!rep) { out.err = 'no report: ' + (document.getElementById('rptTableWrap') || {}).textContent; return out; }
+    out.today = today;
     out.from = document.getElementById('rptFrom').value;
     out.title = document.getElementById('rptTitle').textContent;
     out.sections = rep.querySelectorAll('.lyr-sec').length;
+    out.hasCal = !!rep.querySelector('.lyr-cal');
+    out.calDays = rep.querySelectorAll('[data-lyr-day]').length;
+    out.ytdOn = !!(rep.querySelector('[data-lyr-preset="ytd"]') && rep.querySelector('[data-lyr-preset="ytd"]').className.indexOf('is-on') >= 0);
     out.chartHidden = document.getElementById('rptChartCol') ? document.getElementById('rptChartCol').style.display === 'none' : true;
     var model = (await LOYALTY_REPORT.render(null, { from: from, to: today, today: today, clinic: '',
       fetchBills: function (ids) { return SB.from('bills').select('id,bill_date,total,amount_paid,balance,patient_id,patient_no,patient_name,voided_at,created_at').in('id', ids).then(function (r) { return r.data || []; }); } })).model;
@@ -3132,12 +3158,34 @@ function loadCoupons() {
       }
       sel.value = '';
     }
+    REPORT.switchTab('loyalty');
+    var afterOpen = await until(function () { return document.querySelector('#rptTableWrap .lyr-cal [data-lyr-preset="month"]'); }, 45000);
+    if (afterOpen) {
+      afterOpen.click();
+      var monthFrom = today.slice(0, 7) + '-01';
+      var filtered = await until(function () {
+        var f = document.getElementById('rptFrom');
+        var r = document.querySelector('#rptTableWrap .lyr-cal');
+        return f && f.value === monthFrom && r && r.querySelector('[data-lyr-range]') ? r : null;
+      }, 45000);
+      out.calFrom = document.getElementById('rptFrom').value;
+      out.calTo = document.getElementById('rptTo').value;
+      out.calRange = filtered && filtered.querySelector('[data-lyr-range]') ? filtered.querySelector('[data-lyr-range]').textContent : '';
+      out.monthOn = !!(filtered && filtered.querySelector('[data-lyr-preset="month"]') &&
+        filtered.querySelector('[data-lyr-preset="month"]').className.indexOf('is-on') >= 0);
+    }
     out.ok = true;
   } catch (e) { out.err = String(e && e.message || e); }
   return out;
 })()`, true, 120000);
         pass('live Reports → Coupons & points opens: 4 sections, year-to-date, no chart',
             !!(lyrLive && lyrLive.ok && lyrLive.sections === 4 && lyrLive.chartHidden && /-01-01$/.test(lyrLive.from)), JSON.stringify(lyrLive));
+        pass('live loyalty mini-calendar is on the panel and Year to date is selected',
+            !!(lyrLive && lyrLive.hasCal && lyrLive.calDays >= 28 && lyrLive.ytdOn),
+            lyrLive && (lyrLive.calDays + ' days, ytd=' + lyrLive.ytdOn));
+        pass('live loyalty mini-calendar This month filters the tables at once',
+            !!(lyrLive && lyrLive.today && lyrLive.calFrom === (lyrLive.today.slice(0, 7) + '-01') && lyrLive.calTo === lyrLive.today && lyrLive.monthOn),
+            lyrLive && (lyrLive.calFrom + '–' + lyrLive.calTo + ' ' + lyrLive.calRange));
         pass('live unused coupons = every live coupon in the database (Set zero applied)',
             !!(lyrLive && lyrLive.repLive === lyrLive.expLive && Math.abs(lyrLive.repLiveValue - lyrLive.expLiveValue) < 0.01),
             lyrLive && (lyrLive.repLive + ' / ' + lyrLive.expLive + ', HK$' + lyrLive.repLiveValue + ' / ' + lyrLive.expLiveValue + ', points HK$' + lyrLive.repPoints));

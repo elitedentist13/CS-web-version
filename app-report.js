@@ -40,6 +40,8 @@ var REPORT = (function () {
   var MONTHLY_INCOME_DEFAULT_MONTHS = 6;
   var _reportTabsWired = false;
   var _reportDateInputsWired = false;
+  var _loyaltyCalMonth = null;
+  var _loyaltyCalPick = '';
   var _auditFilterItem = '';
   var _auditFilterUser = '';
   var _auditFilterPatient = '';
@@ -1820,6 +1822,8 @@ var REPORT = (function () {
     if (tabKey === 'loyalty') {
       var tl = todayISO();
       setDateInputs(tl.slice(0, 4) + '-01-01', tl);
+      _loyaltyCalPick = '';
+      _loyaltyCalMonth = tl.slice(0, 7);
       return;
     }
 
@@ -7835,7 +7839,32 @@ var REPORT = (function () {
           filterBills: filterBillsForReportClinic
         });
         if (mySeq !== _refreshSeq) return;
-        if (g('rptTableWrap')) g('rptTableWrap').innerHTML = LOYALTY_REPORT.html(lyr.model);
+        if (g('rptTableWrap')) {
+          if (!_loyaltyCalMonth) _loyaltyCalMonth = String(to || todayISO()).slice(0, 7);
+          g('rptTableWrap').innerHTML = LOYALTY_REPORT.html(lyr.model, {
+            from: from,
+            to: to,
+            today: todayISO(),
+            viewMonth: _loyaltyCalMonth,
+            pick: _loyaltyCalPick
+          });
+          if (typeof LOYALTY_REPORT.bindCal === 'function') {
+            LOYALTY_REPORT.bindCal(g('rptTableWrap').querySelector('.lyr-cal'), {
+              from: from,
+              to: to,
+              today: todayISO(),
+              viewMonth: _loyaltyCalMonth,
+              pick: _loyaltyCalPick,
+              onView: function (m) { _loyaltyCalMonth = m; },
+              onChange: function (r) {
+                _loyaltyCalMonth = r.viewMonth || _loyaltyCalMonth;
+                _loyaltyCalPick = r.pick || '';
+                setDateInputs(r.from, r.to);
+                refresh();
+              }
+            });
+          }
+        }
         _rows = lyr.rows;
         setChartNote('—');
         return;
@@ -8105,6 +8134,11 @@ var REPORT = (function () {
             g('rptFrom') ? g('rptFrom').value : '',
             g('rptTo') ? g('rptTo').value : ''
           );
+        }
+        if (_tab === 'loyalty') {
+          _loyaltyCalPick = '';
+          var tv = g('rptTo') ? g('rptTo').value : '';
+          if (tv) _loyaltyCalMonth = String(tv).slice(0, 7);
         }
         refresh();
       });

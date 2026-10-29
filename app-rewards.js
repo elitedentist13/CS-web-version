@@ -146,6 +146,63 @@ var REWARDS = (function () {
         return false;
     }
 
+    /** Government / PDCC: one such payment puts the whole bill outside reward points and discount coupons. */
+    function isLoyaltyExcludedPayMethod(method) {
+        var s = String(method == null ? '' : method).trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+        if (!s) return false;
+        if (s === 'gov' || s === '政府' || /(^|[^a-z])gover[nm]*ment/.test(s)) return true;
+        return /(^|[^a-z])pdcc([^a-z]|$)/.test(s);
+    }
+
+    /** Resolves true when extraMethod or any live payment on the bill is Government / PDCC. */
+    function billLoyaltyExcluded(billId, extraMethod) {
+        if (extraMethod && isLoyaltyExcludedPayMethod(extraMethod)) return Promise.resolve(true);
+        if (!billId || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve(false);
+        return Promise.resolve(SB.from('bill_payments').select('method,voided_at').eq('bill_id', billId))
+            .then(function (r) {
+                if (!r || r.error) return false;
+                return (r.data || []).some(function (p) {
+                    return !p.voided_at && isLoyaltyExcludedPayMethod(p.method);
+                });
+            }, function () { return false; });
+    }
+
+    function excludedBillMessage() {
+        return tr('rewards.pay.excludedMethod',
+            'Government / PDCC bill: reward points and discount coupons are not earned or used.');
+    }
+
+    /**
+     * Pre-save check for Add payment. Resolves '' when OK, else an error message.
+     * A Government / PDCC payment is refused while the bill carries a coupon or redeemed points.
+     */
+    function excludedPaymentBlock(bill, method, rewardPts) {
+        if (!bill) return Promise.resolve('');
+        var excludedNow = isLoyaltyExcludedPayMethod(method);
+        return billLoyaltyExcluded(bill.id).then(function (excludedBefore) {
+            if (!excludedNow && !excludedBefore) return '';
+            if (round2(rewardPts) > 0.005) return excludedBillMessage();
+            if (!excludedNow) return '';
+            if ((parseFloat(bill.coupon_amount) || 0) > 0.005) {
+                return tr('rewards.pay.excludedCoupon',
+                    'This bill used a discount coupon. Remove the coupon before taking a Government / PDCC payment.');
+            }
+            return loadBillPointsUsed(bill.id).then(function (used) {
+                return used > 0.005
+                    ? tr('rewards.pay.excludedPointsUsed',
+                        'This bill used reward points. Void the reward points payment before taking a Government / PDCC payment.')
+                    : '';
+            });
+        });
+    }
+
+    /** After a Government / PDCC payment: take back points earned by earlier payments on the bill. */
+    function excludeBillFromLoyalty(billId, patientId) {
+        if (!billId) return Promise.resolve(null);
+        return voidForBill(billId, 'Government / PDCC bill: no reward points', patientId || null)
+            .catch(function () { return null; });
+    }
+
     function clinicCtx() {
         var clinicId = '';
         var clinicCode = '';
@@ -2260,6 +2317,13 @@ var REWARDS = (function () {
         if (pts <= 0) {
             return Promise.resolve({ rewardAmount: 0, rewardPaymentId: null, redeemResult: null });
         }
+        return billLoyaltyExcluded(opts.billId, opts.method).then(function (excluded) {
+            if (excluded) return { ok: false, error: excludedBillMessage(), rewardAmount: 0 };
+            return applyRedeemForBillChecked(opts, pts);
+        });
+    }
+
+    function applyRedeemForBillChecked(opts, pts) {
         var doc = payDoctorFor(opts);
         if (!isKnownRewardDoctor(doc)) {
             return Promise.resolve({
@@ -2548,6 +2612,13 @@ var REWARDS = (function () {
 
     function applyEarnForPayment(opts) {
         opts = opts || {};
+        return billLoyaltyExcluded(opts.billId, opts.method).then(function (excluded) {
+            if (excluded) return { ok: true, skipped: true, reason: 'excluded_method' };
+            return applyEarnForPaymentChecked(opts);
+        });
+    }
+
+    function applyEarnForPaymentChecked(opts) {
         var billLike = opts.bill ||
             ((typeof bdCurrentBill !== 'undefined' && bdCurrentBill) ? bdCurrentBill : null);
         var doc = payDoctorFor(opts);
@@ -2725,10 +2796,34 @@ var REWARDS = (function () {
                 }
                 var prev = document.getElementById('apRewardAllocPreview');
                 if (prev) prev.textContent = '';
+                panel.removeAttribute('data-excluded');
+                var methodEl = document.getElementById('apMethod');
+                return billLoyaltyExcluded(bill.id, methodEl ? methodEl.value : '').then(function (excluded) {
+                    var cur = (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null;
+                    if (excluded && cur && String(cur.id) === String(bill.id)) paintPayPanelExcluded();
+                });
             });
         }).catch(function () {
             panel.style.display = 'none';
         });
+    }
+
+    function paintPayPanelExcluded() {
+        var panel = document.getElementById('apRewardPanel');
+        if (!panel) return;
+        panel.setAttribute('data-excluded', '1');
+        var use = document.getElementById('apRewardUse');
+        var wasChecked = !!(use && use.checked);
+        if (use) { use.checked = false; use.disabled = true; }
+        var wrap = document.getElementById('apRewardAmountWrap');
+        if (wrap) wrap.style.display = 'none';
+        var hint = document.getElementById('apRewardHint');
+        if (hint) hint.textContent = excludedBillMessage();
+        var prev = document.getElementById('apRewardAllocPreview');
+        if (prev) prev.textContent = '';
+        var cash = document.getElementById('apAmount');
+        var billBal = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill) ? round2(bdCurrentBill.balance) : 0;
+        if (wasChecked && cash && billBal > 0) cash.value = fmtPts(billBal);
     }
 
     function wireAddPaymentRewardPanelOnce() {
@@ -2746,6 +2841,13 @@ var REWARDS = (function () {
                 if (cash && billBal > 0) {
                     cash.value = fmtPts(Math.max(0, billBal - pts));
                 }
+                return;
+            }
+            if (t.id === 'apMethod') {
+                var rwPanel = document.getElementById('apRewardPanel');
+                if (!rwPanel || rwPanel.style.display === 'none') return;
+                if (isLoyaltyExcludedPayMethod(t.value)) paintPayPanelExcluded();
+                else if (rwPanel.getAttribute('data-excluded')) refreshAddPaymentRewardPanel();
                 return;
             }
             if (t.id !== 'apRewardUse') return;
@@ -5851,6 +5953,10 @@ var REWARDS = (function () {
     return {
         METHOD: METHOD,
         isRewardPayMethod: isRewardPayMethod,
+        isLoyaltyExcludedPayMethod: isLoyaltyExcludedPayMethod,
+        billLoyaltyExcluded: billLoyaltyExcluded,
+        excludedPaymentBlock: excludedPaymentBlock,
+        excludeBillFromLoyalty: excludeBillFromLoyalty,
         isAdmin: isAdmin,
         round2: round2,
         fmtPts: fmtPts,
@@ -5963,5 +6069,8 @@ var REWARDS = (function () {
 window.REWARDS = REWARDS;
 window.isRewardPayMethod = function (m) {
     return REWARDS && REWARDS.isRewardPayMethod(m);
+};
+window.isLoyaltyExcludedPayMethod = function (m) {
+    return !!(REWARDS && REWARDS.isLoyaltyExcludedPayMethod(m));
 };
 window.REWARD_POINTS_METHOD = REWARDS.METHOD;

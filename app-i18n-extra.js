@@ -3141,6 +3141,11 @@
             'zh-CN': '过期券不能使用。到期前 1 个月及 7 日会短信提醒病人。若设为每年年底清零，短信会于 11 月 30 日及 12 月 24 日发出。',
             'zh-Hant': '過期券不能使用。到期前 1 個月及 7 日會短訊提醒病人。若設為每年年底清零，短訊會於 11 月 30 日及 12 月 24 日發出。'
         },
+        'coupons.rules.r9': {
+            en: 'A bill with any Government or PDCC payment is outside the scheme: it earns no coupons or reward points, and no coupons or points can be used on it.',
+            'zh-CN': '账单只要有政府或 PDCC 付款，即不属于本计划：不赚取优惠券或积分，亦不可在该账单使用优惠券或积分。',
+            'zh-Hant': '賬單只要有政府或 PDCC 付款，即不屬於本計劃：不賺取優惠券或積分，亦不可在該賬單使用優惠券或積分。'
+        },
         'coupons.rules.hold': {
             en: 'Wallet holds up to 20 unused coupons. Per type:',
             'zh-CN': '钱包最多 20 张未用券。每类上限：',
@@ -3179,6 +3184,11 @@
             en: 'Reward points and balance transfer do not count towards spend coupons.',
             'zh-CN': '积分及余额转移不计入满额券。',
             'zh-Hant': '積分及餘額轉移不計入滿額券。'
+        },
+        'coupons.info.excluded': {
+            en: 'Government / PDCC bill: no discount coupons or reward points are earned or used.',
+            'zh-CN': '政府 / PDCC 账单：不赚取亦不可使用优惠券及积分。',
+            'zh-Hant': '政府 / PDCC 賬單：不賺取亦不可使用優惠券及積分。'
         },
         'coupons.info.needFull': { en: 'Issued once the bill is fully paid.', 'zh-CN': '账单全数付清后发出。', 'zh-Hant': '賬單全數付清後發出。' },
         'coupons.pick.noCatalog': { en: 'Treatment list not loaded yet.', 'zh-CN': '治疗项目表尚未载入。', 'zh-Hant': '治療項目表尚未載入。' },
@@ -3927,6 +3937,21 @@
             en: 'Select the treating doctor on the bill before redeeming reward points.',
             'zh-CN': '兑换积分前请先在账单选择主诊医生。',
             'zh-Hant': '兌換積分前請先在賬單選擇主診醫生。'
+        },
+        'rewards.pay.excludedMethod': {
+            en: 'Government / PDCC bill: reward points and discount coupons are not earned or used.',
+            'zh-CN': '政府 / PDCC 账单：不赚取亦不可使用积分及优惠券。',
+            'zh-Hant': '政府 / PDCC 賬單：不賺取亦不可使用積分及優惠券。'
+        },
+        'rewards.pay.excludedCoupon': {
+            en: 'This bill used a discount coupon. Remove the coupon before taking a Government / PDCC payment.',
+            'zh-CN': '此账单已使用优惠券。收取政府 / PDCC 付款前，请先移除优惠券。',
+            'zh-Hant': '此賬單已使用優惠券。收取政府 / PDCC 付款前，請先移除優惠券。'
+        },
+        'rewards.pay.excludedPointsUsed': {
+            en: 'This bill used reward points. Void the reward points payment before taking a Government / PDCC payment.',
+            'zh-CN': '此账单已使用积分。收取政府 / PDCC 付款前，请先作废积分付款。',
+            'zh-Hant': '此賬單已使用積分。收取政府 / PDCC 付款前，請先作廢積分付款。'
         },
         'rewards.pay.hintSameDoctor': {
             en: 'Only points earned with {DOCTOR} can be redeemed on this bill. Points used here are not counted as income.',

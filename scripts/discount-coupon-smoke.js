@@ -225,7 +225,7 @@ function loadCoupons() {
     var rwUses = (src.match(/REWARDS\.[a-zA-Z]+/g) || []).filter(function (u, i, a) { return a.indexOf(u) === i; });
     pass('reward module is used only for the refer-a-friend points branch and the shared manual link', rwUses.length > 0 && rwUses.every(function (u) {
         return ['REWARDS.referralAvailability', 'REWARDS.referralCredit', 'REWARDS.referralReverse', 'REWARDS.clinicCtx',
-            'REWARDS.loyaltyGuideLinkHtml', 'REWARDS.loadReferralConfig'].indexOf(u) >= 0;
+            'REWARDS.loyaltyGuideLinkHtml', 'REWARDS.loadReferralConfig', 'REWARDS.billLoyaltyExcluded'].indexOf(u) >= 0;
     }), rwUses.join(','));
     pass('set zero card reuses the reward admin gate and reset dialog', /rw\.openAdminRewardAuthGate\(\{/.test(src) &&
         /rw\.openResetZeroFlow\(configClinics\(\), \{/.test(src) && /var rw = \(typeof REWARDS !== 'undefined' && REWARDS\) \? REWARDS : null;/.test(src));
@@ -736,7 +736,7 @@ function loadCoupons() {
     var apptRef = read('app-appt.js');
     pass('bill create + pay and add payment both call onBillPayment before the fully-paid check',
         /insertBillPaymentRecord\(payRecord, function\(pr\)[\s\S]{0,1400}COUPONS\.onBillPayment\(\{[\s\S]{0,300}cashAmount: nonCashPay \? 0 : paid[\s\S]{0,500}COUPONS\.onBillFullyPaid\(/.test(apptRef) &&
-        /function finishBillUpdate[\s\S]{0,1200}COUPONS\.onBillPayment\(\{[\s\S]{0,200}cashAmount: ctx\.isBalanceTransfer \? 0 : cashAmount[\s\S]{0,400}COUPONS\.onBillFullyPaid\(/.test(apptRef));
+        /function finishBillUpdate[\s\S]{0,1600}COUPONS\.onBillPayment\(\{[\s\S]{0,200}cashAmount: ctx\.isBalanceTransfer \? 0 : cashAmount[\s\S]{0,400}COUPONS\.onBillFullyPaid\(/.test(apptRef));
     pass('both patient forms use the referrer picker', /id="referredBy" data-ref-picker/.test(html) && /id="edit_referredBy" data-ref-picker/.test(html) &&
         /id="referredById" class="dc-ref-id"/.test(html) && /id="edit_referredById" class="dc-ref-id"/.test(html));
     var refSql = read('discount_coupon_referrals.sql');
@@ -1937,7 +1937,8 @@ function loadCoupons() {
   var life = card && card.querySelector('input[value="lifespan"]');
   if (life) { life.checked = true; life.dispatchEvent(new Event('change')); }
   out.saveOnAfterChange = !!(card && !card.querySelector('#dcZeroPolicySave').disabled);
-  var man = card && card.querySelector('input[value="manual"]');
+  var startPolicy = ((out.radios.filter(function (r) { return r.slice(-1) === '*'; })[0]) || 'manual*').replace('*', '');
+  var man = card && card.querySelector('input[value="' + startPolicy + '"]');
   if (man) { man.checked = true; man.dispatchEvent(new Event('change')); }
   out.saveOffWhenBack = !!(card && card.querySelector('#dcZeroPolicySave').disabled);
   if (life) { life.checked = true; life.dispatchEvent(new Event('change')); }
@@ -1957,7 +1958,9 @@ function loadCoupons() {
         pass('CDP set zero card is read-only for non-admin', zLive && zLive.readOnly === true, JSON.stringify(zLive));
         pass('CDP set zero card sits before Referrals', zLive && zLive.order && zLive.order.indexOf('dcZeroCard') >= 0 &&
             zLive.order.indexOf('dcZeroCard') + 1 === zLive.order.indexOf('dcRefCard'), zLive && JSON.stringify(zLive.order));
-        pass('CDP set zero card: three policies, manual default, 8 month buttons', zLive && zLive.radios.join(',') === 'manual*,year_end,lifespan' &&
+        pass('CDP set zero card: three policies, saved one checked, 8 month buttons', zLive &&
+            zLive.radios.map(function (r) { return r.replace('*', ''); }).join(',') === 'manual,year_end,lifespan' &&
+            zLive.radios.filter(function (r) { return /\*$/.test(r); }).length === 1 &&
             zLive.months === 8 && zLive.lifeHidden === true, zLive && JSON.stringify(zLive.radios));
         pass('CDP set zero card: life span shows months and picks one', zLive && zLive.lifeShown && zLive.activeMonths === '6');
         pass('CDP set zero Save is off until an option changes, and says SMS + Authenticator are needed', zLive && zLive.saveOffAtStart &&
@@ -1993,8 +1996,9 @@ function loadCoupons() {
   var rules = document.querySelector('#dcSheetHost details.dc-rules');
   var r = {
     start: picked(), bestOnW1: !!(card('w1') && card('w1').querySelector('.dc-best')),
-    rules: !!rules && !rules.open && rules.querySelectorAll('li').length === 9 &&
-      /(現金券|现金券|Cash coupon) 5/.test(rules.textContent) && /20/.test(rules.textContent)
+    rules: !!rules && !rules.open && rules.querySelectorAll('li').length === 10 &&
+      /(現金券|现金券|Cash coupon) \\d+/.test(rules.textContent) && /20/.test(rules.textContent),
+    rulesText: rules ? rules.querySelectorAll('li').length + ' ' + rules.textContent.slice(-300) : ''
   };
   card('w2').click();
   r.afterW2 = picked();
@@ -2015,7 +2019,7 @@ function loadCoupons() {
   return r;
 })()`, false, 10000);
         pass('CDP picker starts on both cash coupons + scaling', pick && pick.start === 'w1,w2,w3' && pick.bestOnW1, JSON.stringify(pick));
-        pass('CDP rules note is collapsed with 9 rules and live hold limits', pick && pick.rules === true);
+        pass('CDP rules note is collapsed with 10 rules and live hold limits', pick && pick.rules === true, pick && pick.rulesText);
         var hint = await cdp.js(`(function () {
   var host = document.getElementById('bSpendHint');
   if (!host) return { ok: false, reason: 'no #bSpendHint' };
@@ -2034,6 +2038,10 @@ function loadCoupons() {
   var partial = host.textContent;
   COUPONS.paintCheckoutHint(300, 300, 'Cash');
   var small = host.textContent;
+  COUPONS.paintCheckoutHint(1200, 1200, 'Government');
+  var gov = { hidden: host.hidden, text: host.textContent, bar: !!host.querySelector('.dc-prog') };
+  COUPONS.paintCheckoutHint(1200, 1200, 'PDCC');
+  var pdcc = host.textContent;
   window.currentClinicCodeForTagging = function () { return 'PL'; };
   COUPONS.paintCheckoutHint(1200, 1200, 'Cash');
   var plHidden = host.hidden;
@@ -2041,8 +2049,25 @@ function loadCoupons() {
   appUiLang = before;
   COUPONS.mergeSaved(null);
   host.hidden = true;
-  return { ok: true, cash: cash, reward: reward, partial: partial, small: small, plHidden: plHidden };
+  return { ok: true, cash: cash, reward: reward, partial: partial, small: small, plHidden: plHidden, gov: gov, pdcc: pdcc };
 })()`, false, 10000);
+        pass('CDP checkout hint: Government bill earns no coupons (no spend bar)', hint && hint.gov && hint.gov.hidden === false &&
+            /Government \/ PDCC bill/.test(hint.gov.text) && !/earns:/.test(hint.gov.text) && hint.gov.bar === false, hint && JSON.stringify(hint.gov));
+        pass('CDP checkout hint: PDCC bill earns no coupons', hint && /Government \/ PDCC bill/.test(hint.pdcc) && !/earns:/.test(hint.pdcc));
+        var exIssue = await cdp.js(`(async function () {
+  var calls = [];
+  var realSB = SB;
+  var spy = { from: function (t) { calls.push(t); return realSB.from(t); }, rpc: function (f) { calls.push('rpc:' + f); return Promise.resolve({ data: null, error: null }); } };
+  SB = spy;
+  try {
+    var full = await COUPONS.onBillFullyPaid({ patientId: 'smoke-none', billId: 'smoke-none', cashAmount: 5000, clinicCode: 'KT', method: 'PDCC' });
+    var part = await COUPONS.onBillPayment({ patientId: 'smoke-none', billId: 'smoke-none', cashAmount: 5000, clinicCode: 'KT', method: 'Government' });
+    return { full: full, part: part, calls: calls };
+  } finally { SB = realSB; }
+})()`, true, 15000);
+        pass('CDP PDCC fully-paid bill issues no spend coupon (no database call)', exIssue && exIssue.full && exIssue.full.reason === 'excluded_method' &&
+            exIssue.calls.length === 0, exIssue && JSON.stringify(exIssue));
+        pass('CDP Government payment gives no referral credit', exIssue && exIssue.part && exIssue.part.reason === 'excluded_method');
         pass('CDP checkout hint: $1200 cash earns $1000→$100 and shows $3800 to the next',
             hint && hint.ok && hint.cash.hidden === false && /Spend \$1000 get \$100/.test(hint.cash.text) &&
             /3800\.00/.test(hint.cash.text) && /Spend \$5000 get \$500/.test(hint.cash.text), JSON.stringify(hint));

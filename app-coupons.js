@@ -2429,9 +2429,10 @@ var COUPONS = (function () {
                 .eq('bill_id', bill.id).eq('status', 'used');
             var earnedQ = SB.from('discount_coupons').select('id,campaign_key,face_value,expires_on,status')
                 .eq('origin_bill_id', bill.id);
-            return Promise.all([usedQ, earnedQ]).then(function (res) {
+            return Promise.all([usedQ, earnedQ, billExcluded(bill.id)]).then(function (res) {
                 if (info.getAttribute('data-bill') !== billId) return;
                 var used = (res[0] && res[0].data) || [];
+                var excluded = !!res[2];
                 var earned = ((res[1] && res[1].data) || []).filter(function (c) { return c.status !== 'void'; });
                 if (used.length && !bill.coupon_label) {
                     bill.coupon_label = couponLabelFor(used.map(function (c) { return { coupon: c }; }));
@@ -2449,7 +2450,9 @@ var COUPONS = (function () {
                 var voided = !!bill.voided_at;
                 var due = parseFloat(bill.total) || 0;
                 var doctorIn = doctorJoined(clinicCode, bill.doctor_id ? String(bill.doctor_id) : '');
-                if (!voided && !earned.length && doctorIn) {
+                if (excluded && !voided) {
+                    lines.push('🚫 ' + excludedText());
+                } else if (!voided && !earned.length && doctorIn) {
                     var prog = spendProgress(due);
                     if (prog.reached.length) {
                         lines.push('✅ ' + ct('coupons.info.willEarn', 'Paid in full by cash, this bill earns') + ': ' +
@@ -3936,7 +3939,8 @@ var COUPONS = (function () {
             ['r5', 'New-chart and referral coupons stay with the patient. Other coupons can be transferred to another chart no.'],
             ['r6', 'Dr / reception / nurses can gift a cash coupon (HK$1–200) or a switched-on treatment coupon. Spend, new-chart and referral coupons are issued automatically only. Every gift and transfer is logged under your login.'],
             ['r7', 'Voiding a bill returns the coupons used on it and cancels coupons it issued. A refund after payment does not create a new coupon.'],
-            ['r8', 'Expired coupons cannot be used. Patients get an SMS 1 month and again 7 days before expiry. With Set zero on year end, the SMS goes on 30 Nov and 24 Dec.']
+            ['r8', 'Expired coupons cannot be used. Patients get an SMS 1 month and again 7 days before expiry. With Set zero on year end, the SMS goes on 30 Nov and 24 Dec.'],
+            ['r9', 'A bill with any Government or PDCC payment is outside the scheme: it earns no coupons or reward points, and no coupons or points can be used on it.']
         ];
         var holds = campaigns().filter(function (c) {
             if (!c) return false;
@@ -5214,6 +5218,22 @@ var COUPONS = (function () {
         return false;
     }
 
+    function isExcludedMethod(method) {
+        return typeof window !== 'undefined' && typeof window.isLoyaltyExcludedPayMethod === 'function' &&
+            !!window.isLoyaltyExcludedPayMethod(method);
+    }
+
+    /** Resolves true for a Government / PDCC bill (no coupons issued or used). */
+    function billExcluded(billId, method) {
+        if (isExcludedMethod(method)) return Promise.resolve(true);
+        if (typeof REWARDS === 'undefined' || !REWARDS || typeof REWARDS.billLoyaltyExcluded !== 'function') return Promise.resolve(false);
+        return REWARDS.billLoyaltyExcluded(billId);
+    }
+
+    function excludedText() {
+        return ct('coupons.info.excluded', 'Government / PDCC bill: no discount coupons or reward points are earned or used.');
+    }
+
     /** Pure: cash paid on a bill from its payment rows (void, reward and balance-transfer rows left out). */
     function cashPaidFromPayments(rows) {
         var sum = 0;
@@ -5302,6 +5322,11 @@ var COUPONS = (function () {
             return;
         }
         if (!clinicJoined(clinicCodeNow())) { host.hidden = true; return; }
+        if (method && isExcludedMethod(method)) {
+            host.hidden = false;
+            host.innerHTML = '<div>' + esc('🚫 ' + excludedText()) + '</div>';
+            return;
+        }
         var prog = spendProgress(total);
         if (!prog.reached.length && !prog.next) { host.hidden = true; return; }
         var lines = [];
@@ -5350,6 +5375,13 @@ var COUPONS = (function () {
         var clinicCode = String(info.clinicCode || '').trim() ||
             String((typeof bdCurrentBill !== 'undefined' && bdCurrentBill && bdCurrentBill.clinic_tag) || '').trim() ||
             clinicCodeNow();
+        return billExcluded(info.billId, info.method).then(function (excluded) {
+            if (excluded) return { ok: false, reason: 'excluded_method' };
+            return onBillPaymentChecked(info, clinicCode);
+        });
+    }
+
+    function onBillPaymentChecked(info, clinicCode) {
         return Promise.all([
             billCashPaid(info.billId, info.cashAmount),
             billDoctorKey(info.billId, info.doctorKey)
@@ -5369,6 +5401,13 @@ var COUPONS = (function () {
         var clinicCode = String(info.clinicCode || '').trim() ||
             String((typeof bdCurrentBill !== 'undefined' && bdCurrentBill && bdCurrentBill.clinic_tag) || '').trim() ||
             clinicCodeNow();
+        return billExcluded(info.billId, info.method).then(function (excluded) {
+            if (excluded) return { ok: false, reason: 'excluded_method' };
+            return onBillFullyPaidChecked(info, clinicCode);
+        });
+    }
+
+    function onBillFullyPaidChecked(info, clinicCode) {
         return Promise.all([
             loadState().then(loadUsage),
             billCashPaid(info.billId, info.cashAmount),

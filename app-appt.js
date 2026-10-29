@@ -21635,7 +21635,8 @@ function saveBill(doPrint) {
                         patientId: earnPatientId,
                         billId: savedBillId,
                         cashAmount: nonCashPay ? 0 : paid,
-                        clinicCode: payRecord.clinic_code || payRecord.clinic_tag || ''
+                        clinicCode: payRecord.clinic_code || payRecord.clinic_tag || '',
+                        method: payload.bill_type
                     });
                 }
                 if (bal <= 0.005 && earnPatientId && typeof COUPONS !== 'undefined' &&
@@ -21645,7 +21646,8 @@ function saveBill(doPrint) {
                         billId: savedBillId,
                         cashAmount: nonCashPay ? 0 : paid,
                         clinicCode: payRecord.clinic_code || payRecord.clinic_tag || '',
-                        clinicId: payRecord.clinic_id || null
+                        clinicId: payRecord.clinic_id || null,
+                        method: payload.bill_type
                     });
                 }
                 var skipEarn = !earnPatientId || !(paid > 0.005) ||
@@ -21669,6 +21671,7 @@ function saveBill(doPrint) {
                         clinicId: payRecord.clinic_id || null,
                         clinicCode: payRecord.clinic_code || payRecord.clinic_tag || '',
                         note: null,
+                        method: payload.bill_type,
                         bill: payload || null,
                         doctorName: (typeof billDisplayDoctorLabel === 'function')
                             ? billDisplayDoctorLabel(payload) : (payload && payload.doctor_name) || null
@@ -24119,12 +24122,17 @@ function executeAddPaymentSave(ctx) {
                 bdCurrentBill.status      = newStatus;
                 bdCurrentBill.bill_type   = billType;
             }
+            if (typeof REWARDS !== 'undefined' && typeof REWARDS.isLoyaltyExcludedPayMethod === 'function' &&
+                    REWARDS.isLoyaltyExcludedPayMethod(payMethod) && typeof REWARDS.excludeBillFromLoyalty === 'function') {
+                REWARDS.excludeBillFromLoyalty(billId, patientId);
+            }
             if (patientId && typeof COUPONS !== 'undefined' && typeof COUPONS.onBillPayment === 'function') {
                 COUPONS.onBillPayment({
                     patientId: patientId,
                     billId: billId,
                     cashAmount: ctx.isBalanceTransfer ? 0 : cashAmount,
-                    clinicCode: clinicCode
+                    clinicCode: clinicCode,
+                    method: payMethod
                 });
             }
             if (newBalance <= 0.005 && typeof COUPONS !== 'undefined' &&
@@ -24134,7 +24142,8 @@ function executeAddPaymentSave(ctx) {
                     billId: billId,
                     cashAmount: cashAmount,
                     clinicCode: clinicCode,
-                    clinicId: payRecord.clinic_id || null
+                    clinicId: payRecord.clinic_id || null,
+                    method: payMethod
                 });
             }
             if (typeof billHistoryCache !== 'undefined' && billHistoryCache && billHistoryCache.length) {
@@ -24210,6 +24219,7 @@ function executeAddPaymentSave(ctx) {
                 clinicId: payRecord.clinic_id || null,
                 clinicCode: clinicCode,
                 note: null,
+                method: payMethod,
                 bill: (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null,
                 doctorName: (typeof billDisplayDoctorLabel === 'function' &&
                     typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
@@ -24301,6 +24311,7 @@ function executeAddPaymentSave(ctx) {
                     patientId: patientId,
                     points: rewardPts,
                     billId: billId,
+                    method: payMethod,
                     paidDate: payRecord.paid_date,
                     clinicId: payRecord.clinic_id,
                     clinicCode: clinicCode,
@@ -24422,6 +24433,21 @@ function confirmAddPayment() {
         patientId: bdCurrentBill.patient_id || null
     };
 
+    var gateP = (typeof REWARDS !== 'undefined' && typeof REWARDS.excludedPaymentBlock === 'function')
+        ? REWARDS.excludedPaymentBlock(bdCurrentBill, payMethod, rewardPts)
+        : Promise.resolve('');
+    gateP.then(function(blockMsg) {
+        if (blockMsg) {
+            if (errEl) { errEl.textContent = blockMsg; errEl.style.display = ''; }
+            return;
+        }
+        continueConfirmAddPayment(saveCtx, clinicCtx, isXferPay);
+    }, function() {
+        continueConfirmAddPayment(saveCtx, clinicCtx, isXferPay);
+    });
+}
+
+function continueConfirmAddPayment(saveCtx, clinicCtx, isXferPay) {
     // Balance transfer: one trail-check confirm (notes + acknowledgement).
     if (isXferPay) {
         showBalanceTransferConfirm(saveCtx);

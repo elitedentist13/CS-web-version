@@ -225,7 +225,7 @@ async function waitJs(cdp, expr, timeoutMs) {
     throw new Error('waitJs failed: ' + String(last).slice(0, 220));
 }
 
-function extractIifeHelpers(src) {
+function extractIifeHelpers(src, sbOverride) {
     // Pull isRewardPayMethod + METHOD by evaluating app-rewards.js in a sandbox.
     var ctx = {
         window: {},
@@ -254,6 +254,7 @@ function extractIifeHelpers(src) {
                 return {
                     select: function () { return this; },
                     eq: function () { return this; },
+                    in: function () { return this; },
                     maybeSingle: function () { return Promise.resolve({ data: null, error: null }); },
                     order: function () { return this; },
                     limit: function () { return Promise.resolve({ data: [], error: null }); },
@@ -277,9 +278,32 @@ function extractIifeHelpers(src) {
         closeModal: function () {}
     };
     ctx.window = ctx;
+    if (sbOverride) ctx.SB = sbOverride;
     vm.createContext(ctx);
     vm.runInContext(src, ctx);
     return ctx.REWARDS || ctx.window.REWARDS;
+}
+
+/** Fake SB: bill_payments / reward_ledger reads answer from tables[name]; rpc calls are recorded. */
+function fakeBillSb(tables, rpcLog) {
+    return {
+        from: function (name) {
+            var q = {
+                select: function () { return q; },
+                eq: function () { return q; },
+                in: function () { return q; },
+                order: function () { return q; },
+                limit: function () { return q; },
+                maybeSingle: function () { return Promise.resolve({ data: null, error: null }); },
+                then: function (ok, bad) { return Promise.resolve({ data: tables[name] || [], error: null }).then(ok, bad); }
+            };
+            return q;
+        },
+        rpc: function (fn, args) {
+            if (rpcLog) rpcLog.push({ fn: fn, args: args });
+            return Promise.resolve({ data: { ok: true, count: 0 }, error: null });
+        }
+    };
 }
 
 (async function main() {
@@ -526,6 +550,16 @@ function extractIifeHelpers(src) {
     pass('REWARDS module IIFE', /var REWARDS = \(function/.test(rewardsSrc));
     pass('METHOD Reward points', /METHOD\s*=\s*'Reward points'/.test(rewardsSrc));
     pass('isRewardPayMethod exported', /window\.isRewardPayMethod/.test(rewardsSrc));
+    pass('isLoyaltyExcludedPayMethod exported', /window\.isLoyaltyExcludedPayMethod = /.test(rewardsSrc) &&
+        /isLoyaltyExcludedPayMethod: isLoyaltyExcludedPayMethod/.test(rewardsSrc));
+    pass('Add payment checks Government / PDCC before saving', /REWARDS\.excludedPaymentBlock\(bdCurrentBill, payMethod, rewardPts\)/.test(apptSrc) &&
+        /function continueConfirmAddPayment\(saveCtx, clinicCtx, isXferPay\)/.test(apptSrc));
+    pass('Government / PDCC payment takes back earlier points on the bill',
+        /function finishBillUpdate[\s\S]{0,1400}REWARDS\.isLoyaltyExcludedPayMethod\(payMethod\)[\s\S]{0,200}REWARDS\.excludeBillFromLoyalty\(billId, patientId\)/.test(apptSrc));
+    pass('every earn / redeem / coupon call passes the payment method',
+        (apptSrc.match(/method: payload\.bill_type/g) || []).length === 3 &&
+        (apptSrc.match(/method: payMethod,?\r?\n/g) || []).length >= 4);
+    pass('reward panel turns off when Government / PDCC is picked', /t\.id === 'apMethod'[\s\S]{0,300}paintPayPanelExcluded\(\)/.test(rewardsSrc));
     pass('SMS via AIHELPER', /sendTwilioOutreach/.test(rewardsSrc));
     pass('notifyNetChange present', /function notifyNetChange/.test(rewardsSrc) ||
         /notifyNetChange:\s*notifyNetChange/.test(rewardsSrc));
@@ -835,6 +869,49 @@ function extractIifeHelpers(src) {
             pass('detect reward-point variant', R.isRewardPayMethod('reward-point') === true);
             pass('reject Cash', R.isRewardPayMethod('Cash') === false);
             pass('reject Balance transfer', R.isRewardPayMethod('Balance transfer') === false);
+            var exM = R.isLoyaltyExcludedPayMethod;
+            pass('Government / PDCC methods are excluded from loyalty',
+                exM('Government') && exM('GOVERNMENT') && exM('GOV') && exM('gov') && exM('PDCC') && exM(' pdcc ') &&
+                exM('Government Elderly') && exM('政府') && exM('GOVERMMENT') && exM('Goverment'), '');
+            pass('cash, card, HCV, reward points are not excluded',
+                !exM('Cash') && !exM('Visa') && !exM('Health Care Voucher (HCV)') && !exM('Reward points') &&
+                !exM('Balance transfer') && !exM('') && !exM(null) && !exM('Governor card'));
+            pass('words containing pdcc letters are not excluded', !exM('xpdccx') && !exM('Octopus'));
+            var earnEx = await R.applyEarnForPayment({ patientId: 'p1', eligibleAmount: 500, billId: 'b1', method: 'PDCC' });
+            pass('earn skipped for a PDCC payment', earnEx && earnEx.ok && earnEx.skipped && earnEx.reason === 'excluded_method',
+                JSON.stringify(earnEx));
+            var redEx = await R.applyRedeemForBill({ patientId: 'p1', points: 50, billId: 'b1', method: 'Government' });
+            pass('redeem refused for a Government payment', redEx && redEx.ok === false && /Government \/ PDCC|excludedMethod/.test(redEx.error),
+                JSON.stringify(redEx));
+            var Rgov = extractIifeHelpers(rewardsSrc, fakeBillSb({ bill_payments: [{ method: 'Cash', voided_at: null }, { method: 'Government', voided_at: null }] }));
+            var earnCashOnGov = await Rgov.applyEarnForPayment({ patientId: 'p1', eligibleAmount: 200, billId: 'b1', method: 'Cash' });
+            pass('earn skipped for the cash part of a bill that has a Government payment',
+                earnCashOnGov && earnCashOnGov.skipped && earnCashOnGov.reason === 'excluded_method', JSON.stringify(earnCashOnGov));
+            pass('billLoyaltyExcluded true when a live payment is Government', (await Rgov.billLoyaltyExcluded('b1')) === true);
+            var RgovVoid = extractIifeHelpers(rewardsSrc, fakeBillSb({ bill_payments: [{ method: 'PDCC', voided_at: '2026-10-29T01:00:00Z' }] }));
+            pass('voided PDCC payment does not exclude the bill', (await RgovVoid.billLoyaltyExcluded('b1')) === false);
+            pass('pre-save: points + PDCC on the same payment is blocked',
+                /Government \/ PDCC|excludedMethod/.test(await R.excludedPaymentBlock({ id: 'b1' }, 'PDCC', 20)));
+            pass('pre-save: PDCC on a bill with a coupon is blocked',
+                /coupon|excludedCoupon/.test(await R.excludedPaymentBlock({ id: 'b1', coupon_amount: 100 }, 'PDCC', 0)));
+            var Rused = extractIifeHelpers(rewardsSrc, fakeBillSb({ bill_payments: [{ method: 'Reward points', voided_at: null }],
+                reward_ledger: [{ kind: 'redeem', points: -30 }] }));
+            pass('pre-save: Government on a bill that used points is blocked',
+                /reward points|excludedPointsUsed/.test(await Rused.excludedPaymentBlock({ id: 'b1' }, 'Government', 0)));
+            pass('pre-save: plain Government payment on a clean bill is allowed',
+                (await R.excludedPaymentBlock({ id: 'b1', coupon_amount: 0 }, 'Government', 0)) === '');
+            pass('pre-save: cash on a Government bill is allowed (earns nothing)',
+                (await Rgov.excludedPaymentBlock({ id: 'b1' }, 'Cash', 0)) === '');
+            pass('pre-save: points on a Government bill are blocked',
+                /Government \/ PDCC|excludedMethod/.test(await Rgov.excludedPaymentBlock({ id: 'b1' }, 'Cash', 10)));
+            pass('pre-save: cash bill without Government / PDCC is untouched',
+                (await R.excludedPaymentBlock({ id: 'b1', coupon_amount: 100 }, 'Cash', 20)) === '');
+            var rpcLog = [];
+            var Rrev = extractIifeHelpers(rewardsSrc, fakeBillSb({}, rpcLog));
+            await Rrev.excludeBillFromLoyalty('b9', 'p1');
+            pass('Government / PDCC payment reverses earlier points on the bill via reward_void_for_bill',
+                rpcLog.length === 1 && rpcLog[0].fn === 'reward_void_for_bill' && rpcLog[0].args.p_bill_id === 'b9',
+                JSON.stringify(rpcLog));
             pass('round2 1.005→1.01 or 1.00', [1, 1.01].indexOf(R.round2(1.005)) >= 0 ||
                 R.round2(10.5) === 10.5, String(R.round2(1.005)));
             pass('fmtPts 50', R.fmtPts(50) === '50.00');
@@ -2329,6 +2406,57 @@ function extractIifeHelpers(src) {
                             'joined=' + row.redeemSave + ' msg=' + row.saveErr);
                     }
                 });
+                var govLive = await cdp.js(`(async () => {
+  const pid = ${JSON.stringify(joinPid)};
+  const out = { rows: [], writes: [] };
+  const realSB = SB;
+  try {
+    const r = await realSB.from('bills').select('id,patient_id,coupon_amount,amount_paid,total,doctor_name,clinic_tag')
+      .eq('patient_id', pid).order('created_at', { ascending: false }).limit(8);
+    if (r.error) throw r.error;
+    for (const b of (r.data || [])) {
+      const pays = await realSB.from('bill_payments').select('method,voided_at').eq('bill_id', b.id);
+      const methods = (pays.data || []).filter(p => !p.voided_at).map(p => p.method);
+      const expect = methods.some(m => window.isLoyaltyExcludedPayMethod(m));
+      const got = await REWARDS.billLoyaltyExcluded(b.id);
+      const block = await REWARDS.excludedPaymentBlock(b, 'PDCC', 0);
+      const blockPts = await REWARDS.excludedPaymentBlock(b, 'PDCC', 10);
+      out.rows.push({ bill: String(b.id).slice(0, 8), methods: methods.join('/'), expect, got,
+        coupon: Number(b.coupon_amount) || 0, block: block.slice(0, 40), blockPts: blockPts.slice(0, 40) });
+    }
+    SB = {
+      from: function (t) {
+        const q = realSB.from(t);
+        ['insert', 'update', 'upsert', 'delete'].forEach(k => { q[k] = function () { out.writes.push(t + '.' + k); return Promise.resolve({ data: null, error: null }); }; });
+        return q;
+      },
+      rpc: function (f) { out.writes.push('rpc:' + f); return Promise.resolve({ data: { ok: true, skipped: true }, error: null }); }
+    };
+    const firstId = r.data && r.data[0] && r.data[0].id;
+    out.earn = firstId ? await REWARDS.applyEarnForPayment({ patientId: pid, eligibleAmount: 1000, billId: firstId, method: 'PDCC', bill: r.data[0] }) : null;
+    out.redeem = firstId ? await REWARDS.applyRedeemForBill({ patientId: pid, points: 10, billId: firstId, method: 'Government', bill: r.data[0] }) : null;
+    out.ok = true;
+  } catch (e) {
+    out.ok = false;
+    out.err = String(e && e.message || e);
+  } finally { SB = realSB; }
+  return out;
+})()`, true, 60000);
+                pass('live #001003 Government / PDCC probe ran', govLive && govLive.ok, govLive && govLive.err);
+                (govLive && govLive.rows || []).forEach(function (row) {
+                    var label = '#001003 bill ' + row.bill + ' [' + row.methods + ']';
+                    pass('live bill-level Government / PDCC check matches its payments ' + label, row.expect === row.got,
+                        'expect=' + row.expect + ' got=' + row.got);
+                    pass('live PDCC payment blocked only when the bill has a coupon or used points ' + label,
+                        row.coupon > 0.005 ? row.block.length > 0 : true, row.block || 'allowed');
+                    pass('live points + PDCC on the same payment always blocked ' + label, row.blockPts.length > 0, row.blockPts);
+                });
+                pass('live #001003 PDCC earn skipped', govLive && govLive.earn && govLive.earn.skipped && govLive.earn.reason === 'excluded_method',
+                    govLive && JSON.stringify(govLive.earn));
+                pass('live #001003 Government redeem refused', govLive && govLive.redeem && govLive.redeem.ok === false,
+                    govLive && JSON.stringify(govLive.redeem));
+                pass('live #001003 Government / PDCC probe wrote nothing', govLive && govLive.writes.length === 0,
+                    govLive && govLive.writes.join(','));
             }
         }
 

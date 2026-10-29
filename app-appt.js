@@ -3458,9 +3458,13 @@ function apptLoyaltyMarkHtml(a) {
     return '<span class="loy-appt" data-pid="' + esc(a.patient_id) + '" hidden></span>';
 }
 
-/** Name + loyalty chips together: Chinese stays one line, English may wrap, chips stay beside. */
-function apptNameLoyaltyLine(innerHtml, a) {
-    return '<span class="appt-name-loy">' + (innerHtml || '') + apptLoyaltyMarkHtml(a) + '</span>';
+/** Name + loyalty chips on the first row; RSVP / web / unpaid tags go under so they do not clip the name. */
+function apptNameLoyaltyLine(nameHtml, a, tagsHtml) {
+    return '<span class="appt-name-loy">' +
+        '<span class="appt-name-loy-main">' + (nameHtml || '') + '</span>' +
+        apptLoyaltyMarkHtml(a) +
+        (tagsHtml ? '<span class="appt-name-loy-tags">' + tagsHtml + '</span>' : '') +
+        '</span>';
 }
 
 function paintApptLoyaltySoon(root) {
@@ -5987,9 +5991,11 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
         if (a) {
             patNoHtml = esc(apptPatientNoDisplayText(a));
             if (clearMode) {
-                nameHtml = plusApptClearModeNameHtml(a, { skipPatNo: true }) + webBadge;
-                nameHtml += apptRsvpBadgeHtml(a);
-                nameHtml = apptNameLoyaltyLine(nameHtml, a);
+                nameHtml = apptNameLoyaltyLine(
+                    plusApptClearModeNameHtml(a, { skipPatNo: true }),
+                    a,
+                    webBadge + apptRsvpBadgeHtml(a)
+                );
                 treatHtml = plusApptTreatmentInlineHtml(a, true);
                 remHtml = plusApptRemarksScrollerHtml(a.remarks, a.id);
                 durHtml = (a.duration != null && a.duration !== '')
@@ -5997,13 +6003,13 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
                     : '—';
                 locked = isApptScheduleLocked(a);
             } else {
-            nameHtml = (typeof apptPatientDisplayNameHTML === 'function'
-                ? apptPatientDisplayNameHTML(a, { walkIn: true })
-                : esc(a.patient_name || '—'));
-            nameHtml += webBadge;
-            nameHtml += apptRsvpBadgeHtml(a);
-            nameHtml += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--plus');
-            nameHtml = apptNameLoyaltyLine(nameHtml, a);
+            nameHtml = apptNameLoyaltyLine(
+                (typeof apptPatientDisplayNameHTML === 'function'
+                    ? apptPatientDisplayNameHTML(a, { walkIn: true })
+                    : esc(a.patient_name || '—')),
+                a,
+                webBadge + apptRsvpBadgeHtml(a) + apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--plus')
+            );
             remHtml = plusApptRemarksScrollerHtml(a.remarks, a.id);
             durHtml = (a.duration != null && a.duration !== '')
                 ? esc(apptDurationDisplay(a.duration))
@@ -13730,8 +13736,9 @@ function buildTodayRow(tb, a, dotCtx) {
                 '<span class="appt-row-name-wrap">' +
                     drDot +
                     apptNameLoyaltyLine(
-                        apptPatientDisplayNameHTML(a, { walkIn: true }) + apptRsvpBadgeHtml(a),
-                        a
+                        apptPatientDisplayNameHTML(a, { walkIn: true }),
+                        a,
+                        apptRsvpBadgeHtml(a)
                     ) +
                 '</span>' +
             '</td>' +

@@ -7072,18 +7072,36 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     max-width: 100%;
 }
 
-/* Chips beside a stacked name: Chinese one row, English on the next (wraps up to 3). */
+/* Name + chips on row 1; RSVP / web / unpaid on the next row so they cannot clip the name. */
 .appt-name-loy {
-    display: inline-flex;
-    align-items: flex-start;
-    flex-wrap: nowrap;
-    gap: 4px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 2px 4px;
     min-width: 0;
     max-width: 100%;
     vertical-align: top;
 }
 .appt-row-name-wrap > .appt-name-loy {
     flex: 1 1 auto;
+}
+.appt-name-loy-main {
+    grid-column: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+.appt-name-loy-tags {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+.appt-name-loy-tags .rsvp-badge,
+.appt-name-loy-tags .appt-web-badge,
+.appt-name-loy-tags .appt-unpaid-badge {
+    margin-left: 0;
 }
 .appt-name-loy .appt-row-name-stack,
 .appt-name-loy .appt-patient-name-field,
@@ -7127,6 +7145,8 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
     overflow: hidden;
 }
 .appt-name-loy .loy-appt {
+    grid-column: 2;
+    grid-row: 1;
     flex: 0 0 auto;
     margin-left: 0;
 }

@@ -3458,6 +3458,11 @@ function apptLoyaltyMarkHtml(a) {
     return '<span class="loy-appt" data-pid="' + esc(a.patient_id) + '" hidden></span>';
 }
 
+/** Name + loyalty chips together: Chinese stays one line, English may wrap, chips stay beside. */
+function apptNameLoyaltyLine(innerHtml, a) {
+    return '<span class="appt-name-loy">' + (innerHtml || '') + apptLoyaltyMarkHtml(a) + '</span>';
+}
+
 function paintApptLoyaltySoon(root) {
     if (typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.paintApptLoyalty === 'function') {
         try { COUPONS.paintApptLoyalty(root || document); } catch (e) { /* desk still lists without badges */ }
@@ -5984,7 +5989,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             if (clearMode) {
                 nameHtml = plusApptClearModeNameHtml(a, { skipPatNo: true }) + webBadge;
                 nameHtml += apptRsvpBadgeHtml(a);
-                nameHtml += apptLoyaltyMarkHtml(a);
+                nameHtml = apptNameLoyaltyLine(nameHtml, a);
                 treatHtml = plusApptTreatmentInlineHtml(a, true);
                 remHtml = plusApptRemarksScrollerHtml(a.remarks, a.id);
                 durHtml = (a.duration != null && a.duration !== '')
@@ -5998,7 +6003,7 @@ function fillPlusApptScheduleTbody(tb, doctorCode) {
             nameHtml += webBadge;
             nameHtml += apptRsvpBadgeHtml(a);
             nameHtml += apptUnpaidBadgeHtml(a, 'appt-unpaid-badge--plus');
-            nameHtml += apptLoyaltyMarkHtml(a);
+            nameHtml = apptNameLoyaltyLine(nameHtml, a);
             remHtml = plusApptRemarksScrollerHtml(a.remarks, a.id);
             durHtml = (a.duration != null && a.duration !== '')
                 ? esc(apptDurationDisplay(a.duration))
@@ -13323,7 +13328,9 @@ function apptPatientDisplayNameHTML(a, opt) {
             '</span>';
     }
 
-    return '<div class="appt-patient-name-field">' + out + '</div>';
+    var title = [cn, en].filter(Boolean).join(' · ');
+    return '<div class="appt-patient-name-field"' +
+        (title ? ' title="' + esc(title) + '"' : '') + '>' + out + '</div>';
 }
 
 function apptListDoctorDotCtx(apptRows) {
@@ -13681,8 +13688,7 @@ function buildTodayRow(tb, a, dotCtx) {
                 esc(a.patient_no || '-') +
             '</td>' +
             '<td class="today-name-cell plusappt-name-cell plusappt-row-data-cell--clear">' +
-                queueClearModeNameHtml(a, { skipPatNo: true }) +
-                apptLoyaltyMarkHtml(a) +
+                apptNameLoyaltyLine(queueClearModeNameHtml(a, { skipPatNo: true }), a) +
             '</td>' +
             '<td class="today-treatment-cell plusappt-treat-cell plusappt-row-data-cell--clear">' +
                 plusApptTreatmentInlineHtml(a, true) +
@@ -13723,9 +13729,10 @@ function buildTodayRow(tb, a, dotCtx) {
             '<td class="today-name-cell">' +
                 '<span class="appt-row-name-wrap">' +
                     drDot +
-                    apptPatientDisplayNameHTML(a, { walkIn: true }) +
-                    apptRsvpBadgeHtml(a) +
-                    apptLoyaltyMarkHtml(a) +
+                    apptNameLoyaltyLine(
+                        apptPatientDisplayNameHTML(a, { walkIn: true }) + apptRsvpBadgeHtml(a),
+                        a
+                    ) +
                 '</span>' +
             '</td>' +
             '<td class="today-treatment-cell">' +
@@ -15368,8 +15375,7 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
     if (clearMode) {
         nameCellHtml =
             '<td class="queue-name-cell plusappt-name-cell plusappt-row-data-cell--clear">' +
-                queueClearModeNameHtml(q, { skipPatNo: true }) +
-                apptLoyaltyMarkHtml(q) +
+                apptNameLoyaltyLine(queueClearModeNameHtml(q, { skipPatNo: true }), q) +
             '</td>';
         treatCellHtml =
             '<td class="queue-treatment-cell plusappt-treat-cell plusappt-row-data-cell--clear">' +
@@ -15398,10 +15404,12 @@ function buildQueueRow(tb, q, seqNo, dotCtx) {
             '<td class="queue-name-cell">' +
                 '<span class="appt-row-name-wrap">' +
                     drDot +
-                    '<span class="appt-row-name-stack">' +
-                        apptPatientDisplayNameHTML(q, { walkIn: true }) +
-                    '</span>' +
-                    apptLoyaltyMarkHtml(q) +
+                    apptNameLoyaltyLine(
+                        '<span class="appt-row-name-stack">' +
+                            apptPatientDisplayNameHTML(q, { walkIn: true }) +
+                        '</span>',
+                        q
+                    ) +
                 '</span>' +
             '</td>';
         treatCellHtml =

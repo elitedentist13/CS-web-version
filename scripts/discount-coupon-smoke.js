@@ -2274,8 +2274,14 @@ function loadCoupons() {
         child_process.spawnSync(process.execPath, ['--check', path.join(root, 'app-i18n-extra.js')]).status === 0);
     var apptSrc = read('app-appt.js');
     pass('appointment rows mark the patient and paint after the day / today / queue lists',
-        /function apptLoyaltyMarkHtml/.test(apptSrc) && /nameHtml \+= apptLoyaltyMarkHtml\(a\)/.test(apptSrc) &&
+        /function apptLoyaltyMarkHtml/.test(apptSrc) && /function apptNameLoyaltyLine/.test(apptSrc) &&
+        /apptNameLoyaltyLine\(nameHtml, a\)/.test(apptSrc) &&
         (apptSrc.match(/paintApptLoyaltySoon\(tb\)/g) || []).length >= 3);
+    pass('queue / today: Chinese name does not wrap; English may wrap 3 lines; chips stay beside',
+        /\.appt-name-loy \{/.test(read('style.css')) &&
+        /\.appt-name-loy \.appt-name-cn[\s\S]{0,280}white-space: nowrap/.test(read('style.css')) &&
+        /-webkit-line-clamp: 3/.test(read('style.css')) &&
+        /apptNameLoyaltyLine\(queueClearModeNameHtml/.test(apptSrc));
     var snapMap = C.loyaltySnapFromRows([
         { patient_id: 'p1', status: 'unused', expires_on: '2026-11-10' },
         { patient_id: 'p1', status: 'unused', expires_on: '2027-01-01' },

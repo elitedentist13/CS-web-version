@@ -3668,20 +3668,22 @@ tr:hover td { background: #fafcff; }
     white-space: nowrap;
 }
 #tab-queue.plusappt-clear-mode .queue-clear-row .queue-name-cell {
-    white-space: nowrap;
-    line-height: 1.1;
-    overflow: visible;
+    white-space: normal;
+    line-height: 1.15;
+    overflow: hidden;
     text-overflow: clip;
 }
 #tab-queue.plusappt-clear-mode .queue-clear-name-wrap {
     display: inline-flex;
-    align-items: center;
-    flex-wrap: nowrap;
-    width: 100%;
+    align-items: baseline;
+    flex-wrap: wrap;
+    width: auto;
     max-width: 100%;
-    gap: 0.2em;
+    min-width: 0;
+    flex: 1 1 auto;
+    gap: 0 0.2em;
     vertical-align: middle;
-    overflow: visible;
+    overflow: hidden;
 }
 #tab-queue.plusappt-clear-mode .queue-clear-row .queue-patno-cell {
     max-width: none;
@@ -3708,10 +3710,16 @@ tr:hover td { background: #fafcff; }
 }
 #tab-queue.plusappt-clear-mode .queue-clear-en-prefer,
 #tab-queue.plusappt-clear-mode .queue-clear-row .queue-name-cell .plusappt-clear-en {
-    flex: 1 1 0;
-    min-width: 0;
-    white-space: nowrap;
+    flex: 1 1 8ch;
+    min-width: 6ch;
+    white-space: normal;
     overflow: hidden;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
     text-overflow: ellipsis;
 }
 #tab-queue.plusappt-clear-mode .queue-clear-row .plusappt-treat-cell .appt-treat-inline--clear {
@@ -5686,8 +5694,8 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 
 .queue-wrap .appt-tbl.queue-tbl .queue-col-no          { width: 46px; }
 .queue-wrap .appt-tbl.queue-tbl .queue-col-patno       { width: 72px; }
-.queue-wrap .appt-tbl.queue-tbl .queue-col-name        { width: 11%; }
-.queue-wrap .appt-tbl.queue-tbl .queue-col-treatment   { width: 20%; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-name        { width: 20%; }
+.queue-wrap .appt-tbl.queue-tbl .queue-col-treatment   { width: 15%; }
 .queue-wrap .appt-tbl.queue-tbl .queue-col-alert       { width: 80px; }
 .queue-wrap .appt-tbl.queue-tbl .queue-col-time        { width: 82px; }
 .queue-wrap .appt-tbl.queue-tbl .queue-col-duration    { width: 68px; }
@@ -7056,8 +7064,64 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .appt-row-name-wrap {
     display: flex;
     align-items: flex-start;
+    flex-wrap: nowrap;
     gap: 8px;
     min-width: 0;
+    max-width: 100%;
+}
+
+/* Chips after the name. Chinese stays one line; English may wrap up to 3 lines. */
+.appt-name-loy {
+    display: inline-flex;
+    align-items: flex-start;
+    flex-wrap: nowrap;
+    gap: 4px;
+    min-width: 0;
+    max-width: 100%;
+    vertical-align: top;
+}
+.appt-row-name-wrap > .appt-name-loy {
+    flex: 1 1 auto;
+}
+.appt-name-loy .appt-row-name-stack,
+.appt-name-loy .appt-patient-name-field,
+.appt-name-loy .queue-clear-name-wrap {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    white-space: normal;
+}
+.appt-name-loy .appt-patient-name-field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.12em;
+}
+.appt-name-loy .appt-name-cn,
+.appt-name-loy .appt-name-sep,
+.appt-name-loy .plusappt-clear-cn,
+.appt-name-loy .queue-clear-cn-full {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+.appt-name-loy .appt-name-en,
+.appt-name-loy .plusappt-clear-en,
+.appt-name-loy .queue-clear-en-prefer {
+    flex: 1 1 8ch;
+    min-width: 6ch;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+}
+.appt-name-loy .loy-appt {
+    flex: 0 0 auto;
+    margin-left: 0;
 }
 
 .appt-row-name-stack {

@@ -2045,23 +2045,17 @@ var REWARDS = (function () {
 
     var YEAR_END_RUN_KEY = 'rw_yearend_sms_run';
 
-    /** Any logged-in station runs the year-end reminder pass once a day. */
+    /** Any logged-in station runs the year-end reminder pass once a day (backup to the database job). */
     function scheduleYearEndReminders() {
         if (typeof window === 'undefined' || typeof window.setInterval !== 'function') return;
         var busy = false;
         function tick() {
             if (busy) return;
             if (typeof currentUserId === 'undefined' || !currentUserId) return;
-            if (typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.todayIso !== 'function') return;
-            var today = COUPONS.todayIso();
-            try { if (window.localStorage && localStorage.getItem(YEAR_END_RUN_KEY) === today) return; } catch (e) {}
+            if (typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.runDeskSmsBackup !== 'function') return;
             busy = true;
-            sendYearEndPointsReminders().then(function (res) {
-                busy = false;
-                if (res && res.ok) {
-                    try { if (window.localStorage) localStorage.setItem(YEAR_END_RUN_KEY, today); } catch (e) {}
-                }
-            });
+            COUPONS.runDeskSmsBackup(YEAR_END_RUN_KEY, function () { return sendYearEndPointsReminders(); })
+                .then(function () { busy = false; }, function () { busy = false; });
         }
         setTimeout(tick, 90000);
         setInterval(tick, 30 * 60000);

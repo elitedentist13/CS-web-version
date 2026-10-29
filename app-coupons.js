@@ -2931,7 +2931,12 @@ var COUPONS = (function () {
             SB.from('discount_coupons').select('*').eq('patient_id', patientId)
                 .then(function (r) { return (r && r.data) || []; }, function () { return []; }),
             freshZeroPolicy()
-        ]).then(function (both) { return applyZeroExpiry(both[0], both[1]); });
+        ]).then(function (both) {
+            var rows = both[0].slice().sort(function (a, b) {
+                return String(a.issued_at || '').localeCompare(String(b.issued_at || '')) || String(a.code || '').localeCompare(String(b.code || ''));
+            });
+            return applyZeroExpiry(rows, both[1]);
+        });
     }
 
     function paintSheetMessage(msg) {
@@ -4565,22 +4570,60 @@ var COUPONS = (function () {
         }).catch(function (e) { return { ok: false, error: String(e && e.message || e) }; });
     }
 
-    /** Any logged-in station runs the reminder pass once a day. */
+    /** With the database job on (loyalty_jobs.sql, 10:00 HK), desks wait until this hour before sending as the backup. */
+    var DB_SMS_BACKUP_HOUR = 11;
+
+    /** Today's database SMS run: { on, ran }; { on: false } when loyalty_jobs.sql has not been run or the job is off. */
+    function dbSmsJobState(today) {
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve({ on: false });
+        return Promise.all([
+            Promise.resolve(SB.from('loyalty_job_config').select('sms_on').eq('id', 1).maybeSingle()),
+            Promise.resolve(SB.from('loyalty_job_runs').select('id').eq('job', 'sms').eq('run_on', today).limit(1))
+        ]).then(function (r) {
+            var cfg = r[0] && !r[0].error && r[0].data;
+            if (!cfg || !cfg.sms_on) return { on: false };
+            return { on: true, ran: !!(r[1] && !r[1].error && r[1].data && r[1].data.length) };
+        }, function () { return { on: false }; });
+    }
+
+    /** Pure: the desk's part in today's reminder SMS — 'run', 'wait' (database job not due yet) or 'skip' (database did it). */
+    function deskSmsBackupPlan(state, hkHour) {
+        if (!state || !state.on) return 'run';
+        if (state.ran) return 'skip';
+        return hkHour >= DB_SMS_BACKUP_HOUR ? 'run' : 'wait';
+    }
+
+    function hkHourNow() { return new Date(Date.now() + 8 * 3600000).getUTCHours(); }
+
+    /**
+     * Once a day per station: send(today) runs unless the database job already sent today's reminders.
+     * runKey (localStorage) marks the day done.
+     */
+    function runDeskSmsBackup(runKey, send) {
+        var today = todayIso();
+        try { if (window.localStorage && localStorage.getItem(runKey) === today) return Promise.resolve({ ok: true, skipped: 'done' }); } catch (e) {}
+        function done() { try { if (window.localStorage) localStorage.setItem(runKey, today); } catch (e) {} }
+        return dbSmsJobState(today).then(function (st) {
+            var plan = deskSmsBackupPlan(st, hkHourNow());
+            if (plan === 'wait') return { ok: true, skipped: 'db_job_due' };
+            if (plan === 'skip') { done(); return { ok: true, skipped: 'db_job_ran' }; }
+            return Promise.resolve(send(today)).then(function (res) {
+                if (res && res.ok) done();
+                return res;
+            });
+        });
+    }
+
+    /** Any logged-in station runs the reminder pass once a day (backup to the database job). */
     function scheduleExpiryReminders() {
         if (typeof window === 'undefined' || typeof window.setInterval !== 'function') return;
         var busy = false;
         function tick() {
             if (busy) return;
             if (typeof currentUserId === 'undefined' || !currentUserId) return;
-            var today = todayIso();
-            try { if (window.localStorage && localStorage.getItem(EXPIRY_RUN_KEY) === today) return; } catch (e) {}
             busy = true;
-            sendExpiryReminders().then(function (res) {
-                busy = false;
-                if (res && res.ok) {
-                    try { if (window.localStorage) localStorage.setItem(EXPIRY_RUN_KEY, today); } catch (e) {}
-                }
-            });
+            runDeskSmsBackup(EXPIRY_RUN_KEY, function () { return sendExpiryReminders(); })
+                .then(function () { busy = false; }, function () { busy = false; });
         }
         setTimeout(tick, 60000);
         setInterval(tick, 30 * 60000);
@@ -6197,6 +6240,9 @@ var COUPONS = (function () {
         smsYearEndCoupons: smsYearEndCoupons,
         sendYearEndCouponReminders: sendYearEndCouponReminders,
         dcWrite: dcWrite,
+        dbSmsJobState: dbSmsJobState,
+        deskSmsBackupPlan: deskSmsBackupPlan,
+        runDeskSmsBackup: runDeskSmsBackup,
         dcFnMissing: dcFnMissing,
         insertCoupon: insertCoupon,
         applyToBill: applyToBill,

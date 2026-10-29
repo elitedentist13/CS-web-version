@@ -1711,7 +1711,7 @@ function loadCoupons() {
     pass('capped coupon is no longer live on 1 Jan', C.isLive(C.applyZeroExpiry([{ expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z', status: 'unused' }], YE)[0], '2027-01-01') === false &&
         C.isLive(C.applyZeroExpiry([{ expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z', status: 'unused' }], YE)[0], '2026-12-31') === true);
     pass('desk wallet, bill info and issue notice use the effective date',
-        /function loadWallet[\s\S]{0,400}freshZeroPolicy\(\)[\s\S]{0,120}applyZeroExpiry\(both\[0\], both\[1\]\)/.test(src) &&
+        /function loadWallet[\s\S]{0,400}freshZeroPolicy\(\)[\s\S]{0,400}applyZeroExpiry\(rows, both\[1\]\)/.test(src) &&
         /earnedQ = SB\.from\('discount_coupons'\)\.select\('[^']*issued_at[^']*'\)[\s\S]{0,400}applyZeroExpiry\(/.test(src) &&
         /coupons\.info\.expires', 'expires'\) \+ ' ' \+\s*effectiveExpiry\(/.test(src));
     var wCap = W.capYearEnd([{ code: 'A', expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z' }, { code: 'B', expires_on: '2026-11-15', issued_at: '2026-08-15T02:00:00Z' }], 'year_end');
@@ -2022,6 +2022,77 @@ function loadCoupons() {
     });
     pass('every coupon / referral / year-end table write is a fallback behind a database function',
         directWrites > 0 && unguarded.length === 0, unguarded.join(' | '));
+
+    console.log('\n=== Loyalty jobs in the database (loyalty_jobs.sql) ===');
+    var jobsSql = read('loyalty_jobs.sql');
+    pass('jobs SQL: Set zero 00:05 HK (16:05 UTC), SMS 10:00 HK (02:00 UTC), replies every 5 minutes',
+        /cron\.schedule\('loyalty-set-zero', '5 16 \* \* \*', 'select public\.loyalty_run_zero\(\)'\)/.test(jobsSql) &&
+        /cron\.schedule\('loyalty-daily-sms', '0 2 \* \* \*', 'select public\.loyalty_run_daily_sms\(\)'\)/.test(jobsSql) &&
+        /cron\.schedule\('loyalty-sms-settle', '\*\/5 \* \* \* \*', 'select public\.loyalty_sms_settle\(\)'\)/.test(jobsSql));
+    pass('jobs SQL: sends through this project\u2019s twilio-whatsapp function',
+        jobsSql.indexOf(readSbConfig(read('app.js')).url.replace(/\/$/, '') + '/functions/v1/twilio-whatsapp') >= 0 && jobsSql.indexOf('__SB_') < 0);
+    pass('jobs SQL: browser cannot start the jobs or read the anon key / SMS bodies',
+        /revoke all on function public\.loyalty_run_daily_sms\(date, boolean\) from public, anon, authenticated/.test(jobsSql) &&
+        /revoke all on function public\.loyalty_run_zero\(timestamptz\) from public, anon, authenticated/.test(jobsSql) &&
+        /grant select \(id, zero_on, sms_on, sms_user_id, updated_at\) on public\.loyalty_job_config/.test(jobsSql));
+    var jobRun = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'loyalty-jobs-sql-test.js')], { encoding: 'utf8', timeout: 120000 });
+    var jobOut = String(jobRun.stdout || '') + String(jobRun.stderr || '');
+    if (/^SKIP/m.test(jobOut)) {
+        pass('jobs SQL on in-memory Postgres (PGlite not installed: skipped)', true);
+    } else {
+        var jobSum = jobOut.match(/(\d+) passed, (\d+) failed/);
+        pass('jobs SQL on in-memory Postgres: Set zero, SMS text = desk text, claims, replies all pass', jobRun.status === 0 && jobSum && jobSum[2] === '0',
+            jobSum ? jobSum[0] : jobOut.slice(-600));
+    }
+    pass('desk backup plan: not set up → run; database ran → skip; before 11:00 → wait; after → run',
+        WC.deskSmsBackupPlan({ on: false }, 9) === 'run' && WC.deskSmsBackupPlan({ on: true, ran: true }, 15) === 'skip' &&
+        WC.deskSmsBackupPlan({ on: true, ran: false }, 10) === 'wait' && WC.deskSmsBackupPlan({ on: true, ran: false }, 11) === 'run');
+    function jobCtx(cfgRow, runRows) {
+        var store = {};
+        var ctx = {
+            console: console, setTimeout: setTimeout, clearTimeout: clearTimeout,
+            localStorage: { getItem: function (k) { return store[k] || null; }, setItem: function (k, v) { store[k] = v; } },
+            SB: { from: function (t) {
+                var q = { select: function () { return q; }, eq: function () { return q; }, limit: function () { return q; },
+                    maybeSingle: function () { return Promise.resolve(t === 'loyalty_job_config' ? cfgRow : { data: null, error: null }); },
+                    then: function (res, rej) { return Promise.resolve(runRows).then(res, rej); } };
+                return q;
+            } }
+        };
+        ctx.window = ctx;
+        vm.createContext(ctx);
+        vm.runInContext(src, ctx, { filename: 'app-coupons.js' });
+        ctx.__store = store;
+        return ctx;
+    }
+    var jNo = jobCtx({ data: null, error: { code: 'PGRST205', message: 'Could not find the table public.loyalty_job_config' } }, { data: null, error: { code: 'PGRST205' } });
+    var jNoSent = 0;
+    var jNoRes = await jNo.COUPONS.runDeskSmsBackup('k1', function () { jNoSent++; return { ok: true }; });
+    pass('desk backup before the jobs SQL: the desk sends as today and marks the day', jNoSent === 1 && jNoRes.ok && jNo.__store.k1 === jNo.COUPONS.todayIso());
+    var jRan = jobCtx({ data: { sms_on: true }, error: null }, { data: [{ id: 7 }], error: null });
+    var jRanSent = 0;
+    var jRanRes = await jRan.COUPONS.runDeskSmsBackup('k2', function () { jRanSent++; return { ok: true }; });
+    pass('desk backup after the database ran today: nothing sent, day marked', jRanSent === 0 && jRanRes.skipped === 'db_job_ran' && !!jRan.__store.k2);
+    var jOff = jobCtx({ data: { sms_on: false }, error: null }, { data: [], error: null });
+    var jOffSent = 0;
+    await jOff.COUPONS.runDeskSmsBackup('k3', function () { jOffSent++; return { ok: true }; });
+    pass('database SMS switched off: the desk sends', jOffSent === 1);
+    pass('coupon and points schedulers both go through the desk backup',
+        /runDeskSmsBackup\(EXPIRY_RUN_KEY, function \(\) \{ return sendExpiryReminders\(\); \}\)/.test(src) &&
+        /COUPONS\.runDeskSmsBackup\(YEAR_END_RUN_KEY, function \(\) \{ return sendYearEndPointsReminders\(\); \}\)/.test(read('app-rewards.js')));
+    pass('wallet order is fixed (issue time, then code) so the SMS list matches the database SMS',
+        /var rows = both\[0\]\.slice\(\)\.sort\(function \(a, b\) \{\s*return String\(a\.issued_at \|\| ''\)\.localeCompare/.test(src) &&
+        /order by coalesce\(public\.dc_eff_expiry\(c\.expires_on, c\.issued_at, p_policy\), '9999-12-31'::date\), c\.issued_at, c\.code/.test(jobsSql));
+
+    if (sb) {
+        try {
+            var jobsProbe = await restGet(sb.url, sb.key, 'loyalty_job_runs', 'select=job,run_on,finished_at,result&order=run_on.desc&limit=3');
+            pass('API loyalty_job_runs: ' + (jobsProbe.status === 200 ? 'jobs SQL run, last runs readable' : 'jobs SQL not run yet (desks send as before)'),
+                jobsProbe.status === 200 ? Array.isArray(jobsProbe.json) : jobsProbe.status === 404, jobsProbe.status + ' ' + String(jobsProbe.raw || '').slice(0, 160));
+        } catch (e) {
+            pass('API loyalty_job_runs probe', false, e && e.message);
+        }
+    }
 
     if (sb) {
         try {
@@ -2719,6 +2790,34 @@ function loadCoupons() {
             ? 'database functions refuse a fake bill and the shared Nurse login'
             : 'database functions not run yet, desk falls back to the old writes') + '; wallet unchanged',
             !!secOk, JSON.stringify(secLive));
+        var jobLive = await cdp.js(`(async function () {
+  var out = { ok: false };
+  var key = 'smoke_db_job_probe';
+  try {
+    localStorage.removeItem(key);
+    var today = COUPONS.todayIso();
+    out.state = await COUPONS.dbSmsJobState(today);
+    var calls = 0;
+    out.first = await COUPONS.runDeskSmsBackup(key, function (d) { calls++; out.day = d; return { ok: true }; });
+    out.second = await COUPONS.runDeskSmsBackup(key, function () { calls++; return { ok: true }; });
+    out.calls = calls;
+    out.today = today;
+    var pr = await SB.from('patients').select('id').eq('patient_no', '001003').limit(1);
+    var pid = pr && pr.data && pr.data[0] && pr.data[0].id;
+    var w = await COUPONS.loadWallet(pid);
+    out.ordered = w.every(function (c, i) { return i === 0 || String(w[i - 1].issued_at || '') <= String(c.issued_at || ''); });
+    out.n = w.length;
+    out.ok = true;
+  } catch (e) { out.err = String(e && e.message || e); }
+  finally { localStorage.removeItem(key); }
+  return out;
+})()`, true, 30000);
+        var jobOn = jobLive && jobLive.state && jobLive.state.on;
+        pass('live #001003 desk SMS backup: ' + (jobOn ? 'database job on (' + (jobLive.state.ran ? 'ran today, desk skips' : 'not yet run') + ')'
+            : 'database job not set up, desk sends once a day as before') + '; wallet in issue order',
+            !!(jobLive && jobLive.ok && jobLive.ordered && jobLive.n > 0 && (jobOn
+                ? (jobLive.state.ran ? jobLive.calls === 0 : true)
+                : jobLive.calls === 1 && jobLive.day === jobLive.today && jobLive.second.skipped === 'done')), JSON.stringify(jobLive));
         var smsLink = await cdp.js(`(async function () {
   var out = { ok: false };
   var BASE_KEY = 'csPhoneScanBase';

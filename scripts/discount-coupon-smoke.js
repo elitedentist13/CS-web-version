@@ -469,11 +469,30 @@ function loadCoupons() {
     }).every(function (p) { return p.campaign.key !== 'referral'; }));
 
     console.log('=== 8b refer a friend ===');
-    var refCamp = Object.assign({}, camp('referral'), { enabled: true, minFirstSpend: 300 });
+    var refCamp = Object.assign({}, camp('referral'), { enabled: true });
     var oldP = { id: 'old', patient_no: '000123', chinese_name: '陳大文', full_name: 'CHAN TAI MAN', phone_number: '9123 4567', hkid: 'A123456(7)', created_at: '2024-01-01T00:00:00Z' };
     var newP = { id: 'new', patient_no: '000456', chinese_name: '李小明', full_name: 'LEE SIU MING', phone_number: '98765432', hkid: 'B7654321', created_at: '2026-10-27T02:00:00Z' };
-    pass('referral default: HK$100, 180 days, min first visit HK$300', camp('referral').face === 100 && camp('referral').expiryDays === 180 &&
-        camp('referral').minFirstSpend === 300);
+    pass('referral default: ladder 10% of the bill, up to HK$1000, HK$10 steps, min bill HK$500, 180 days', camp('referral').refPercent === 10 &&
+        camp('referral').refMax === 1000 && camp('referral').refStep === 10 && camp('referral').minFirstSpend === 500 &&
+        camp('referral').expiryDays === 180 && camp('referral').face === 100);
+    var rv = function (paid, extra) { return C.referralCouponValue(Object.assign({}, refCamp, extra || {}), paid); };
+    pass('referral ladder: HK$500 → 50, 999 → 90, 2,345 → 230, 5,000 → 500, 10,000 → 1000',
+        rv(500) === 50 && rv(999) === 90 && rv(2345) === 230 && rv(5000) === 500 && rv(10000) === 1000, [rv(500), rv(999), rv(2345), rv(5000), rv(10000)].join(','));
+    pass('referral ladder: capped at HK$1000 above a HK$10,000 bill', rv(10009) === 1000 && rv(25000) === 1000 && C.referralTopSpend(refCamp) === 10000);
+    pass('referral ladder: steps follow the setting (HK$50 / exact)', rv(2345, { refStep: 50 }) === 200 && rv(2345, { refStep: 0 }) === 234.5 &&
+        rv(1999.99, { refStep: 1 }) === 199);
+    pass('referral with % blank keeps the fixed coupon', rv(2345, { refPercent: 0 }) === 100 && rv(2345, { refPercent: 0, face: 80 }) === 80 &&
+        !C.referralLadderOn(Object.assign({}, refCamp, { refPercent: 0 })) && C.referralLadderOn(refCamp));
+    pass('referral ladder rungs: min, round steps, the bill that reaches the max',
+        C.referralLadderPoints(refCamp).join(',') === '500,1000,2000,5000,10000' &&
+        C.referralLadderPoints(Object.assign({}, refCamp, { minFirstSpend: 1500 })).join(',') === '1500,2000,5000,10000', C.referralLadderPoints(refCamp).join(','));
+    var rl = C.referralLadderHtml(refCamp);
+    pass('referral ladder drawn ascending: +HK$50 at HK$500 up to +HK$1000 at HK$10000+', rl.indexOf('dc-ladder') > 0 &&
+        rl.indexOf('+HK$50</span><span class="dc-rung-spend">HK$500<') > 0 && rl.indexOf('+HK$1000</span><span class="dc-rung-spend">HK$10000+<') > 0 &&
+        C.referralLadderHtml(Object.assign({}, refCamp, { refPercent: 0 })) === '', rl);
+    var rh = C.referralCfgHint(refCamp);
+    pass('referral config hint spells out the ladder', rh.indexOf('10%') > 0 && rh.indexOf('HK$500') > 0 && rh.indexOf('HK$1000') > 0 &&
+        rh.indexOf('HK$10000') > 0 && rh.indexOf('HK$10.') > 0 && /fully paid/.test(rh), rh);
     pass('same person: same HKID with different punctuation', C.samePerson(oldP, { id: 'x', hkid: 'a1234567' }));
     pass('same person: shared phone (+852 and spaces ignored)', C.samePerson(oldP, { id: 'x', mobile_phone: '+852 91234567' }));
     pass('different people are not the same person', !C.samePerson(oldP, newP));
@@ -498,12 +517,29 @@ function loadCoupons() {
     pass('referral plan: edit after 30 days → skip', rp({ source: 'edit', now: new Date('2026-12-30T00:00:00Z').getTime() }).reason === 'edit_window');
     pass('referral plan: edit on an imported chart (no date) → skip', rp({ source: 'edit', friend: Object.assign({}, newP, { created_at: null }) }).reason === 'edit_window');
     var ri = function (extra) {
-        return C.planReferralIssue(Object.assign({ record: { status: 'pending' }, campaign: refCamp, clinicCode: 'KT', cashPaid: 500, referrerWallet: [] }, extra || {}));
+        return C.planReferralIssue(Object.assign({ record: { status: 'pending' }, campaign: refCamp, clinicCode: 'KT', cashPaid: 680, fullyPaid: true, referrerWallet: [] }, extra || {}));
     };
-    pass('referral issue: paid HK$500 ≥ HK$300 → issue', ri().ok);
-    pass('referral issue: exactly the minimum → issue', ri({ cashPaid: 300 }).ok);
-    pass('referral issue: HK$299.99 → wait (below_min)', ri({ cashPaid: 299.99 }).reason === 'below_min');
-    pass('referral issue: blank minimum → any amount', C.planReferralIssue({ record: { status: 'pending' }, campaign: Object.assign({}, refCamp, { minFirstSpend: 0 }), clinicCode: 'KT', cashPaid: 1 }).ok);
+    pass('referral issue: HK$680 bill fully paid → HK$60 coupon', ri().ok && ri().face === 60, JSON.stringify(ri()));
+    pass('referral issue: exactly the HK$500 minimum → HK$50', ri({ cashPaid: 500 }).ok && ri({ cashPaid: 500 }).face === 50);
+    pass('referral issue: HK$499.99 → wait (below_min)', ri({ cashPaid: 499.99 }).reason === 'below_min');
+    var partPaid = ri({ cashPaid: 2345, fullyPaid: false });
+    pass('referral issue: HK$2,345 paid but the bill is not fully paid → wait, coupon so far HK$230', partPaid.ok === false &&
+        partPaid.reason === 'wait_full' && partPaid.face === 230, JSON.stringify(partPaid));
+    pass('referral issue: HK$12,000 fully paid → HK$1000 (the max)', ri({ cashPaid: 12000 }).face === 1000);
+    pass('referral issue: fixed coupon (% blank) still issues on a part payment', ri({ fullyPaid: false, campaign: Object.assign({}, refCamp, { refPercent: 0 }) }).ok &&
+        ri({ fullyPaid: false, campaign: Object.assign({}, refCamp, { refPercent: 0 }) }).face === 100);
+    pass('referral issue: blank minimum → any amount that makes a coupon', C.planReferralIssue({ record: { status: 'pending' }, campaign: Object.assign({}, refCamp, { minFirstSpend: 0 }), clinicCode: 'KT', cashPaid: 120, fullyPaid: true }).face === 10 &&
+        C.planReferralIssue({ record: { status: 'pending' }, campaign: Object.assign({}, refCamp, { minFirstSpend: 0 }), clinicCode: 'KT', cashPaid: 5, fullyPaid: true }).reason === 'below_min');
+    pass('referral issue: budget counts the ladder value', ri({ campaign: Object.assign({}, refCamp, { budget: 1000, budgetUsed: 950 }) }).reason === 'budget' &&
+        ri({ cashPaid: 500, campaign: Object.assign({}, refCamp, { budget: 1000, budgetUsed: 950 }) }).ok);
+    pass('referral wait note shows the coupon so far', C.referralHeldText({ referrer_no: '000123', referred_no: '000456' }, partPaid, 2345, 500).body.indexOf('coupon so far HK$230') > 0 &&
+        /fully paid/.test(C.referralReason('wait_full')));
+    pass('payment hook knows when the bill is fully paid', (await C.billFullyPaid('b1', 0)) === true && (await C.billFullyPaid('b1', 120)) === false &&
+        (await C.billFullyPaid('b1', '0.00')) === true);
+    var apptSrcRef = read('app-appt.js');
+    pass('both payment paths pass the balance after the payment', /cashAmount: nonCashPay \? 0 : paid,\s*balanceAfter: bal,/.test(apptSrcRef) &&
+        /cashAmount: ctx\.isBalanceTransfer \? 0 : cashAmount,\s*balanceAfter: newBalance,/.test(apptSrcRef) &&
+        /fullyPaid: res\[2\]/.test(src) && /billFullyPaid\(info\.billId, info\.balanceAfter\)/.test(src));
     pass('referral issue: not pending → no', ri({ record: { status: 'issued' } }).reason === 'not_pending');
     var heldFive = [1, 2, 3, 4, 5].map(function (i) { return { campaign_key: 'referral', status: 'unused', code: 'R' + i }; });
     pass('referral issue: referrer already holds 5 → wait', ri({ referrerWallet: heldFive }).reason === 'already_holding');
@@ -512,7 +548,11 @@ function loadCoupons() {
         { id: 'a', status: 'issued', coupon_id: 'c1' }, { id: 'b', status: 'issued', coupon_id: 'c2' }, { id: 'c', status: 'issuing' }
     ], ['c1']).join(',') === 'a,c');
     var prevOk = C.referralPreviewText({ status: 'pending' }, oldP, refCamp);
-    pass('preview names the referrer, value, and the min first visit', prevOk.indexOf('#000123 陳大文') === 0 && prevOk.indexOf('HK$100') > 0 && prevOk.indexOf('HK$300') > 0, prevOk);
+    pass('preview names the referrer, the ladder, full payment and the min bill', prevOk.indexOf('#000123 陳大文') === 0 &&
+        prevOk.indexOf('worth 10% of the bill (HK$50–HK$1000)') > 0 && /fully paid/.test(prevOk) && prevOk.indexOf('HK$500') > 0, prevOk);
+    var prevFixed = C.referralPreviewText({ status: 'pending' }, oldP, Object.assign({}, refCamp, { refPercent: 0, minFirstSpend: 300 }));
+    pass('preview for a fixed referral coupon keeps HK$100 and part payments', prevFixed.indexOf('HK$100') > 0 && prevFixed.indexOf('HK$300') > 0 &&
+        /full or part payment/.test(prevFixed), prevFixed);
     var prevNo = C.referralPreviewText({ status: 'blocked', reason: 'same_person' }, oldP, refCamp);
     pass('preview explains a blocked referral', /no referral reward: Referrer looks like the same person/.test(prevNo), prevNo);
     var thanksSms = C.smsIssued({ code: 'DC-R1', campaign_key: 'referral', discount_mode: 'amount', face_value: 100, clinic_code: 'KT' }, [], { today: '2026-10-28', clinic: 'KT', thanks: '李**' });
@@ -625,18 +665,22 @@ function loadCoupons() {
     var low = await RC.referralOnBillPaid({ patientId: 'new', billId: 'bill-A', cashPaid: 200, clinicCode: 'KT' });
     pass('flow: first paid visit below HK$300 waits', low.ok === false && low.reason === 'below_min' && recs[0].status === 'pending' &&
         refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old'; }).length === 0, JSON.stringify(low));
-    var paid = await RC.referralOnBillPaid({ patientId: 'new', billId: 'bill-B', cashPaid: 680, clinicCode: 'KT' });
+    var partFlow = await RC.referralOnBillPaid({ patientId: 'new', billId: 'bill-B', cashPaid: 680, clinicCode: 'KT', fullyPaid: false });
+    pass('flow: a part payment over the minimum waits for the full payment', partFlow.ok === false && partFlow.reason === 'wait_full' &&
+        recs[0].status === 'pending' && refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old'; }).length === 0, JSON.stringify(partFlow));
+    var paid = await RC.referralOnBillPaid({ patientId: 'new', billId: 'bill-B', cashPaid: 2345, clinicCode: 'KT', fullyPaid: true });
     await settle();
     var refCoupon = refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old' && c.campaign_key === 'referral'; });
-    pass('flow: paid HK$680 issues HK$100 referral coupon into the referrer wallet', paid.ok && refCoupon.length === 1 &&
-        Number(refCoupon[0].face_value) === 100 && refCoupon[0].origin_bill_id === 'bill-B' && refCoupon[0].note === 'Referral: #000456', JSON.stringify(refCoupon));
+    pass('flow: bill fully paid at HK$2,345 issues a HK$230 referral coupon (10%) into the referrer wallet', paid.ok && refCoupon.length === 1 &&
+        Number(refCoupon[0].face_value) === 230 && refCoupon[0].origin_bill_id === 'bill-B' && refCoupon[0].note === 'Referral: #000456', JSON.stringify(refCoupon));
     pass('flow: referral record is issued with the coupon id', recs[0].status === 'issued' && recs[0].coupon_id === refCoupon[0].id &&
         recs[0].trigger_bill_id === 'bill-B');
     var smsToRef = refSms.filter(function (s) { return s.to === '9123 4567'; });
-    pass('flow: referrer gets the SMS with the masked friend name', smsToRef.length === 1 &&
-        smsToRef[0].body.indexOf('多謝介紹 李** / thanks for referring 李**') > 0 && smsToRef[0].body.indexOf('總結餘/All-clinic total: 1張') > 0,
+    pass('flow: referrer gets the SMS with the masked friend name and the HK$230 value', smsToRef.length === 1 &&
+        smsToRef[0].body.indexOf('多謝介紹 李** / thanks for referring 李**') > 0 && smsToRef[0].body.indexOf('總結餘/All-clinic total: 1張') > 0 &&
+        smsToRef[0].body.indexOf('HK$230.00') > 0,
         smsToRef[0] && smsToRef[0].body.split('\n').slice(1, 4).join(' | '));
-    var again = await RC.referralOnBillPaid({ patientId: 'new', billId: 'bill-C', cashPaid: 900, clinicCode: 'KT' });
+    var again = await RC.referralOnBillPaid({ patientId: 'new', billId: 'bill-C', cashPaid: 900, clinicCode: 'KT', fullyPaid: true });
     pass('flow: a later paid visit does not issue a second coupon', again.skipped === true &&
         refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old'; }).length === 1);
     var voidRes = await RC.onBillVoided({ id: 'bill-B', patient_id: 'new' });
@@ -644,9 +688,9 @@ function loadCoupons() {
     pass('flow: voiding the friend’s paid bill cancels the unused referral coupon', voidRes.ok && refCoupon[0].id &&
         refDb.discount_coupons.filter(function (c) { return c.id === refCoupon[0].id; })[0].status === 'void');
     pass('flow: and the referral goes back to pending', recs[0].status === 'pending' && !recs[0].coupon_id && recs[0].reason === 'bill_voided', JSON.stringify(recs[0]));
-    var repay = await RC.referralOnBillPaid({ patientId: 'new', billId: 'bill-D', cashPaid: 450, clinicCode: 'KT' });
-    pass('flow: the next qualifying paid visit issues it again', repay.ok && recs[0].status === 'issued' &&
-        refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old' && c.status === 'unused' && c.campaign_key === 'referral'; }).length === 1);
+    var repay = await RC.referralOnBillPaid({ patientId: 'new', billId: 'bill-D', cashPaid: 450, clinicCode: 'KT', fullyPaid: true });
+    pass('flow: the next qualifying paid visit issues it again, worked out on that bill (HK$450 → HK$40)', repay.ok && recs[0].status === 'issued' &&
+        refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old' && c.status === 'unused' && c.campaign_key === 'referral' && Number(c.face_value) === 40; }).length === 1);
     await RC.onPatientDeleted('new');
     pass('flow: deleting the friend’s chart voids the record and its unused coupon', recs[0].status === 'void' &&
         refDb.discount_coupons.filter(function (c) { return c.patient_id === 'old' && c.status === 'unused' && c.campaign_key === 'referral'; }).length === 0);
@@ -664,19 +708,20 @@ function loadCoupons() {
     var fr2Rec = recs.filter(function (r) { return r.referred_patient_id === 'fr2'; })[0];
     var fr2Coupons = function () { return refDb.discount_coupons.filter(function (c) { return c.patient_id === 'other' && c.campaign_key === 'referral'; }); };
     refDb.bill_payments.push({ id: 'pp1', bill_id: 'bill-P', amount: 200, method: 'Cash' });
-    var part1 = await RC.onBillPayment({ patientId: 'fr2', billId: 'bill-P', cashAmount: 200, clinicCode: 'KT' });
+    var part1 = await RC.onBillPayment({ patientId: 'fr2', billId: 'bill-P', cashAmount: 200, balanceAfter: 150, clinicCode: 'KT' });
     pass('flow: a HK$200 part payment waits (below the HK$300 minimum)', fr2Rec && fr2Rec.status === 'pending' &&
         part1.ok === false && part1.reason === 'below_min' && fr2Coupons().length === 0, JSON.stringify(part1));
     refDb.bill_payments.push({ id: 'pp-void', bill_id: 'bill-P', amount: 500, method: 'Cash', voided_at: '2026-10-28T03:00:00Z' },
         { id: 'pp-pts', bill_id: 'bill-P', amount: 400, method: 'Reward points' },
         { id: 'pp2', bill_id: 'bill-P', amount: 150, method: 'Octopus' });
+    refDb.bills.push({ id: 'bill-P', balance: 0 });
     var part2 = await RC.onBillPayment({ patientId: 'fr2', billId: 'bill-P', cashAmount: 150, clinicCode: 'KT' });
     await settle();
-    pass('flow: a second part payment brings the bill to HK$350 cash and issues the referral (voided / points rows not counted)',
+    pass('flow: the second payment fully pays the bill at HK$350 cash and issues a HK$30 referral coupon (voided / points rows not counted; balance read from the bill)',
         part2.ok && part2.kind === 'coupon' && fr2Rec.status === 'issued' && fr2Rec.trigger_bill_id === 'bill-P' &&
-        fr2Coupons().length === 1 && fr2Coupons()[0].origin_bill_id === 'bill-P', JSON.stringify(part2));
+        fr2Coupons().length === 1 && fr2Coupons()[0].origin_bill_id === 'bill-P' && Number(fr2Coupons()[0].face_value) === 30, JSON.stringify(part2));
     refDb.bill_payments.push({ id: 'pp3', bill_id: 'bill-P', amount: 400, method: 'Cash' });
-    var part3 = await RC.onBillPayment({ patientId: 'fr2', billId: 'bill-P', cashAmount: 400, clinicCode: 'KT' });
+    var part3 = await RC.onBillPayment({ patientId: 'fr2', billId: 'bill-P', cashAmount: 400, balanceAfter: 0, clinicCode: 'KT' });
     pass('flow: more payments on the same bill do not issue it twice', part3.skipped === true && fr2Coupons().length === 1);
     refDb.bill_payments.filter(function (p) { return p.id === 'pp3'; })[0].voided_at = '2026-10-28T04:00:00Z';
     var keepVoid = await RC.onPaymentVoided({ billId: 'bill-P', balanceAfter: 100 });
@@ -2275,7 +2320,7 @@ function loadCoupons() {
         pass('CDP sheet shows the Wallet QR button', !!(wqr && wqr.btn && wqr.overlay), JSON.stringify(wqr));
         pass('CDP coupon sheet has 📖 How to use -> coupon part of the manual in the dashboard language (new tab)',
             !!(wqr && wqr.guide && wqr.guide.shown && /^📖/.test(wqr.guide.text) && wqr.guide.target === '_blank' &&
-                wqr.guide.href === 'docs/loyalty-manual.html?v=20261028doc#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
+                wqr.guide.href === 'docs/loyalty-manual.html?v=20261029refladder#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
         pass('CDP Wallet QR explains when the link cannot be made', !!(wqr && /discount_coupon_wallet\.sql|Could not make/.test(wqr.realErr)), wqr && wqr.realErr);
         pass('CDP Esc closes the QR and keeps the sheet', !!(wqr && wqr.escClosesQrOnly));
         pass('CDP Wallet QR draws the wallet link', !!(wqr && wqr.qr && /\/wallet\.html\?t=0123456789abcdef0123456789abcdef$/.test(wqr.link) && wqr.qrUrl === wqr.link),
@@ -2496,6 +2541,38 @@ function loadCoupons() {
             smsLink && (smsLink.err || (smsLink.pointsSmsOn ? lastLine(smsLink.pointsBody) : 'points SMS switched off')));
         pass('live #001003 SMS links reuse the patient’s current QR (no new code) and open the points page', !!(smsLink && smsLink.ok && smsLink.sameTokens && smsLink.rwViewOk),
             smsLink && JSON.stringify({ same: smsLink.sameTokens, view: smsLink.rwViewOk }));
+        var refLive = await cdp.js(`(async function () {
+  var out = { ok: false };
+  try {
+    var pr = await SB.from('patients').select('id,patient_no,chinese_name,full_name').eq('patient_no', '001003').limit(1);
+    var p = pr && pr.data && pr.data[0];
+    if (!p) return { ok: false, reason: 'no 001003' };
+    var snap = await COUPONS.loadState();
+    var camp = (snap.campaigns || []).filter(function (c) { return c.key === 'referral'; })[0];
+    out.saved = { enabled: camp.enabled, pct: camp.refPercent, max: camp.refMax, step: camp.refStep, min: camp.minFirstSpend };
+    var wallet = await COUPONS.loadWallet(p.id);
+    var on = Object.assign({}, camp, { enabled: true });
+    var plan = function (paid, full) {
+      return COUPONS.planReferralIssue({ record: { status: 'pending' }, campaign: on, clinicCode: 'KT', clinics: { KT: { joined: true } },
+        cashPaid: paid, fullyPaid: full, referrerWallet: wallet });
+    };
+    out.values = [500, 999, 2345, 5000, 10000, 15000].map(function (s) { return COUPONS.referralCouponValue(on, s); });
+    out.full = plan(2345, true);
+    out.part = plan(2345, false);
+    out.preview = COUPONS.referralPreviewText({ status: 'pending' }, p, on);
+    out.ladder = COUPONS.referralLadderHtml(on);
+    out.ok = true;
+  } catch (e) { out.err = String(e && e.message || e); }
+  return out;
+})()`, true, 30000);
+        pass('live config: refer-a-friend coupon follows the ladder (10% up to HK$1000, HK$10 steps)', !!(refLive && refLive.ok &&
+            refLive.values.join(',') === '50,90,230,500,1000,1000'), refLive && (refLive.err || JSON.stringify({ saved: refLive.saved, values: refLive.values })));
+        pass('live #001003 as referrer: friend’s HK$2,345 bill fully paid → HK$230 coupon, part paid → waits', !!(refLive && refLive.ok &&
+            (refLive.full.ok ? refLive.full.face === 230 : refLive.full.reason === 'already_holding' || refLive.full.reason === 'wallet_full') &&
+            refLive.part.reason === 'wait_full' && refLive.part.face === 230), refLive && JSON.stringify({ full: refLive.full, part: refLive.part }));
+        pass('live #001003 referral preview and config ladder', !!(refLive && refLive.ok && refLive.preview.indexOf('#001003') === 0 &&
+            refLive.preview.indexOf('10% of the bill') > 0 && /fully paid/.test(refLive.preview) && refLive.ladder.indexOf('+HK$1000') > 0),
+            refLive && refLive.preview);
         var langs = await cdp.js(`(function () {
   var before = appUiLang;
   treatmentItemsCache = ${JSON.stringify(catalog)};

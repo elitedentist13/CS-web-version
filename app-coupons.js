@@ -108,7 +108,7 @@ var COUPONS = (function () {
         { key: 'spend_4', name: 'Custom spend 1', nameZh: '自訂滿額 1', scope: 'bill', mode: 'amount', face: 0, target: 0, expiry: 180, sms: true, trigger: 'target_spend', hold: 3 },
         { key: 'spend_5', name: 'Custom spend 2', nameZh: '自訂滿額 2', scope: 'bill', mode: 'amount', face: 0, target: 0, expiry: 180, sms: true, trigger: 'target_spend', hold: 3 },
         { key: 'new_chart', name: 'New chart', nameZh: '新客券', scope: 'bill', mode: 'amount', face: 100, expiry: 90, sms: false, trigger: 'new_chart', hold: 1 },
-        { key: 'referral', name: 'Refer a friend', nameZh: '介紹新客', scope: 'bill', mode: 'amount', face: 100, expiry: 180, sms: true, trigger: 'referral', hold: 5, minFirst: 300 },
+        { key: 'referral', name: 'Refer a friend', nameZh: '介紹新客', scope: 'bill', mode: 'amount', face: 100, expiry: 180, sms: true, trigger: 'referral', hold: 5, minFirst: 500, refPercent: 10, refMax: 1000, refStep: 10 },
         { key: 'free_scaling', name: 'Free scaling', nameZh: '免費洗牙', scope: 'items', mode: 'free_line', face: 0, expiry: 180, sms: true, trigger: 'manual', hold: 2 },
         { key: 'free_filling', name: 'Free filling', nameZh: '免費補牙', scope: 'items', mode: 'free_line', face: 0, expiry: 180, sms: true, trigger: 'manual', hold: 2 },
         { key: 'free_extraction', name: 'Free extraction', nameZh: '免費脫牙', scope: 'items', mode: 'free_line', face: 0, expiry: 180, sms: true, trigger: 'manual', hold: 2 },
@@ -181,6 +181,9 @@ var COUPONS = (function () {
             percent: def.percent || 0,
             minSpend: 0,
             minFirstSpend: def.minFirst || 0,
+            refPercent: def.refPercent || 0,
+            refMax: def.refMax || 0,
+            refStep: def.refStep || 0,
             target: def.target || 0,
             expiryDays: def.expiry || 90,
             maxDiscount: def.max || 0,
@@ -1120,7 +1123,8 @@ var COUPONS = (function () {
             if (!o) return c;
             var next = clone(c);
             ['enabled', 'face', 'percent', 'minSpend', 'target', 'expiryDays', 'maxDiscount',
-                'issueCap', 'budget', 'sms', 'mode', 'name', 'nameZh', 'holdLimit', 'minFirstSpend'].forEach(function (k) {
+                'issueCap', 'budget', 'sms', 'mode', 'name', 'nameZh', 'holdLimit', 'minFirstSpend',
+                'refPercent', 'refMax', 'refStep'].forEach(function (k) {
                 if (o[k] != null) next[k] = o[k];
             });
             if (Array.isArray(o.itemNames)) next.itemNames = o.itemNames.slice();
@@ -1703,6 +1707,46 @@ var COUPONS = (function () {
             '</span></div>';
     }
 
+    /** Pure: friend's bill amounts shown on the referral ladder — the minimum, round steps, then the bill that reaches the max. */
+    function referralLadderPoints(camp) {
+        var min = parseFloat(camp && camp.minFirstSpend) || 0;
+        var top = referralTopSpend(camp);
+        var pts = [min > 0 ? min : 0];
+        [1000, 2000, 5000].forEach(function (s) { if (s > pts[0] && (!top || s < top)) pts.push(s); });
+        if (top && top > pts[pts.length - 1]) pts.push(top);
+        return pts.filter(function (s) { return s > 0; });
+    }
+
+    function referralLadderHtml(camp) {
+        if (!referralLadderOn(camp)) return '';
+        var pts = referralLadderPoints(camp);
+        if (!pts.length) return '';
+        var top = pts[pts.length - 1] || 1;
+        var lastAt = referralTopSpend(camp);
+        var html = '<ol class="dc-ladder" aria-label="' + esc(ct('coupons.ref.ladder', 'Referral coupon ladder')) + '">';
+        pts.forEach(function (s) {
+            var h = 46 + Math.round(58 * s / top);
+            html += '<li class="dc-rung' + (camp.enabled ? ' is-on' : ' is-off') + '" style="height:' + h + 'px">' +
+                '<span class="dc-rung-get">+HK$' + referralCouponValue(camp, s).toFixed(0) + '</span>' +
+                '<span class="dc-rung-spend">HK$' + round2(s).toFixed(0) + (lastAt && s >= lastAt ? '+' : '') + '</span></li>';
+        });
+        return html + '</ol>';
+    }
+
+    function referralCfgHint(camp) {
+        if (!referralLadderOn(camp)) {
+            return ct('coupons.ref.cfgHint',
+                'The referrer gets this coupon as soon as the new patient has paid at least the minimum in cash on one bill — a full payment or a part payment both count (blank = any amount). Pick the referrer in “Referred by” on the patient form and choose this coupon or reward points (set in Reward Points configuration).');
+        }
+        return ct('coupons.ref.cfgHintLadder',
+            'The referrer gets a cash coupon worth {P}% of the cash the new patient paid on the bill, once a bill of at least HK${MIN} is fully paid — the more the friend spends, the bigger the coupon, up to HK${MAX} (a HK${TOP} bill). Rounded down to HK${STEP}. Pick the referrer in “Referred by” on the patient form and choose this coupon or reward points (set in Reward Points configuration).')
+            .split('{P}').join(String(round2(camp.refPercent)))
+            .split('{MIN}').join(round2(camp.minFirstSpend || 0).toFixed(0))
+            .split('{MAX}').join(round2(camp.refMax || 0).toFixed(0))
+            .split('{TOP}').join(round2(referralTopSpend(camp)).toFixed(0))
+            .split('{STEP}').join(round2(camp.refStep || 1).toFixed(0));
+    }
+
     function ladderHtml() {
         var rows = campaigns().filter(function (c) { return c && c.trigger === 'target_spend'; });
         var ready = rows.filter(function (c) { return (parseFloat(c.target) || 0) > 0 && (parseFloat(c.face) || 0) > 0; })
@@ -1864,20 +1908,27 @@ var COUPONS = (function () {
                 statusBadgeHtml(c) + '</div>';
             html += previewTicketHtml(c);
             html += '<div class="dc-camp-grid">';
-            html += field(c.key, 'face', 'HK$', c.face);
+            if (c.trigger === 'referral') {
+                html += field(c.key, 'refPercent', ct('coupons.ref.pct', '% of the friend’s bill'), c.refPercent, true);
+                html += field(c.key, 'refMax', ct('coupons.ref.max', 'Max coupon HK$'), c.refMax, true);
+                html += field(c.key, 'refStep', ct('coupons.ref.step', 'Round down to HK$'), c.refStep, true);
+                html += field(c.key, 'minFirstSpend', referralLadderOn(c)
+                    ? ct('coupons.ref.minBill', 'Min bill HK$ (fully paid)')
+                    : ct('coupons.ref.minFirst', 'Min first-visit payment HK$ (full or part payment)'), c.minFirstSpend, true);
+                html += field(c.key, 'face', ct('coupons.ref.fixed', 'Fixed HK$ (when % is blank)'), c.face);
+            } else {
+                html += field(c.key, 'face', 'HK$', c.face);
+            }
             if (c.mode === 'percent') html += field(c.key, 'percent', '%', c.percent);
             html += field(c.key, 'expiryDays', ct('coupons.cfg.expiry', 'Days'), c.expiryDays);
             html += field(c.key, 'maxDiscount', ct('coupons.cfg.ceiling', 'Ceiling'), c.maxDiscount);
             html += field(c.key, 'holdLimit', ct('coupons.cfg.hold', 'Hold up to'), holdLimitFor(c));
-            if (c.trigger === 'referral') {
-                html += field(c.key, 'minFirstSpend', ct('coupons.ref.minFirst', 'Min first-visit payment HK$ (full or part payment)'), c.minFirstSpend, true);
-            }
             html += limitFields(c);
             html += '</div>' + usageLine(c);
             if (c.key === 'cash') html += cashRulesHtml();
             if (c.trigger === 'referral') {
-                html += '<p class="dc-hint">' + esc(ct('coupons.ref.cfgHint',
-                    'The referrer gets this coupon as soon as the new patient has paid at least the minimum in cash on one bill — a full payment or a part payment both count (blank = any amount). Pick the referrer in “Referred by” on the patient form and choose this coupon or reward points (set in Reward Points configuration).')) + '</p>';
+                html += '<div class="dc-ladder-wrap" id="dcRefLadder">' + referralLadderHtml(c) + '</div>';
+                html += '<p class="dc-hint" id="dcRefHint">' + esc(referralCfgHint(c)) + '</p>';
             }
             if (c.scope === 'items') html += itemPickerHtml(c);
             html += '</div>';
@@ -1886,7 +1937,7 @@ var COUPONS = (function () {
         html += zeroCardHtml();
         html += '<div class="dc-card" id="dcRefCard"><div class="dc-card-title">' + esc(ct('coupons.ref.title', 'Referrals')) + '</div>' +
             '<p class="dc-hint">' + esc(ct('coupons.ref.listHint',
-                'Each new patient with a referrer. Pending waits until the new patient has paid the minimum on a bill (full or part payment); blocked shows why no coupon is given.')) + '</p>' +
+                'Each new patient with a referrer. Pending waits for the new patient’s qualifying bill (coupon: a bill of at least the minimum, fully paid; points: the minimum paid, full or part payment); blocked shows why no reward is given.')) + '</p>' +
             '<div class="dc-log-wrap" id="dcRefBody"></div></div>';
         var today = new Date();
         var from = new Date(today.getTime() - 30 * 86400000);
@@ -2203,6 +2254,12 @@ var COUPONS = (function () {
             if (camp.trigger === 'target_spend') {
                 var ladder = pane.querySelector('#dcLadder');
                 if (ladder) ladder.innerHTML = ladderHtml();
+            }
+            if (camp.trigger === 'referral') {
+                var refLadder = pane.querySelector('#dcRefLadder');
+                if (refLadder) refLadder.innerHTML = referralLadderHtml(camp);
+                var refHint = pane.querySelector('#dcRefHint');
+                if (refHint) refHint.textContent = referralCfgHint(camp);
             }
         }
         function refreshClinics() {
@@ -4614,9 +4671,37 @@ var COUPONS = (function () {
         return { status: 'pending', reason: '' };
     }
 
+    /** Pure: the referral coupon follows the friend's paid bill (refPercent > 0) instead of a fixed HK$. */
+    function referralLadderOn(camp) {
+        return !!camp && (parseFloat(camp.refPercent) || 0) > 0;
+    }
+
+    /**
+     * Pure: referral coupon HK$ for the friend's cash paid on the bill — refPercent of it, no more than refMax,
+     * rounded down to refStep (HK$2,345 at 10% / step 10 → HK$230). Without a percent it is the fixed face.
+     */
+    function referralCouponValue(camp, cashPaid) {
+        if (!camp) return 0;
+        if (!referralLadderOn(camp)) return round2(camp.face || 0);
+        var v = (parseFloat(cashPaid) || 0) * (parseFloat(camp.refPercent) || 0) / 100;
+        var max = parseFloat(camp.refMax) || 0;
+        if (max > 0) v = Math.min(v, max);
+        var step = parseFloat(camp.refStep) || 0;
+        v = step > 0 ? Math.floor((v + 1e-9) / step) * step : Math.floor(round2(v) * 100 + 1e-6) / 100;
+        return round2(Math.max(0, v));
+    }
+
+    /** Pure: the friend's bill at which the referral coupon reaches its most (HK$10,000 at 10% up to HK$1,000). */
+    function referralTopSpend(camp) {
+        var pct = parseFloat(camp && camp.refPercent) || 0;
+        var max = parseFloat(camp && camp.refMax) || 0;
+        return pct > 0 && max > 0 ? round2(max * 100 / pct) : 0;
+    }
+
     /**
      * Pure: may the pending referral reward on this fully paid bill? Failing keeps it pending for a later visit.
-     * Coupon branch: campaign + clinic + wallet limits. Points branch: points scheme at this clinic.
+     * Coupon branch: campaign + clinic + wallet limits; with the ladder it waits until the bill is fully paid
+     * and returns the coupon HK$ (face). Points branch: points scheme at this clinic.
      */
     function planReferralIssue(ctx) {
         ctx = ctx || {};
@@ -4634,9 +4719,12 @@ var COUPONS = (function () {
         if (!cg.ok) return { ok: false, reason: cg.reason };
         var min = parseFloat(camp.minFirstSpend) || 0;
         if (min > 0 && cents(ctx.cashPaid) < cents(min)) return { ok: false, reason: 'below_min' };
-        var gate = canIssue(ctx.referrerWallet || [], camp);
+        var face = referralCouponValue(camp, ctx.cashPaid);
+        if (!(face > 0)) return { ok: false, reason: 'below_min' };
+        if (referralLadderOn(camp) && !ctx.fullyPaid) return { ok: false, reason: 'wait_full', face: face };
+        var gate = canIssue(ctx.referrerWallet || [], Object.assign({}, camp, { face: face }));
         if (!gate.ok) return { ok: false, reason: gate.reason };
-        return { ok: true, reason: '' };
+        return { ok: true, reason: '', face: face };
     }
 
     function referralReason(code) {
@@ -4650,6 +4738,7 @@ var COUPONS = (function () {
             referrer_newer: ['coupons.ref.r.newer', 'Referrer’s chart is newer than this patient’s'],
             not_new: ['coupons.ref.r.notNew', 'This patient already had an earlier chart'],
             below_min: ['coupons.ref.r.min', 'Paid so far on the bill is below the minimum'],
+            wait_full: ['coupons.ref.r.waitFull', 'Waiting until this bill is fully paid — the referral coupon is worked out from the full payment'],
             wallet_full: ['coupons.ref.r.full', 'Referrer’s wallet is full'],
             already_holding: ['coupons.ref.r.holding', 'Referrer already holds the most referral coupons allowed'],
             issue_cap: ['coupons.ref.r.cap', 'Referral coupon issue limit reached'],
@@ -4683,6 +4772,12 @@ var COUPONS = (function () {
         if (kind === 'points') {
             return round2((pointsCfg && pointsCfg.points) || 0).toFixed(0) + ' ' + ct('coupons.ref.points', 'reward points');
         }
+        if (referralLadderOn(camp)) {
+            var lo = referralCouponValue(camp, parseFloat(camp.minFirstSpend) || 0);
+            var hi = parseFloat(camp.refMax) || 0;
+            return ct('coupons.ref.aLadder', 'a referral coupon worth {P}% of the bill').split('{P}').join(String(round2(camp.refPercent))) +
+                (lo > 0 || hi > 0 ? ' (' + (lo > 0 ? 'HK$' + round2(lo).toFixed(0) : '') + (hi > 0 ? '–HK$' + round2(hi).toFixed(0) : '+') + ')' : '');
+        }
         return ct('coupons.ref.aCoupon', 'a referral coupon') + ' HK$' + round2((camp && camp.face) || 0).toFixed(0);
     }
 
@@ -4695,8 +4790,10 @@ var COUPONS = (function () {
         }
         var kind = plan.kind === 'points' ? 'points' : 'coupon';
         var min = kind === 'points' ? parseFloat(pointsCfg && pointsCfg.minFirstSpend) || 0 : parseFloat(camp && camp.minFirstSpend) || 0;
-        return who.trim() + ' — ' + ct('coupons.ref.gets', 'gets') + ' ' + referralRewardText(kind, camp, pointsCfg) + ' ' +
-            ct('coupons.ref.after', 'once this patient has paid the minimum on a bill (full or part payment)') +
+        var after = kind === 'coupon' && referralLadderOn(camp)
+            ? ct('coupons.ref.afterFull', 'once this patient’s bill is fully paid')
+            : ct('coupons.ref.after', 'once this patient has paid the minimum on a bill (full or part payment)');
+        return who.trim() + ' — ' + ct('coupons.ref.gets', 'gets') + ' ' + referralRewardText(kind, camp, pointsCfg) + ' ' + after +
             (min > 0 ? ' (' + ct('coupons.ref.min', 'min') + ' HK$' + round2(min).toFixed(0) + ')' : '');
     }
 
@@ -4850,8 +4947,9 @@ var COUPONS = (function () {
     }
 
     /** Coupon branch: HK$ coupon into the referrer's wallet + coupon SMS. */
-    function rewardReferralCoupon(rec, info, camp, friend) {
+    function rewardReferralCoupon(rec, info, camp, friend, plan) {
         var row = issueRecord(camp, rec.referrer_patient_id, {
+            face: plan && plan.face > 0 ? plan.face : undefined,
             clinicCode: info.clinicCode,
             originBillId: info.billId,
             note: 'Referral: #' + (rec.referred_no || friend.patient_no || '')
@@ -4922,7 +5020,8 @@ var COUPONS = (function () {
                     doctorKey: info.doctorKey,
                     clinics: _clinics,
                     doctors: _doctors,
-                    cashPaid: info.cashPaid
+                    cashPaid: info.cashPaid,
+                    fullyPaid: !!info.fullyPaid
                 }, extra));
                 if (!plan.ok) {
                     var held = referralHeldText(rec, plan, info.cashPaid, points ? (extra.pointsConfig || {}).minFirstSpend : camp && camp.minFirstSpend);
@@ -4939,7 +5038,7 @@ var COUPONS = (function () {
                         return SB.from('patients').select(REF_PATIENT_COLS).eq('id', info.patientId).maybeSingle()
                             .then(function (fr) { return (fr && fr.data) || {}; }, function () { return {}; })
                             .then(function (friend) {
-                                return points ? rewardReferralPoints(rec, info, plan, friend) : rewardReferralCoupon(rec, info, camp, friend);
+                                return points ? rewardReferralPoints(rec, info, plan, friend) : rewardReferralCoupon(rec, info, camp, friend, plan);
                             });
                     });
             });
@@ -5363,6 +5462,9 @@ var COUPONS = (function () {
             .split('{FRIEND}').join(String(rec.referred_no || ''))
             .split('{PAID}').join(round2(cashPaid).toFixed(0));
         if (plan && plan.reason === 'below_min' && parseFloat(min) > 0) paid += ' / ' + ct('coupons.ref.min', 'min') + ' HK$' + round2(min).toFixed(0);
+        if (plan && plan.reason === 'wait_full' && plan.face > 0) {
+            paid += ' · ' + ct('coupons.ref.soFar', 'coupon so far') + ' HK$' + round2(plan.face).toFixed(0);
+        }
         return {
             title: '🤝 ' + ct('coupons.ref.heldTitle', 'Refer a friend: not given yet'),
             body: why + ' · ' + paid + ' · ' + ct('coupons.ref.heldReferrer', 'referrer') + ' #' + String(rec.referrer_no || '')
@@ -5445,17 +5547,30 @@ var COUPONS = (function () {
         });
     }
 
+    /** Is the bill fully paid after this payment? Uses the balance the caller just saved, else reads the bill. */
+    function billFullyPaid(billId, balanceAfter) {
+        var known = parseFloat(balanceAfter);
+        if (balanceAfter != null && balanceAfter !== '' && isFinite(known)) return Promise.resolve(known <= 0.005);
+        if (!billId || typeof SB === 'undefined' || !SB) return Promise.resolve(false);
+        return Promise.resolve(SB.from('bills').select('balance').eq('id', billId).maybeSingle()).then(function (r) {
+            var b = r && !r.error && r.data;
+            return !!b && b.balance != null && (parseFloat(b.balance) || 0) <= 0.005;
+        }, function () { return false; });
+    }
+
     function onBillPaymentChecked(info, clinicCode) {
         return Promise.all([
             billCashPaid(info.billId, info.cashAmount),
-            billDoctorKey(info.billId, info.doctorKey)
+            billDoctorKey(info.billId, info.doctorKey),
+            billFullyPaid(info.billId, info.balanceAfter)
         ]).then(function (res) {
             return referralOnBillPaid({
                 patientId: info.patientId,
                 billId: info.billId,
                 cashPaid: res[0],
                 clinicCode: clinicCode,
-                doctorKey: res[1]
+                doctorKey: res[1],
+                fullyPaid: res[2]
             });
         }).catch(function (e) { return { ok: false, reason: 'error', error: String(e && e.message || e) }; });
     }
@@ -5876,6 +5991,14 @@ var COUPONS = (function () {
         maskName: maskName,
         planReferral: planReferral,
         planReferralIssue: planReferralIssue,
+        referralLadderOn: referralLadderOn,
+        referralCouponValue: referralCouponValue,
+        referralTopSpend: referralTopSpend,
+        referralLadderPoints: referralLadderPoints,
+        referralLadderHtml: referralLadderHtml,
+        referralCfgHint: referralCfgHint,
+        referralRewardText: referralRewardText,
+        billFullyPaid: billFullyPaid,
         referralCouponGate: referralCouponGate,
         referralOptions: referralOptions,
         pickReferralKind: pickReferralKind,

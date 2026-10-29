@@ -21635,6 +21635,7 @@ function saveBill(doPrint) {
                         patientId: earnPatientId,
                         billId: savedBillId,
                         cashAmount: nonCashPay ? 0 : paid,
+                        balanceAfter: bal,
                         clinicCode: payRecord.clinic_code || payRecord.clinic_tag || '',
                         method: payload.bill_type
                     });
@@ -24131,6 +24132,7 @@ function executeAddPaymentSave(ctx) {
                     patientId: patientId,
                     billId: billId,
                     cashAmount: ctx.isBalanceTransfer ? 0 : cashAmount,
+                    balanceAfter: newBalance,
                     clinicCode: clinicCode,
                     method: payMethod
                 });

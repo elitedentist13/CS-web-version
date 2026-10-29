@@ -3272,11 +3272,30 @@
             'zh-CN': '新病人在同一张账单的现金付款累计达最低金额（全数或部分付款均计算；留空＝不限），介绍人即获发此券。请在病人表格的「转介人」选择介绍人，并选择优惠券或积分（积分于积分设定中设定）。',
             'zh-Hant': '新病人在同一張賬單的現金付款累計達最低金額（全數或部分付款均計算；留空＝不限），介紹人即獲發此券。請在病人表格的「轉介人」選擇介紹人，並選擇優惠券或積分（積分於積分設定中設定）。'
         },
+        'coupons.ref.cfgHintLadder': {
+            en: 'The referrer gets a cash coupon worth {P}% of the cash the new patient paid on the bill, once a bill of at least HK${MIN} is fully paid — the more the friend spends, the bigger the coupon, up to HK${MAX} (a HK${TOP} bill). Rounded down to HK${STEP}. Pick the referrer in “Referred by” on the patient form and choose this coupon or reward points (set in Reward Points configuration).',
+            'zh-CN': '新病人一张至少 HK${MIN} 的账单全数付清后，介绍人获发相等于该账单现金付款 {P}% 的现金券——朋友消费越多，现金券越大，最高 HK${MAX}（账单 HK${TOP}）。金额向下取整至 HK${STEP}。请在病人表格的「转介人」选择介绍人，并选择优惠券或积分（积分于积分设定中设定）。',
+            'zh-Hant': '新病人一張至少 HK${MIN} 的賬單全數付清後，介紹人獲發相等於該賬單現金付款 {P}% 的現金券——朋友消費越多，現金券越大，最高 HK${MAX}（賬單 HK${TOP}）。金額向下取整至 HK${STEP}。請在病人表格的「轉介人」選擇介紹人，並選擇優惠券或積分（積分於積分設定中設定）。'
+        },
+        'coupons.ref.pct': { en: '% of the friend’s bill', 'zh-CN': '朋友账单的 %', 'zh-Hant': '朋友賬單的 %' },
+        'coupons.ref.max': { en: 'Max coupon HK$', 'zh-CN': '现金券上限 HK$', 'zh-Hant': '現金券上限 HK$' },
+        'coupons.ref.step': { en: 'Round down to HK$', 'zh-CN': '向下取整至 HK$', 'zh-Hant': '向下取整至 HK$' },
+        'coupons.ref.minBill': { en: 'Min bill HK$ (fully paid)', 'zh-CN': '最低账单 HK$（全数付清）', 'zh-Hant': '最低賬單 HK$（全數付清）' },
+        'coupons.ref.fixed': { en: 'Fixed HK$ (when % is blank)', 'zh-CN': '固定 HK$（% 留空时）', 'zh-Hant': '固定 HK$（% 留空時）' },
+        'coupons.ref.ladder': { en: 'Referral coupon ladder', 'zh-CN': '介绍券阶梯', 'zh-Hant': '介紹券階梯' },
+        'coupons.ref.aLadder': { en: 'a referral coupon worth {P}% of the bill', 'zh-CN': '相等于账单 {P}% 的介绍券', 'zh-Hant': '相等於賬單 {P}% 的介紹券' },
+        'coupons.ref.afterFull': { en: 'once this patient’s bill is fully paid', 'zh-CN': '于此病人的账单全数付清后发出', 'zh-Hant': '於此病人的賬單全數付清後發出' },
+        'coupons.ref.soFar': { en: 'coupon so far', 'zh-CN': '目前券值', 'zh-Hant': '目前券值' },
+        'coupons.ref.r.waitFull': {
+            en: 'Waiting until this bill is fully paid — the referral coupon is worked out from the full payment',
+            'zh-CN': '等待此账单全数付清——介绍券按全数付款计算',
+            'zh-Hant': '等待此賬單全數付清——介紹券按全數付款計算'
+        },
         'coupons.ref.title': { en: 'Referrals', 'zh-CN': '介绍记录', 'zh-Hant': '介紹記錄' },
         'coupons.ref.listHint': {
-            en: 'Each new patient with a referrer. Pending waits until the new patient has paid the minimum on a bill (full or part payment); blocked shows why no coupon is given.',
-            'zh-CN': '每位有介绍人的新病人。「等待中」表示等待新病人在一张账单付款达最低金额（全数或部分付款）；「不发出」会显示原因。',
-            'zh-Hant': '每位有介紹人的新病人。「等待中」表示等待新病人在一張賬單付款達最低金額（全數或部分付款）；「不發出」會顯示原因。'
+            en: 'Each new patient with a referrer. Pending waits for the new patient’s qualifying bill (coupon: a bill of at least the minimum, fully paid; points: the minimum paid, full or part payment); blocked shows why no reward is given.',
+            'zh-CN': '每位有介绍人的新病人。「等待中」表示等待新病人合资格的账单（优惠券：至少达最低金额的账单全数付清；积分：付款达最低金额，全数或部分付款）；「不发出」会显示原因。',
+            'zh-Hant': '每位有介紹人的新病人。「等待中」表示等待新病人合資格的賬單（優惠券：至少達最低金額的賬單全數付清；積分：付款達最低金額，全數或部分付款）；「不發出」會顯示原因。'
         },
         'coupons.ref.bonusTitle': { en: 'Refer a friend bonus activated', 'zh-CN': '介绍新客奖赏已启动', 'zh-Hant': '介紹新客獎賞已啟動' },
         'coupons.ref.bonusCoupon': { en: 'Referrer #{REF} gets a HK${N} coupon', 'zh-CN': '介绍人 #{REF} 获发 HK${N} 优惠券', 'zh-Hant': '介紹人 #{REF} 獲發 HK${N} 優惠券' },

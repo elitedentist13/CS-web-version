@@ -5092,7 +5092,7 @@ var REWARDS = (function () {
         });
     }
 
-    var LOYALTY_MANUAL = 'docs/loyalty-manual.html?v=20261028doc';
+    var LOYALTY_MANUAL = 'docs/loyalty-manual.html?v=20261029refladder';
 
     /** Pure: manual link for one part (rewards | coupons) at the dashboard language. */
     /** Opens the manual's contents page, with the dashboard language (Traditional Chinese when unknown) and the part marked. */

@@ -200,8 +200,11 @@
                     { t: 'Campaigns', list: [
                         'Every other offer, each with a switch, a preview ticket and its boxes: <b>HK$</b>, <b>%</b> (percentage coupons), <b>Days</b>, ' +
                             '<b>Ceiling</b> (most HK$ it can take off), <b>Hold up to</b>, <b>Issue cap</b>, <b>Budget HK$</b>.',
-                        '<b>Whole-bill coupons</b>: Cash coupon (staff gift HK$1–200), New chart and Refer a friend (both issued automatically; ' +
-                            'Refer a friend has <b>Min first-visit payment HK$ (full or part payment)</b>).',
+                        '<b>Whole-bill coupons</b>: Cash coupon (staff gift HK$1–200), New chart and Refer a friend (both issued automatically).',
+                        '<b>Refer a friend</b> is a ladder: the referrer gets a cash coupon worth <b>10%</b> of the cash the new patient paid on the bill, ' +
+                            'once a bill of at least <b>HK$500</b> is <b>fully paid</b> — HK$500 → HK$50, HK$2,345 → HK$230, up to <b>HK$1,000</b> (a HK$10,000 bill). ' +
+                            'Rounded down to HK$10. Change it in <b>% of the friend’s bill</b>, <b>Max coupon HK$</b>, <b>Round down to HK$</b> and <b>Min bill HK$ (fully paid)</b>; ' +
+                            'leave % blank to give the fixed HK$ instead.',
                         '<b>Treatment coupons</b>: Free scaling, Free filling, Free extraction, Implant, Orthodontic, Crown and bridge, Root canal, Whitening. ' +
                             'They only cover the treatment items ticked for them (step 5).',
                         'The badge shows <b>On</b>, <b>Off</b>, <b>Needs setup</b> or <b>Limit reached</b>. Issue cap and budget are optional; voided coupons do not count.'
@@ -234,7 +237,7 @@
                             'makes those coupons usable again. The grey line under the buttons shows the last safety log.'
                     ] },
                     { t: 'Referrals', list: [
-                        'Each new patient with a referrer. <b>Pending</b> waits until the new patient has paid the minimum on a bill (full or part payment); <b>blocked</b> shows why no coupon was given.'
+                        'Each new patient with a referrer. <b>Pending</b> waits for the new patient’s qualifying bill (coupon: a bill of at least the minimum, fully paid; points: the minimum paid, full or part payment); <b>blocked</b> shows why no reward was given.'
                     ] },
                     { t: 'Coupon log', list: [
                         'Pick the dates (from → to) and an optional <b>Chart no.</b>, then press <b>Show</b>. The chips filter by action; <b>Export CSV</b> downloads the list.',
@@ -449,7 +452,10 @@
                     { t: '優惠活動', list: [
                         '其餘每項優惠都有開關、預覽票券及以下輸入格：<b>HK$</b>、<b>%</b>（百分比券）、<b>有效日數</b>、<b>上限</b>（最多扣減 HK$）、' +
                             '<b>最多持有</b>、<b>發放上限</b>、<b>預算 HK$</b>。',
-                        '<b>全單券</b>：現金券（員工可贈送 HK$1–200）、新客券及介紹新客（兩者自動發放；介紹新客設有<b>首次診症最低付款 HK$（全數或部分付款）</b>）。',
+                        '<b>全單券</b>：現金券（員工可贈送 HK$1–200）、新客券及介紹新客（兩者自動發放）。',
+                        '<b>介紹新客</b>以階梯計算：新病人一張至少 <b>HK$500</b> 的賬單<b>全數付清</b>後，介紹人獲發相等於該賬單現金付款 <b>10%</b> 的現金券——' +
+                            'HK$500 → HK$50、HK$2,345 → HK$230，最高 <b>HK$1,000</b>（賬單 HK$10,000）。金額向下取整至 HK$10。' +
+                            '可在<b>朋友賬單的 %</b>、<b>現金券上限 HK$</b>、<b>向下取整至 HK$</b>及<b>最低賬單 HK$（全數付清）</b>更改；% 留空即改發固定金額。',
                         '<b>治療券</b>：免費洗牙、免費補牙、免費脫牙、植牙、矯齒、牙套牙橋、根管、美白優惠 — 只適用於為該券剔選的治療項目（第 5 步）。',
                         '標籤顯示<b>已開啟</b>、<b>已關閉</b>、<b>需設定</b>或<b>已達上限</b>。發放上限及預算可留空；已作廢的券不計算在內。'
                     ] },
@@ -479,7 +485,7 @@
                         '每次清零都會保留<b>安全日誌</b>，並在優惠券記錄留下一行。<b>回退並退回上次清零的優惠券</b>可令該批券重新可用；按鈕下方的灰字顯示上一個安全日誌。'
                     ] },
                     { t: '介紹記錄', list: [
-                        '列出每位有介紹人的新病人。<b>待定</b>表示等待新病人在一張賬單付款達最低金額（全數或部分付款）；<b>受阻</b>顯示未發券的原因。'
+                        '列出每位有介紹人的新病人。<b>待定</b>表示等待新病人合資格的賬單（優惠券：至少達最低金額的賬單全數付清；積分：付款達最低金額，全數或部分付款）；<b>受阻</b>顯示未發獎賞的原因。'
                     ] },
                     { t: '優惠券記錄', list: [
                         '選擇日期（由 → 至）及可選的<b>病歷號</b>，按<b>顯示</b>。可用標籤按動作篩選；<b>匯出 CSV</b> 下載清單。',
@@ -693,7 +699,10 @@
                     { t: '优惠活动', list: [
                         '其余每项优惠都有开关、预览票券及以下输入框：<b>HK$</b>、<b>%</b>（百分比券）、<b>有效日数</b>、<b>上限</b>（最多扣减 HK$）、' +
                             '<b>最多持有</b>、<b>发放上限</b>、<b>预算 HK$</b>。',
-                        '<b>全单券</b>：现金券（员工可赠送 HK$1–200）、新客券及介绍新客（两者自动发放；介绍新客设有<b>首次就诊最低付款 HK$（全数或部分付款）</b>）。',
+                        '<b>全单券</b>：现金券（员工可赠送 HK$1–200）、新客券及介绍新客（两者自动发放）。',
+                        '<b>介绍新客</b>以阶梯计算：新病人一张至少 <b>HK$500</b> 的账单<b>全数付清</b>后，介绍人获发相等于该账单现金付款 <b>10%</b> 的现金券——' +
+                            'HK$500 → HK$50、HK$2,345 → HK$230，最高 <b>HK$1,000</b>（账单 HK$10,000）。金额向下取整至 HK$10。' +
+                            '可在<b>朋友账单的 %</b>、<b>现金券上限 HK$</b>、<b>向下取整至 HK$</b>及<b>最低账单 HK$（全数付清）</b>更改；% 留空即改发固定金额。',
                         '<b>治疗券</b>：免费洗牙、免费补牙、免费脱牙、植牙、矫齿、牙套牙桥、根管、美白优惠 — 只适用于为该券勾选的治疗项目（第 5 步）。',
                         '标签显示<b>已开启</b>、<b>已关闭</b>、<b>需设定</b>或<b>已达上限</b>。发放上限及预算可留空；已作废的券不计算在内。'
                     ] },
@@ -723,7 +732,7 @@
                         '每次清零都会保留<b>安全日志</b>，并在优惠券记录留下一行。<b>回退并退回上次清零的优惠券</b>可令该批券重新可用；按钮下方的灰字显示上一个安全日志。'
                     ] },
                     { t: '介绍记录', list: [
-                        '列出每位有介绍人的新病人。<b>待定</b>表示等待新病人在一张账单付款达最低金额（全数或部分付款）；<b>受阻</b>显示未发券的原因。'
+                        '列出每位有介绍人的新病人。<b>待定</b>表示等待新病人合资格的账单（优惠券：至少达最低金额的账单全数付清；积分：付款达最低金额，全数或部分付款）；<b>受阻</b>显示未发奖赏的原因。'
                     ] },
                     { t: '优惠券记录', list: [
                         '选择日期（由 → 至）及可选的<b>病历号</b>，点<b>显示</b>。可用标签按动作筛选；<b>导出 CSV</b> 下载清单。',

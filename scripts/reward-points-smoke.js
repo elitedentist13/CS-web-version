@@ -651,6 +651,11 @@ function extractIifeHelpers(src) {
     pass('rewards phone QR reuses the coupon QR box (rw_wallet_link + points.html)',
         /COUPONS\.openPhoneQr\(modal, pid, phoneQrConfig\(\)\)/.test(rewardsSrc) && /rpc: 'rw_wallet_link'/.test(rewardsSrc) &&
         /page: 'points\.html'/.test(rewardsSrc) && /waText: pointsWhatsAppText/.test(rewardsSrc));
+    pass('year-end points reminder: only with Set zero on year end + SMS on, one claim per person, daily per station',
+        /normalizeZeroPolicy\(program\)\.zero_policy !== 'year_end'\) return \{ ok: true, skipped: 'policy' \}/.test(rewardsSrc) &&
+        /program\.sms_notify_enabled === false\) return \{ ok: true, skipped: 'sms_off' \}/.test(rewardsSrc) &&
+        /var keys = ids\.map\(function \(id\) \{ return 'p:' \+ id; \}\);[\s\S]{0,40}C\.claimYearEndSms\('rewards', year, stage, keys, a\.patient_id\)/.test(rewardsSrc) &&
+        /scheduleYearEndReminders\(\);\r?\n    \}/.test(rewardsSrc));
     var couponSrc = read('app-coupons.js');
     pass('coupon QR box is shared: openPhoneQr exported, coupon set-up unchanged',
         /function openPhoneQr\(sheet, patientId, cfg\)/.test(couponSrc) && /openPhoneQr: openPhoneQr/.test(couponSrc) &&
@@ -844,6 +849,14 @@ function extractIifeHelpers(src) {
             var pcfg = R.phoneQrConfig();
             pass('points QR set-up: rpc, page, PNG name, centre label', pcfg.rpc === 'rw_wallet_link' && pcfg.page === 'points.html' &&
                 pcfg.pngName === 'reward-points-qr.png' && pcfg.centre === '積分' && pcfg.scheme === 'rewards');
+            var ye = R.pointsYearEndSms('2026-11-30', 1234.5, 'PL').split('\n');
+            pass('year-end points SMS: heading, all-clinic total, 31 Dec 23:59 with days left, clinic, note',
+                ye[0] === '[Joyful Smile Dental Clinic 樂意牙科中心] 積分到期提醒 / Reward points expiry reminder' &&
+                ye[1] === '總結餘/All-clinic total: 1234.50' &&
+                ye[2] === '到期/Expiry: 2026年12月31日 23:59（還有31日）/ 31 Dec 2026 23:59 (31 days left)' &&
+                ye[3] === '診所/Clinic: PL' && /^備註\/Note: 所有積分將於今年2026年12月31日 23:59到期/.test(ye[4]), ye.join(' | '));
+            pass('year-end points SMS on 24 Dec says 7 days, no clinic line when unknown',
+                R.pointsYearEndSms('2026-12-24', 10, '').indexOf('(7 days left)') > 0 && R.pointsYearEndSms('2026-12-24', 10, '').indexOf('診所/Clinic') < 0);
 
             pass('gift: max is 200', R.GIFT_MAX === 200);
             var gc = R.giftCheck;

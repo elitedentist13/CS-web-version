@@ -3137,9 +3137,9 @@
             'zh-Hant': '作廢賬單會退回該單已用的券，並取消該單發出的券。付款後退款不會補發新券。'
         },
         'coupons.rules.r8': {
-            en: 'Expired coupons cannot be used. Patients get an SMS 1 month and again 7 days before expiry.',
-            'zh-CN': '过期券不能使用。到期前 1 个月及 7 日会短信提醒病人。',
-            'zh-Hant': '過期券不能使用。到期前 1 個月及 7 日會短訊提醒病人。'
+            en: 'Expired coupons cannot be used. Patients get an SMS 1 month and again 7 days before expiry. With Set zero on year end, the SMS goes on 30 Nov and 24 Dec.',
+            'zh-CN': '过期券不能使用。到期前 1 个月及 7 日会短信提醒病人。若设为每年年底清零，短信会于 11 月 30 日及 12 月 24 日发出。',
+            'zh-Hant': '過期券不能使用。到期前 1 個月及 7 日會短訊提醒病人。若設為每年年底清零，短訊會於 11 月 30 日及 12 月 24 日發出。'
         },
         'coupons.rules.hold': {
             en: 'Wallet holds up to 20 unused coupons. Per type:',

@@ -1897,6 +1897,116 @@ var REWARDS = (function () {
         });
     }
 
+    /** Pure: year-end points reminder SMS (bilingual), today = Hong Kong date. */
+    function pointsYearEndSms(today, total, clinic) {
+        var y = String(today || '').slice(0, 4);
+        var days = Math.round((Date.parse(y + '-12-31T00:00:00Z') - Date.parse(String(today) + 'T00:00:00Z')) / 86400000);
+        return '[' + SMS_HEADING_NAME + '] 積分到期提醒 / Reward points expiry reminder\n' +
+            '總結餘/All-clinic total: ' + fmtPts(total) + '\n' +
+            '到期/Expiry: ' + y + '年12月31日 23:59（還有' + days + '日）/ 31 Dec ' + y + ' 23:59 (' + days + (days === 1 ? ' day' : ' days') + ' left)\n' +
+            (clinic ? '診所/Clinic: ' + clinic + '\n' : '') +
+            '備註/Note: 所有積分將於今年' + y + '年12月31日 23:59到期，請好好善用；歡迎邀請親友使用。' +
+            'All reward points expire on 31 Dec ' + y + ' 23:59 this year. Please make good use of them, and you are welcome to invite others to use them.';
+    }
+
+    /**
+     * Year-end points reminder on 30 Nov and 24 Dec (HK), only when Set zero is on year end and SMS is on.
+     * One SMS per person (all their charts); claims in loyalty_yearend_sms stop two stations texting twice.
+     */
+    function sendYearEndPointsReminders() {
+        var C = typeof COUPONS !== 'undefined' ? COUPONS : null;
+        if (!C || typeof C.yearEndReminderStage !== 'function' || typeof SB === 'undefined' || !SB) {
+            return Promise.resolve({ ok: false, reason: 'no_db' });
+        }
+        var today = C.todayIso();
+        var stage = C.yearEndReminderStage(today);
+        if (!stage) return Promise.resolve({ ok: true, skipped: 'date' });
+        var year = parseInt(today.slice(0, 4), 10);
+        return loadProgram(true).then(function (program) {
+            if (normalizeZeroPolicy(program).zero_policy !== 'year_end') return { ok: true, skipped: 'policy' };
+            if (program.sms_notify_enabled === false) return { ok: true, skipped: 'sms_off' };
+            return SB.from('reward_accounts').select('patient_id,clinic_code,balance').gt('balance', 0)
+                .order('patient_id', { ascending: true }).limit(2000).then(function (r) {
+                if (!r || r.error) return { ok: false, reason: 'query', error: r && r.error && r.error.message };
+                var done = {};
+                var sent = 0, people = 0;
+                var seq = Promise.resolve();
+                (r.data || []).forEach(function (a) {
+                    seq = seq.then(function () {
+                        if (!a.patient_id || done[a.patient_id]) return null;
+                        return listPersonAccountsFresh(a.patient_id).then(function (accs) {
+                            var ids = (accs || []).map(function (x) { return String(x.patient_id); });
+                            if (ids.indexOf(String(a.patient_id)) < 0) ids.push(String(a.patient_id));
+                            ids.sort();
+                            ids.forEach(function (id) { done[id] = 1; });
+                            var total = (accs || []).length ? sumPersonBalance(accs) : round2(a.balance);
+                            if (total <= 0) return null;
+                            people++;
+                            var keys = ids.map(function (id) { return 'p:' + id; });
+                            return C.claimYearEndSms('rewards', year, stage, keys, a.patient_id).then(function (claimIds) {
+                                if (!claimIds) return null;
+                                return SB.from('patients').select('id,patient_no,full_name,chinese_name,phone_number,mobile_phone').in('id', ids)
+                                    .then(function (pr) {
+                                        var pats = (pr && pr.data) || [];
+                                        var pat = pats.filter(function (p) { return String(p.id) === String(a.patient_id) && patientPhone(p); })[0] ||
+                                            pats.filter(function (p) { return patientPhone(p); })[0] || null;
+                                        var phone = patientPhone(pat);
+                                        if (!phone) return C.finishYearEndSms(claimIds, { ok: false, reason: 'no_phone' });
+                                        if (typeof AIHELPER === 'undefined' || typeof AIHELPER.sendTwilioOutreach !== 'function') {
+                                            return C.finishYearEndSms(claimIds, { ok: false, reason: 'no_sms' });
+                                        }
+                                        var body = pointsYearEndSms(today, total, a.clinic_code || '');
+                                        return AIHELPER.sendTwilioOutreach({
+                                            channel: 'sms',
+                                            to: phone,
+                                            name: pat.full_name || pat.chinese_name || pat.patient_no || 'Patient',
+                                            body: body
+                                        }).then(function (res) {
+                                            if (res && res.ok) sent++;
+                                            var sid = res && res.result && (res.result.sid || res.result.Sid);
+                                            return logSms({
+                                                patient_id: pat.id,
+                                                to_phone: phone,
+                                                body: body,
+                                                status: res && res.ok ? 'sent' : 'failed',
+                                                error: res && !res.ok ? String(res.error || '') : null,
+                                                twilio_sid: sid || null
+                                            }).then(function () { return C.finishYearEndSms(claimIds, res, phone); });
+                                        });
+                                    });
+                            });
+                        });
+                    });
+                });
+                return seq.then(function () { return { ok: true, stage: stage, people: people, sent: sent }; });
+            });
+        }).catch(function (e) { return { ok: false, error: (e && e.message) || String(e) }; });
+    }
+
+    var YEAR_END_RUN_KEY = 'rw_yearend_sms_run';
+
+    /** Any logged-in station runs the year-end reminder pass once a day. */
+    function scheduleYearEndReminders() {
+        if (typeof window === 'undefined' || typeof window.setInterval !== 'function') return;
+        var busy = false;
+        function tick() {
+            if (busy) return;
+            if (typeof currentUserId === 'undefined' || !currentUserId) return;
+            if (typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.todayIso !== 'function') return;
+            var today = COUPONS.todayIso();
+            try { if (window.localStorage && localStorage.getItem(YEAR_END_RUN_KEY) === today) return; } catch (e) {}
+            busy = true;
+            sendYearEndPointsReminders().then(function (res) {
+                busy = false;
+                if (res && res.ok) {
+                    try { if (window.localStorage) localStorage.setItem(YEAR_END_RUN_KEY, today); } catch (e) {}
+                }
+            });
+        }
+        setTimeout(tick, 90000);
+        setInterval(tick, 30 * 60000);
+    }
+
     function notifyFromRpcResult(res, meta) {
         meta = meta || {};
         if (!res || !res.ok || res.skipped) return Promise.resolve(res);
@@ -5729,6 +5839,7 @@ var REWARDS = (function () {
         wireGiftOnce();
         wireLedgerFinderOnce();
         attachInfoLinks();
+        scheduleYearEndReminders();
     }
 
     if (document.readyState === 'loading') {
@@ -5843,7 +5954,9 @@ var REWARDS = (function () {
         revertLastZeroBatch: revertLastZeroBatch,
         loadLastZeroBatch: loadLastZeroBatch,
         saveZeroPolicy: saveZeroPolicy,
-        maybeRunScheduledZero: maybeRunScheduledZero
+        maybeRunScheduledZero: maybeRunScheduledZero,
+        pointsYearEndSms: pointsYearEndSms,
+        sendYearEndPointsReminders: sendYearEndPointsReminders
     };
 })();
 

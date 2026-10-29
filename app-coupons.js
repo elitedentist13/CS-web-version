@@ -1062,6 +1062,32 @@ var COUPONS = (function () {
         return 'month';
     }
 
+    /** Pure: Hong Kong year-end reminder due today — 'month' (30 Nov–23 Dec), 'week' (24–30 Dec) or ''. */
+    function yearEndReminderStage(today) {
+        var t = String(today || '');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return '';
+        var end = t.slice(0, 4) + '-12-31';
+        if (t >= end) return '';
+        if (t >= addDaysIso(end, -EXPIRY_SMS_DAYS)) return 'week';
+        if (t >= addMonthsIso(end, -EXPIRY_SMS_MONTHS)) return 'month';
+        return '';
+    }
+
+    /** Year-end reminder text: with Set zero on year end, every live coupon goes on 31 Dec 23:59 (HK). */
+    function smsYearEndCoupons(today, wallet, opts) {
+        opts = opts || {};
+        var end = smsYearEnd(today);
+        var days = daysUntil(String(today).slice(0, 4) + '-12-31', today);
+        return couponSmsBody({
+            today: today,
+            wallet: wallet,
+            change: '所有優惠券將於' + end.zh + '到期（還有' + days + '日）/ All coupons expire on ' + end.en +
+                ' (' + days + (days === 1 ? ' day' : ' days') + ' left)',
+            clinic: opts.clinic || '',
+            ref: opts.ref || ''
+        });
+    }
+
     /** Reminder text for a coupon in a reminder window (see expiryReminderStage). */
     function smsExpiring(coupon, today, wallet, opts) {
         if (!expiryReminderStage(coupon, today)) return '';
@@ -3910,7 +3936,7 @@ var COUPONS = (function () {
             ['r5', 'New-chart and referral coupons stay with the patient. Other coupons can be transferred to another chart no.'],
             ['r6', 'Dr / reception / nurses can gift a cash coupon (HK$1–200) or a switched-on treatment coupon. Spend, new-chart and referral coupons are issued automatically only. Every gift and transfer is logged under your login.'],
             ['r7', 'Voiding a bill returns the coupons used on it and cancels coupons it issued. A refund after payment does not create a new coupon.'],
-            ['r8', 'Expired coupons cannot be used. Patients get an SMS 1 month and again 7 days before expiry.']
+            ['r8', 'Expired coupons cannot be used. Patients get an SMS 1 month and again 7 days before expiry. With Set zero on year end, the SMS goes on 30 Nov and 24 Dec.']
         ];
         var holds = campaigns().filter(function (c) {
             if (!c) return false;
@@ -4181,11 +4207,12 @@ var COUPONS = (function () {
      * reminded in it. Each coupon is claimed (claimCol) before sending, so two stations never both text.
      * Without the claim column (discount_coupons_expiry_sms.sql) nothing is sent for that window.
      */
-    function sendExpiryStage(stage, claimCol, today) {
+    function sendExpiryStage(stage, claimCol, today, before) {
         var q = SB.from('discount_coupons')
             .select('id,code,campaign_key,patient_id,expires_on,status,issued_at,clinic_code,discount_mode,face_value,percent,max_discount')
             .eq('status', 'unused')
             .is(claimCol, null);
+        if (before) q = q.lt('expires_on', before);
         q = stage === 'week'
             ? q.gt('expires_on', today).lte('expires_on', addDaysIso(today, EXPIRY_SMS_DAYS))
             : q.is('expiry_sms_at', null).gt('expires_on', addDaysIso(today, EXPIRY_SMS_DAYS))
@@ -4218,21 +4245,93 @@ var COUPONS = (function () {
         });
     }
 
-    /** Expiry reminders, Hong Kong date: 7 days before (expiry_sms_at), then 1 month before (expiry_sms_month_at). */
+    var YEAR_END_SMS_TABLE = 'loyalty_yearend_sms';
+
+    /**
+     * Claims one year-end reminder (scheme, year, stage) for every key of a person (one per chart) in a single
+     * insert, so it fails as a whole if any chart was already claimed — only one station texts each person.
+     * Resolves the claimed row ids, or null when taken.
+     */
+    function claimYearEndSms(scheme, year, stage, personKeys, patientId) {
+        var keys = [].concat(personKeys || []).filter(Boolean);
+        if (!keys.length) return Promise.resolve(null);
+        return Promise.resolve(SB.from(YEAR_END_SMS_TABLE)
+            .insert(keys.map(function (k) { return { scheme: scheme, year: year, stage: stage, person_key: k, patient_id: patientId || null }; }))
+            .select('id'))
+            .then(function (r) {
+                return r && !r.error && r.data && r.data.length ? r.data.map(function (x) { return x.id; }) : null;
+            }, function () { return null; });
+    }
+
+    /** Sent and no-phone claims stay; a failed send gives the claim back so the next run retries. */
+    function finishYearEndSms(ids, res, phone) {
+        if (!ids || !ids.length) return Promise.resolve(null);
+        var q = res && (res.ok || res.reason === 'no_phone')
+            ? SB.from(YEAR_END_SMS_TABLE).update({ status: res.ok ? 'sent' : 'no_phone', to_phone: phone || null, sent_at: new Date().toISOString() }).in('id', ids)
+            : SB.from(YEAR_END_SMS_TABLE).delete().in('id', ids);
+        return Promise.resolve(q).then(function () { return null; }, function () { return null; });
+    }
+
+    /** One SMS per patient holding coupons that last to 31 Dec, on 30 Nov and 24 Dec (HK), when Set zero is on year end. */
+    function sendYearEndCouponReminders(today) {
+        var stage = yearEndReminderStage(today);
+        if (!stage) return Promise.resolve({ ok: true, skipped: 'date' });
+        if (zeroPolicy().zero_policy !== 'year_end') return Promise.resolve({ ok: true, skipped: 'policy' });
+        var year = parseInt(today.slice(0, 4), 10);
+        var end = year + '-12-31';
+        var stageFrom = stage === 'week' ? addDaysIso(end, -EXPIRY_SMS_DAYS) : addMonthsIso(end, -EXPIRY_SMS_MONTHS);
+        return Promise.resolve(SB.from('discount_coupons').select('patient_id,clinic_code,issued_at')
+            .eq('status', 'unused').gte('expires_on', end).limit(2000)).then(function (r) {
+            if (!r || r.error) return { ok: false, reason: 'query', error: r && r.error && r.error.message };
+            var clinicOf = {};
+            (r.data || []).forEach(function (c) {
+                if (!c.patient_id || (c.clinic_code && !clinicJoined(c.clinic_code))) return;
+                var issued = hkDateOf(c.issued_at);
+                if (stage === 'month' ? (issued && issued >= stageFrom) : issued === today) return;
+                if (!(c.patient_id in clinicOf)) clinicOf[c.patient_id] = c.clinic_code || '';
+            });
+            var sent = 0;
+            var seq = Promise.resolve();
+            Object.keys(clinicOf).forEach(function (pid) {
+                seq = seq.then(function () {
+                    return claimYearEndSms('coupons', year, stage, 'p:' + pid, pid).then(function (claimIds) {
+                        if (!claimIds) return null;
+                        return sendCouponSms(pid, function (wallet) {
+                            return smsYearEndCoupons(today, wallet, { clinic: clinicOf[pid] || clinicCodeNow() });
+                        }).then(function (res) {
+                            if (res && res.ok) sent++;
+                            return finishYearEndSms(claimIds, res);
+                        });
+                    });
+                });
+            });
+            return seq.then(function () { return { ok: true, stage: stage, people: Object.keys(clinicOf).length, sent: sent }; });
+        });
+    }
+
+    /**
+     * Expiry reminders, Hong Kong date: 7 days before (expiry_sms_at), then 1 month before (expiry_sms_month_at).
+     * With Set zero on year end, coupons that last to 31 Dec get the year-end reminder instead (one SMS per patient).
+     */
     function sendExpiryReminders() {
         if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
             return Promise.resolve({ ok: false, reason: 'no_db' });
         }
         var today = todayIso();
-        var week = null;
-        return loadState().then(function () {
-            return sendExpiryStage('week', 'expiry_sms_at', today);
+        var before = '';
+        var week = null, month = null;
+        function soft(p) { return p.catch(function (e) { return { ok: false, error: String(e && e.message || e) }; }); }
+        return loadState().then(loadZeroPolicy).then(function () {
+            if (zeroPolicy().zero_policy === 'year_end') before = today.slice(0, 4) + '-12-31';
+            return sendExpiryStage('week', 'expiry_sms_at', today, before);
         }).then(function (w) {
             week = w;
-            return sendExpiryStage('month', 'expiry_sms_month_at', today)
-                .catch(function (e) { return { ok: false, error: String(e && e.message || e) }; });
-        }).then(function (month) {
-            return Object.assign({}, week, { month: month });
+            return soft(sendExpiryStage('month', 'expiry_sms_month_at', today, before));
+        }).then(function (m) {
+            month = m;
+            return soft(sendYearEndCouponReminders(today));
+        }).then(function (y) {
+            return Object.assign({}, week, { month: month, yearEnd: y });
         }).catch(function (e) { return { ok: false, error: String(e && e.message || e) }; });
     }
 
@@ -5723,6 +5822,12 @@ var COUPONS = (function () {
         smsExpiring: smsExpiring,
         expiryReminderStage: expiryReminderStage,
         addMonthsIso: addMonthsIso,
+        yearEndReminderStage: yearEndReminderStage,
+        smsYearEndCoupons: smsYearEndCoupons,
+        sendYearEndCouponReminders: sendYearEndCouponReminders,
+        claimYearEndSms: claimYearEndSms,
+        finishYearEndSms: finishYearEndSms,
+        todayIso: todayIso,
         renderConfigPane: renderConfigPane,
         walletAvailable: walletAvailable,
         walletLedgerRows: walletLedgerRows,

@@ -1019,8 +1019,25 @@ function loadCoupons() {
         C.expiryReminderStage({ status: 'unused', expires_on: '2026-12-31', issued_on: '2026-12-05' }, '2026-12-10') === '' &&
         C.expiryReminderStage({ status: 'unused', expires_on: '2026-12-31', issued_on: '2026-12-05' }, '2026-12-25') === 'week');
     pass('month reminder claims its own column and skips coupons already week-reminded',
-        /sendExpiryStage\('month', 'expiry_sms_month_at', today\)/.test(src) && /q\.is\('expiry_sms_at', null\)/.test(src) &&
+        /sendExpiryStage\('month', 'expiry_sms_month_at', today, before\)/.test(src) && /q\.is\('expiry_sms_at', null\)/.test(src) &&
         read('discount_coupons_expiry_sms.sql').indexOf('expiry_sms_month_at') >= 0);
+    pass('year-end reminder: 30 Nov–23 Dec month, 24–30 Dec week, none on 31 Dec or before 30 Nov',
+        C.yearEndReminderStage('2026-11-29') === '' && C.yearEndReminderStage('2026-11-30') === 'month' &&
+        C.yearEndReminderStage('2026-12-23') === 'month' && C.yearEndReminderStage('2026-12-24') === 'week' &&
+        C.yearEndReminderStage('2026-12-30') === 'week' && C.yearEndReminderStage('2026-12-31') === '' &&
+        C.yearEndReminderStage('2027-01-05') === '' && C.yearEndReminderStage('') === '');
+    var yeSms = C.smsYearEndCoupons('2026-11-30', smsWallet, { clinic: 'KT' });
+    pass('year-end coupon SMS: same layout, 31 Dec 23:59, days left, lists the wallet', shape(yeSms) === shape(rewardSms) &&
+        yeSms.indexOf('所有優惠券將於2026年12月31日 23:59到期（還有31日）/ All coupons expire on 31 Dec 2026 23:59 (31 days left)') >= 0 &&
+        yeSms.indexOf('(DC-A1)') >= 0, yeSms);
+    pass('year-end coupon SMS on 24 Dec says 7 days', C.smsYearEndCoupons('2026-12-24', smsWallet, { clinic: 'KT' }).indexOf('(7 days left)') >= 0);
+    pass('year-end coupon reminders only with Set zero on year end, one claim per patient',
+        /zeroPolicy\(\)\.zero_policy !== 'year_end'\) return Promise\.resolve\(\{ ok: true, skipped: 'policy' \}\)/.test(src) &&
+        /claimYearEndSms\('coupons', year, stage, 'p:' \+ pid, pid\)/.test(src) && /\.gte\('expires_on', end\)/.test(src));
+    pass('with year end on, per-coupon reminders leave coupons lasting to 31 Dec to the year-end SMS',
+        /if \(before\) q = q\.lt\('expires_on', before\)/.test(src) && /before = today\.slice\(0, 4\) \+ '-12-31'/.test(src));
+    pass('year-end claim table patch exists with a unique person key',
+        /unique \(scheme, year, stage, person_key\)/.test(read('loyalty_yearend_sms.sql')));
     pass('coupon "today" is the Hong Kong date', /function todayIso\(\) \{ return new Date\(Date\.now\(\) \+ 8 \* 3600000\)/.test(src));
 
     console.log('=== 9b gift / transfer login ===');

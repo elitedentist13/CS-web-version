@@ -550,6 +550,12 @@ function fakeBillSb(tables, rpcLog) {
     pass('REWARDS module IIFE', /var REWARDS = \(function/.test(rewardsSrc));
     pass('METHOD Reward points', /METHOD\s*=\s*'Reward points'/.test(rewardsSrc));
     pass('isRewardPayMethod exported', /window\.isRewardPayMethod/.test(rewardsSrc));
+    var couponRunKey = (read('app-coupons.js').match(/EXPIRY_RUN_KEY = '([^']+)'/) || [])[1];
+    var rewardRunKey = (rewardsSrc.match(/YEAR_END_RUN_KEY = '([^']+)'/) || [])[1];
+    var keepBlock = (appJsSrc.match(/function jsmLocalStoragePreserveKeys\(\) \{[\s\S]*?return keys;/) || [''])[0];
+    pass('login cleanup keeps the once-a-day SMS reminder markers', !!couponRunKey && !!rewardRunKey &&
+        keepBlock.indexOf(couponRunKey + ': true') >= 0 && keepBlock.indexOf(rewardRunKey + ': true') >= 0,
+        couponRunKey + ', ' + rewardRunKey);
     pass('isLoyaltyExcludedPayMethod exported', /window\.isLoyaltyExcludedPayMethod = /.test(rewardsSrc) &&
         /isLoyaltyExcludedPayMethod: isLoyaltyExcludedPayMethod/.test(rewardsSrc));
     pass('Add payment checks Government / PDCC before saving', /REWARDS\.excludedPaymentBlock\(bdCurrentBill, payMethod, rewardPts\)/.test(apptSrc) &&
@@ -1457,7 +1463,10 @@ function fakeBillSb(tables, rpcLog) {
     hasRedeemAll: typeof REWARDS.applyRedeemAllOnPayment === 'function',
     hasRedeemSrc: typeof REWARDS.readRedeemSourceIdsForPayment === 'function',
     reportHook: typeof window.isRewardPayMethod === 'function'
-      ? window.isRewardPayMethod('Reward points') : null
+      ? window.isRewardPayMethod('Reward points') : null,
+    keepSmsMarkers: typeof jsmShouldPreserveLocalStorageKey === 'function' &&
+      jsmShouldPreserveLocalStorageKey('dc_expiry_sms_run') && jsmShouldPreserveLocalStorageKey('rw_yearend_sms_run') &&
+      !jsmShouldPreserveLocalStorageKey('some_draft_key')
   };
   try {
     const joined = await REWARDS.isClinicJoined(null, 'PL');
@@ -1512,6 +1521,7 @@ function fakeBillSb(tables, rpcLog) {
         pass('live cfgPane-rewards in DOM', liveProbe && liveProbe.cfgPane === true);
         pass('live cfg nav rewards', liveProbe && liveProbe.cfgNav === true);
         pass('live window.isRewardPayMethod', liveProbe && liveProbe.reportHook === true);
+        pass('live login cleanup keeps the SMS reminder markers (drafts still cleared)', liveProbe && liveProbe.keepSmsMarkers === true);
         pass('live apAmount allows 0', liveProbe && String(liveProbe.apAmountMin) === '0',
             liveProbe && liveProbe.apAmountMin);
 

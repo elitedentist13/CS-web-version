@@ -4548,7 +4548,10 @@ function jsmLocalStoragePreserveKeys() {
         cal_doctor_colors_v1: true,
         cal_doctor_visible_v1: true,
         gcal_settings_v2: true,
-        receipt_print_options_v1: true
+        receipt_print_options_v1: true,
+        // Once-a-day markers for the coupon expiry and reward year-end SMS passes.
+        dc_expiry_sms_run: true,
+        rw_yearend_sms_run: true
     };
     keys[JSM_POST_LOGIN_REFRESH_LS] = true;
     keys[JSM_ASSET_CACHE_BUST_LS] = true;

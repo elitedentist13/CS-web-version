@@ -3802,7 +3802,10 @@ var COUPONS = (function () {
             var combo = currentCombo();
             if (!combo.rows.length) return;
             applyBtn.disabled = true;
-            applyToBill(bill, combo, clinicCode).then(function () { closeSheet(); });
+            applyToBill(bill, combo, clinicCode).then(function (res) {
+                if (res && res.ok === false) { applyBtn.disabled = false; return; }
+                closeSheet();
+            });
         };
         var clearBtn = document.getElementById('dcClear');
         if (clearBtn) clearBtn.onclick = function () {
@@ -4136,6 +4139,9 @@ var COUPONS = (function () {
         if (addBtn) addBtn.style.display = balance > 0 ? 'inline-block' : 'none';
     }
 
+    var RELEASED = { status: 'unused', bill_id: null, redeemed_amount: null, redeemed_at: null, line_name: null };
+
+    /** Old direct table write, used until loyalty_security.sql is run. */
     function releaseCouponsOnBill(billId, keepIds) {
         if (typeof SB === 'undefined' || !SB || !billId) return Promise.resolve();
         keepIds = keepIds || [];
@@ -4144,12 +4150,31 @@ var COUPONS = (function () {
                 var jobs = [];
                 ((r && r.data) || []).forEach(function (row) {
                     if (keepIds.indexOf(String(row.id)) >= 0) return;
-                    jobs.push(SB.from('discount_coupons').update({
-                        status: 'unused', bill_id: null, redeemed_amount: null, redeemed_at: null, line_name: null
-                    }).eq('id', row.id));
+                    jobs.push(SB.from('discount_coupons').update(RELEASED).eq('id', row.id));
                 });
                 return Promise.all(jobs);
             }, function () { return null; });
+    }
+
+    /** Give coupons used on a voided or still unpaid bill back to the wallet (ids: those coupons, or all on the bill). */
+    function releaseBillCoupons(billId, ids) {
+        var list = ids && ids.length ? ids.map(String) : null;
+        return dcWrite('dc_bill_release', { p_bill_id: billId, p_coupon_ids: list }, function () {
+            if (!list) return releaseCouponsOnBill(billId, []);
+            return Promise.all(list.map(function (id) {
+                return SB.from('discount_coupons').update(RELEASED).eq('id', id).eq('status', 'used');
+            }));
+        });
+    }
+
+    /** Take back unused coupons a bill earned, once it is voided or no longer fully paid. */
+    function voidEarnedCoupons(billId, ids, note) {
+        if (!ids || !ids.length) return Promise.resolve({ ok: true, count: 0 });
+        return dcWrite('dc_void_earned', { p_bill_id: billId, p_coupon_ids: ids.map(String), p_note: note }, function () {
+            return Promise.all(ids.map(function (id) {
+                return SB.from('discount_coupons').update({ status: 'void', note: note }).eq('id', id).eq('status', 'unused');
+            }));
+        });
     }
 
     /** combo: { rows: [{ coupon, assess }], save } from combineCoupons. */
@@ -4164,29 +4189,33 @@ var COUPONS = (function () {
         var status = balance <= 0.005 ? 'Paid' : (paid > 0.005 ? 'Partial' : (bill.status || 'Pending'));
         var ids = rows.map(function (r) { return String(r.coupon.id); });
         var lead = rows.filter(function (r) { return couponSlot(r.coupon) === 'bill'; })[0] || rows[0];
-        bill.coupon_id = lead ? lead.coupon.id : null;
-        bill.coupon_amount = save;
-        bill.coupon_label = couponLabelFor(rows);
-        bill.total = total;
-        bill.balance = balance;
-        bill.status = status;
+        var leadId = lead ? lead.coupon.id : null;
         var payload = {
-            coupon_id: bill.coupon_id,
+            coupon_id: leadId,
             coupon_amount: save,
             total: total,
             balance: balance,
             status: status
         };
-        var chain = Promise.resolve();
-        if (typeof SB !== 'undefined' && SB && bill.id) {
-            chain = SB.from('bills').update(payload).eq('id', bill.id).then(function (r) {
-                if (r && r.error && /coupon_/.test(String(r.error.message || ''))) {
-                    return SB.from('bills').update({ total: total, balance: balance, status: status }).eq('id', bill.id);
-                }
-                return r;
-            }).then(function () {
-                return releaseCouponsOnBill(bill.id, ids);
-            }).then(function () {
+        function commit() {
+            bill.coupon_id = leadId;
+            bill.coupon_amount = save;
+            bill.coupon_label = couponLabelFor(rows);
+            bill.total = total;
+            bill.balance = balance;
+            bill.status = status;
+            syncBillDetail(bill);
+            paintBillTotals(total, balance);
+            return { ok: true };
+        }
+        if (typeof SB === 'undefined' || !SB || !bill.id) return Promise.resolve(commit());
+        return dcWrite('dc_bill_set_coupons', {
+            p_bill_id: bill.id,
+            p_items: rows.map(function (r) {
+                return { id: r.coupon.id, amount: r.assess.save, line_name: r.assess.lineName || null };
+            })
+        }, function () {
+            return releaseCouponsOnBill(bill.id, ids).then(function () {
                 var now = new Date().toISOString();
                 return Promise.all(rows.map(function (r) {
                     return SB.from('discount_coupons').update({
@@ -4198,10 +4227,17 @@ var COUPONS = (function () {
                     }).eq('id', r.coupon.id);
                 }));
             });
-        }
-        return chain.then(function () {
-            syncBillDetail(bill);
-            paintBillTotals(total, balance);
+        }).then(function (res) {
+            if (!res || !res.ok) {
+                couponNotice('🎟️ ' + grantReason((res && res.reason) || 'db'));
+                return { ok: false, reason: (res && res.reason) || 'db' };
+            }
+            return SB.from('bills').update(payload).eq('id', bill.id).then(function (r) {
+                if (r && r.error && /coupon_/.test(String(r.error.message || ''))) {
+                    return SB.from('bills').update({ total: total, balance: balance, status: status }).eq('id', bill.id);
+                }
+                return r;
+            }).then(commit);
         });
     }
 
@@ -4226,11 +4262,9 @@ var COUPONS = (function () {
                 balance: balance
             }).eq('id', bill.id).then(function () {
                 if (paid > 0.005) return null;
-                return releaseCouponsOnBill(bill.id, []).then(function () {
+                return releaseBillCoupons(bill.id, null).then(function () {
                     if (!prev) return null;
-                    return SB.from('discount_coupons').update({
-                        status: 'unused', bill_id: null, redeemed_amount: null, redeemed_at: null, line_name: null
-                    }).eq('id', prev).eq('status', 'used');
+                    return releaseBillCoupons(bill.id, [prev]);
                 });
             });
         }
@@ -4264,20 +4298,78 @@ var COUPONS = (function () {
         };
     }
 
-    function insertCoupon(row, sms, smsOpts) {
+    // ── Database functions (loyalty_security.sql) ───────────────────
+    var _dcNoFn = {};
+
+    function dcFnMissing(err, fn) {
+        var m = String((err && (err.message || err.hint || err.details)) || err || '');
+        return !!(err && (err.code === 'PGRST202' || err.code === '42883')) ||
+            (m.indexOf(fn) >= 0 && /could not find|schema cache|does not exist/i.test(m));
+    }
+
+    /**
+     * Coupon writes go through the database functions in loyalty_security.sql, which check the rules there.
+     * Until that SQL is run, fallback() does the old direct table write.
+     * Resolves { ok, reason?, error?, ... }; viaDb is true when the database function ran.
+     */
+    function dcWrite(fn, args, fallback) {
+        function legacy() {
+            if (typeof fallback !== 'function') return Promise.resolve({ ok: false, reason: 'no_sql' });
+            return Promise.resolve().then(fallback).then(function (r) {
+                if (r && typeof r === 'object' && typeof r.ok === 'boolean') return r;
+                var err = r && r.error;
+                return err ? { ok: false, error: String(err.message || err) } : { ok: true, data: r && r.data };
+            }, function (e) { return { ok: false, error: String(e && e.message || e) }; });
+        }
+        if (_dcNoFn[fn] || typeof SB === 'undefined' || !SB || typeof SB.rpc !== 'function') return legacy();
+        return Promise.resolve(SB.rpc(fn, args)).then(function (r) {
+            if (r && r.error) {
+                if (dcFnMissing(r.error, fn)) { _dcNoFn[fn] = true; return legacy(); }
+                return { ok: false, reason: 'db', error: String(r.error.message || r.error) };
+            }
+            var d = r ? r.data : null;
+            var out = d && typeof d === 'object' && !Array.isArray(d) ? Object.assign({}, d) : { ok: d !== false && d !== null, data: d };
+            out.viaDb = true;
+            return out;
+        }, function (e) { return { ok: false, reason: 'offline', error: String(e && e.message || e) }; });
+    }
+
+    /**
+     * issue: { kind: 'spend' | 'new_chart' | 'referral' | 'gift', billId, referralId, amount, grantor }.
+     * The database works out the value, code and expiry itself; the saved row is returned as `row`.
+     */
+    function insertCoupon(row, sms, smsOpts, issue) {
         if (typeof SB === 'undefined' || !SB) return Promise.resolve({ ok: false, reason: 'no_db', row: row });
-        return SB.from('discount_coupons').insert([row]).select('id,code').then(function (r) {
-            if (r.error) return { ok: false, error: r.error.message, row: row };
-            var saved = (r.data && r.data[0]) || {};
-            if (sms && row.patient_id) {
-                var issued = Object.assign({}, row, { code: saved.code || row.code });
-                sendCouponSms(row.patient_id, function (wallet) {
-                    return smsIssued(issued, wallet, Object.assign({ clinic: row.clinic_code || clinicCodeNow() }, smsOpts || {}));
+        issue = issue || {};
+        var grantor = issue.grantor || {};
+        return dcWrite('dc_issue_coupon', {
+            p_kind: issue.kind || 'gift',
+            p_patient_id: row.patient_id,
+            p_campaign_key: row.campaign_key,
+            p_clinic_code: row.clinic_code || null,
+            p_bill_id: issue.billId || row.origin_bill_id || null,
+            p_referral_id: issue.referralId || null,
+            p_amount: issue.amount != null ? issue.amount : null,
+            p_user: grantor.user_id || null,
+            p_password: grantor.__pw || null,
+            p_issued_by: row.issued_by || null,
+            p_note: row.note || null,
+            p_item_names: row.item_names || null
+        }, function () {
+            return SB.from('discount_coupons').insert([row]).select('id,code').then(function (r) {
+                if (r.error) return { ok: false, error: r.error.message };
+                var s = (r.data && r.data[0]) || {};
+                return { ok: true, id: s.id, code: s.code || row.code, row: Object.assign({}, row, { id: s.id, code: s.code || row.code }) };
+            });
+        }).then(function (res) {
+            if (!res || !res.ok) return Object.assign({ row: row }, res || { ok: false });
+            var saved = Object.assign({}, row, res.row || {}, { code: res.code || (res.row && res.row.code) || row.code });
+            if (sms && saved.patient_id) {
+                sendCouponSms(saved.patient_id, function (wallet) {
+                    return smsIssued(saved, wallet, Object.assign({ clinic: saved.clinic_code || clinicCodeNow() }, smsOpts || {}));
                 }, { phoneLink: true });
             }
-            return { ok: true, id: saved.id, code: saved.code || row.code };
-        }, function (e) {
-            return { ok: false, error: String(e && e.message || e), row: row };
+            return { ok: true, id: res.id || saved.id, code: saved.code, row: saved, viaDb: !!res.viaDb };
         });
     }
 
@@ -4354,16 +4446,19 @@ var COUPONS = (function () {
                     var body = function (wallet) { return smsExpiring(due, today, wallet, { clinic: c.clinic_code || clinicCodeNow() }); };
                     var claim = {}; claim[claimCol] = new Date().toISOString();
                     var unclaim = {}; unclaim[claimCol] = null;
-                    return SB.from('discount_coupons').update(claim)
-                        .eq('id', c.id).is(claimCol, null).select('id')
-                        .then(function (u) {
-                            if (!u || u.error || !u.data || !u.data.length) return null;
-                            return sendCouponSms(c.patient_id, body).then(function (res) {
-                                if (res && res.ok) { sent++; return null; }
-                                if (res && (res.reason === 'no_phone')) return null;
+                    return dcWrite('dc_expiry_sms_claim', { p_coupon_id: c.id, p_column: claimCol, p_claim: true }, function () {
+                        return SB.from('discount_coupons').update(claim).eq('id', c.id).is(claimCol, null).select('id')
+                            .then(function (u) { return { ok: !!(u && !u.error && u.data && u.data.length) }; });
+                    }).then(function (u) {
+                        if (!u || !u.ok) return null;
+                        return sendCouponSms(c.patient_id, body).then(function (res) {
+                            if (res && res.ok) { sent++; return null; }
+                            if (res && (res.reason === 'no_phone')) return null;
+                            return dcWrite('dc_expiry_sms_claim', { p_coupon_id: c.id, p_column: claimCol, p_claim: false }, function () {
                                 return SB.from('discount_coupons').update(unclaim).eq('id', c.id);
                             });
                         });
+                    });
                 });
             });
             return seq.then(function () { return { ok: true, checked: rows.length, sent: sent }; });
@@ -4380,21 +4475,31 @@ var COUPONS = (function () {
     function claimYearEndSms(scheme, year, stage, personKeys, patientId) {
         var keys = [].concat(personKeys || []).filter(Boolean);
         if (!keys.length) return Promise.resolve(null);
-        return Promise.resolve(SB.from(YEAR_END_SMS_TABLE)
-            .insert(keys.map(function (k) { return { scheme: scheme, year: year, stage: stage, person_key: k, patient_id: patientId || null }; }))
-            .select('id'))
-            .then(function (r) {
-                return r && !r.error && r.data && r.data.length ? r.data.map(function (x) { return x.id; }) : null;
-            }, function () { return null; });
+        return dcWrite('loyalty_yearend_claim', {
+            p_scheme: scheme, p_year: year, p_stage: stage, p_person_keys: keys, p_patient_id: patientId || null
+        }, function () {
+            return Promise.resolve(SB.from(YEAR_END_SMS_TABLE)
+                .insert(keys.map(function (k) { return { scheme: scheme, year: year, stage: stage, person_key: k, patient_id: patientId || null }; }))
+                .select('id'))
+                .then(function (r) {
+                    var ids = r && !r.error && r.data && r.data.length ? r.data.map(function (x) { return x.id; }) : null;
+                    return { ok: !!ids, data: ids };
+                });
+        }).then(function (r) {
+            return r && r.ok && Array.isArray(r.data) && r.data.length ? r.data : null;
+        }, function () { return null; });
     }
 
     /** Sent and no-phone claims stay; a failed send gives the claim back so the next run retries. */
     function finishYearEndSms(ids, res, phone) {
         if (!ids || !ids.length) return Promise.resolve(null);
-        var q = res && (res.ok || res.reason === 'no_phone')
-            ? SB.from(YEAR_END_SMS_TABLE).update({ status: res.ok ? 'sent' : 'no_phone', to_phone: phone || null, sent_at: new Date().toISOString() }).in('id', ids)
-            : SB.from(YEAR_END_SMS_TABLE).delete().in('id', ids);
-        return Promise.resolve(q).then(function () { return null; }, function () { return null; });
+        var keep = !!(res && (res.ok || res.reason === 'no_phone'));
+        var status = keep ? (res.ok ? 'sent' : 'no_phone') : 'release';
+        return dcWrite('loyalty_yearend_finish', { p_ids: ids, p_status: status, p_phone: keep ? (phone || null) : null }, function () {
+            return keep
+                ? SB.from(YEAR_END_SMS_TABLE).update({ status: status, to_phone: phone || null, sent_at: new Date().toISOString() }).in('id', ids)
+                : SB.from(YEAR_END_SMS_TABLE).delete().in('id', ids);
+        }).then(function () { return null; }, function () { return null; });
     }
 
     /** One SMS per patient holding coupons that last to 31 Dec, on 30 Nov and 24 Dec (HK), when Set zero is on year end. */
@@ -4522,7 +4627,8 @@ var COUPONS = (function () {
                     return loadWallet(p.patientId).then(function (w) {
                         var gate = canIssue(w, p.campaign);
                         if (!gate.ok) return null;
-                        return insertCoupon(issueRecord(p.campaign, p.patientId, { clinicCode: clinicCode }), p.sms);
+                        return insertCoupon(issueRecord(p.campaign, p.patientId, { clinicCode: clinicCode }), p.sms, null,
+                            { kind: p.campaign.trigger === 'referral' ? 'referral' : 'new_chart' });
                     });
                 });
             });
@@ -4914,11 +5020,20 @@ var COUPONS = (function () {
                     clinic_code: clinicCode || null,
                     created_by: actorName() || null
                 };
-                return SB.from(REF_TABLE).insert([rec]).select('id').then(function (r) {
-                    if (r && r.error) return { ok: false, reason: 'insert', error: r.error.message };
+                return dcWrite('dc_referral_register', {
+                    p_referred_id: rec.referred_patient_id, p_referrer_id: rec.referrer_patient_id,
+                    p_referred_no: rec.referred_no, p_referrer_no: rec.referrer_no, p_kind: rec.reward_kind,
+                    p_status: rec.status, p_reason: rec.reason, p_clinic_code: rec.clinic_code, p_created_by: rec.created_by
+                }, function () {
+                    return SB.from(REF_TABLE).insert([rec]).select('id').then(function (r) {
+                        if (r && r.error) return { ok: false, error: r.error.message };
+                        return { ok: true, id: (r.data && r.data[0] && r.data[0].id) || null };
+                    });
+                }).then(function (r) {
+                    if (!r || !r.ok) return { ok: false, reason: 'insert', error: (r && (r.error || r.reason)) || '' };
                     logCoupon('REFERRAL', 'Referral (' + kind + ') ' + plan.status + ': #' + (friend.patient_no || '') + ' referred by #' +
                         (ref.patient_no || '') + (plan.reason ? ' (' + plan.reason + ')' : ''), friend.patient_no || null,
-                        (r.data && r.data[0] && r.data[0].id) || null);
+                        r.id || null);
                     couponNotice('🤝 ' + referralPreviewText(plan, ref, br.camp, br.pointsCfg));
                     return { ok: true, status: plan.status, reason: plan.reason, kind: kind };
                 });
@@ -4946,6 +5061,13 @@ var COUPONS = (function () {
         return SB.from(REF_TABLE).update(patch).eq('id', rec.id);
     }
 
+    /** action: note | claim | retry | points | reopen | points_spent | void (dc_referral_set); fallback is the old direct write. */
+    function setReferral(rec, action, args, fallback) {
+        return dcWrite('dc_referral_set', Object.assign({
+            p_id: rec.id, p_action: action, p_bill_id: null, p_reason: null, p_ledger_id: null, p_points: null
+        }, args || {}), fallback);
+    }
+
     /** Coupon branch: HK$ coupon into the referrer's wallet + coupon SMS. */
     function rewardReferralCoupon(rec, info, camp, friend, plan) {
         var row = issueRecord(camp, rec.referrer_patient_id, {
@@ -4954,12 +5076,21 @@ var COUPONS = (function () {
             originBillId: info.billId,
             note: 'Referral: #' + (rec.referred_no || friend.patient_no || '')
         });
-        return insertCoupon(row, camp.sms !== false, { thanks: maskName(friend) }).then(function (saved) {
+        return insertCoupon(row, camp.sms !== false, { thanks: maskName(friend) }, {
+            kind: 'referral', billId: info.billId, referralId: rec.id
+        }).then(function (saved) {
             var done = saved && saved.ok;
-            return finishReferral(rec, done
-                ? { status: 'issued', coupon_id: saved.id || null, reason: null, issued_at: nowIso() }
-                : { status: 'pending', trigger_bill_id: null, reason: 'insert_failed' }).then(function () {
-                if (!done) return { ok: false, reason: 'insert_failed' };
+            if (done && saved.row) row = saved.row;
+            var why = !done && saved && saved.viaDb && saved.reason ? saved.reason : 'insert_failed';
+            var mark = done && saved.viaDb
+                ? Promise.resolve()
+                : done
+                    ? finishReferral(rec, { status: 'issued', coupon_id: saved.id || null, reason: null, issued_at: nowIso() })
+                    : setReferral(rec, 'retry', { p_reason: why }, function () {
+                        return finishReferral(rec, { status: 'pending', trigger_bill_id: null, reason: 'insert_failed' });
+                    });
+            return mark.then(function () {
+                if (!done) return { ok: false, reason: why };
                 logCoupon('ISSUE', 'Referral coupon ' + (saved.code || row.code) + ' HK$' + round2(row.face_value).toFixed(2) +
                     ' to #' + (rec.referrer_no || '') + ' for referring #' + (rec.referred_no || ''),
                     rec.referrer_no || null, saved.id || null);
@@ -4985,9 +5116,14 @@ var COUPONS = (function () {
             return { ok: false, error: String(e && e.message || e) };
         }).then(function (res) {
             var done = !!(res && res.ok && !res.skipped);
-            return finishReferral(rec, done
-                ? { status: 'issued', ledger_id: res.ledger_id || null, points: round2(res.points || plan.points), reason: null, issued_at: nowIso() }
-                : { status: 'pending', trigger_bill_id: null, reason: 'insert_failed' }).then(function () {
+            var mark = done
+                ? setReferral(rec, 'points', { p_ledger_id: res.ledger_id || null, p_points: round2(res.points || plan.points) }, function () {
+                    return finishReferral(rec, { status: 'issued', ledger_id: res.ledger_id || null, points: round2(res.points || plan.points), reason: null, issued_at: nowIso() });
+                })
+                : setReferral(rec, 'retry', null, function () {
+                    return finishReferral(rec, { status: 'pending', trigger_bill_id: null, reason: 'insert_failed' });
+                });
+            return mark.then(function () {
                 if (!done) return { ok: false, reason: 'insert_failed', error: res && res.error };
                 logCoupon('ISSUE', 'Referral points +' + round2(res.points || plan.points).toFixed(2) + ' to #' + (rec.referrer_no || '') +
                     ' for referring #' + (rec.referred_no || ''), rec.referrer_no || null, res.ledger_id || null);
@@ -5027,14 +5163,22 @@ var COUPONS = (function () {
                     var held = referralHeldText(rec, plan, info.cashPaid, points ? (extra.pointsConfig || {}).minFirstSpend : camp && camp.minFirstSpend);
                     couponNotice(held.body, held.title, 'held');
                     if (plan.reason !== rec.reason) {
-                        SB.from(REF_TABLE).update({ reason: plan.reason, updated_at: nowIso() })
-                            .eq('id', rec.id).eq('status', 'pending').then(function () {}, function () {});
+                        setReferral(rec, 'note', { p_reason: plan.reason }, function () {
+                            return SB.from(REF_TABLE).update({ reason: plan.reason, updated_at: nowIso() })
+                                .eq('id', rec.id).eq('status', 'pending');
+                        });
                     }
                     return { ok: false, reason: plan.reason, kind: rec.reward_kind || 'coupon' };
                 }
-                return SB.from(REF_TABLE).update({ status: 'issuing', trigger_bill_id: info.billId, updated_at: nowIso() })
-                    .eq('id', rec.id).eq('status', 'pending').select('id').then(function (claim) {
-                        if (!claim || claim.error || !claim.data || !claim.data.length) return { ok: false, reason: 'taken' };
+                return setReferral(rec, 'claim', { p_bill_id: info.billId }, function () {
+                    return SB.from(REF_TABLE).update({ status: 'issuing', trigger_bill_id: info.billId, updated_at: nowIso() })
+                        .eq('id', rec.id).eq('status', 'pending').select('id').then(function (claim) {
+                            return { ok: !!(claim && !claim.error && claim.data && claim.data.length) };
+                        });
+                }).then(function (claim) {
+                        if (!claim || !claim.ok) return { ok: false, reason: 'taken' };
+                        rec.status = 'issuing';
+                        rec.trigger_bill_id = info.billId;
                         return SB.from('patients').select(REF_PATIENT_COLS).eq('id', info.patientId).maybeSingle()
                             .then(function (fr) { return (fr && fr.data) || {}; }, function () { return {}; })
                             .then(function (friend) {
@@ -5084,21 +5228,24 @@ var COUPONS = (function () {
             var rows = ((r && r.data) || []).filter(function (rec) { return rec && keep.indexOf(String(rec.id)) < 0; });
             var ids = referralsToReopen(rows, cancelledIds);
             var reopenPatch = { status: 'pending', coupon_id: null, ledger_id: null, trigger_bill_id: null, issued_at: null, reason: 'bill_voided' };
-            var jobs = ids.map(function (id) {
-                return SB.from(REF_TABLE).update(Object.assign({ updated_at: nowIso() }, reopenPatch)).eq('id', id);
-            });
+            function reopen(id) {
+                return setReferral({ id: id }, 'reopen', { p_reason: 'bill_voided' }, function () {
+                    return SB.from(REF_TABLE).update(Object.assign({ updated_at: nowIso() }, reopenPatch)).eq('id', id);
+                });
+            }
+            var jobs = ids.map(reopen);
             referralPointsToReverse(rows).forEach(function (rec) {
                 jobs.push(reversePointsReferral(rec, 'bill voided').then(function (res) {
                     if (res && res.ok) {
                         ids.push(String(rec.id));
                         logCoupon('CANCEL', 'Referral points -' + round2(rec.points).toFixed(2) + ' taken back from #' + (rec.referrer_no || '') +
                             ' (bill voided)', rec.referrer_no || null, rec.ledger_id || null);
-                        return finishReferral(rec, Object.assign({}, reopenPatch));
+                        return reopen(rec.id);
                     }
                     logCoupon('CANCEL', 'Referral points +' + round2(rec.points).toFixed(2) + ' for #' + (rec.referrer_no || '') +
                         ' already used; not taken back', rec.referrer_no || null, billId);
                     couponNotice('🤝 ' + referralReason('points_spent') + ': #' + (rec.referrer_no || '') + ' +' + round2(rec.points).toFixed(0));
-                    return finishReferral(rec, { reason: 'points_spent' });
+                    return setReferral(rec, 'points_spent', null, function () { return finishReferral(rec, { reason: 'points_spent' }); });
                 }));
             });
             return Promise.all(jobs).then(function () { return ids; });
@@ -5115,14 +5262,16 @@ var COUPONS = (function () {
                 return Promise.all(rows.map(function (rec) {
                     var jobs = [];
                     var friendGone = String(rec.referred_patient_id) === String(patientId);
-                    if (friendGone && rec.coupon_id) {
-                        jobs.push(SB.from('discount_coupons').update({ status: 'void', note: 'Referred chart deleted' })
-                            .eq('id', rec.coupon_id).eq('status', 'unused'));
-                    }
                     if (friendGone && referralPointsToReverse([rec]).length) jobs.push(reversePointsReferral(rec, 'chart deleted'));
                     if (rec.status !== 'void') {
-                        jobs.push(SB.from(REF_TABLE).update({ status: 'void', reason: 'chart_deleted', updated_at: nowIso() })
-                            .eq('id', rec.id));
+                        jobs.push(setReferral(rec, 'void', null, function () {
+                            var legacy = [SB.from(REF_TABLE).update({ status: 'void', reason: 'chart_deleted', updated_at: nowIso() }).eq('id', rec.id)];
+                            if (friendGone && rec.coupon_id) {
+                                legacy.push(SB.from('discount_coupons').update({ status: 'void', note: 'Referred chart deleted' })
+                                    .eq('id', rec.coupon_id).eq('status', 'unused'));
+                            }
+                            return Promise.all(legacy);
+                        }));
                     }
                     return Promise.all(jobs);
                 })).then(function () { return { ok: true, n: rows.length }; });
@@ -5623,8 +5772,8 @@ var COUPONS = (function () {
                             clinicCode: clinicCode,
                             originBillId: info.billId
                         });
-                        return insertCoupon(row, true).then(function (saved) {
-                            if (saved && saved.ok) issued.push({ campaign: p.campaign, row: row });
+                        return insertCoupon(row, true, null, { kind: 'spend', billId: info.billId }).then(function (saved) {
+                            if (saved && saved.ok) issued.push({ campaign: p.campaign, row: saved.row || row });
                             return saved;
                         });
                     });
@@ -5707,6 +5856,7 @@ var COUPONS = (function () {
             .then(function (r) {
                 var u = r && !r.error && r.data && r.data[0];
                 if (!u || SHARED_LOGIN_IDS[String(u.user_id || '').toLowerCase()]) return { ok: false, reason: 'creds' };
+                Object.defineProperty(u, '__pw', { value: pw, enumerable: false });
                 return { ok: true, user: u };
             }, function () { return { ok: false, reason: 'creds' }; });
     }
@@ -5734,21 +5884,8 @@ var COUPONS = (function () {
                 }
                 var plan = planBillVoid(bill, rows);
                 var jobs = [];
-                plan.restore.forEach(function (id) {
-                    jobs.push(SB.from('discount_coupons').update({
-                        status: 'unused',
-                        bill_id: null,
-                        redeemed_amount: null,
-                        redeemed_at: null,
-                        line_name: null
-                    }).eq('id', id));
-                });
-                plan.cancel.forEach(function (id) {
-                    jobs.push(SB.from('discount_coupons').update({
-                        status: 'void',
-                        note: 'Voided with bill'
-                    }).eq('id', id).eq('status', 'unused'));
-                });
+                if (plan.restore.length) jobs.push(releaseBillCoupons(billId, plan.restore));
+                jobs.push(voidEarnedCoupons(billId, plan.cancel, 'Voided with bill'));
                 jobs.push(SB.from('bills').update({ coupon_id: null }).eq('id', billId));
                 return Promise.all(jobs).then(function () {
                     if (plan.restore.length) {
@@ -5821,11 +5958,7 @@ var COUPONS = (function () {
                 var kept = both[1];
                 var plan = planPaymentVoid({ id: billId }, (r && r.data) || [], info.balanceAfter);
                 plan.cancel = plan.cancel.filter(function (id) { return kept.couponIds.indexOf(String(id)) < 0; });
-                var jobs = plan.cancel.map(function (id) {
-                    return SB.from('discount_coupons').update({ status: 'void', note: 'Voided with payment' })
-                        .eq('id', id).eq('status', 'unused');
-                });
-                return Promise.all(jobs).then(function () {
+                return voidEarnedCoupons(billId, plan.cancel, 'Voided with payment').then(function () {
                     if (plan.cancel.length) {
                         logCoupon('CANCEL', 'Void payment took back spend coupon ' + plan.cancel.join(','), null, billId);
                         couponNotice(ct('coupons.void.payment', 'Payment voided: the spend coupon earned by this bill was taken back. It is issued again when the bill is fully paid.'));
@@ -5866,6 +5999,10 @@ var COUPONS = (function () {
         if (code === 'automatic') return ct('coupons.grant.automatic', 'This coupon is issued automatically');
         if (code === 'campaign_off') return ct('coupons.grant.off', 'Turn this coupon on in Configuration');
         if (code === 'no_items') return ct('coupons.grant.items', 'Tick the treatments for this coupon in Configuration');
+        if (code === 'db' || code === 'offline') return ct('coupons.save.fail', 'Could not save. Check the connection and try again.');
+        if (code === 'bill_paid') return ct('coupons.bill.paidLock', 'This bill is fully paid; its coupons cannot change. Void the bill to undo.');
+        if (code === 'excluded_method') return excludedText();
+        if (code === 'used') return ct('coupons.bill.usedElsewhere', 'This coupon was already used on another bill');
         if (code === 'role') return ct('coupons.grant.role', 'This login cannot gift coupons');
         if (code === 'budget') return ct('coupons.grant.budget', 'This coupon has reached its budget');
         if (code === 'issue_cap') return ct('coupons.grant.cap', 'This coupon has reached its issue limit');
@@ -5902,8 +6039,11 @@ var COUPONS = (function () {
                     issuedBy: grantorName(grantor),
                     note: 'Gifted into wallet' + screenLoginSuffix(grantor)
                 });
-                return insertCoupon(row, camp.sms !== false).then(function (saved) {
+                return insertCoupon(row, camp.sms !== false, null, {
+                    kind: 'gift', amount: plan.campaignKey === 'cash' ? plan.amount : null, grantor: grantor
+                }).then(function (saved) {
                     if (!saved || !saved.ok) return saved;
+                    if (saved.row) row = saved.row;
                     return logCoupon('GRANT', (camp.nameZh || camp.key) + ' HK$' + round2(row.face_value).toFixed(2) +
                         ' code ' + (saved.code || row.code) + ' to ' + (patientNo || patientId) + screenLoginSuffix(grantor),
                         patientNo || null, saved.id || null, grantor).then(function (logged) {
@@ -5942,12 +6082,16 @@ var COUPONS = (function () {
             });
             if (!plan.ok) return plan;
             if (typeof SB === 'undefined' || !SB) return { ok: false, reason: 'no_db' };
-            return SB.from('discount_coupons').update({
-                patient_id: toPatient.id,
-                note: 'Transferred from ' + (fromPatientNo || coupon.patient_id || '') + ' by ' + grantorName(grantor) +
-                    screenLoginSuffix(grantor)
-            }).eq('id', coupon.id).eq('status', 'unused').then(function (r) {
-                if (r.error) return { ok: false, error: r.error.message };
+            var note = 'Transferred from ' + (fromPatientNo || coupon.patient_id || '') + ' by ' + grantorName(grantor) +
+                screenLoginSuffix(grantor);
+            return dcWrite('dc_transfer_coupon', {
+                p_coupon_id: coupon.id, p_to_patient_id: toPatient.id,
+                p_user: grantor.user_id, p_password: grantor.__pw || null, p_note: note
+            }, function () {
+                return SB.from('discount_coupons').update({ patient_id: toPatient.id, note: note })
+                    .eq('id', coupon.id).eq('status', 'unused');
+            }).then(function (r) {
+                if (!r || !r.ok) return { ok: false, reason: r && r.reason, error: r && r.error };
                 return logCoupon('TRANSFER', transferDetail(coupon, fromPatientNo, toPatient) + screenLoginSuffix(grantor),
                     toPatient.patient_no || null, coupon.id, grantor).then(function (logged) {
                     return { ok: true, logged: logged };
@@ -6052,6 +6196,12 @@ var COUPONS = (function () {
         yearEndReminderStage: yearEndReminderStage,
         smsYearEndCoupons: smsYearEndCoupons,
         sendYearEndCouponReminders: sendYearEndCouponReminders,
+        dcWrite: dcWrite,
+        dcFnMissing: dcFnMissing,
+        insertCoupon: insertCoupon,
+        applyToBill: applyToBill,
+        releaseBillCoupons: releaseBillCoupons,
+        voidEarnedCoupons: voidEarnedCoupons,
         claimYearEndSms: claimYearEndSms,
         finishYearEndSms: finishYearEndSms,
         todayIso: todayIso,

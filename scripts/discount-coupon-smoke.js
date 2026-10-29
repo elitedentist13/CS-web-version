@@ -577,6 +577,10 @@ function loadCoupons() {
             log: log,
             rpc: function (fn, args) {
                 log.push({ t: 'rpc', fn: fn, args: args });
+                if (/^(dc_|loyalty_yearend)/.test(fn) && !(db.__dcRpc && db.__dcRpc[fn])) {
+                    return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + fn + ' in the schema cache' } });
+                }
+                if (db.__dcRpc && db.__dcRpc[fn]) return Promise.resolve(db.__dcRpc[fn](args));
                 return Promise.resolve(db.__rpc ? db.__rpc(fn, args) : { data: null, error: { message: 'no rpc' } });
             },
             from: function (table) {
@@ -766,8 +770,8 @@ function loadCoupons() {
     })(), JSON.stringify(RC.referralHeldText({ referrer_no: '1', referred_no: '2' }, { reason: 'clinic' }, 300, 300)));
     pass('a payment that does not activate the pending referral pops the held notice',
         /if \(!plan\.ok\) \{\s*var held = referralHeldText\(rec, plan, info\.cashPaid,[\s\S]{0,120}couponNotice\(held\.body, held\.title, 'held'\)/.test(src));
-    pass('both referral rewards pop the bonus mini-notification', /function rewardReferralCoupon[\s\S]{0,1600}referralBonusText\('coupon'[\s\S]{0,120}couponNotice\(note\.body, note\.title\)/.test(src) &&
-        /function rewardReferralPoints[\s\S]{0,2000}referralBonusText\('points'[\s\S]{0,140}couponNotice\(note\.body, note\.title\)/.test(src));
+    pass('both referral rewards pop the bonus mini-notification', /function rewardReferralCoupon[\s\S]{0,2600}referralBonusText\('coupon'[\s\S]{0,120}couponNotice\(note\.body, note\.title\)/.test(src) &&
+        /function rewardReferralPoints[\s\S]{0,2800}referralBonusText\('points'[\s\S]{0,140}couponNotice\(note\.body, note\.title\)/.test(src));
     var patSrc = read('app-patient.js');
     pass('patient form passes the picked referrer id and reward kind on register',
         /COUPONS\.onPatientCreated\(row, payload\.referred_by, extra\.referrer_id, extra\.referral_kind\)/.test(patSrc));
@@ -916,7 +920,7 @@ function loadCoupons() {
     pass('points flow: HK$299 below the points minimum waits', pLow.reason === 'below_min' && pRecs[0].status === 'pending' &&
         ptDb.reward_accounts[0].balance === 50, JSON.stringify(pLow));
     var pPaid = await PC.referralOnBillPaid({ patientId: 'pf', billId: 'bill-P1', cashPaid: 680, clinicCode: 'KT' });
-    var credit = ptSb.log.filter(function (l) { return l.t === 'rpc' && l.fn !== 'rw_wallet_link'; });
+    var credit = ptSb.log.filter(function (l) { return l.t === 'rpc' && !/^(rw_wallet_link|dc_|loyalty_yearend)/.test(l.fn); });
     pass('points flow: paid HK$680 credits +100 via reward_adjust with a note', pPaid.ok && pPaid.kind === 'points' && credit.length === 1 &&
         credit[0].args.p_patient_id === 'old' && credit[0].args.p_points_delta === 100 && credit[0].args.p_note === 'Referral: #000555' &&
         ptDb.reward_accounts[0].balance === 150, JSON.stringify(pPaid));
@@ -930,10 +934,10 @@ function loadCoupons() {
         ptLines[2] === '結餘/Balance (KT): 150.00' && ptLines[3] === '總結餘/All-clinic total: 150.00' &&
         ptLines.indexOf('參考/Ref: 多謝介紹 張** / thanks for referring 張**') > 0, ptLines.join(' | '));
     pass('points flow: a second paid visit does not credit again', (await PC.referralOnBillPaid({ patientId: 'pf', billId: 'bill-P2', cashPaid: 900, clinicCode: 'KT' })).skipped === true &&
-        ptSb.log.filter(function (l) { return l.t === 'rpc' && l.fn !== 'rw_wallet_link'; }).length === 1);
+        ptSb.log.filter(function (l) { return l.t === 'rpc' && !/^(rw_wallet_link|dc_|loyalty_yearend)/.test(l.fn); }).length === 1);
     await PC.onBillVoided({ id: 'bill-P1', patient_id: 'pf' });
     await settle();
-    var rev = ptSb.log.filter(function (l) { return l.t === 'rpc' && l.fn !== 'rw_wallet_link'; })[1];
+    var rev = ptSb.log.filter(function (l) { return l.t === 'rpc' && !/^(rw_wallet_link|dc_|loyalty_yearend)/.test(l.fn); })[1];
     pass('points flow: voiding the friend’s bill takes the 100 points back', rev && rev.args.p_points_delta === -100 && /bill voided/.test(rev.args.p_note) &&
         ptDb.reward_accounts[0].balance === 50, JSON.stringify(rev && rev.args));
     pass('points flow: and the referral goes back to pending', pRecs[0].status === 'pending' && !pRecs[0].ledger_id && pRecs[0].reason === 'bill_voided',
@@ -1048,14 +1052,14 @@ function loadCoupons() {
     pass('expiry SMS uses the same layout and lists the wallet', shape(remind) === shape(rewardSms) &&
         remind.indexOf('變動/Change: 免費洗牙 Free scaling 免費/Free 3日內到期 (2026-10-30) / expires in 3 days') >= 0 &&
         remind.indexOf('(DC-A1)') >= 0 && remind.indexOf('備註/Note:') >= 0, remind);
-    pass('coupon SMS reads the wallet at send time', /sendCouponSms\(row\.patient_id, function \(wallet\)/.test(src) &&
+    pass('coupon SMS reads the wallet at send time', /sendCouponSms\(saved\.patient_id, function \(wallet\)/.test(src) &&
         /typeof body === 'function' \? loadWallet\(patientId\)/.test(src));
     pass('SMS phone link line: coupons and points wording, nothing added without a link',
         C.smsWithPhoneLink('A\nB', 'https://a.example/wallet.html?t=x', 'coupons') === 'A\nB\n手機查看優惠券/See your coupons on the phone: https://a.example/wallet.html?t=x' &&
         C.smsWithPhoneLink('A', 'https://a.example/points.html?t=y', 'rewards') === 'A\n手機查看積分/See your points on the phone: https://a.example/points.html?t=y' &&
         C.smsWithPhoneLink('A', '', 'coupons') === 'A' && C.smsWithPhoneLink('', 'https://a.example/w', 'coupons') === '');
     pass('coupon issue SMS asks for the phone link; expiry and year-end reminders do not',
-        /sendCouponSms\(row\.patient_id, function \(wallet\) \{[\s\S]{0,200}\}, \{ phoneLink: true \}\)/.test(src) &&
+        /sendCouponSms\(saved\.patient_id, function \(wallet\) \{[\s\S]{0,200}\}, \{ phoneLink: true \}\)/.test(src) &&
         /sendCouponSms\(c\.patient_id, body\)/.test(src) && /phoneLinkForSms\(patientId, 'dc_wallet_link', 'wallet\.html'\)/.test(src));
     var linkCalls = [];
     var linkMode = 'ok';
@@ -1847,6 +1851,197 @@ function loadCoupons() {
         pass('API probe', false, e && e.message);
     }
 
+    console.log('\n=== Coupon writes through database functions (loyalty_security.sql) ===');
+    var secSql = read('loyalty_security.sql');
+    ['dc_issue_coupon', 'dc_bill_set_coupons', 'dc_bill_release', 'dc_void_earned', 'dc_transfer_coupon', 'dc_expiry_sms_claim',
+        'dc_referral_register', 'dc_referral_set', 'loyalty_yearend_claim', 'loyalty_yearend_finish'].forEach(function (fn) {
+        pass('SQL defines ' + fn + ' (security definer, granted to anon)',
+            new RegExp('create or replace function public\\.' + fn + '\\(').test(secSql) &&
+            new RegExp('grant execute on function public\\.' + fn + '\\([^)]*\\) to anon').test(secSql));
+    });
+    pass('SQL turns off direct writes to the coupon tables',
+        /revoke insert, update, delete on public\.discount_coupons from anon, authenticated/.test(secSql) &&
+        /revoke insert, update, delete on public\.discount_coupon_referrals from anon, authenticated/.test(secSql) &&
+        /revoke insert, update, delete on public\.loyalty_yearend_sms from anon, authenticated/.test(secSql));
+    pass('SQL keeps one settings row per key (dedupe + unique key)',
+        /delete from public\.program_settings p/.test(secSql) && /create unique index if not exists program_settings_key_clinic_uniq/.test(secSql));
+    pass('SQL staff password check is not callable from the browser',
+        /revoke all on function public\.dc_check_staff\(text, text\) from public, anon, authenticated/.test(secSql));
+    pass('SQL campaign defaults match CAMPAIGN_DEFS (referral ladder, spend targets, holds)',
+        /"referral":\s*\{[^}]*"minFirstSpend":500,"refPercent":10,"refMax":1000,"refStep":10/.test(secSql) &&
+        /"spend_1":\s*\{[^}]*"face":100,"target":1000/.test(secSql) && /"spend_3":\s*\{[^}]*"face":1000,"target":10000/.test(secSql) &&
+        /key: 'referral'[^}]*minFirst: 500, refPercent: 10, refMax: 1000, refStep: 10/.test(src));
+
+    var pgRun = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'loyalty-security-sql-test.js')], { encoding: 'utf8', timeout: 120000 });
+    var pgOut = String(pgRun.stdout || '') + String(pgRun.stderr || '');
+    if (/^SKIP/m.test(pgOut)) {
+        pass('SQL run on in-memory Postgres (PGlite not installed: skipped)', true);
+    } else {
+        var pgSum = pgOut.match(/(\d+) passed, (\d+) failed/);
+        pass('SQL run on in-memory Postgres: every rule check passes', pgRun.status === 0 && pgSum && pgSum[2] === '0',
+            pgSum ? pgSum[0] : pgOut.slice(-400));
+    }
+
+    var wr = { rpc: [], from: [], mode: 'missing', reply: null, bills: [], coupons: [] };
+    function wrQuery(table) {
+        var q = { _t: table, _op: 'select', _body: null, _eq: [] };
+        ['select', 'eq', 'is', 'in', 'or', 'order', 'limit', 'lt', 'gt', 'lte', 'gte'].forEach(function (m) {
+            q[m] = function (a, b) { if (m === 'eq') q._eq.push([a, b]); return q; };
+        });
+        q.insert = function (rows) { q._op = 'insert'; q._body = rows; return q; };
+        q.update = function (b) { q._op = 'update'; q._body = b; return q; };
+        q.delete = function () { q._op = 'delete'; return q; };
+        q.maybeSingle = function () { return Promise.resolve({ data: { phone_number: '91234567', full_name: 'NG PUI CHING' }, error: null }); };
+        q.then = function (res, rej) {
+            wr.from.push({ t: table, op: q._op, body: q._body, eq: q._eq });
+            var data = q._op === 'insert' ? (q._body || []).map(function (r, i) { return Object.assign({ id: 'new-' + i }, r); }) : [];
+            return Promise.resolve({ data: data, error: null }).then(res, rej);
+        };
+        return q;
+    }
+    var wrCtx = {
+        console: console, setTimeout: setTimeout, clearTimeout: clearTimeout,
+        localStorage: { getItem: function () { return null; }, setItem: function () {} },
+        SB: {
+            from: wrQuery,
+            rpc: function (fn, args) {
+                wr.rpc.push({ fn: fn, args: args });
+                if (/wallet_link$/.test(fn)) return Promise.resolve({ data: null, error: { message: 'Could not find the function public.' + fn } });
+                if (wr.mode === 'missing') return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + fn + ' in the schema cache' } });
+                if (wr.mode === 'error') return Promise.resolve({ data: null, error: { code: '22P02', message: 'invalid input syntax for type uuid' } });
+                return Promise.resolve({ data: typeof wr.reply === 'function' ? wr.reply(fn, args) : wr.reply, error: null });
+            }
+        }
+    };
+    var wrSms = [];
+    wrCtx.AIHELPER = { sendTwilioOutreach: function (o) { wrSms.push(o); return Promise.resolve({ ok: true }); } };
+    wrCtx.window = wrCtx;
+    wrCtx.document = {
+        getElementById: function () { return null; }, querySelector: function () { return null; },
+        querySelectorAll: function () { return []; }, createElement: function () { return { style: {}, setAttribute: function () {}, appendChild: function () {} }; },
+        head: { appendChild: function () {} }, body: { appendChild: function () {} }
+    };
+    vm.createContext(wrCtx);
+    vm.runInContext(src, wrCtx, { filename: 'app-coupons.js' });
+    var WC = wrCtx.COUPONS;
+    var wrRow = { code: 'DC-LOCAL', campaign_key: 'spend_1', patient_id: 'pt-001003', face_value: 100, discount_mode: 'amount',
+        status: 'unused', expires_on: '2027-04-27', clinic_code: 'KT', origin_bill_id: 'bill-1' };
+
+    var miss = await WC.dcWrite('dc_issue_coupon', { p_kind: 'spend' }, function () { return { ok: true, legacy: 1 }; });
+    var miss2 = await WC.dcWrite('dc_issue_coupon', { p_kind: 'spend' }, function () { return { ok: true, legacy: 2 }; });
+    pass('before the SQL is run: falls back to the old write, and stops asking after the first miss',
+        miss.ok && miss.legacy === 1 && miss2.legacy === 2 && wr.rpc.filter(function (c) { return c.fn === 'dc_issue_coupon'; }).length === 1,
+        JSON.stringify(wr.rpc));
+    pass('missing-function detection: PGRST202 / schema cache / 42883 only',
+        WC.dcFnMissing({ code: 'PGRST202' }, 'x') && WC.dcFnMissing({ message: 'Could not find the function public.dc_bill_release in the schema cache' }, 'dc_bill_release') &&
+        WC.dcFnMissing({ code: '42883', message: 'function does not exist' }, 'y') && !WC.dcFnMissing({ code: '22P02', message: 'bad uuid' }, 'dc_bill_release'));
+
+    vm.runInContext(src, wrCtx, { filename: 'app-coupons.js' });
+    WC = wrCtx.COUPONS;
+    wr.mode = 'error';
+    var dbErr = await WC.dcWrite('dc_bill_release', { p_bill_id: 'b' }, function () { throw new Error('fallback must not run'); });
+    pass('a real database error is reported, the old write is not tried', !dbErr.ok && dbErr.reason === 'db' && /uuid/.test(dbErr.error), JSON.stringify(dbErr));
+
+    wr.mode = 'ok';
+    wr.rpc = []; wr.from = []; wrSms.length = 0;
+    wr.reply = function (fn, a) {
+        if (fn !== 'dc_issue_coupon') return { ok: true };
+        return { ok: true, id: 'srv-1', code: 'DC-SRV001', row: Object.assign({}, wrRow, { id: 'srv-1', code: 'DC-SRV001', face_value: 230, expires_on: '2027-04-27' }) };
+    };
+    var srvIssue = await WC.insertCoupon(Object.assign({}, wrRow, { campaign_key: 'referral', face_value: 999 }), true, null,
+        { kind: 'referral', billId: 'bill-1', referralId: 'ref-1' });
+    await new Promise(function (r) { setTimeout(r, 30); });
+    var issueCall = wr.rpc.filter(function (c) { return c.fn === 'dc_issue_coupon'; })[0];
+    pass('issue goes through dc_issue_coupon with the bill and referral, no direct insert',
+        srvIssue.ok && srvIssue.viaDb && issueCall && issueCall.args.p_kind === 'referral' && issueCall.args.p_bill_id === 'bill-1' &&
+        issueCall.args.p_referral_id === 'ref-1' && !wr.from.some(function (f) { return f.t === 'discount_coupons' && f.op !== 'select'; }),
+        JSON.stringify({ srvIssue: srvIssue, from: wr.from }));
+    pass('the server\u2019s value and code are used (not the desk\u2019s)', srvIssue.code === 'DC-SRV001' && srvIssue.row.face_value === 230 &&
+        wrSms.length === 1 && wrSms[0].body.indexOf('DC-SRV001') >= 0 && wrSms[0].body.indexOf('230') >= 0,
+        JSON.stringify(wrSms.map(function (s) { return s.body; })));
+
+    wr.reply = { ok: false, reason: 'wait_full' };
+    var refused = await WC.insertCoupon(Object.assign({}, wrRow), true, null, { kind: 'spend', billId: 'bill-1' });
+    pass('server refusal comes back with its reason; nothing written, no SMS', !refused.ok && refused.reason === 'wait_full' && wrSms.length === 1,
+        JSON.stringify(refused));
+
+    var grantor = { user_id: 'drchan', role: 'doctor' };
+    Object.defineProperty(grantor, '__pw', { value: 'secret', enumerable: false });
+    wr.rpc = [];
+    wr.reply = { ok: true, id: 'g1', code: 'DC-G1', row: Object.assign({}, wrRow, { campaign_key: 'cash', face_value: 150 }) };
+    await WC.insertCoupon(Object.assign({}, wrRow, { campaign_key: 'cash' }), false, null, { kind: 'gift', amount: 150, grantor: grantor });
+    var giftArgs = wr.rpc[0] && wr.rpc[0].args;
+    pass('gift sends the giver\u2019s own login + password for the server check, password never in JSON',
+        giftArgs && giftArgs.p_user === 'drchan' && giftArgs.p_password === 'secret' && giftArgs.p_amount === 150 &&
+        JSON.stringify(grantor).indexOf('secret') < 0, JSON.stringify(giftArgs && Object.assign({}, giftArgs, { p_password: '***' })));
+    pass('verifyGrantor keeps the password hidden on the login row',
+        /Object\.defineProperty\(u, '__pw', \{ value: pw, enumerable: false \}\)/.test(src));
+
+    wr.rpc = []; wr.from = [];
+    wr.reply = { ok: false, reason: 'expired' };
+    var wrBill = { id: 'bill-9', patient_id: 'pt-001003', subtotal: 500, discount: 0, amount_paid: 0, total: 500, balance: 500, status: 'Pending' };
+    var badApply = await WC.applyToBill(wrBill, { rows: [{ coupon: { id: 'c1', campaign_key: 'cash', discount_mode: 'amount', face_value: 100 }, assess: { save: 100 } }] }, 'KT');
+    pass('coupon refused by the server: bill total untouched, nothing saved to the bill',
+        badApply.ok === false && badApply.reason === 'expired' && wrBill.total === 500 && wrBill.balance === 500 &&
+        !wr.from.some(function (f) { return f.t === 'bills'; }), JSON.stringify({ badApply: badApply, from: wr.from }));
+    wr.reply = { ok: true, count: 1, amount: 100 };
+    wr.from = [];
+    var goodApply = await WC.applyToBill(wrBill, { rows: [{ coupon: { id: 'c1', campaign_key: 'cash', discount_mode: 'amount', face_value: 100 }, assess: { save: 100, lineName: null } }] }, 'KT');
+    var setCall = wr.rpc.filter(function (c) { return c.fn === 'dc_bill_set_coupons'; }).pop();
+    pass('coupon accepted: one dc_bill_set_coupons call, then the bill total HK$400',
+        goodApply.ok && setCall && setCall.args.p_items.length === 1 && setCall.args.p_items[0].amount === 100 &&
+        wrBill.total === 400 && wrBill.balance === 400 && wr.from.some(function (f) { return f.t === 'bills' && f.op === 'update'; }) &&
+        !wr.from.some(function (f) { return f.t === 'discount_coupons' && f.op === 'update'; }), JSON.stringify({ setCall: setCall, from: wr.from }));
+
+    wr.rpc = [];
+    wr.reply = { ok: true, count: 2 };
+    await WC.releaseBillCoupons('bill-9', ['c1', 'c2']);
+    await WC.voidEarnedCoupons('bill-9', ['e1'], 'Voided with payment');
+    var vNone = await WC.voidEarnedCoupons('bill-9', [], 'x');
+    pass('bill void / payment void go through dc_bill_release and dc_void_earned',
+        wr.rpc[0].fn === 'dc_bill_release' && wr.rpc[0].args.p_coupon_ids.join() === 'c1,c2' &&
+        wr.rpc[1].fn === 'dc_void_earned' && wr.rpc[1].args.p_note === 'Voided with payment' && vNone.ok && wr.rpc.length === 2,
+        JSON.stringify(wr.rpc));
+
+    wr.rpc = [];
+    wr.reply = function (fn) { return fn === 'loyalty_yearend_claim' ? [11, 12] : 1; };
+    var yIds = await WC.claimYearEndSms('coupons', 2026, 'month', ['p:a', 'p:b'], 'pt');
+    await WC.finishYearEndSms(yIds, { ok: false, reason: 'twilio' });
+    pass('year-end claim / give back through loyalty_yearend_claim / loyalty_yearend_finish',
+        yIds && yIds.join() === '11,12' && wr.rpc[1].fn === 'loyalty_yearend_finish' && wr.rpc[1].args.p_status === 'release', JSON.stringify(wr.rpc));
+    wr.reply = function () { return null; };
+    pass('year-end claim already taken by another station → null', (await WC.claimYearEndSms('coupons', 2026, 'month', ['p:a'], 'pt')) === null);
+
+    var directWrites = 0;
+    var unguarded = [];
+    src.replace(/SB\.from\((?:'discount_coupons'|REF_TABLE|YEAR_END_SMS_TABLE)\)\s*\.(?:insert|update|delete)\([^\n]*/g, function (m, idx) {
+        directWrites++;
+        var before = src.slice(Math.max(0, idx - 1600), idx);
+        if (!/dcWrite\(|setReferral\(|function releaseCouponsOnBill|function finishReferral/.test(before)) unguarded.push(m.slice(0, 80));
+        return m;
+    });
+    pass('every coupon / referral / year-end table write is a fallback behind a database function',
+        directWrites > 0 && unguarded.length === 0, unguarded.join(' | '));
+
+    if (sb) {
+        try {
+            var fnProbe = await fetch(sb.url.replace(/\/$/, '') + '/rest/v1/rpc/dc_bill_release', {
+                method: 'POST', headers: { apikey: sb.key, Authorization: 'Bearer ' + sb.key, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ p_bill_id: '00000000-0000-0000-0000-000000000000', p_coupon_ids: null })
+            });
+            var fnBody = await fnProbe.text();
+            var installed = fnProbe.status === 200;
+            pass('API dc_bill_release: ' + (installed ? 'installed, unknown bill refused' : 'not run yet (desk uses the old writes)'),
+                installed ? /"reason"\s*:\s*"bill"/.test(fnBody) : (fnProbe.status === 404 && /PGRST202/.test(fnBody)), fnProbe.status + ' ' + fnBody.slice(0, 160));
+            var dupRows = await restGet(sb.url, sb.key, 'program_settings', 'select=id&setting_key=eq.discount_coupon_scheme');
+            pass('API coupon settings rows: ' + (installed ? 'one row after the SQL' : 'duplicate removed when the SQL runs'),
+                dupRows.status === 200 && Array.isArray(dupRows.json) && (installed ? dupRows.json.length === 1 : dupRows.json.length >= 1),
+                'rows=' + (dupRows.json && dupRows.json.length));
+        } catch (e) {
+            pass('API database function probe', false, e && e.message);
+        }
+    }
+
     console.log('\n=== CDP live page / Runtime.evaluate ===');
     var proc = null;
     try {
@@ -2489,6 +2684,41 @@ function loadCoupons() {
         pass('live #001003 phone wallet: same dates as the desk, from the live Set zero option', !!(yeLive && yeLive.ok && yeLive.phonePolicy === yeLive.policy &&
             yeLive.policyCalls === 1 && capOk(yeLive.phone) && yeLive.phone.length === yeLive.desk.length && yeLive.htmlHasOwn2027 === false),
             yeLive && JSON.stringify({ policy: yeLive.phonePolicy, calls: yeLive.policyCalls, phone: yeLive.phone }));
+        var secLive = await cdp.js(`(async function () {
+  var out = { ok: false };
+  try {
+    var pr = await SB.from('patients').select('id').eq('patient_no', '001003').limit(1);
+    var pid = pr && pr.data && pr.data[0] && pr.data[0].id;
+    if (!pid) return { ok: false, reason: 'no 001003' };
+    var snap = async function () {
+      var r = await SB.from('discount_coupons').select('id,status,bill_id,patient_id,face_value').eq('patient_id', pid);
+      return JSON.stringify((r.data || []).sort(function (a, b) { return a.id < b.id ? -1 : 1; }));
+    };
+    var before = await snap();
+    var wallet = await COUPONS.loadWallet(pid);
+    var anyCoupon = wallet[0];
+    out.walletCount = wallet.length;
+    var noBill = '00000000-0000-0000-0000-000000000000';
+    var probeFallback = function () { return { ok: false, reason: 'fallback_probe' }; };
+    out.issue = await COUPONS.dcWrite('dc_issue_coupon', { p_kind: 'spend', p_patient_id: pid, p_campaign_key: 'spend_1', p_clinic_code: 'KT',
+      p_bill_id: noBill, p_referral_id: null, p_amount: null, p_user: null, p_password: null, p_issued_by: null, p_note: null, p_item_names: null }, probeFallback);
+    out.gift = await COUPONS.dcWrite('dc_issue_coupon', { p_kind: 'gift', p_patient_id: pid, p_campaign_key: 'cash', p_clinic_code: 'KT',
+      p_bill_id: null, p_referral_id: null, p_amount: 100, p_user: 'nurse', p_password: 'x', p_issued_by: null, p_note: null, p_item_names: null }, probeFallback);
+    out.redeem = await COUPONS.dcWrite('dc_bill_set_coupons', { p_bill_id: noBill,
+      p_items: anyCoupon ? [{ id: anyCoupon.id, amount: 1, line_name: null }] : [] }, probeFallback);
+    out.after = (await snap()) === before;
+    out.installed = !!(out.issue && out.issue.viaDb);
+    out.ok = true;
+  } catch (e) { out.err = String(e && e.message || e); }
+  return out;
+})()`, true, 30000);
+        var secOk = secLive && secLive.ok && secLive.after && (secLive.installed
+            ? secLive.issue.reason === 'bill' && secLive.gift.reason === 'creds' && secLive.redeem.reason === 'bill'
+            : secLive.issue.reason === 'fallback_probe' && secLive.gift.reason === 'fallback_probe' && secLive.redeem.reason === 'fallback_probe');
+        pass('live #001003 coupon writes: ' + (secLive && secLive.installed
+            ? 'database functions refuse a fake bill and the shared Nurse login'
+            : 'database functions not run yet, desk falls back to the old writes') + '; wallet unchanged',
+            !!secOk, JSON.stringify(secLive));
         var smsLink = await cdp.js(`(async function () {
   var out = { ok: false };
   var BASE_KEY = 'csPhoneScanBase';

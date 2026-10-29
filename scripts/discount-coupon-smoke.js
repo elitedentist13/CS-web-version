@@ -1587,6 +1587,38 @@ function loadCoupons() {
             { code: '<img src=x onerror=alert(1)>', campaign_key: '<b>x</b>', discount_mode: 'amount', face_value: 1, status: 'unused', expires_on: '2027-01-01' }
         ]
     };
+    var YE = { zero_policy: 'year_end' };
+    var MAN = { zero_policy: 'manual' };
+    var eff = C.effectiveExpiry;
+    pass('year-end Set zero: a coupon due next year ends 31 Dec of its issue year',
+        eff({ expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z' }, YE) === '2026-12-31');
+    pass('year-end Set zero: an earlier own date is kept',
+        eff({ expires_on: '2026-11-15', issued_at: '2026-08-15T02:00:00Z' }, YE) === '2026-11-15' &&
+        eff({ expires_on: '2027-04-10', issued_at: '2027-01-10T02:00:00Z' }, YE) === '2027-04-10');
+    pass('year-end Set zero: issue year is the Hong Kong year (1 Jan 01:00 HK counts as the new year)',
+        eff({ expires_on: '2027-03-31', issued_at: '2026-12-31T17:00:00Z' }, YE) === '2027-03-31' &&
+        eff({ expires_on: '2027-03-31', issued_at: '2026-12-31T15:00:00Z' }, YE) === '2026-12-31');
+    pass('year-end Set zero: a coupon without a date gets 31 Dec', eff({ expires_on: null, issued_at: '2026-05-01T00:00:00Z' }, YE) === '2026-12-31');
+    pass('manual / life span Set zero: own date unchanged', eff({ expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z' }, MAN) === '2027-01-25' &&
+        eff({ expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z' }, { zero_policy: 'lifespan' }) === '2027-01-25');
+    var capRows = C.applyZeroExpiry([{ expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z', status: 'unused' }], YE);
+    pass('applyZeroExpiry keeps the own date and can switch back', capRows[0].expires_on === '2026-12-31' && capRows[0].own_expires_on === '2027-01-25' &&
+        C.applyZeroExpiry(capRows, MAN)[0].expires_on === '2027-01-25');
+    pass('capped coupon is no longer live on 1 Jan', C.isLive(C.applyZeroExpiry([{ expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z', status: 'unused' }], YE)[0], '2027-01-01') === false &&
+        C.isLive(C.applyZeroExpiry([{ expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z', status: 'unused' }], YE)[0], '2026-12-31') === true);
+    pass('desk wallet, bill info and issue notice use the effective date',
+        /function loadWallet[\s\S]{0,400}freshZeroPolicy\(\)[\s\S]{0,120}applyZeroExpiry\(both\[0\], both\[1\]\)/.test(src) &&
+        /earnedQ = SB\.from\('discount_coupons'\)\.select\('[^']*issued_at[^']*'\)[\s\S]{0,400}applyZeroExpiry\(/.test(src) &&
+        /coupons\.info\.expires', 'expires'\) \+ ' ' \+\s*effectiveExpiry\(/.test(src));
+    var wCap = W.capYearEnd([{ code: 'A', expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z' }, { code: 'B', expires_on: '2026-11-15', issued_at: '2026-08-15T02:00:00Z' }], 'year_end');
+    pass('phone wallet caps at 31 Dec of the issue year, keeps earlier dates',
+        wCap[0].expires_on === '2026-12-31' && wCap[0].own_expires_on === '2027-01-25' && wCap[1].expires_on === '2026-11-15');
+    pass('phone wallet leaves dates alone when Set zero is not year end',
+        W.capYearEnd([{ expires_on: '2027-01-25', issued_at: '2026-10-26T02:00:00Z' }], 'manual')[0].expires_on === '2027-01-25');
+    var capHtml = W.renderHtml({ ok: true, today: '2026-10-29', campaigns: [], coupons: wCap.map(function (c) { return Object.assign({ campaign_key: 'cash', discount_mode: 'amount', face_value: 50, status: 'unused' }, c); }) }, 'en', false);
+    pass('phone wallet ticket shows 31 Dec 2026, not the own 2027 date', capHtml.indexOf('2026-12-31') >= 0 && capHtml.indexOf('2027-01-25') < 0);
+    pass('phone wallet reads the Set zero option with the wallet', /setting_key=eq\.coupon_zero_policy/.test(read('wallet.js')) &&
+        /capYearEnd\(res\.coupons, zp\)/.test(read('wallet.js')));
     var wSplit = W.split(wData);
     pass('wallet splits ready and past coupons', wSplit.live.length === 5 && wSplit.past.length === 2 && wSplit.live[0].code === 'DC-A1',
         JSON.stringify({ live: wSplit.live.length, past: wSplit.past.length }));
@@ -2307,6 +2339,56 @@ function loadCoupons() {
             dash && JSON.stringify({ link: dash.link, rpc: dash.rpc, fixed: dash.qrFixed, pos: dash.qrPos, w: dash.qrW }));
         pass('CDP patient dashboard: Escape closes the wallet QR', !!(dash && dash.closedOnEsc));
         pass('CDP patient dashboard: clinic not in the scheme -> no coupon card', !!(dash && dash.offHidden));
+        var yeLive = await cdp.js(`(async function () {
+  var cfg = ${JSON.stringify(typeof sb !== 'undefined' && sb ? { url: sb.url, key: sb.key } : null)};
+  var out = { ok: false };
+  var realFetch = window.fetch;
+  try {
+    var pr = await SB.from('patients').select('id').eq('patient_no', '001003').limit(1);
+    var pid = pr && pr.data && pr.data[0] && pr.data[0].id;
+    if (!pid) return { ok: false, reason: 'no 001003' };
+    var pol = await SB.from('program_settings').select('setting_value').eq('setting_key', 'coupon_zero_policy');
+    var raw = pol && pol.data && pol.data[0] && pol.data[0].setting_value;
+    out.policy = raw ? (JSON.parse(raw).zero_policy || 'manual') : 'manual';
+    var desk = await COUPONS.loadWallet(pid);
+    var today = COUPONS.todayIso();
+    var liveDesk = desk.filter(function (c) { return COUPONS.isLive(c, today); });
+    out.desk = liveDesk.map(function (c) { return { own: c.own_expires_on, shown: c.expires_on, issued: String(c.issued_at || '').slice(0, 10) }; });
+    var rawRows = (await SB.from('discount_coupons').select('*').eq('patient_id', pid)).data || [];
+    if (!window.CSWallet) {
+      await new Promise(function (res, rej) { var s = document.createElement('script'); s.src = 'wallet.js?probe=' + Date.now(); s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+    }
+    window.CS_WALLET_CONFIG = { supabaseUrl: cfg.url, anonKey: cfg.key };
+    out.policyCalls = 0;
+    window.fetch = function (u, o) {
+      if (/rpc\\/dc_wallet_view/.test(String(u))) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, name: 'N.P.C.', today: today, campaigns: [], coupons: rawRows }), { status: 200 }));
+      }
+      if (/coupon_zero_policy/.test(String(u))) out.policyCalls++;
+      return realFetch.apply(this, arguments);
+    };
+    var phone = await window.CSWallet.fetchWallet('0123456789abcdef0123456789abcdef');
+    out.phonePolicy = phone.zero_policy;
+    var html = window.CSWallet.renderHtml(phone, 'en', false);
+    var parts = window.CSWallet.split(phone);
+    out.phone = parts.live.map(function (c) { return { own: c.own_expires_on, shown: c.expires_on, issued: String(c.issued_at || '').slice(0, 10) }; });
+    out.htmlHasOwn2027 = parts.live.some(function (c) { return c.own_expires_on && c.own_expires_on !== c.expires_on && html.indexOf(c.own_expires_on) >= 0; });
+    out.ok = true;
+  } catch (e) { out.err = String(e && e.message || e); }
+  finally { window.fetch = realFetch; }
+  return out;
+})()`, true, 30000);
+        var capOk = function (rows) {
+            return (rows || []).length > 0 && rows.every(function (r) {
+                var y = (r.issued || '2026').slice(0, 4);
+                return yeLive.policy !== 'year_end' ? r.shown === r.own : (r.shown <= y + '-12-31' && (r.own <= y + '-12-31' ? r.shown === r.own : r.shown === y + '-12-31'));
+            });
+        };
+        pass('live #001003 desk wallet: Set zero ' + (yeLive && yeLive.policy) + ' -> shown expiry follows the rule', !!(yeLive && yeLive.ok && capOk(yeLive.desk)),
+            yeLive && (yeLive.err || JSON.stringify(yeLive.desk)));
+        pass('live #001003 phone wallet: same dates as the desk, from the live Set zero option', !!(yeLive && yeLive.ok && yeLive.phonePolicy === yeLive.policy &&
+            yeLive.policyCalls === 1 && capOk(yeLive.phone) && yeLive.phone.length === yeLive.desk.length && yeLive.htmlHasOwn2027 === false),
+            yeLive && JSON.stringify({ policy: yeLive.phonePolicy, calls: yeLive.policyCalls, phone: yeLive.phone }));
         var langs = await cdp.js(`(function () {
   var before = appUiLang;
   treatmentItemsCache = ${JSON.stringify(catalog)};

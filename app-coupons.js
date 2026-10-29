@@ -1298,6 +1298,34 @@ var COUPONS = (function () {
 
     function zeroPolicy() { return _zeroPolicy || normalizeZeroPolicy(null); }
 
+    var _zeroPolicyAt = 0;
+
+    function freshZeroPolicy() {
+        if (_zeroPolicy && Date.now() - _zeroPolicyAt < 5 * 60000) return Promise.resolve(_zeroPolicy);
+        return loadZeroPolicy();
+    }
+
+    /** Pure: the date a coupon really ends. With Set zero on year end, no later than 31 Dec of its HK issue year. */
+    function effectiveExpiry(c, policy) {
+        if (!c) return null;
+        var own = c.own_expires_on !== undefined ? c.own_expires_on : c.expires_on;
+        own = own ? String(own).slice(0, 10) : null;
+        if (normalizeZeroPolicy(policy).zero_policy !== 'year_end') return own;
+        var t = c.issued_at ? Date.parse(c.issued_at) : NaN;
+        var cap = hkYear(isNaN(t) ? null : new Date(t)) + '-12-31';
+        return !own || own > cap ? cap : own;
+    }
+
+    /** Rewrites expires_on to the effective date in place (own date kept in own_expires_on). Rows are read-only copies. */
+    function applyZeroExpiry(rows, policy) {
+        (rows || []).forEach(function (c) {
+            if (!c || typeof c !== 'object') return;
+            if (c.own_expires_on === undefined) c.own_expires_on = c.expires_on || null;
+            c.expires_on = effectiveExpiry(c, policy);
+        });
+        return rows;
+    }
+
     /** Pure: true when the picked option differs from the saved one (months count only for life span). */
     function zeroPolicyChanged(saved, policy, months) {
         var a = normalizeZeroPolicy(saved);
@@ -1317,6 +1345,7 @@ var COUPONS = (function () {
                 var parsed = null;
                 if (raw) { try { parsed = JSON.parse(raw); } catch (e) { parsed = null; } }
                 _zeroPolicy = normalizeZeroPolicy(parsed);
+                _zeroPolicyAt = Date.now();
                 return _zeroPolicy;
             }, function () {
                 _zeroPolicy = normalizeZeroPolicy(null);
@@ -1331,6 +1360,7 @@ var COUPONS = (function () {
         return Promise.resolve(p).then(function (r) {
             if (r && r.error) return { ok: false, error: r.error.message };
             _zeroPolicy = next;
+            _zeroPolicyAt = Date.now();
             return { ok: true, policy: next };
         });
     }
@@ -2427,13 +2457,14 @@ var COUPONS = (function () {
             }
             var usedQ = SB.from('discount_coupons').select('id,campaign_key,redeemed_amount')
                 .eq('bill_id', bill.id).eq('status', 'used');
-            var earnedQ = SB.from('discount_coupons').select('id,campaign_key,face_value,expires_on,status')
+            var earnedQ = SB.from('discount_coupons').select('id,campaign_key,face_value,expires_on,issued_at,status')
                 .eq('origin_bill_id', bill.id);
-            return Promise.all([usedQ, earnedQ, billExcluded(bill.id)]).then(function (res) {
+            return Promise.all([usedQ, earnedQ, billExcluded(bill.id), freshZeroPolicy()]).then(function (res) {
                 if (info.getAttribute('data-bill') !== billId) return;
                 var used = (res[0] && res[0].data) || [];
                 var excluded = !!res[2];
-                var earned = ((res[1] && res[1].data) || []).filter(function (c) { return c.status !== 'void'; });
+                var earned = applyZeroExpiry((res[1] && res[1].data) || [], res[3])
+                    .filter(function (c) { return c.status !== 'void'; });
                 if (used.length && !bill.coupon_label) {
                     bill.coupon_label = couponLabelFor(used.map(function (c) { return { coupon: c }; }));
                     var label = document.getElementById('bdCouponLabel');
@@ -2839,8 +2870,11 @@ var COUPONS = (function () {
 
     function loadWallet(patientId) {
         if (!patientId || typeof SB === 'undefined' || !SB) return Promise.resolve([]);
-        return SB.from('discount_coupons').select('*').eq('patient_id', patientId)
-            .then(function (r) { return (r && r.data) || []; }, function () { return []; });
+        return Promise.all([
+            SB.from('discount_coupons').select('*').eq('patient_id', patientId)
+                .then(function (r) { return (r && r.data) || []; }, function () { return []; }),
+            freshZeroPolicy()
+        ]).then(function (both) { return applyZeroExpiry(both[0], both[1]); });
     }
 
     function paintSheetMessage(msg) {
@@ -5454,7 +5488,8 @@ var COUPONS = (function () {
                     if (issued.length) {
                         couponNotice('🎟️ ' + ct('coupons.notice.earned', 'This bill earned') + ': ' + issued.map(function (x) {
                             return campLabel(x.campaign) + ' · HK$' + round2(x.row.face_value).toFixed(0) +
-                                ' (' + ct('coupons.info.expires', 'expires') + ' ' + x.row.expires_on + ')';
+                                ' (' + ct('coupons.info.expires', 'expires') + ' ' +
+                                effectiveExpiry({ expires_on: x.row.expires_on, issued_at: new Date().toISOString() }, zeroPolicy()) + ')';
                         }).join(' / ') + ' — ' + ct('coupons.notice.wallet', 'added to the wallet for the next visit.'));
                         var open = (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null;
                         if (open && String(open.id) === String(info.billId)) refreshBillCouponInfo(open);
@@ -5870,6 +5905,8 @@ var COUPONS = (function () {
         renderConfigPane: renderConfigPane,
         walletAvailable: walletAvailable,
         walletLedgerRows: walletLedgerRows,
+        effectiveExpiry: effectiveExpiry,
+        applyZeroExpiry: applyZeroExpiry,
         walletTransferable: walletTransferable,
         renderWalletPane: renderWalletPane,
         normalizeZeroPolicy: normalizeZeroPolicy,
@@ -5909,6 +5946,7 @@ var COUPONS = (function () {
         openWalletQr: openWalletQr,
         openWalletPhone: openWalletPhone,
         walletLiveCount: walletLiveCount,
+        loadWallet: loadWallet,
         openPhoneQr: openPhoneQr,
         walletPageBase: walletPageBase,
         walletLinkError: walletLinkError,

@@ -312,10 +312,40 @@
         return 'zh-Hant';
     }
 
+    function hkYearOf(iso) {
+        var t = Date.parse(String(iso || ''));
+        return new Date((isNaN(t) ? Date.now() : t) + 8 * 3600000).getUTCFullYear();
+    }
+
+    /**
+     * Pure: with Set zero on year end, a coupon ends no later than 31 Dec of the (HK) year it was issued.
+     * The coupon's own date is kept in own_expires_on.
+     */
+    function capYearEnd(coupons, zeroPolicy) {
+        if (String(zeroPolicy || '') !== 'year_end') return coupons || [];
+        return (coupons || []).map(function (c) {
+            var own = c.expires_on ? String(c.expires_on).slice(0, 10) : null;
+            var cap = hkYearOf(c.issued_at) + '-12-31';
+            return Object.assign({}, c, { own_expires_on: own, expires_on: !own || own > cap ? cap : own });
+        });
+    }
+
+    function fetchZeroPolicy(cfg) {
+        return root.fetch(String(cfg.supabaseUrl).replace(/\/$/, '') +
+            '/rest/v1/program_settings?select=setting_value&setting_key=eq.coupon_zero_policy', {
+            headers: { apikey: cfg.anonKey, Authorization: 'Bearer ' + cfg.anonKey },
+            cache: 'no-store'
+        }).then(function (r) { return r.ok ? r.json() : []; }).then(function (rows) {
+            var raw = rows && rows[0] && rows[0].setting_value;
+            var o = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return (o && o.zero_policy) || '';
+        }).catch(function () { return ''; });
+    }
+
     function fetchWallet(token) {
         var cfg = root.CS_WALLET_CONFIG || {};
         if (!token) return Promise.resolve({ ok: false, reason: 'bad_link' });
-        return root.fetch(String(cfg.supabaseUrl).replace(/\/$/, '') + '/rest/v1/rpc/dc_wallet_view', {
+        var walletP = root.fetch(String(cfg.supabaseUrl).replace(/\/$/, '') + '/rest/v1/rpc/dc_wallet_view', {
             method: 'POST',
             headers: { apikey: cfg.anonKey, Authorization: 'Bearer ' + cfg.anonKey, 'Content-Type': 'application/json' },
             body: JSON.stringify({ p_token: token }),
@@ -324,6 +354,12 @@
             if (!r.ok) return { ok: false, reason: r.status === 404 ? 'bad_link' : 'offline' };
             return r.json();
         }).catch(function () { return { ok: false, reason: 'offline' }; });
+        return Promise.all([walletP, fetchZeroPolicy(cfg)]).then(function (both) {
+            var res = both[0];
+            if (!res || !res.ok) return res;
+            var zp = res.zero_policy || both[1];
+            return Object.assign({}, res, { zero_policy: zp, coupons: capYearEnd(res.coupons, zp) });
+        });
     }
 
     function boot() {
@@ -377,6 +413,8 @@
         pickLang: pickLang,
         isLive: isLive,
         split: split,
+        capYearEnd: capYearEnd,
+        fetchWallet: fetchWallet,
         tr: tr
     };
 })(typeof window !== 'undefined' ? window : this);

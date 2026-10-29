@@ -3124,12 +3124,14 @@ var COUPONS = (function () {
         return Promise.race([link, late]);
     }
 
-    /** Pure: the SMS with the phone page link added as its last line. scheme: 'coupons' | 'rewards'. */
+    /** Pure: the SMS with the phone page link added as its last line. scheme: 'loyalty' | 'coupons' | 'rewards'. */
     function smsWithPhoneLink(body, url, scheme) {
         if (!body || !url) return body;
         var label = scheme === 'rewards'
             ? '手機查看積分/See your points on the phone: '
-            : '手機查看優惠券/See your coupons on the phone: ';
+            : (scheme === 'coupons'
+                ? '手機查看優惠券/See your coupons on the phone: '
+                : '手機查看積分及優惠券/See your points and coupons on the phone: ');
         return body + '\n' + label + url;
     }
 
@@ -3245,6 +3247,85 @@ var COUPONS = (function () {
             slip: {},
             waText: walletWhatsAppText
         };
+    }
+
+    /** Pure: one phone page for points and coupons. Either token may be missing (that tab then explains). */
+    function loyaltyUrl(couponToken, pointsToken, base) {
+        var b = base || walletPageBase(typeof location !== 'undefined' ? location : null, savedPhoneBase(), 'loyalty.html');
+        var q = [];
+        if (couponToken) q.push('c=' + encodeURIComponent(couponToken));
+        if (pointsToken) q.push('p=' + encodeURIComponent(pointsToken));
+        return b + (b.indexOf('?') >= 0 ? '&' : '?') + q.join('&');
+    }
+
+    /** Both phone links for one chart; works when only one scheme's SQL has been run. */
+    function loyaltyLink(patientId, reset) {
+        return Promise.all([
+            walletLinkToken(patientId, reset, 'dc_wallet_link'),
+            walletLinkToken(patientId, reset, 'rw_wallet_link')
+        ]).then(function (r) {
+            var c = r[0] && r[0].ok && r[0].token ? r[0].token : '';
+            var p = r[1] && r[1].ok && r[1].token ? r[1].token : '';
+            if (!c && !p) return r[0] && r[0].reason !== 'no_sql' ? r[0] : r[1];
+            return { ok: true, url: loyaltyUrl(c, p), coupons: !!c, points: !!p };
+        });
+    }
+
+    /** Combined points + coupons page for an SMS ('' when it cannot be made in time or only works on this computer). */
+    function loyaltyLinkForSms(patientId, waitMs) {
+        if (!patientId) return Promise.resolve('');
+        var link = loyaltyLink(patientId, false).then(function (res) {
+            if (!res || !res.ok || !res.url) return '';
+            return isLocalAddress(res.url) ? '' : res.url;
+        }, function () { return ''; });
+        var late = new Promise(function (resolve) { setTimeout(function () { resolve(''); }, waitMs || 5000); });
+        return Promise.race([link, late]);
+    }
+
+    /** Pure: WhatsApp message with the one link for points and coupons. */
+    function loyaltyWhatsAppText(url, p) {
+        var zh = String((p && (p.chinese_name || p.full_name)) || '').trim();
+        var en = String((p && (p.full_name || p.chinese_name)) || '').trim();
+        return SMS_HEADING + '\n' +
+            (zh ? zh + ' ' : '') + '你好！按以下連結即可在手機查看你的積分及優惠券：\n' +
+            'Hi' + (en ? ' ' + en : '') + '! Tap the link below to see your reward points and coupons on your phone:\n' +
+            String(url || '') + '\n' +
+            '請勿轉發此連結。Please do not share this link.';
+    }
+
+    function loyaltyQrConfig() {
+        return {
+            scheme: 'loyalty',
+            page: 'loyalty.html',
+            makeUrl: loyaltyLink,
+            pngName: 'points-and-coupons-qr.png',
+            title: ct('coupons.lqr.title', 'Points and coupons on the phone'),
+            hint: ct('coupons.lqr.hint',
+                'One QR for both. The patient scans it with the phone camera to see their reward points and coupons (browse only).'),
+            linkLabel: ct('coupons.lqr.link', 'Phone page link'),
+            centre: ct('coupons.lqr.centre', '會員'),
+            noSql: ct('coupons.lqr.noSql', 'Phone pages are not set up yet. Run discount_coupon_wallet.sql and reward_points_wallet.sql in Supabase first.'),
+            fail: ct('coupons.lqr.fail', 'Could not make the phone link. Try again.'),
+            slip: {
+                heading: '我的積分及優惠券 My points & coupons',
+                tip: '用手機相機掃描，即可查看你的積分及優惠券。 Scan with the phone camera to see your points and coupons.'
+            },
+            waText: loyaltyWhatsAppText
+        };
+    }
+
+    /** One QR for points and coupons over any container (reward panel, dashboard). */
+    function openLoyaltyQr(host, patientId) {
+        if (!patientId) return null;
+        if (!host) {
+            host = document.getElementById('dcPhoneHost');
+            if (!host) {
+                host = document.createElement('div');
+                host.id = 'dcPhoneHost';
+                document.body.appendChild(host);
+            }
+        }
+        return openPhoneQr(host, patientId, loyaltyQrConfig());
     }
 
     /** QR over the sheet: the patient scans it to browse their own coupons on the phone. */
@@ -3382,11 +3463,14 @@ var COUPONS = (function () {
             setReady(false, false);
             codeEl.removeAttribute('data-url');
             codeEl.innerHTML = '<span class="dc-hint">' + esc(ct('coupons.wqr.making', 'Making the QR code…')) + '</span>';
-            return walletLinkToken(patientId, reset, cfg.rpc).then(function (res) {
+            var made = cfg.makeUrl ? cfg.makeUrl(patientId, reset) : walletLinkToken(patientId, reset, cfg.rpc).then(function (res) {
+                return res && res.ok && res.token ? { ok: true, url: walletUrl(res.token, '', cfg.page) } : res;
+            });
+            return made.then(function (res) {
                 resetBtn.disabled = false;
                 if (closed) return;
-                if (!res || !res.ok || !res.token) { fail(res); return; }
-                var url = walletUrl(res.token, '', cfg.page);
+                if (!res || !res.ok || !res.url) { fail(res); return; }
+                var url = res.url;
                 linkEl.value = url;
                 wrap.querySelector('#dcWqrLocal').hidden = !isLocalAddress(url);
                 codeEl.setAttribute('data-url', url);
@@ -4385,7 +4469,7 @@ var COUPONS = (function () {
     function sendCouponSms(patientId, body, opts) {
         if (!body || !patientId || typeof SB === 'undefined' || !SB) return Promise.resolve({ ok: false, reason: 'no_db' });
         var walletP = typeof body === 'function' ? loadWallet(patientId) : Promise.resolve(null);
-        var linkP = opts && opts.phoneLink ? phoneLinkForSms(patientId, 'dc_wallet_link', 'wallet.html') : Promise.resolve('');
+        var linkP = opts && opts.phoneLink ? loyaltyLinkForSms(patientId) : Promise.resolve('');
         return Promise.all([
             SB.from('patients').select('phone_number,mobile_phone,full_name,chinese_name,patient_no').eq('id', patientId).maybeSingle(),
             walletP,
@@ -4398,7 +4482,7 @@ var COUPONS = (function () {
                 if (!phone) return { ok: false, reason: 'no_phone' };
                 var text = typeof body === 'function' ? body(both[1] || []) : body;
                 if (!text) return { ok: false, reason: 'no_text' };
-                text = smsWithPhoneLink(text, both[2], 'coupons');
+                text = smsWithPhoneLink(text, both[2], 'loyalty');
                 if (typeof AIHELPER === 'undefined' || typeof AIHELPER.sendTwilioOutreach !== 'function') {
                     return { ok: false, reason: 'no_sms' };
                 }
@@ -5679,14 +5763,50 @@ var COUPONS = (function () {
             loadState().then(function () { if (_loaded) paintCheckoutHint(total, paid, method); });
             return;
         }
-        if (!clinicJoined(clinicCodeNow())) { host.hidden = true; return; }
-        if (method && isExcludedMethod(method)) {
+        var seq = ++_hintSeq;
+        var couponHtml = couponHintHtml(total, paid, method);
+        host.hidden = !couponHtml;
+        host.innerHTML = couponHtml;
+        checkoutPointsLine(total, paid, method).then(function (line) {
+            if (seq !== _hintSeq || !line) return;
+            host.insertAdjacentHTML('afterbegin', '<div class="dc-hint-pts">' + esc(line) + '</div>');
             host.hidden = false;
-            host.innerHTML = '<div>' + esc('🚫 ' + excludedText()) + '</div>';
-            return;
-        }
+        });
+    }
+
+    var _hintSeq = 0;
+
+    /** Pure: the points line of the checkout hint ('' when nothing is earned). */
+    function pointsEarnText(amount, rate, method) {
+        var amt = round2(parseFloat(amount) || 0);
+        var pct = parseFloat(rate) || 0;
+        if (amt <= 0 || pct <= 0) return '';
+        if (method && (isExcludedMethod(method) || isNonCashMethod(method))) return '';
+        var pts = round2(amt * pct / 100);
+        if (pts <= 0) return '';
+        return '⭐ ' + ct('coupons.info.pointsEarn', 'Paying HK${AMT} earns about {PTS} reward points')
+            .split('{AMT}').join(amt.toFixed(2)).split('{PTS}').join(pts.toFixed(2));
+    }
+
+    /** Points earned by this payment, when the clinic (and the bill's doctor) are in the reward points scheme. */
+    function checkoutPointsLine(total, paid, method) {
+        if (typeof REWARDS === 'undefined' || !REWARDS || typeof REWARDS.currentClinicJoined !== 'function' ||
+            typeof REWARDS.earnRatePercent !== 'function') return Promise.resolve('');
+        var amount = (parseFloat(paid) || 0) > 0 ? paid : total;
+        if (!pointsEarnText(amount, 1, method)) return Promise.resolve('');
+        var doctor = typeof pendingListDoctorIdFromUi === 'function' && pendingListDoctorIdFromUi()
+            ? { doctor_id: pendingListDoctorIdFromUi() } : undefined;
+        return Promise.all([REWARDS.currentClinicJoined(doctor), REWARDS.earnRatePercent()]).then(function (r) {
+            return r[0] ? pointsEarnText(amount, r[1], method) : '';
+        }, function () { return ''; });
+    }
+
+    /** Coupon part of the checkout hint ('' when this clinic is not in the coupon scheme or nothing is near). */
+    function couponHintHtml(total, paid, method) {
+        if (!clinicJoined(clinicCodeNow())) return '';
+        if (method && isExcludedMethod(method)) return '<div>' + esc('🚫 ' + excludedText()) + '</div>';
         var prog = spendProgress(total);
-        if (!prog.reached.length && !prog.next) { host.hidden = true; return; }
+        if (!prog.reached.length && !prog.next) return '';
         var lines = [];
         if (prog.reached.length) {
             lines.push('🎟️ ' + ct('coupons.info.willEarn', 'Paid in full by cash, this bill earns') + ': ' +
@@ -5701,8 +5821,7 @@ var COUPONS = (function () {
         } else if (prog.reached.length && (parseFloat(paid) || 0) + 0.005 < (parseFloat(total) || 0)) {
             lines.push('ℹ️ ' + ct('coupons.info.needFull', 'Issued once the bill is fully paid.'));
         }
-        host.hidden = false;
-        host.innerHTML = lines.map(function (t) { return '<div>' + esc(t) + '</div>'; }).join('') + spendBarHtml(total, prog);
+        return lines.map(function (t) { return '<div>' + esc(t) + '</div>'; }).join('') + spendBarHtml(total, prog);
     }
 
     function spendBarHtml(amount, prog) {
@@ -6295,6 +6414,16 @@ var COUPONS = (function () {
         cashCapCents: cashCapCents,
         openWalletQr: openWalletQr,
         openWalletPhone: openWalletPhone,
+        openLoyaltyQr: openLoyaltyQr,
+        loyaltyUrl: loyaltyUrl,
+        loyaltyLink: loyaltyLink,
+        loyaltyLinkForSms: loyaltyLinkForSms,
+        loyaltyLink: loyaltyLink,
+        loyaltyWhatsAppText: loyaltyWhatsAppText,
+        loyaltyQrConfig: loyaltyQrConfig,
+        pointsEarnText: pointsEarnText,
+        checkoutPointsLine: checkoutPointsLine,
+        couponHintHtml: couponHintHtml,
         walletLiveCount: walletLiveCount,
         loadWallet: loadWallet,
         openPhoneQr: openPhoneQr,

@@ -3618,6 +3618,27 @@
         'coupons.save.fail': { en: 'Could not save. Check the connection and try again.', 'zh-CN': '未能储存，请检查网络后再试。', 'zh-Hant': '未能儲存，請檢查網絡後再試。' },
         'coupons.bill.paidLock': { en: 'This bill is fully paid; its coupons cannot change. Void the bill to undo.', 'zh-CN': '此单已全数付清，优惠券不可更改；如需更改请作废此单。', 'zh-Hant': '此單已全數付清，優惠券不可更改；如需更改請作廢此單。' },
         'coupons.bill.usedElsewhere': { en: 'This coupon was already used on another bill', 'zh-CN': '此券已用于另一张单', 'zh-Hant': '此券已用於另一張單' },
+        'coupons.info.pointsEarn': { en: 'Paying HK${AMT} earns about {PTS} reward points', 'zh-CN': '支付 HK${AMT} 约可赚取 {PTS} 积分', 'zh-Hant': '支付 HK${AMT} 約可賺取 {PTS} 積分' },
+        'coupons.lqr.btn': { en: 'Points + coupons (one QR)', 'zh-CN': '积分＋优惠券（一个二维码）', 'zh-Hant': '積分＋優惠券（一個 QR 碼）' },
+        'coupons.lqr.btnTitle': {
+            en: 'One QR code: the patient sees both reward points and coupons on the phone',
+            'zh-CN': '一个二维码：病人可在手机同时查看积分及优惠券',
+            'zh-Hant': '一個 QR 碼：病人可在手機同時查看積分及優惠券'
+        },
+        'coupons.lqr.title': { en: 'Points and coupons on the phone', 'zh-CN': '手机查看积分及优惠券', 'zh-Hant': '手機查看積分及優惠券' },
+        'coupons.lqr.hint': {
+            en: 'One QR for both. The patient scans it with the phone camera to see their reward points and coupons (browse only).',
+            'zh-CN': '一个二维码看两样。请病人用手机相机扫描，即可查看积分及优惠券（只供浏览）。',
+            'zh-Hant': '一個 QR 碼看兩樣。請病人用手機相機掃描，即可查看積分及優惠券（只供瀏覽）。'
+        },
+        'coupons.lqr.link': { en: 'Phone page link', 'zh-CN': '手机页面链接', 'zh-Hant': '手機頁面連結' },
+        'coupons.lqr.centre': { en: 'Member', 'zh-CN': '会员', 'zh-Hant': '會員' },
+        'coupons.lqr.noSql': {
+            en: 'Phone pages are not set up yet. Run discount_coupon_wallet.sql and reward_points_wallet.sql in Supabase first.',
+            'zh-CN': '手机页面尚未设定。请先在 Supabase 执行 discount_coupon_wallet.sql 及 reward_points_wallet.sql。',
+            'zh-Hant': '手機頁面尚未設定。請先在 Supabase 執行 discount_coupon_wallet.sql 及 reward_points_wallet.sql。'
+        },
+        'coupons.lqr.fail': { en: 'Could not make the phone link. Try again.', 'zh-CN': '未能产生手机链接，请再试。', 'zh-Hant': '未能產生手機連結，請再試。' },
         'coupons.grant.role': { en: 'This login cannot gift coupons', 'zh-CN': '此登入不能赠送优惠券', 'zh-Hant': '此登入不能贈送優惠券' },
         'coupons.grant.budget': { en: 'This coupon has reached its budget', 'zh-CN': '此券已达预算', 'zh-Hant': '此券已達預算' },
         'coupons.grant.cap': { en: 'This coupon has reached its issue limit', 'zh-CN': '此券已达发放上限', 'zh-Hant': '此券已達發放上限' },

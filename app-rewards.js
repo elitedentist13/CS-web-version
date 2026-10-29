@@ -1892,11 +1892,11 @@ var REWARDS = (function () {
                     return { ok: true, skipped: true, reason: 'disabled' };
                 });
             }
-            var hasLink = typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.phoneLinkForSms === 'function';
+            var hasLink = typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.loyaltyLinkForSms === 'function';
             return Promise.all([
                 loadPatientLite(info.patientId),
                 listPersonAccountsFresh(info.patientId).catch(function () { return []; }),
-                hasLink ? COUPONS.phoneLinkForSms(info.patientId, 'rw_wallet_link', 'points.html') : ''
+                hasLink ? COUPONS.loyaltyLinkForSms(info.patientId) : ''
             ]).then(function (both) {
                 var pat = both[0];
                 var bal = smsBalances(both[1], info.patientId, info.balance);
@@ -1918,7 +1918,7 @@ var REWARDS = (function () {
                     clinic: info.clinic || '',
                     ref: info.ref || ''
                 });
-                if (hasLink) body = COUPONS.smsWithPhoneLink(body, both[2], 'rewards');
+                if (hasLink) body = COUPONS.smsWithPhoneLink(body, both[2], 'loyalty');
                 if (typeof AIHELPER === 'undefined' || typeof AIHELPER.sendTwilioOutreach !== 'function') {
                     return logSms({
                         ledger_id: info.ledgerId || null,
@@ -3761,8 +3761,18 @@ var REWARDS = (function () {
         return COUPONS.openPhoneQr(modal, pid, phoneQrConfig());
     }
 
+    /** One QR for points and coupons (loyalty.html) over the ledger panel. */
+    function openLoyaltyQr(patientId) {
+        var pid = patientId || _panelPatientId;
+        var modal = document.getElementById('rewardPatientModal');
+        if (!pid || !modal || typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.openLoyaltyQr !== 'function') return null;
+        return COUPONS.openLoyaltyQr(modal, pid);
+    }
+
     function syncPhoneQrBtn() {
         var btn = document.getElementById('rwPhoneQrBtn');
+        var one = document.getElementById('rwLoyaltyQrBtn');
+        if (one) one.hidden = typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.openLoyaltyQr !== 'function';
         if (!btn) return;
         btn.hidden = typeof COUPONS === 'undefined' || !COUPONS || typeof COUPONS.openPhoneQr !== 'function';
     }
@@ -6034,6 +6044,7 @@ var REWARDS = (function () {
         panelPointsJoined: panelPointsJoined,
         syncPanelTabs: syncPanelTabs,
         openPhoneQr: openPhoneQr,
+        openLoyaltyQr: openLoyaltyQr,
         loyaltyGuideHref: loyaltyGuideHref,
         loyaltyGuideLinkHtml: loyaltyGuideLinkHtml,
         normalizeRedeemCap: normalizeRedeemCap,

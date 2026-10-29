@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>My points &amp; coupons</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="wallet.css?v=20261029loy">
+<script>
+  window.CS_WALLET_CONFIG = {
+    supabaseUrl: 'https://kprihawipljrltfzpfjd.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
+      'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwcmloYXdpcGxqcmx0ZnpwZmpkIiwi' +
+      'cm9sZSI6ImFub24iLCJpYXQiOjE3NzY3NzUyMzAsImV4cCI6MjA5MjM1MTIzMH0.' +
+      'fHbfVQOmIMOTbjBTG6iy2yrgmo-iZXEe-wNLlAlVtM4'
+  };
+</script>
+</head>
+<body class="wl-loyalty">
+<div class="wl-wrap">
+  <div class="wl-lang" role="group" aria-label="Language">
+    <button type="button" class="wl-lang-btn" data-lang="en">EN</button>
+    <button type="button" class="wl-lang-btn" data-lang="zh-Hant">繁</button>
+    <button type="button" class="wl-lang-btn" data-lang="zh-CN">简</button>
+  </div>
+  <header class="wl-head">
+    <div class="wl-logo" aria-hidden="true">⭐</div>
+    <h1 id="wlTitle">My points &amp; coupons</h1>
+    <p class="wl-clinic" id="wlClinic">Joyful Smile Dental Centre</p>
+    <p class="wl-who" id="wlWho"></p>
+  </header>
+  <main id="wlMain" aria-live="polite">
+    <p class="wl-loading">Loading…</p>
+  </main>
+  <footer class="wl-foot" id="wlFoot">Browse only. Tell the staff when you pay if you would like to use points or coupons.</footer>
+</div>
+<script src="wallet.js?v=20261029yecap"></script>
+<script src="points.js?v=20261029loy"></script>
+<script src="loyalty.js?v=20261029loy"></script>
+<script>CSLoyalty.boot();</script>
+</body>
+</html>

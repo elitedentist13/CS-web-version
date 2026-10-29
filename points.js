@@ -268,6 +268,7 @@
         hkDate: hkDate,
         tokenFrom: tokenFrom,
         pickLang: pickLang,
+        fetchPoints: fetchPoints,
         tr: tr
     };
 })(typeof window !== 'undefined' ? window : this);

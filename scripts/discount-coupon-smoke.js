@@ -223,9 +223,10 @@ function loadCoupons() {
         !(camp('spend_5').target > 0) && !(camp('spend_5').face > 0));
     pass('campaigns start off', camps.every(function (c) { return c.enabled === false; }));
     var rwUses = (src.match(/REWARDS\.[a-zA-Z]+/g) || []).filter(function (u, i, a) { return a.indexOf(u) === i; });
-    pass('reward module is used only for the refer-a-friend points branch and the shared manual link', rwUses.length > 0 && rwUses.every(function (u) {
+    pass('reward module is used only for the refer-a-friend points branch, the shared manual link and the checkout points line', rwUses.length > 0 && rwUses.every(function (u) {
         return ['REWARDS.referralAvailability', 'REWARDS.referralCredit', 'REWARDS.referralReverse', 'REWARDS.clinicCtx',
-            'REWARDS.loyaltyGuideLinkHtml', 'REWARDS.loadReferralConfig', 'REWARDS.billLoyaltyExcluded'].indexOf(u) >= 0;
+            'REWARDS.loyaltyGuideLinkHtml', 'REWARDS.loadReferralConfig', 'REWARDS.billLoyaltyExcluded',
+            'REWARDS.currentClinicJoined', 'REWARDS.earnRatePercent'].indexOf(u) >= 0;
     }), rwUses.join(','));
     pass('set zero card reuses the reward admin gate and reset dialog', /rw\.openAdminRewardAuthGate\(\{/.test(src) &&
         /rw\.openResetZeroFlow\(configClinics\(\), \{/.test(src) && /var rw = \(typeof REWARDS !== 'undefined' && REWARDS\) \? REWARDS : null;/.test(src));
@@ -1057,10 +1058,11 @@ function loadCoupons() {
     pass('SMS phone link line: coupons and points wording, nothing added without a link',
         C.smsWithPhoneLink('A\nB', 'https://a.example/wallet.html?t=x', 'coupons') === 'A\nB\n手機查看優惠券/See your coupons on the phone: https://a.example/wallet.html?t=x' &&
         C.smsWithPhoneLink('A', 'https://a.example/points.html?t=y', 'rewards') === 'A\n手機查看積分/See your points on the phone: https://a.example/points.html?t=y' &&
+        C.smsWithPhoneLink('A', 'https://a.example/loyalty.html?c=x&p=y', 'loyalty') === 'A\n手機查看積分及優惠券/See your points and coupons on the phone: https://a.example/loyalty.html?c=x&p=y' &&
         C.smsWithPhoneLink('A', '', 'coupons') === 'A' && C.smsWithPhoneLink('', 'https://a.example/w', 'coupons') === '');
-    pass('coupon issue SMS asks for the phone link; expiry and year-end reminders do not',
+    pass('coupon issue SMS asks for the combined phone link; expiry and year-end reminders do not',
         /sendCouponSms\(saved\.patient_id, function \(wallet\) \{[\s\S]{0,200}\}, \{ phoneLink: true \}\)/.test(src) &&
-        /sendCouponSms\(c\.patient_id, body\)/.test(src) && /phoneLinkForSms\(patientId, 'dc_wallet_link', 'wallet\.html'\)/.test(src));
+        /sendCouponSms\(c\.patient_id, body\)/.test(src) && /loyaltyLinkForSms\(patientId\)/.test(src));
     var linkCalls = [];
     var linkMode = 'ok';
     var linkCtx = {
@@ -1094,8 +1096,11 @@ function loadCoupons() {
         JSON.stringify({ dcLink: dcLink, rwLink: rwLink, calls: linkCalls }));
     await LC.sendCouponSms('p1', 'Body', { phoneLink: true });
     await LC.sendCouponSms('p1', 'Plain');
-    pass('coupon SMS with phoneLink ends with the link; without it the text is unchanged',
-        linkSms.length === 2 && linkSms[0].body === 'Body\n手機查看優惠券/See your coupons on the phone: https://clinic.example.com/app/wallet.html?t=dctok' &&
+    var oneLink = await LC.loyaltyLinkForSms('p1');
+    pass('SMS combined phone link: one loyalty.html with both tokens, never a new QR',
+        oneLink === 'https://clinic.example.com/app/loyalty.html?c=dctok&p=rwtok', oneLink);
+    pass('coupon SMS with phoneLink ends with the combined link; without it the text is unchanged',
+        linkSms.length === 2 && linkSms[0].body === 'Body\n手機查看積分及優惠券/See your points and coupons on the phone: https://clinic.example.com/app/loyalty.html?c=dctok&p=rwtok' &&
         linkSms[1].body === 'Plain', JSON.stringify(linkSms.map(function (s) { return s.body; })));
     linkMode = 'missing';
     var noSqlLink = await LC.phoneLinkForSms('p1', 'dc_wallet_link', 'wallet.html');
@@ -2169,6 +2174,95 @@ function loadCoupons() {
     pass('every report label has English, Simplified and Traditional Chinese', lyrKeys.length > 30 && lyrMissing.length === 0, lyrMissing.join(', '));
     pass('report CSS in style-coupons.css', /\.lyr-table \.lyr-num \{/.test(read('style-coupons.css')));
 
+    console.log('\n=== One phone page for points + coupons, combined checkout hint ===');
+    var LC = lyrCtx.C;
+    lyrCtx.isLoyaltyExcludedPayMethod = function (m) { return /^(PDCC|Government)$/i.test(String(m || '').trim()); };
+    var TOK_C = 'c'.repeat(32);
+    var TOK_P = 'a'.repeat(32);
+    pass('one link: loyalty.html?c=<coupon token>&p=<points token>; either may be missing',
+        LC.loyaltyUrl(TOK_C, TOK_P, 'https://x.example/app/loyalty.html') === 'https://x.example/app/loyalty.html?c=' + TOK_C + '&p=' + TOK_P &&
+        LC.loyaltyUrl('', TOK_P, 'https://x.example/loyalty.html') === 'https://x.example/loyalty.html?p=' + TOK_P &&
+        LC.loyaltyUrl(TOK_C, '', 'https://x.example/loyalty.html') === 'https://x.example/loyalty.html?c=' + TOK_C);
+    function lyLinkCtx(replies) {
+        var calls = [];
+        var ctx = { console: console, setTimeout: setTimeout, clearTimeout: clearTimeout, location: { href: 'https://x.example/app/index.html' },
+            localStorage: { getItem: function () { return null; }, setItem: function () {} },
+            SB: { rpc: function (fn, args) { calls.push({ fn: fn, reset: args.p_reset }); return Promise.resolve(replies[fn]); }, from: function () { return {}; } } };
+        ctx.window = ctx;
+        vm.createContext(ctx);
+        vm.runInContext(src, ctx, { filename: 'app-coupons.js' });
+        ctx.__calls = calls;
+        return ctx;
+    }
+    var noFn = function (fn) { return { data: null, error: { message: 'Could not find the function public.' + fn + ' in the schema cache' } }; };
+    var lkBoth = lyLinkCtx({ dc_wallet_link: { data: { ok: true, token: TOK_C } }, rw_wallet_link: { data: { ok: true, token: TOK_P } } });
+    var lkBothRes = await lkBoth.COUPONS.loyaltyLink('p1', false);
+    pass('one link asks both schemes for the existing tokens (no reset)', lkBothRes.ok && lkBothRes.url === 'https://x.example/app/loyalty.html?c=' + TOK_C + '&p=' + TOK_P &&
+        lkBoth.__calls.length === 2 && lkBoth.__calls.every(function (c) { return c.reset === false; }), JSON.stringify(lkBothRes));
+    var lkPts = lyLinkCtx({ dc_wallet_link: noFn('dc_wallet_link'), rw_wallet_link: { data: { ok: true, token: TOK_P } } });
+    var lkPtsRes = await lkPts.COUPONS.loyaltyLink('p1', true);
+    pass('one link still works when only the points SQL is run; New QR resets both', lkPtsRes.ok && lkPtsRes.points && !lkPtsRes.coupons &&
+        /loyalty\.html\?p=a{32}$/.test(lkPtsRes.url) && lkPts.__calls.every(function (c) { return c.reset === true; }));
+    var lkNone = lyLinkCtx({ dc_wallet_link: noFn('dc_wallet_link'), rw_wallet_link: noFn('rw_wallet_link') });
+    var lkNoneRes = await lkNone.COUPONS.loyaltyLink('p1', false);
+    pass('one link with neither SQL run: "not set up"', lkNoneRes.ok === false && lkNoneRes.reason === 'no_sql');
+    var lkWa = LC.loyaltyWhatsAppText('https://x/l.html?c=1', { chinese_name: '吳佩貞', full_name: 'NG PUI CHING' });
+    pass('one link WhatsApp: names, both words, the link, do-not-share',
+        /吳佩貞 你好！.*積分及優惠券/.test(lkWa) && /Hi NG PUI CHING! .*reward points and coupons/.test(lkWa) && /https:\/\/x\/l\.html\?c=1/.test(lkWa) && /Please do not share/.test(lkWa));
+    var lqCfg = LC.loyaltyQrConfig();
+    pass('one QR box: own slip heading, PNG name, link maker', lqCfg.scheme === 'loyalty' && typeof lqCfg.makeUrl === 'function' &&
+        lqCfg.pngName === 'points-and-coupons-qr.png' && /My points & coupons/.test(lqCfg.slip.heading));
+    pass('combined checkout hint: cash payment shows points earned at the scheme rate',
+        LC.pointsEarnText(1200, 10, 'Cash') === '⭐ Paying HK$1200.00 earns about 120.00 reward points' &&
+        LC.pointsEarnText(333.33, 5, '') === '⭐ Paying HK$333.33 earns about 16.67 reward points');
+    pass('combined checkout hint: no points line for reward points, balance transfer, Government, PDCC, or HK$0',
+        LC.pointsEarnText(1200, 10, 'Reward Points') === '' && LC.pointsEarnText(1200, 10, 'PDCC') === '' &&
+        LC.pointsEarnText(1200, 10, 'Government') === '' && LC.pointsEarnText(0, 10, 'Cash') === '' && LC.pointsEarnText(100, 0, 'Cash') === '');
+    pass('checkout hint: coupon part and points part drawn together (points line async, newest wins)',
+        /var couponHtml = couponHintHtml\(total, paid, method\);[\s\S]{0,200}checkoutPointsLine\(total, paid, method\)\.then[\s\S]{0,120}seq !== _hintSeq/.test(src) &&
+        /REWARDS\.currentClinicJoined\(doctor\), REWARDS\.earnRatePercent\(\)/.test(src));
+
+    var phCtx = { console: console, setTimeout: setTimeout };
+    phCtx.window = phCtx;
+    vm.createContext(phCtx);
+    vm.runInContext(read('wallet.js') + '\n' + read('points.js') + '\n' + read('loyalty.js'), phCtx, { filename: 'phone-pages' });
+    var LY = phCtx.CSLoyalty;
+    pass('node --check loyalty.js', (function () {
+        try { child_process.execFileSync(process.execPath, ['--check', path.join(root, 'loyalty.js')], { stdio: 'pipe' }); return true; } catch (e) { return false; }
+    })());
+    var lyTk = LY.tokensFrom({ search: '?c=' + TOK_C.toUpperCase() + '&p=' + TOK_P, hash: '' });
+    pass('phone page reads both tokens; opens Points first, ?tab=coupons switches; a tab without its token cannot open',
+        lyTk.c === TOK_C && lyTk.p === TOK_P && LY.pickTab({ search: '' }, lyTk) === 'points' &&
+        LY.pickTab({ search: '', hash: '#tab=coupons' }, lyTk) === 'coupons' &&
+        LY.pickTab({ search: '?tab=points' }, { c: TOK_C, p: '' }) === 'coupons');
+    var lyState = {
+        tokens: lyTk, tab: 'points',
+        points: { ok: true, name: 'N***', balance: 1234.5, rows: [{ kind: 'earn', points: 120, at: '2026-10-20T03:00:00Z', balance_after: 1234.5 }] },
+        wallet: { ok: true, name: 'N***', today: '2026-10-30', coupons: [
+            { code: 'DC-1', campaign_key: 'cash', face_value: 100, status: 'unused', expires_on: '2026-12-31' },
+            { code: 'DC-2', campaign_key: 'cash', face_value: 100, status: 'used', redeemed_at: '2026-10-01' }] }
+    };
+    var lyPtsHtml = LY.renderHtml(lyState, 'en');
+    pass('phone page Points tab: tab badges (balance, live coupons) and the points card',
+        /class="ly-tab is-on"[^>]*data-tab="points"[^>]*>Points <b class="ly-badge">1,234\.50<\/b>/.test(lyPtsHtml) &&
+        /data-tab="coupons"[^>]*>Coupons <b class="ly-badge">1<\/b>/.test(lyPtsHtml) && /wlPtsBalance">1,234\.50</.test(lyPtsHtml) && lyPtsHtml.indexOf('wl-ticket') < 0, lyPtsHtml.slice(0, 600));
+    lyState.tab = 'coupons';
+    var lyCpHtml = LY.renderHtml(lyState, 'zh-Hant');
+    pass('phone page Coupons tab: coupon tickets in Chinese, no points card',
+        (lyCpHtml.match(/class="wl-ticket"/g) || []).length === 1 && lyCpHtml.indexOf('wl-pts-card') < 0 && />積分 <b/.test(lyCpHtml) && />優惠券 <b/.test(lyCpHtml));
+    var lyOnlyP = LY.renderHtml({ tokens: { c: '', p: TOK_P }, tab: 'coupons', points: lyState.points, wallet: null }, 'en');
+    pass('phone page: link without coupons → Coupons tab disabled and explains', /data-tab="coupons"[^>]*disabled/.test(lyOnlyP) && /does not include this part/.test(lyOnlyP));
+    pass('phone page: no tokens → asks for a new QR', /wl-error/.test(LY.renderHtml({ tokens: { c: '', p: '' }, tab: 'points' }, 'en')));
+    pass('phone page: loading shown until each part arrives', /wl-loading/.test(LY.renderHtml({ tokens: lyTk, tab: 'points', points: null, wallet: null }, 'en')));
+    var lyHtmlFile = read('loyalty.html');
+    pass('loyalty.html: wallet.js + points.js + loyalty.js, not indexed, no referrer, browse only',
+        /<script src="wallet\.js\?v=[^"]+"><\/script>\s*<script src="points\.js\?v=[^"]+"><\/script>\s*<script src="loyalty\.js\?v=[^"]+"><\/script>\s*<script>CSLoyalty\.boot\(\);<\/script>/.test(lyHtmlFile) &&
+        /name="robots" content="noindex, nofollow"/.test(lyHtmlFile) && /name="referrer" content="no-referrer"/.test(lyHtmlFile) && !/<input|<form|<select/.test(lyHtmlFile));
+    pass('reward panel has the one-QR button beside "Points on the phone"',
+        /id="rwPhoneQrBtn"[\s\S]{0,600}id="rwLoyaltyQrBtn"[^>]*>?[\s\S]{0,80}onclick="REWARDS && REWARDS\.openLoyaltyQr\(\)"/.test(read('index.html')) &&
+        /function openLoyaltyQr\(patientId\)[\s\S]{0,400}COUPONS\.openLoyaltyQr\(modal, pid\)/.test(read('app-rewards.js')));
+    pass('tab CSS in wallet.css', /\.ly-tab\.is-on \{/.test(read('wallet.css')));
+
     if (sb) {
         try {
             var jobsProbe = await restGet(sb.url, sb.key, 'loyalty_job_runs', 'select=job,run_on,finished_at,result&order=run_on.desc&limit=3');
@@ -2985,6 +3079,114 @@ function loadCoupons() {
             pass('live Daily income (' + lyrLive.mineBillClinic + ', this month): coupon and points columns beside cash',
                 lyrLive.expMineCoupon > 0 ? lyrLive.dailyHead.some(function (h) { return /Coupons used|已用優惠券|已用优惠券/.test(h); }) : true, JSON.stringify(lyrLive.dailyHead));
         }
+        var lyPhone = await cdp.js(`(async function () {
+  var out = { ok: false };
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  try {
+    var pr = await SB.from('patients').select('id').eq('patient_no', '001003').limit(1);
+    var pid = pr.data[0].id;
+    var dc = await SB.rpc('dc_wallet_link', { p_patient_id: pid, p_by: null, p_reset: false });
+    var rw = await SB.rpc('rw_wallet_link', { p_patient_id: pid, p_by: null, p_reset: false });
+    out.dcToken = dc.data && dc.data.token;
+    out.rwToken = rw.data && rw.data.token;
+    var link = await COUPONS.loyaltyLink(pid, false);
+    out.url = link.url;
+    var dcView = await SB.rpc('dc_wallet_view', { p_token: out.dcToken });
+    var rwView = await SB.rpc('rw_wallet_view', { p_token: out.rwToken });
+    out.expBalance = rwView.data && rwView.data.balance;
+    var zp = await COUPONS.freshZeroPolicy();
+    out.expLive = CSWalletLive(dcView.data, zp.zero_policy);
+    function CSWalletLive(d, policy) {
+      var today = d.today;
+      return (d.coupons || []).filter(function (c) {
+        var own = c.expires_on ? String(c.expires_on).slice(0, 10) : null;
+        var exp = own;
+        if (policy === 'year_end') { var cap = new Date(Date.parse(c.issued_at) + 8 * 3600000).getUTCFullYear() + '-12-31'; exp = !own || own > cap ? cap : own; }
+        return c.status === 'unused' && (!exp || exp >= today);
+      }).length;
+    }
+    var f = document.createElement('iframe');
+    f.style.cssText = 'position:fixed;left:-2000px;top:0;width:390px;height:800px';
+    f.src = 'loyalty.html' + link.url.slice(link.url.indexOf('?')) + '&g=en';
+    document.body.appendChild(f);
+    var t0 = Date.now();
+    while (Date.now() - t0 < 20000) {
+      await sleep(250);
+      var d0 = f.contentDocument;
+      var bs = d0 && d0.querySelectorAll('.ly-badge');
+      if (bs && bs.length === 2) break;
+    }
+    var doc = f.contentDocument;
+    out.title = doc.getElementById('wlTitle').textContent;
+    out.who = doc.getElementById('wlWho').textContent;
+    out.badges = Array.prototype.map.call(doc.querySelectorAll('.ly-badge'), function (b) { return b.textContent; });
+    out.first = (doc.querySelector('.ly-tab.is-on') || {}).getAttribute ? doc.querySelector('.ly-tab.is-on').getAttribute('data-tab') : '';
+    out.balance = (doc.getElementById('wlPtsBalance') || {}).textContent;
+    doc.querySelector('.ly-tab[data-tab="coupons"]').click();
+    await sleep(100);
+    out.second = doc.querySelector('.ly-tab.is-on').getAttribute('data-tab');
+    out.tickets = doc.querySelectorAll('.wl-ticket').length;
+    out.hash = f.contentWindow.location.hash;
+    out.controls = doc.querySelectorAll('input, select, form, textarea').length;
+    f.remove();
+
+    COUPONS.openLoyaltyQr(null, pid);
+    var box = null;
+    t0 = Date.now();
+    while (Date.now() - t0 < 15000) {
+      await sleep(200);
+      box = document.querySelector('.dc-wqr[data-scheme="loyalty"]');
+      if (box && box.querySelector('#dcWqrLink').value) break;
+    }
+    out.qrLink = box && box.querySelector('#dcWqrLink').value;
+    out.qrTitle = box && box.querySelector('#dcWqrTitle').textContent;
+    out.qrDrawn = !!(box && box.querySelector('#dcWqrCode').getAttribute('data-url'));
+    var close = box && box.querySelector('[data-act="close"]');
+    if (close) close.click();
+    var dc2 = await SB.rpc('dc_wallet_link', { p_patient_id: pid, p_by: null, p_reset: false });
+    var rw2 = await SB.rpc('rw_wallet_link', { p_patient_id: pid, p_by: null, p_reset: false });
+    out.sameTokens = dc2.data.token === out.dcToken && rw2.data.token === out.rwToken;
+
+    var host = document.getElementById('bSpendHint');
+    var keep = window.currentClinicCodeForTagging;
+    var keepCtx = window.billPaymentClinicContext;
+    var kt = (typeof APP_CLINICS !== 'undefined' ? APP_CLINICS : []).filter(function (c) { return String(c.clinic_code || '').toUpperCase() === 'KT'; })[0];
+    window.currentClinicCodeForTagging = function () { return 'KT'; };
+    window.billPaymentClinicContext = function () { return { clinic_id: kt ? kt.id : null, clinic_code: 'KT' }; };
+    COUPONS.mergeSaved({ campaigns: [{ key: 'spend_1', enabled: true }, { key: 'spend_2', enabled: true }] });
+    var joined = await REWARDS.currentClinicJoined();
+    out.ktPoints = joined;
+    var rate = await REWARDS.earnRatePercent();
+    COUPONS.paintCheckoutHint(1200, 1200, 'Cash');
+    await sleep(1500);
+    out.hintPts = (host.querySelector('.dc-hint-pts') || {}).textContent || '';
+    out.hintCoupon = /Spend \\$1000 get \\$100|滿\\$1000送\\$100|满\\$1000送\\$100/.test(host.textContent);
+    out.expPts = joined ? COUPONS.pointsEarnText(1200, rate, 'Cash') : '';
+    COUPONS.paintCheckoutHint(1200, 1200, 'PDCC');
+    await sleep(1200);
+    out.pdccPts = !!host.querySelector('.dc-hint-pts');
+    window.currentClinicCodeForTagging = keep;
+    if (keepCtx) window.billPaymentClinicContext = keepCtx; else delete window.billPaymentClinicContext;
+    COUPONS.mergeSaved(null);
+    host.hidden = true;
+    out.ok = true;
+  } catch (e) { out.err = String(e && e.message || e); }
+  return out;
+})()`, true, 60000);
+        pass('live #001003 one link carries the existing coupon and points tokens',
+            !!(lyPhone && lyPhone.ok && lyPhone.url && lyPhone.url.indexOf('loyalty.html?c=' + lyPhone.dcToken + '&p=' + lyPhone.rwToken) > 0), JSON.stringify(lyPhone && { url: lyPhone.url, err: lyPhone.err }));
+        pass('live #001003 loyalty.html: Points tab first with the real balance, badges for both',
+            !!(lyPhone && lyPhone.first === 'points' && lyPhone.badges.length === 2 && lyPhone.title === 'My points & coupons' &&
+                lyPhone.balance === lyPhone.badges[0] && Number(String(lyPhone.balance).replace(/,/g, '')) === Number(lyPhone.expBalance) && !!lyPhone.who),
+            lyPhone && JSON.stringify({ badges: lyPhone.badges, balance: lyPhone.balance, exp: lyPhone.expBalance, who: lyPhone.who }));
+        pass('live #001003 loyalty.html: Coupons tab shows the live coupons; browse only',
+            !!(lyPhone && lyPhone.second === 'coupons' && lyPhone.tickets === lyPhone.expLive && String(lyPhone.expLive) === lyPhone.badges[1] &&
+                lyPhone.hash === '#tab=coupons' && lyPhone.controls === 0), lyPhone && (lyPhone.tickets + ' tickets / ' + lyPhone.expLive + ' live'));
+        pass('live #001003 desk one-QR box draws the same link and leaves the tokens alone',
+            !!(lyPhone && lyPhone.qrLink && lyPhone.qrLink === lyPhone.url && lyPhone.qrDrawn && lyPhone.sameTokens), lyPhone && (lyPhone.qrTitle + ' ' + lyPhone.qrLink));
+        pass('live checkout hint at KT: ' + (lyPhone && lyPhone.ktPoints ? 'points line + spend coupon line together' : 'KT not in points scheme, coupon line only') + '; no points line on PDCC',
+            !!(lyPhone && lyPhone.hintCoupon && lyPhone.hintPts === lyPhone.expPts && (lyPhone.ktPoints ? /^⭐ Paying HK\$1200\.00 earns about/.test(lyPhone.hintPts) : lyPhone.hintPts === '') &&
+                lyPhone.pdccPts === false), lyPhone && JSON.stringify({ kt: lyPhone.ktPoints, pts: lyPhone.hintPts, exp: lyPhone.expPts }));
         var smsLink = await cdp.js(`(async function () {
   var out = { ok: false };
   var BASE_KEY = 'csPhoneScanBase';
@@ -3028,14 +3230,16 @@ function loadCoupons() {
   return out;
 })()`, true, 30000);
         var lastLine = function (s) { var l = String(s || '').split('\n'); return l[l.length - 1]; };
-        pass('live #001003 coupon SMS ends with the phone coupon page link (no SMS really sent)', !!(smsLink && smsLink.ok && smsLink.couponRes && smsLink.couponRes.ok &&
-            lastLine(smsLink.couponBody) === '手機查看優惠券/See your coupons on the phone: https://elitedentist13.github.io/CS-web-version/wallet.html?t=' + smsLink.dcToken),
+        var loySms = '手機查看積分及優惠券/See your points and coupons on the phone: https://elitedentist13.github.io/CS-web-version/loyalty.html?c=' +
+            (smsLink && smsLink.dcToken) + '&p=' + (smsLink && smsLink.rwToken);
+        pass('live #001003 coupon SMS ends with the one points-and-coupons page link (no SMS really sent)', !!(smsLink && smsLink.ok && smsLink.couponRes && smsLink.couponRes.ok &&
+            lastLine(smsLink.couponBody) === loySms),
             smsLink && (smsLink.err || smsLink.reason || lastLine(smsLink.couponBody)));
-        pass('live #001003 points SMS ends with the phone points page link (no SMS really sent)', !!(smsLink && smsLink.ok && (smsLink.pointsSmsOn ?
-            lastLine(smsLink.pointsBody) === '手機查看積分/See your points on the phone: https://elitedentist13.github.io/CS-web-version/points.html?t=' + smsLink.rwToken &&
+        pass('live #001003 points SMS ends with the same one page link (no SMS really sent)', !!(smsLink && smsLink.ok && (smsLink.pointsSmsOn ?
+            lastLine(smsLink.pointsBody) === loySms &&
             smsLink.pointsBody.indexOf('變動/Change') > 0 : smsLink.sends === 1)),
             smsLink && (smsLink.err || (smsLink.pointsSmsOn ? lastLine(smsLink.pointsBody) : 'points SMS switched off')));
-        pass('live #001003 SMS links reuse the patient’s current QR (no new code) and open the points page', !!(smsLink && smsLink.ok && smsLink.sameTokens && smsLink.rwViewOk),
+        pass('live #001003 SMS links reuse the patient’s current QR (no new code) and open the combined page', !!(smsLink && smsLink.ok && smsLink.sameTokens && smsLink.rwViewOk),
             smsLink && JSON.stringify({ same: smsLink.sameTokens, view: smsLink.rwViewOk }));
         var refLive = await cdp.js(`(async function () {
   var out = { ok: false };

@@ -410,4 +410,4 @@ button.dc-card.is-blocked .dc-check { display: none; }
 .lyr-table th { position: sticky; top: 0; padding: 9px 10px; background: #f0f7ff; color: #0d6efd; font-size: 12px; font-weight: 900; text-align: left; border-bottom: 2px solid #dde8f5; }
 .lyr-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
 .lyr-table tfoot td { font-weight: 900; background: #f8fafc; border-top: 2px solid #e2e8f0; }
-.lyr-table .lyr-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lyr-table .lyr-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }#bSpendHint .dc-hint-pts { font-weight: 700; color: #92400e; }

@@ -932,9 +932,9 @@ function fakeBillSb(tables, rpcLog) {
             var pcfg = R.phoneQrConfig();
             pass('points QR set-up: rpc, page, PNG name, centre label', pcfg.rpc === 'rw_wallet_link' && pcfg.page === 'points.html' &&
                 pcfg.pngName === 'reward-points-qr.png' && pcfg.centre === '積分' && pcfg.scheme === 'rewards');
-            pass('points SMS at each balance change ends with the phone points page link',
-                /COUPONS\.phoneLinkForSms\(info\.patientId, 'rw_wallet_link', 'points\.html'\)/.test(rewardsSrc) &&
-                /if \(hasLink\) body = COUPONS\.smsWithPhoneLink\(body, both\[2\], 'rewards'\);/.test(rewardsSrc));
+            pass('points SMS at each balance change ends with the one points-and-coupons page link',
+                /COUPONS\.loyaltyLinkForSms\(info\.patientId\)/.test(rewardsSrc) &&
+                /if \(hasLink\) body = COUPONS\.smsWithPhoneLink\(body, both\[2\], 'loyalty'\);/.test(rewardsSrc));
             var ye = R.pointsYearEndSms('2026-11-30', 1234.5, 'PL').split('\n');
             pass('year-end points SMS: heading, all-clinic total, 31 Dec 23:59 with days left, clinic, note',
                 ye[0] === '[Joyful Smile Dental Clinic 樂意牙科中心] 積分到期提醒 / Reward points expiry reminder' &&

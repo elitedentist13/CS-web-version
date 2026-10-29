@@ -2277,8 +2277,10 @@ function loadCoupons() {
         /function apptLoyaltyMarkHtml/.test(apptSrc) && /function apptNameLoyaltyLine/.test(apptSrc) &&
         /apptNameLoyaltyLine\(nameHtml, a\)/.test(apptSrc) &&
         (apptSrc.match(/paintApptLoyaltySoon\(tb\)/g) || []).length >= 3);
-    pass('queue / today: Chinese name does not wrap; English may wrap 3 lines; chips stay beside',
+    pass('queue / today: Chinese and English on separate rows; English may wrap 3 lines; chips stay beside',
         /\.appt-name-loy \{/.test(read('style.css')) &&
+        /\.appt-name-loy \.appt-patient-name-field \{[\s\S]{0,80}flex-direction: column/.test(read('style.css')) &&
+        /\.appt-name-loy \.appt-name-sep \{[\s\S]{0,40}display: none/.test(read('style.css')) &&
         /\.appt-name-loy \.appt-name-cn[\s\S]{0,280}white-space: nowrap/.test(read('style.css')) &&
         /-webkit-line-clamp: 3/.test(read('style.css')) &&
         /apptNameLoyaltyLine\(queueClearModeNameHtml/.test(apptSrc));

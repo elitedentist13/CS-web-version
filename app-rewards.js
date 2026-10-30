@@ -471,19 +471,69 @@ var REWARDS = (function () {
         // No __all__ row yet → inherit clinic default for the All Doctors scope
         // (keeps PL joined for every doctor until reception narrows participation).
         var allOn = all ? scopeJoined(all) : scopeJoined(clinicFlags);
-        var docOn = !!(matched && scopeJoined(matched));
-        var gain = allOn || docOn;
-        var redeem = gain;
-        // Unknown doctor on bill: only All Doctors scope counts
-        if (!isKnownRewardDoctor(doc) && !matched) {
-            gain = allOn;
-            redeem = allOn;
-        }
+        // An explicit doctor row is that person's opt-in / opt-out. All Doctors
+        // must not keep granting points after a dentist has been unticked.
+        var gain = matched ? scopeJoined(matched) : allOn;
         return {
-            enabled: gain || redeem,
+            enabled: gain,
             join_gain: gain,
-            join_redeem: redeem
+            join_redeem: gain
         };
+    }
+
+    /** Config tick: a saved doctor row wins; otherwise inherit All Doctors. */
+    function doctorJoinShownOn(flags, allOn) {
+        if (flags) return !!(flags.join_gain || flags.join_redeem || flags.enabled);
+        return !!allOn;
+    }
+
+    /**
+     * Pure: rows to write after one Gain & Redeem tick (select-all style, like coupons).
+     * Unticking one doctor while All Doctors is on turns All Doctors off and
+     * leaves the other listed doctors on.
+     */
+    function planRewardDoctorToggle(opts) {
+        opts = opts || {};
+        var doctorKey = String(opts.doctorKey || ALL_DOCTORS_KEY);
+        var joined = !!opts.joined;
+        var allOn = !!opts.allOn;
+        var list = opts.list || [];
+        var writes = [];
+        function add(key, on, meta) {
+            meta = meta || {};
+            writes.push({
+                doctorKey: key,
+                join_gain: on,
+                join_redeem: on,
+                doctorId: meta.id || meta.doctorId || null,
+                doctorLabel: meta.label || meta.doctorLabel ||
+                    (key === ALL_DOCTORS_KEY ? 'All Doctors' : key)
+            });
+        }
+        if (doctorKey === ALL_DOCTORS_KEY) {
+            add(ALL_DOCTORS_KEY, joined, { label: 'All Doctors' });
+            list.forEach(function (d) { add(d.key, joined, d); });
+            return writes;
+        }
+        if (!joined && allOn) {
+            add(ALL_DOCTORS_KEY, false, { label: 'All Doctors' });
+            list.forEach(function (d) {
+                add(d.key, d.key !== doctorKey, d);
+            });
+            return writes;
+        }
+        add(doctorKey, joined, { id: opts.doctorId, label: opts.doctorLabel });
+        if (joined && list.length) {
+            var nextOn = {};
+            list.forEach(function (d) {
+                if (d.key === doctorKey || d.wasOn) nextOn[d.key] = true;
+            });
+            nextOn[doctorKey] = true;
+            if (list.every(function (d) { return nextOn[d.key]; })) {
+                add(ALL_DOCTORS_KEY, true, { label: 'All Doctors' });
+            }
+        }
+        return writes;
     }
 
     /** Default UI open target: PL clinic (All Doctors), same as historic scheme default. */
@@ -5076,6 +5126,73 @@ var REWARDS = (function () {
             });
     }
 
+    /** Batch-write All Doctors + doctor rows after a coupon-style toggle. */
+    function setDoctorJoinRows(clinicId, clinicCode, rows) {
+        var list = rows || [];
+        if (!list.length) return Promise.resolve({ ok: true });
+        if (list.length === 1) {
+            var one = list[0];
+            return setDoctorJoinFlags({
+                clinicId: clinicId,
+                clinicCode: clinicCode,
+                doctorKey: one.doctorKey,
+                doctorId: one.doctorId,
+                doctorLabel: one.doctorLabel,
+                join_gain: one.join_gain,
+                join_redeem: one.join_redeem
+            });
+        }
+        var now = new Date().toISOString();
+        var by = actorName();
+        var payloads = list.map(function (w) {
+            var gain = w.join_gain != null ? !!w.join_gain : !!w.enabled;
+            return {
+                clinic_id: clinicId,
+                clinic_code: clinicCode || '',
+                doctor_key: w.doctorKey,
+                doctor_id: w.doctorId || null,
+                doctor_label: w.doctorLabel || w.doctorKey,
+                join_gain: gain,
+                join_redeem: gain,
+                enabled: gain,
+                updated_at: now,
+                updated_by: by
+            };
+        });
+        return SB.from('reward_program_doctors')
+            .upsert(payloads, { onConflict: 'clinic_id,doctor_key' })
+            .then(function (r) {
+                if (r.error) {
+                    var msg = String(r.error.message || '');
+                    if (/reward_program_doctors|schema cache|does not exist|PGRST/i.test(msg)) {
+                        return {
+                            ok: false,
+                            error: tr('rewards.err.needDoctorJoinSql',
+                                'Run reward_points_patch_doctor_join.sql in Supabase for per-doctor participation.')
+                        };
+                    }
+                    return { ok: false, error: msg };
+                }
+                _doctorJoinMap = null;
+                return loadDoctorJoinMap(true).then(function (docMap) {
+                    var bucket = lookupDoctorClinicBucket(docMap, clinicId, clinicCode) || {};
+                    list.forEach(function (w) {
+                        var gain = w.join_gain != null ? !!w.join_gain : !!w.enabled;
+                        bucket[w.doctorKey] = {
+                            join_gain: gain,
+                            join_redeem: gain,
+                            enabled: gain,
+                            doctor_key: w.doctorKey,
+                            doctor_id: w.doctorId || null,
+                            doctor_label: w.doctorLabel || w.doctorKey
+                        };
+                    });
+                    return syncClinicFlagsFromDoctorBucket(clinicId, clinicCode, bucket)
+                        .then(function () { return { ok: true }; });
+                });
+            });
+    }
+
     function doctorsForRewardClinic(clinicId) {
         var list = [];
         if (typeof doctorsForClinic === 'function') {
@@ -5325,7 +5442,7 @@ var REWARDS = (function () {
             html += '<div class="rw-cfg-card-title">' + esc(tr('rewards.cfg.clinicsTitle', 'Clinics in scheme')) + '</div>';
             html += '<p style="margin:0 0 10px;font-size:12px;color:#64748b;">' +
                 esc(tr('rewards.cfg.clinicsHintDoctors',
-                    'Default: PL · All Doctors joined. Pick a clinic tab, then Join / leave for All Doctors or an individual doctor.')) +
+                    'Default: PL · All Doctors joined. Tick All Doctors for every dentist. Untick one dentist and All Doctors turns off; the others stay in.')) +
                 '</p>';
             html += '<div class="rw-clinic-scheme">';
             html += '<div class="rw-clinic-tabs" role="tablist">';
@@ -5356,7 +5473,13 @@ var REWARDS = (function () {
                 var bucket = lookupDoctorClinicBucket(docMap, c.id, code) || {};
                 var clinicFlags = lookupClinicFlags(map, c.id, code);
                 var allFlags = bucket[ALL_DOCTORS_KEY] || defaultAllDoctorsFlags(clinicFlags, code);
+                var allOnSaved = !!(allFlags.join_gain || allFlags.join_redeem || allFlags.enabled);
                 var docs = doctorsForRewardClinic(c.id);
+                var anyExplicitOff = docs.some(function (d) {
+                    var f = rewardFlagsMatchKey(bucket, doctorJoinKeyFromDoctorRow(d), d.id);
+                    return !!(f && !(f.join_gain || f.join_redeem || f.enabled));
+                });
+                var allShown = allOnSaved && !anyExplicitOff;
                 var isActive = clinicIdx === openClinicIdx;
                 html += '<div class="rw-clinic-panel' + (isActive ? ' is-active' : '') +
                     '" role="tabpanel" data-clinic-id="' + esc(c.id) +
@@ -5366,8 +5489,10 @@ var REWARDS = (function () {
                     '<strong>' + esc(code || '—') + '</strong> · ' + esc(name) +
                     '</div>';
                 html += '<div class="rw-clinic-docs">';
-                function docRowHtml(doctorKey, doctorLabel, doctorId, flags, selected) {
-                    var joinedOn = !!(flags && (flags.join_gain || flags.join_redeem || flags.enabled));
+                function docRowHtml(doctorKey, doctorLabel, doctorId, flags, selected, inheritAll) {
+                    var joinedOn = doctorKey === ALL_DOCTORS_KEY
+                        ? !!(flags && (flags.join_gain || flags.join_redeem || flags.enabled))
+                        : doctorJoinShownOn(flags, inheritAll);
                     return '<div class="rw-doc-row' + (selected ? ' is-selected' : '') +
                         '" data-clinic-id="' + esc(c.id) +
                         '" data-clinic-code="' + esc(code) +
@@ -5384,18 +5509,18 @@ var REWARDS = (function () {
                         '</div>';
                 }
                 html += docRowHtml(ALL_DOCTORS_KEY,
-                    tr('rewards.cfg.allDoctors', 'All Doctors'), '', allFlags, true);
+                    tr('rewards.cfg.allDoctors', 'All Doctors'), '',
+                    { join_gain: allShown, join_redeem: allShown, enabled: allShown }, true);
                 var parcoLineAdded = false;
                 docs.forEach(function (d) {
                     var dKey = doctorJoinKeyFromDoctorRow(d);
                     if (!dKey) return;
                     var dLab = doctorJoinLabelFromDoctorRow(d) || dKey;
-                    var dFlags = rewardFlagsMatchKey(bucket, dKey, d.id) ||
-                        { join_gain: false, join_redeem: false };
-                    html += docRowHtml(dKey, dLab, d.id, dFlags, false);
+                    var dFlags = rewardFlagsMatchKey(bucket, dKey, d.id);
+                    html += docRowHtml(dKey, dLab, d.id, dFlags, false, allOnSaved);
                     if (dKey === 'parco-poon' && !parcoLineAdded) {
                         parcoLineAdded = true;
-                        html += docRowHtml('parco-poon', 'Dr Parco Poon', d.id, dFlags, false);
+                        html += docRowHtml('parco-poon', 'Dr Parco Poon', d.id, dFlags, false, allOnSaved);
                     }
                 });
                 html += '</div></div>';
@@ -5686,41 +5811,118 @@ var REWARDS = (function () {
                 });
             });
 
+            function doctorListFromPanel(panel) {
+                var list = [];
+                var seen = {};
+                if (!panel) return list;
+                panel.querySelectorAll('.rw-doc-row').forEach(function (r) {
+                    var k = r.getAttribute('data-doctor-key');
+                    if (!k || k === ALL_DOCTORS_KEY || seen[k]) return;
+                    seen[k] = true;
+                    var otherCb = r.querySelector('.rw-doc-join');
+                    list.push({
+                        key: k,
+                        id: r.getAttribute('data-doctor-id') || null,
+                        label: r.getAttribute('data-doctor-label') || k,
+                        wasOn: !!(otherCb && otherCb.checked)
+                    });
+                });
+                return list;
+            }
+
+            function applyJoinWritesToPanel(panel, writes) {
+                if (!panel) return;
+                var byKey = {};
+                (writes || []).forEach(function (w) { byKey[w.doctorKey] = !!w.join_gain; });
+                panel.querySelectorAll('.rw-doc-row').forEach(function (r) {
+                    var k = r.getAttribute('data-doctor-key');
+                    if (!k || !Object.prototype.hasOwnProperty.call(byKey, k)) return;
+                    var box = r.querySelector('.rw-doc-join');
+                    if (box) box.checked = byKey[k];
+                });
+            }
+
             pane.querySelectorAll('.rw-doc-join').forEach(function (cb) {
                 cb.addEventListener('change', function () {
                     var row = cb.closest('.rw-doc-row');
                     if (!row) return;
                     selectDocRow(row);
+                    var panel = row.closest('.rw-clinic-panel');
                     var joined = !!cb.checked;
-                    var flags = {
-                        clinicId: row.getAttribute('data-clinic-id'),
-                        clinicCode: row.getAttribute('data-clinic-code'),
-                        doctorKey: row.getAttribute('data-doctor-key') || ALL_DOCTORS_KEY,
-                        doctorId: row.getAttribute('data-doctor-id') || null,
-                        doctorLabel: row.getAttribute('data-doctor-label') || '',
-                        join_gain: joined,
-                        join_redeem: joined
-                    };
-                    function syncSameDoctorJoin(on) {
-                        pane.querySelectorAll('.rw-doc-row').forEach(function (other) {
-                            if (other.getAttribute('data-clinic-id') !== flags.clinicId) return;
-                            if (other.getAttribute('data-doctor-key') !== flags.doctorKey) return;
-                            var otherCb = other.querySelector('.rw-doc-join');
-                            if (otherCb) otherCb.checked = on;
+                    var doctorKey = row.getAttribute('data-doctor-key') || ALL_DOCTORS_KEY;
+                    var clinicId = row.getAttribute('data-clinic-id');
+                    var clinicCode = row.getAttribute('data-clinic-code');
+                    var allCb = panel && panel.querySelector(
+                        '.rw-doc-row[data-doctor-key="' + ALL_DOCTORS_KEY + '"] .rw-doc-join');
+                    var allOnNow = doctorKey === ALL_DOCTORS_KEY ? false : !!(allCb && allCb.checked);
+                    var list = doctorListFromPanel(panel);
+                    if (doctorKey !== ALL_DOCTORS_KEY) {
+                        list.forEach(function (d) {
+                            if (d.key === doctorKey) d.wasOn = joined;
                         });
                     }
-                    syncSameDoctorJoin(joined);
-                    setDoctorJoinFlags(flags).then(function (res) {
+                    var writes = planRewardDoctorToggle({
+                        doctorKey: doctorKey,
+                        joined: joined,
+                        allOn: allOnNow,
+                        list: list,
+                        doctorId: row.getAttribute('data-doctor-id') || null,
+                        doctorLabel: row.getAttribute('data-doctor-label') || ''
+                    });
+                    var prev = {};
+                    if (panel) {
+                        panel.querySelectorAll('.rw-doc-row').forEach(function (r) {
+                            var k = r.getAttribute('data-doctor-key');
+                            var box = r.querySelector('.rw-doc-join');
+                            if (k && box) prev[k] = box.checked;
+                        });
+                    }
+                    applyJoinWritesToPanel(panel, writes);
+                    var anyoneOn = writes.some(function (w) { return !!w.join_gain; });
+                    setDoctorJoinRows(clinicId, clinicCode, writes).then(function (res) {
                         if (!res.ok) {
                             alert(res.error || 'Save failed');
-                            if (!res.clinicOnly) syncSameDoctorJoin(!joined);
+                            applyJoinWritesToPanel(panel, Object.keys(prev).map(function (k) {
+                                return { doctorKey: k, join_gain: prev[k] };
+                            }));
                             return;
                         }
                         if (typeof toast === 'function') toast(tr('rewards.cfg.saved', 'Saved'));
-                        if (flags.doctorKey === ALL_DOCTORS_KEY) {
-                            syncTabDot(flags.clinicId, joined);
-                        }
+                        syncTabDot(clinicId, anyoneOn);
                     });
+                });
+            });
+
+            // Stale: All Doctors still on while a dentist was unticked — expand like coupons.
+            pane.querySelectorAll('.rw-clinic-panel').forEach(function (panel) {
+                var clinicId = panel.getAttribute('data-clinic-id');
+                var clinicCode = panel.getAttribute('data-clinic-code');
+                var bucket = lookupDoctorClinicBucket(docMap, clinicId, clinicCode) || {};
+                var clinicFlags = lookupClinicFlags(map, clinicId, clinicCode);
+                var allFlags = bucket[ALL_DOCTORS_KEY] || defaultAllDoctorsFlags(clinicFlags, clinicCode);
+                var allSaved = !!(allFlags.join_gain || allFlags.join_redeem || allFlags.enabled);
+                if (!allSaved) return;
+                var list = doctorListFromPanel(panel).map(function (d) {
+                    var f = rewardFlagsMatchKey(bucket, d.key, d.id);
+                    return {
+                        key: d.key,
+                        id: d.id,
+                        label: d.label,
+                        wasOn: f ? !!(f.join_gain || f.join_redeem || f.enabled) : true
+                    };
+                });
+                var off = null;
+                list.forEach(function (d) { if (!d.wasOn && !off) off = d.key; });
+                if (!off) return;
+                var writes = planRewardDoctorToggle({
+                    doctorKey: off,
+                    joined: false,
+                    allOn: true,
+                    list: list
+                });
+                applyJoinWritesToPanel(panel, writes);
+                setDoctorJoinRows(clinicId, clinicCode, writes).then(function (res) {
+                    if (res && res.ok) syncTabDot(clinicId, writes.some(function (w) { return !!w.join_gain; }));
                 });
             });
         }).catch(function (e) {
@@ -5976,6 +6178,9 @@ var REWARDS = (function () {
         currentClinicRedeemJoined: currentClinicRedeemJoined,
         loadDoctorJoinMap: loadDoctorJoinMap,
         setDoctorJoinFlags: setDoctorJoinFlags,
+        setDoctorJoinRows: setDoctorJoinRows,
+        planRewardDoctorToggle: planRewardDoctorToggle,
+        doctorJoinShownOn: doctorJoinShownOn,
         effectiveJoinFlags: effectiveJoinFlags,
         getAccount: getAccount,
         getBalance: getBalance,

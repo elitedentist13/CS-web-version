@@ -96,7 +96,10 @@ var DoctorAliases = (function () {
             label: 'Dr Joseph Lam Kam Yui',
             aliases: [
                 'DR JOSEPH LAM', 'DR. JOSEPH LAM', 'DR.JOSEPH LAM',
-                'Joseph Lam', 'Dr Lam Kam Yui', 'Lam Kam Yui',
+                'Joseph Lam', 'Joseph Lam Kam Yui', 'Dr Joseph Lam Kam Yui',
+                'Dr Lam Kam Yui', 'Lam Kam Yui',
+                'DR. LAM KAM YUI', 'DR LAM KAM YUI',
+                'DR. LAM KAM YUI JOSEPH', 'DR LAM KAM YUI JOSEPH', 'LAM KAM YUI JOSEPH',
                 '林錦銳', '林錦銳牙科醫生'
             ]
         },

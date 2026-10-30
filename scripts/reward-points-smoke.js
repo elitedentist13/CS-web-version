@@ -464,6 +464,8 @@ function fakeBillSb(tables, rpcLog) {
         /rw-clinic-tabs/.test(rewardsSrc) &&
         /ALL_DOCTORS_KEY/.test(rewardsSrc) &&
         /setDoctorJoinFlags/.test(rewardsSrc) &&
+        /setDoctorJoinRows/.test(rewardsSrc) &&
+        /planRewardDoctorToggle/.test(rewardsSrc) &&
         /effectiveJoinFlags/.test(rewardsSrc) &&
         /rewards\.cfg\.allDoctors/.test(rewardsSrc) &&
         /rw-doc-join/.test(rewardsSrc));
@@ -994,6 +996,51 @@ function fakeBillSb(tables, rpcLog) {
                 ye[3] === '診所/Clinic: PL' && /^備註\/Note: 所有積分將於今年2026年12月31日 23:59到期/.test(ye[4]), ye.join(' | '));
             pass('year-end points SMS on 24 Dec says 7 days, no clinic line when unknown',
                 R.pointsYearEndSms('2026-12-24', 10, '').indexOf('(7 days left)') > 0 && R.pointsYearEndSms('2026-12-24', 10, '').indexOf('診所/Clinic') < 0);
+            var plAll = { 'code:PL': { join_gain: true, join_redeem: true, enabled: true } };
+            var plDocs = {
+                'code:PL': {
+                    '__all__': { join_gain: true, join_redeem: true, enabled: true, doctor_key: '__all__' },
+                    'joseph-lam': { join_gain: false, join_redeem: false, enabled: false, doctor_key: 'joseph-lam' }
+                }
+            };
+            var joseph = { key: 'joseph-lam', label: 'Dr Joseph Lam Kam Yui' };
+            var ng = { key: 'ng-pui-ching', label: 'Dr Ng Pui Ching' };
+            var jf = R.effectiveJoinFlags(plAll, plDocs, null, 'PL', joseph);
+            var nf = R.effectiveJoinFlags(plAll, plDocs, null, 'PL', ng);
+            pass('coupon-style join: unticked Joseph is out even while All Doctors is still saved on',
+                jf && jf.join_gain === false && jf.join_redeem === false, JSON.stringify(jf));
+            pass('coupon-style join: a dentist with no own row still follows All Doctors',
+                nf && nf.join_gain === true, JSON.stringify(nf));
+            var writesOff = R.planRewardDoctorToggle({
+                doctorKey: 'joseph-lam',
+                joined: false,
+                allOn: true,
+                list: [
+                    { key: 'joseph-lam', label: 'Dr Joseph Lam Kam Yui', wasOn: false },
+                    { key: 'ng-pui-ching', label: 'Dr Ng Pui Ching', wasOn: true }
+                ]
+            });
+            var byK = {};
+            writesOff.forEach(function (w) { byK[w.doctorKey] = !!w.join_gain; });
+            pass('coupon-style toggle: untick one dentist turns All Doctors off and keeps the others on',
+                byK.__all__ === false && byK['joseph-lam'] === false && byK['ng-pui-ching'] === true,
+                JSON.stringify(byK));
+            var writesAll = R.planRewardDoctorToggle({
+                doctorKey: '__all__',
+                joined: true,
+                allOn: false,
+                list: [
+                    { key: 'joseph-lam', label: 'Dr Joseph', wasOn: false },
+                    { key: 'ng-pui-ching', label: 'Dr Ng', wasOn: true }
+                ]
+            });
+            pass('coupon-style toggle: tick All Doctors turns every listed dentist on',
+                writesAll.length === 3 && writesAll.every(function (w) { return w.join_gain === true; }),
+                JSON.stringify(writesAll));
+            pass('coupon-style display: no own row inherits All Doctors; explicit off stays off',
+                R.doctorJoinShownOn(null, true) === true &&
+                R.doctorJoinShownOn({ join_gain: false, join_redeem: false }, true) === false &&
+                R.doctorJoinShownOn({ join_gain: true, join_redeem: true }, false) === true);
 
             pass('gift: max is 200', R.GIFT_MAX === 200);
             var gc = R.giftCheck;
@@ -1527,7 +1574,18 @@ function fakeBillSb(tables, rpcLog) {
     out.plJoinedAll = !!joined;
     // PL may be per-doctor (All Doctors off); a joined PL doctor still counts.
     out.plJoinedNg = !!(await REWARDS.isClinicJoined(null, 'PL', 'DR. NG PUI CHING'));
+    out.plJoinedJoseph = !!(await REWARDS.isClinicJoined(null, 'PL', 'Dr Joseph Lam Kam Yui'));
+    out.plJoinedJosephTag = !!(await REWARDS.isClinicJoined(null, 'PL', 'DR. LAM KAM YUI JOSEPH'));
     out.plJoinedDefault = out.plJoinedAll || out.plJoinedNg;
+    try {
+      const dm = await REWARDS.loadDoctorJoinMap(true);
+      const plb = (dm && (dm['code:PL'] || dm['code:pl'])) || {};
+      const jr = plb['joseph-lam'];
+      out.plJosephRow = jr ? !!(jr.join_gain || jr.join_redeem || jr.enabled) : null;
+      out.plAllRow = plb['__all__'] ? !!(plb['__all__'].join_gain || plb['__all__'].enabled) : null;
+    } catch (e2) {
+      out.plJosephRowErr = String(e2 && e2.message || e2);
+    }
   } catch (e) {
     out.plJoinedDefault = null;
     out.plErr = String(e && e.message || e);
@@ -1582,6 +1640,14 @@ function fakeBillSb(tables, rpcLog) {
         if (liveProbe && liveProbe.plJoinedDefault != null) {
             pass('live PL joined (API or default)', liveProbe.plJoinedDefault === true,
                 liveProbe.plErr || ('allDoctors=' + liveProbe.plJoinedAll + ' drNg=' + liveProbe.plJoinedNg));
+            if (liveProbe.plJosephRow === false) {
+                pass('live PL Dr Joseph Lam opt-out is honoured (name and bill tag)',
+                    liveProbe.plJoinedJoseph === false && liveProbe.plJoinedJosephTag === false,
+                    JSON.stringify({
+                        row: liveProbe.plJosephRow, all: liveProbe.plAllRow,
+                        name: liveProbe.plJoinedJoseph, tag: liveProbe.plJoinedJosephTag
+                    }));
+            }
         } else {
             warn('live PL join probe skipped', liveProbe && liveProbe.plErr);
         }

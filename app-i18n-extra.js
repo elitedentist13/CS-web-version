@@ -4173,9 +4173,9 @@
             'zh-Hant': '前台可為每間診所加入賺取／兌換。賺取記入該病歷號；兌換可從同一人多個病歷扣減。'
         },
         'rewards.cfg.clinicsHintDoctors': {
-            en: 'Default: PL · All Doctors joined. One switch turns on both earning points and redeeming points for All Doctors or one doctor.',
-            'zh-CN': '默认：宝林（PL）· 全部医生已加入。一个开关同时开启赚取积分和兑换积分（全部医生或个别医生）。',
-            'zh-Hant': '預設：寶琳（PL）· 全部醫生已加入。一個開關同時開啟賺取積分和兌換積分（全部醫生或個別醫生）。'
+            en: 'Default: PL · All Doctors joined. Tick All Doctors for every dentist. Untick one dentist and All Doctors turns off; the others stay in.',
+            'zh-CN': '默认：宝林（PL）· 全部医生已加入。勾选「全部医生」即全体参加。取消其中一位时，「全部医生」会自动取消，其余已勾选的医生仍留在计划内。',
+            'zh-Hant': '預設：寶琳（PL）· 全部醫生已加入。剔選「全部醫生」即全體參加。取消其中一位時，「全部醫生」會自動取消，其餘已剔選的醫生仍留在計劃內。'
         },
         'rewards.cfg.allDoctors': { en: 'All Doctors', 'zh-CN': '全部医生', 'zh-Hant': '全部醫生' },
         'rewards.cfg.joined': { en: 'joined', 'zh-CN': '已加入', 'zh-Hant': '已加入' },

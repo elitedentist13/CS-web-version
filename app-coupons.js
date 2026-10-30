@@ -249,28 +249,42 @@ var COUPONS = (function () {
     }
 
     /**
-     * Clinic-scope: the clinic Join switch is on, and All Doctors is on (or never
-     * set), or at least one dentist is ticked. Used for the config tab dot and
-     * Refer a friend selectability. A bill still checks the treating dentist.
+     * Clinic-scope: All Doctors is on, or at least one dentist is ticked.
+     * If All Doctors was never set, inherit the clinic default (KT on, others off).
+     * Used for the config tab dot and Refer a friend selectability.
      */
+    function clinicJoinedFromDoctors(docs, clinicCode, clinicMap) {
+        if (allDoctorsSetting(docs, clinicCode) === true) return true;
+        if (dentistRowJoined(docs, clinicCode)) return true;
+        if (allDoctorsSetting(docs, clinicCode) === false) return false;
+        return clinicJoined(clinicCode, clinicMap);
+    }
+
     function clinicScopeJoined(clinicCode, maps) {
-        if (!clinicJoined(clinicCode, maps && maps.clinics)) return false;
-        var docs = (maps && maps.doctors) || _doctors;
-        if (allDoctorsSetting(docs, clinicCode) !== false) return true;
-        return dentistRowJoined(docs, clinicCode);
+        return clinicJoinedFromDoctors(
+            (maps && maps.doctors) || _doctors,
+            clinicCode,
+            maps && maps.clinics
+        );
     }
 
     /** "All Doctors" ticked = every doctor of that clinic is in; otherwise each doctor's own switch (clinic by clinic). */
     function doctorJoined(clinicCode, doctorKey, maps) {
-        if (!clinicJoined(clinicCode, maps && maps.clinics)) return false;
         var c = String(clinicCode || '').trim().toUpperCase();
         var docs = (maps && maps.doctors) || _doctors;
         var all = allDoctorsSetting(docs, c);
-        if (doctorKey === '__all__') return all !== false;
+        if (doctorKey === '__all__') {
+            if (all === true) return true;
+            if (all === false) return false;
+            return clinicJoined(clinicCode, maps && maps.clinics);
+        }
         if (!doctorKey) return clinicScopeJoined(clinicCode, maps);
-        if (all !== false) return true;
-        var oneKey = c + '|' + String(doctorKey);
-        return !!(docs && Object.prototype.hasOwnProperty.call(docs, oneKey) && docs[oneKey].joined);
+        if (all === true) return true;
+        if (all === false) {
+            var oneKey = c + '|' + String(doctorKey);
+            return !!(docs && Object.prototype.hasOwnProperty.call(docs, oneKey) && docs[oneKey].joined);
+        }
+        return clinicJoined(clinicCode, maps && maps.clinics);
     }
 
     /**
@@ -305,6 +319,20 @@ var COUPONS = (function () {
             out[allKey] = { joined: true };
         }
         return out;
+    }
+
+    /**
+     * Pure: doctor ticks, plus joining an off clinic by ticking one dentist
+     * (All Doctors off, only that dentist on — same as Reward Points).
+     */
+    function planParticipationToggle(docs, clinicCode, doctorKey, joined, listKeys, clinicOn) {
+        if (joined && doctorKey !== '__all__' && clinicOn === false) {
+            return planDoctorToggle(
+                planDoctorToggle(docs, clinicCode, '__all__', false, listKeys),
+                clinicCode, doctorKey, true, listKeys
+            );
+        }
+        return planDoctorToggle(docs, clinicCode, doctorKey, joined, listKeys);
     }
 
     function catalogName(line, catalog) {
@@ -987,7 +1015,7 @@ var COUPONS = (function () {
     function planNewChart(ctx) {
         ctx = ctx || {};
         var out = [];
-        if (!clinicJoined(ctx.clinicCode, ctx.clinics) || !doctorJoined(ctx.clinicCode, ctx.doctorKey, ctx)) {
+        if (!doctorJoined(ctx.clinicCode, ctx.doctorKey, ctx)) {
             return out;
         }
         var list = ctx.campaigns || defaultCampaigns();
@@ -1008,7 +1036,7 @@ var COUPONS = (function () {
 
     function planTargetSpend(ctx) {
         ctx = ctx || {};
-        if (!clinicJoined(ctx.clinicCode, ctx.clinics) || !doctorJoined(ctx.clinicCode, ctx.doctorKey, ctx)) {
+        if (!doctorJoined(ctx.clinicCode, ctx.doctorKey, ctx)) {
             return null;
         }
         var list = ctx.campaigns || defaultCampaigns();
@@ -1417,8 +1445,14 @@ var COUPONS = (function () {
         return persist();
     }
 
-    function setDoctorJoined(code, doctorKey, joined, listKeys) {
-        _doctors = planDoctorToggle(_doctors, code, doctorKey, joined, listKeys);
+    function setDoctorJoined(code, doctorKey, joined, listKeys, clinicId) {
+        var c = String(code || '').trim().toUpperCase();
+        _doctors = planParticipationToggle(_doctors, c, doctorKey, joined, listKeys, clinicJoined(c));
+        var prev = _clinics[c] || {};
+        _clinics[c] = {
+            joined: clinicJoinedFromDoctors(_doctors, c),
+            clinic_id: clinicId || prev.clinic_id || ''
+        };
         return persist();
     }
 
@@ -2011,7 +2045,7 @@ var COUPONS = (function () {
 
     function clinicBannerHtml(clinics) {
         var off = (clinics || configClinics()).map(function (c) { return String(c.clinic_code || '').toUpperCase(); })
-            .filter(function (code) { return code && !clinicJoined(code); });
+            .filter(function (code) { return code && !clinicScopeJoined(code); });
         if (!off.length) return '';
         return '<p class="dc-banner dc-banner-warn" role="status"><b>' + esc(ct('coupons.banner.off', 'Coupons are switched off at')) +
             ' ' + esc(off.join(', ')) + '.</b> ' +
@@ -2047,17 +2081,15 @@ var COUPONS = (function () {
         html += '</div>';
         clinics.forEach(function (c, i) {
             var code = String(c.clinic_code || '').toUpperCase();
-            var on = clinicJoined(code);
             var docs = [];
             if (typeof doctorsForClinic === 'function' && c.id) {
                 try { docs = doctorsForClinic(c.id) || []; } catch (e) { docs = []; }
             }
-            html += '<div class="dc-panel' + (i === open ? ' is-active' : '') + '" data-dc-panel="' + esc(code) + '"' +
+            html += '<div class="dc-panel' + (i === open ? ' is-active' : '') + '" data-dc-panel="' + esc(code) +
+                '" data-clinic-id="' + esc(c.id || '') + '"' +
                 (i === open ? '' : ' hidden') + '>';
-            html += '<div class="dc-row dc-clinic-row"><span>' + esc(code) + ' · ' + esc(c.english_name || c.chinese_name || '') + '</span>' +
-                '<label class="dc-join dc-switch"><input type="checkbox" class="dc-clinic-join" data-code="' + esc(code) +
-                '" data-id="' + esc(c.id || '') + '"' + (on ? ' checked' : '') + '> ' +
-                esc(ct('coupons.cfg.join', 'Join')) + '</label></div>';
+            html += '<div class="dc-clinic-panel-head"><strong>' + esc(code || '—') + '</strong> · ' +
+                esc(c.english_name || c.chinese_name || '') + '</div>';
             html += '<div class="dc-row dc-doc"><span>' + esc(ct('coupons.cfg.allDoctors', 'All Doctors')) + '</span>' +
                 '<label class="dc-join dc-switch"><input type="checkbox" class="dc-doc-join" data-code="' + esc(code) +
                 '" data-doctor="__all__"' + (doctorJoined(code, '__all__') ? ' checked' : '') + '> ' +
@@ -2486,12 +2518,6 @@ var COUPONS = (function () {
                 });
             });
         });
-        pane.querySelectorAll('.dc-clinic-join').forEach(function (box) {
-            box.addEventListener('change', function () {
-                setClinicJoined(box.getAttribute('data-code'), box.getAttribute('data-id'), box.checked);
-                refreshClinics();
-            });
-        });
         pane.querySelectorAll('.dc-doc-join').forEach(function (box) {
             box.addEventListener('change', function () {
                 var code = box.getAttribute('data-code');
@@ -2500,7 +2526,8 @@ var COUPONS = (function () {
                     return b.getAttribute('data-code') === code;
                 });
                 var keys = boxes.map(function (b) { return b.getAttribute('data-doctor'); }).filter(function (k) { return k !== '__all__'; });
-                setDoctorJoined(code, box.getAttribute('data-doctor'), box.checked, keys);
+                var clinicId = (panel && panel.getAttribute('data-clinic-id')) || '';
+                setDoctorJoined(code, box.getAttribute('data-doctor'), box.checked, keys, clinicId);
                 boxes.forEach(function (b) { b.checked = doctorJoined(code, b.getAttribute('data-doctor')); });
                 refreshClinics();
             });
@@ -2711,7 +2738,7 @@ var COUPONS = (function () {
         }
         var clinicCode = String(bill.clinic_tag || '').trim() || clinicCodeNow();
         loadState().then(function () {
-            if (!clinicJoined(clinicCode)) {
+            if (!clinicScopeJoined(clinicCode)) {
                 info.hidden = true;
                 return null;
             }
@@ -2791,7 +2818,7 @@ var COUPONS = (function () {
         if (typeof currentClinicCodeForTagging === 'function') clinicCode = currentClinicCodeForTagging() || '';
         if (!clinicCode && bill.clinic_tag) clinicCode = bill.clinic_tag;
         Promise.all([loadState(), ensureCatalog()]).then(function () {
-            if (!clinicJoined(clinicCode)) {
+            if (!clinicScopeJoined(clinicCode)) {
                 paintSheetMessage(ct('coupons.bill.clinicOff', 'This clinic is not in the coupon scheme.'));
                 return;
             }
@@ -2804,7 +2831,7 @@ var COUPONS = (function () {
     /** Resolves true when the clinic now in use is in the coupon scheme. */
     function walletAvailable(clinicCode) {
         var code = clinicCode != null ? clinicCode : clinicCodeNow();
-        return loadState().then(function () { return !!code && clinicJoined(code); }, function () { return false; });
+        return loadState().then(function () { return !!code && clinicScopeJoined(code); }, function () { return false; });
     }
 
     /** Pure: wallet rows for the patient ledger tab — live coupons (soonest expiry first) and history (newest first). */
@@ -4765,7 +4792,7 @@ var COUPONS = (function () {
                 .lte('expires_on', addDaysIso(today, 31 * EXPIRY_SMS_MONTHS));
         return q.order('expires_on', { ascending: true }).limit(50).then(function (r) {
             if (!r || r.error) return { ok: false, reason: 'query', error: r && r.error && r.error.message };
-            var rows = (r.data || []).filter(function (c) { return !c.clinic_code || clinicJoined(c.clinic_code); });
+            var rows = (r.data || []).filter(function (c) { return !c.clinic_code || clinicScopeJoined(c.clinic_code); });
             var sent = 0;
             var seq = Promise.resolve();
             rows.forEach(function (c) {
@@ -4844,7 +4871,7 @@ var COUPONS = (function () {
             if (!r || r.error) return { ok: false, reason: 'query', error: r && r.error && r.error.message };
             var clinicOf = {};
             (r.data || []).forEach(function (c) {
-                if (!c.patient_id || (c.clinic_code && !clinicJoined(c.clinic_code))) return;
+                if (!c.patient_id || (c.clinic_code && !clinicScopeJoined(c.clinic_code))) return;
                 var issued = hkDateOf(c.issued_at);
                 if (stage === 'month' ? (issued && issued >= stageFrom) : issued === today) return;
                 if (!(c.patient_id in clinicOf)) clinicOf[c.patient_id] = c.clinic_code || '';
@@ -6049,7 +6076,7 @@ var COUPONS = (function () {
 
     /** Coupon part of the checkout hint ('' when this clinic is not in the coupon scheme or nothing is near). */
     function couponHintHtml(total, paid, method) {
-        if (!clinicJoined(clinicCodeNow())) return '';
+        if (!clinicScopeJoined(clinicCodeNow())) return '';
         if (method && isExcludedMethod(method)) return '<div>' + esc('🚫 ' + excludedText()) + '</div>';
         var prog = spendProgress(total);
         if (!prog.reached.length && !prog.next) return '';
@@ -6427,7 +6454,7 @@ var COUPONS = (function () {
     function grantToWallet(patientId, campaignKey, amount, patientNo, grantor) {
         if (!grantor || !grantor.user_id) return Promise.resolve({ ok: false, reason: 'auth_missing' });
         return loadState().then(loadUsage).then(function () {
-            var joined = clinicJoined(clinicCodeNow());
+            var joined = clinicScopeJoined(clinicCodeNow());
             var role = String(grantor.role || '');
             return loadWallet(patientId).then(function (wallet) {
                 var camp = campaignByKey(campaignKey);
@@ -6526,7 +6553,7 @@ var COUPONS = (function () {
             var host = document.getElementById('dcSheetHost');
             if (_lastSheet && host && !host.hasAttribute('hidden')) paintSheet.apply(null, _lastSheet);
             var pane = document.getElementById('cfgPane-coupons');
-            if (pane && pane.querySelector('.dc-clinic-join')) paintConfig(pane);
+            if (pane && pane.querySelector('.dc-doc-join')) paintConfig(pane);
             if (typeof bdCurrentBill !== 'undefined' && bdCurrentBill) {
                 bdCurrentBill.coupon_label = '';
                 syncBillDetail(bdCurrentBill);
@@ -6584,8 +6611,10 @@ var COUPONS = (function () {
         defaultClinicJoined: defaultClinicJoined,
         clinicJoined: clinicJoined,
         clinicScopeJoined: clinicScopeJoined,
+        clinicJoinedFromDoctors: clinicJoinedFromDoctors,
         doctorJoined: doctorJoined,
         planDoctorToggle: planDoctorToggle,
+        planParticipationToggle: planParticipationToggle,
         lineMatchesGroup: lineMatchesGroup,
         assessCoupon: assessCoupon,
         pickBest: pickBest,

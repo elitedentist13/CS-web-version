@@ -207,6 +207,15 @@ function loadCoupons() {
         pass('untick All Doctors: every KT doctor off', keys.every(function (k) { return !j(m4, 'KT', k); }) && m4['PL|p1'].joined === true);
         var m5 = C.planDoctorToggle(m4, 'KT', 'd3', true, keys);
         pass('then tick one doctor: only that one is in', j(m5, 'KT', 'd3') && !j(m5, 'KT', 'd1') && !j(m5, 'KT', '__all__'));
+        var joinOff = C.planParticipationToggle({}, 'PL', 'd1', true, ['d1', 'd2'], false);
+        pass('joining an off clinic by ticking one dentist: All off, only that dentist on',
+            joinOff['PL|__all__'] && joinOff['PL|__all__'].joined === false &&
+            joinOff['PL|d1'].joined === true && !joinOff['PL|d2'], JSON.stringify(joinOff));
+        pass('clinic flag follows All Doctors / any dentist',
+            C.clinicJoinedFromDoctors(m2, 'KT', on) === true &&
+            C.clinicJoinedFromDoctors(m4, 'KT', on) === false &&
+            C.clinicJoinedFromDoctors({}, 'KT', {}) === true &&
+            C.clinicJoinedFromDoctors({}, 'PL', {}) === false);
         pass('clinic-scope: empty doctor still in while any dentist is ticked',
             j(m2, 'KT', '') === true && C.clinicScopeJoined('KT', { clinics: on, doctors: m2 }) === true);
         pass('clinic-scope: All Doctors off and no dentist ticked → clinic out',
@@ -215,7 +224,10 @@ function loadCoupons() {
             C.clinicScopeJoined('PL', { clinics: on, doctors: liveKt }) === true &&
             j(liveKt, 'PL', '') === true && j(liveKt, 'PL', 'p1') === true && j(liveKt, 'PL', 'other') === false);
         pass('config list repaints every switch of that clinic after a tick',
-            /setDoctorJoined\(code, box\.getAttribute\('data-doctor'\), box\.checked, keys\);\s*boxes\.forEach\(function \(b\) \{ b\.checked = doctorJoined\(code, b\.getAttribute\('data-doctor'\)\); \}\)/.test(src));
+            /setDoctorJoined\(code, box.getAttribute\('data-doctor'\), box.checked, keys/.test(src) &&
+            /b.checked = doctorJoined\(code, b.getAttribute\('data-doctor'\)\)/.test(src));
+        pass('coupon participation panel has All Doctors first, no clinic Join checkbox',
+            /dc-clinic-panel-head/.test(src) && !/dc-clinic-join/.test(src));
     })();
 
     console.log('=== 3 campaigns ===');
@@ -280,7 +292,7 @@ function loadCoupons() {
     pass('login prompt can sit over the reward panel and closes on Escape without closing the panel',
         /host\.querySelector\('\.dc-sheet'\) \|\| \(host\.nodeType === 1 && host\.id !== 'dcSheetHost' \? host : null\)/.test(src) &&
         /if \(ev\.key !== 'Escape'\) return;\s+ev\.preventDefault\(\);\s+ev\.stopPropagation\(\);\s+finish\(null\);/.test(src));
-    pass('wallet tab checks the clinic is in the coupon scheme', /function walletAvailable\(clinicCode\)[\s\S]{0,200}clinicJoined\(code\)/.test(src));
+    pass('wallet tab checks the clinic is in the coupon scheme', /function walletAvailable\(clinicCode\)[\s\S]{0,200}clinicScopeJoined\(code\)/.test(src));
 
     console.log('=== 3a2 patient dashboard coupon wallet card ===');
     var pvSrc = read('app-patient-views.js');
@@ -2549,10 +2561,10 @@ function loadCoupons() {
   COUPONS.renderConfigPane(pane);
   var deadline = Date.now() + 12000;
   while (Date.now() < deadline) {
-    if (pane.querySelector && pane.querySelector('.dc-clinic-join')) break;
+    if (pane.querySelector && pane.querySelector('.dc-doc-join[data-doctor="__all__"]')) break;
     await new Promise(function (r) { setTimeout(r, 200); });
   }
-  var boxes = Array.prototype.map.call(pane.querySelectorAll('.dc-clinic-join'), function (el) {
+  var boxes = Array.prototype.map.call(pane.querySelectorAll('.dc-doc-join[data-doctor="__all__"]'), function (el) {
     return { code: el.getAttribute('data-code'), checked: el.checked };
   });
   var campsOn = pane.querySelectorAll('.dc-camp').length;
@@ -2567,7 +2579,9 @@ function loadCoupons() {
   var bill = document.getElementById('bdCouponRow');
   var holds = pane.querySelectorAll('.dc-num[data-prop="holdLimit"]').length;
   return {
-    ok: !!pane.querySelector('.dc-clinic-join'), boxes: boxes, campsOn: campsOn, spends: spends, bill: !!bill,
+    ok: !!pane.querySelector('.dc-doc-join[data-doctor="__all__"]') && !pane.querySelector('.dc-clinic-join'),
+    hasHead: !!pane.querySelector('.dc-clinic-panel-head'),
+    boxes: boxes, campsOn: campsOn, spends: spends, bill: !!bill,
     log: !!pane.querySelector('#dcLogCard') && !!pane.querySelector('#dcLogFrom') && !!pane.querySelector('#dcLogChart'),
     cashRules: !!pane.querySelector('#dcCashRules select[data-cash-prop="maxCount"] option[value="0"]') &&
       !!pane.querySelector('#dcCashRules input[data-cash-prop="maxPercent"]') &&
@@ -2582,8 +2596,8 @@ function loadCoupons() {
 })()`, true, 20000);
         var ktBox = (paint && paint.boxes || []).filter(function (b) { return b.code === 'KT'; })[0];
         var otherOn = (paint && paint.boxes || []).filter(function (b) { return b.code !== 'KT' && b.checked; });
-        pass('live config pane painted', !!(paint && paint.ok), JSON.stringify(paint && paint.boxes));
-        pass('live KT join is on', !!(ktBox && ktBox.checked === true));
+        pass('live config pane painted', !!(paint && paint.ok && paint.hasHead), JSON.stringify(paint && paint.boxes));
+        pass('live KT All Doctors is on', !!(ktBox && ktBox.checked === true));
         pass('live other clinics are off', otherOn.length === 0, otherOn.map(function (b) { return b.code; }).join(','));
         pass('live other campaign rows', paint && paint.campsOn === 11, 'n=' + (paint && paint.campsOn));
         var spendOk = paint && paint.spends && paint.spends.length === 5 &&

@@ -13,8 +13,8 @@
 .dc-tab.is-active { background: #0f766e; color: #fff; border-color: #0f766e; }
 .dc-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #86efac; margin-left: 6px; }
 .dc-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
-.dc-clinic-row { font-weight: 700; }
-.dc-doc { padding-left: 14px; }
+.dc-clinic-panel-head { font-weight: 700; margin: 0 0 6px; }
+.dc-doc { padding-left: 0; }
 .dc-join { font-size: 13px; font-weight: 700; color: #0f766e; }
 .dc-spend { border-top: 1px solid #e2e8f0; padding: 10px 0; }
 .dc-spend-label { font-weight: 800; }

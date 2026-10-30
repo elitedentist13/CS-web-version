@@ -235,13 +235,39 @@ var COUPONS = (function () {
         return docs && Object.prototype.hasOwnProperty.call(docs, allKey) ? !!docs[allKey].joined : null;
     }
 
+    function dentistRowJoined(docs, clinicCode) {
+        var c = String(clinicCode || '').trim().toUpperCase();
+        var prefix = c + '|';
+        var allKey = prefix + '__all__';
+        var keys = Object.keys(docs || {});
+        var i;
+        for (i = 0; i < keys.length; i++) {
+            if (keys[i].indexOf(prefix) !== 0 || keys[i] === allKey) continue;
+            if (docs[keys[i]] && docs[keys[i]].joined) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Clinic-scope: the clinic Join switch is on, and All Doctors is on (or never
+     * set), or at least one dentist is ticked. Used for the config tab dot and
+     * Refer a friend selectability. A bill still checks the treating dentist.
+     */
+    function clinicScopeJoined(clinicCode, maps) {
+        if (!clinicJoined(clinicCode, maps && maps.clinics)) return false;
+        var docs = (maps && maps.doctors) || _doctors;
+        if (allDoctorsSetting(docs, clinicCode) !== false) return true;
+        return dentistRowJoined(docs, clinicCode);
+    }
+
     /** "All Doctors" ticked = every doctor of that clinic is in; otherwise each doctor's own switch (clinic by clinic). */
     function doctorJoined(clinicCode, doctorKey, maps) {
         if (!clinicJoined(clinicCode, maps && maps.clinics)) return false;
         var c = String(clinicCode || '').trim().toUpperCase();
         var docs = (maps && maps.doctors) || _doctors;
         var all = allDoctorsSetting(docs, c);
-        if (!doctorKey || doctorKey === '__all__') return all !== false;
+        if (doctorKey === '__all__') return all !== false;
+        if (!doctorKey) return clinicScopeJoined(clinicCode, maps);
         if (all !== false) return true;
         var oneKey = c + '|' + String(doctorKey);
         return !!(docs && Object.prototype.hasOwnProperty.call(docs, oneKey) && docs[oneKey].joined);
@@ -2009,10 +2035,12 @@ var COUPONS = (function () {
         html += rulesNoteHtml();
 
         html += '<div class="dc-card"><div class="dc-card-title">' + esc(ct('coupons.cfg.clinics', 'Clinics in scheme')) + '</div>';
+        html += '<p class="dc-hint">' + esc(ct('coupons.cfg.clinicsHintDoctors',
+            'Tick All Doctors for every dentist. Untick one dentist and All Doctors turns off; the others stay in. A green dot means the clinic is still in while any dentist is ticked. Refer a friend coupons only apply on those dentists’ bills.')) + '</p>';
         html += '<div class="dc-tabs" role="tablist">';
         clinics.forEach(function (c, i) {
             var code = String(c.clinic_code || '').toUpperCase();
-            var on = clinicJoined(code);
+            var on = clinicScopeJoined(code);
             html += '<button type="button" class="dc-tab' + (i === open ? ' is-active' : '') + '" data-dc-tab="' + esc(code) + '">' +
                 esc(code || '—') + (on ? '<span class="dc-dot"></span>' : '') + '</button>';
         });
@@ -2442,8 +2470,8 @@ var COUPONS = (function () {
             pane.querySelectorAll('.dc-tab').forEach(function (b) {
                 var code = b.getAttribute('data-dc-tab');
                 var dot = b.querySelector('.dc-dot');
-                if (clinicJoined(code) && !dot) b.insertAdjacentHTML('beforeend', '<span class="dc-dot"></span>');
-                else if (!clinicJoined(code) && dot) dot.parentNode.removeChild(dot);
+                if (clinicScopeJoined(code) && !dot) b.insertAdjacentHTML('beforeend', '<span class="dc-dot"></span>');
+                else if (!clinicScopeJoined(code) && dot) dot.parentNode.removeChild(dot);
             });
         }
         pane.querySelectorAll('.dc-tab').forEach(function (btn) {
@@ -2474,6 +2502,7 @@ var COUPONS = (function () {
                 var keys = boxes.map(function (b) { return b.getAttribute('data-doctor'); }).filter(function (k) { return k !== '__all__'; });
                 setDoctorJoined(code, box.getAttribute('data-doctor'), box.checked, keys);
                 boxes.forEach(function (b) { b.checked = doctorJoined(code, b.getAttribute('data-doctor')); });
+                refreshClinics();
             });
         });
         pane.querySelectorAll('.dc-cash-rule').forEach(function (el) {
@@ -5059,9 +5088,10 @@ var COUPONS = (function () {
         ctx = ctx || {};
         var camp = ctx.campaign;
         if (!camp || !camp.enabled) return { ok: false, reason: 'campaign_off' };
-        if (!clinicJoined(ctx.clinicCode, ctx.clinics) || !doctorJoined(ctx.clinicCode, ctx.doctorKey, ctx)) {
-            return { ok: false, reason: 'clinic' };
-        }
+        var joined = ctx.doctorKey
+            ? doctorJoined(ctx.clinicCode, ctx.doctorKey, ctx)
+            : clinicScopeJoined(ctx.clinicCode, ctx);
+        if (!joined) return { ok: false, reason: 'clinic' };
         return { ok: true, reason: '' };
     }
 
@@ -5257,10 +5287,15 @@ var COUPONS = (function () {
     }
 
     /** Both branches at a clinic: { options, coupon: gate, points: gate, camp, pointsCfg }. */
-    function referralBranches(clinicCode, doctorKey) {
-        return Promise.all([loadState(), referralPointsGateFor(clinicCode, doctorKey)]).then(function (res) {
+    function referralBranches(clinicCode, doctorKey, opts) {
+        opts = opts || {};
+        // Form / register: clinic-scope so Refer a friend stays selectable while
+        // any dentist is ticked. Bill credit still passes the treating dentist.
+        var couponKey = opts.couponClinicScope ? '' : doctorKey;
+        var pointsKey = opts.pointsClinicScope ? '' : doctorKey;
+        return Promise.all([loadState(), referralPointsGateFor(clinicCode, pointsKey)]).then(function (res) {
             var camp = campaignByKey('referral');
-            var cg = referralCouponGate({ campaign: camp, clinicCode: clinicCode, doctorKey: doctorKey, clinics: _clinics, doctors: _doctors });
+            var cg = referralCouponGate({ campaign: camp, clinicCode: clinicCode, doctorKey: couponKey, clinics: _clinics, doctors: _doctors });
             var pg = res[1];
             return { options: referralOptions(cg, pg), coupon: cg, points: pg, camp: camp, pointsCfg: pg.config || null };
         });
@@ -5306,7 +5341,7 @@ var COUPONS = (function () {
         var clinicCode = opts.clinicCode || clinicCodeNow();
         var doctorKey = loginDoctorKey();
         return Promise.all([
-            referralBranches(clinicCode, doctorKey),
+            referralBranches(clinicCode, doctorKey, { couponClinicScope: true, pointsClinicScope: true }),
             SB.from('patients').select(REF_PATIENT_COLS).eq('id', friendId).maybeSingle()
                 .then(function (r) { return (r && r.data) || null; }, function () { return null; }),
             resolveReferrer(referredBy, referrerId),
@@ -5334,7 +5369,7 @@ var COUPONS = (function () {
                     campaign: br.camp,
                     pointsGate: br.points,
                     clinicCode: clinicCode,
-                    doctorKey: doctorKey,
+                    doctorKey: '',
                     clinics: _clinics,
                     doctors: _doctors,
                     existing: existing.row,
@@ -5676,7 +5711,7 @@ var COUPONS = (function () {
         var friendId = edit && typeof editPatientId !== 'undefined' ? editPatientId : null;
         var recP = friendId ? loadReferralRecord(friendId) : Promise.resolve({ ok: true, row: null });
         var prev = selectedReferralKind(input);
-        return Promise.all([referralBranches(clinicCodeNow(), loginDoctorKey()), recP]).then(function (res) {
+        return Promise.all([referralBranches(clinicCodeNow(), loginDoctorKey(), { couponClinicScope: true, pointsClinicScope: true }), recP]).then(function (res) {
             var br = res[0];
             var rec = res[1] && res[1].row;
             var locked = rec ? (rec.reward_kind || 'coupon') : '';
@@ -5723,7 +5758,7 @@ var COUPONS = (function () {
                 campaign: br.camp,
                 pointsGate: br.points,
                 clinicCode: clinicCodeNow(),
-                doctorKey: loginDoctorKey(),
+                doctorKey: '',
                 clinics: _clinics,
                 doctors: _doctors,
                 existing: rec
@@ -6548,6 +6583,7 @@ var COUPONS = (function () {
         defaultCampaigns: defaultCampaigns,
         defaultClinicJoined: defaultClinicJoined,
         clinicJoined: clinicJoined,
+        clinicScopeJoined: clinicScopeJoined,
         doctorJoined: doctorJoined,
         planDoctorToggle: planDoctorToggle,
         lineMatchesGroup: lineMatchesGroup,

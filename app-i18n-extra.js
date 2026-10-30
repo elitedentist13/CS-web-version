@@ -3252,6 +3252,11 @@
             'zh-CN': '与奖励积分分开。KT 已加入，其他诊所须勾选才开启。每张单可用一张全单券加一张治疗券。治疗券只适用于其列出的治疗项目。',
             'zh-Hant': '與獎勵積分分開。KT 已加入，其他診所須勾選才開啟。每張單可用一張全單券加一張治療券。治療券只適用於其列出的治療項目。'
         },
+        'coupons.cfg.clinicsHintDoctors': {
+            en: 'Tick All Doctors for every dentist. Untick one dentist and All Doctors turns off; the others stay in. A green dot means the clinic is still in while any dentist is ticked. Refer a friend coupons only apply on those dentists’ bills.',
+            'zh-CN': '勾选「全部医生」即全体参加。取消其中一位时，「全部医生」会自动取消，其余已勾选的医生仍留在计划内。只要仍有医生勾选，诊所页签就有绿点，介绍新客也仍可选；优惠券只记在该医生的账单上。',
+            'zh-Hant': '剔選「全部醫生」即全體參加。取消其中一位時，「全部醫生」會自動取消，其餘已剔選的醫生仍留在計劃內。只要仍有醫生剔選，診所分頁就有綠點，介紹新客也仍可選；優惠券只記在該醫生的賬單上。'
+        },
         'coupons.cfg.expiry': { en: 'Days', 'zh-CN': '有效日数', 'zh-Hant': '有效日數' },
         'coupons.cfg.campaignHint': {
             en: 'Turn each offer on or off. A treatment coupon fits the items ticked in its list; the smart keyword filter ticks matching items for you.',
@@ -4173,9 +4178,9 @@
             'zh-Hant': '前台可為每間診所加入賺取／兌換。賺取記入該病歷號；兌換可從同一人多個病歷扣減。'
         },
         'rewards.cfg.clinicsHintDoctors': {
-            en: 'Default: PL · All Doctors joined. Tick All Doctors for every dentist. Untick one dentist and All Doctors turns off; the others stay in.',
-            'zh-CN': '默认：宝林（PL）· 全部医生已加入。勾选「全部医生」即全体参加。取消其中一位时，「全部医生」会自动取消，其余已勾选的医生仍留在计划内。',
-            'zh-Hant': '預設：寶琳（PL）· 全部醫生已加入。剔選「全部醫生」即全體參加。取消其中一位時，「全部醫生」會自動取消，其餘已剔選的醫生仍留在計劃內。'
+            en: 'Default: PL · All Doctors joined. Tick All Doctors for every dentist. Untick one dentist and All Doctors turns off; the others stay in. A green dot means the clinic is still in while any dentist is ticked. Refer a friend points only apply on those dentists’ bills.',
+            'zh-CN': '默认：宝林（PL）· 全部医生已加入。勾选「全部医生」即全体参加。取消其中一位时，「全部医生」会自动取消，其余已勾选的医生仍留在计划内。只要仍有医生勾选，诊所页签就有绿点，介绍新客也仍可选；积分只记在该医生的账单上。',
+            'zh-Hant': '預設：寶琳（PL）· 全部醫生已加入。剔選「全部醫生」即全體參加。取消其中一位時，「全部醫生」會自動取消，其餘已剔選的醫生仍留在計劃內。只要仍有醫生剔選，診所分頁就有綠點，介紹新客也仍可選；積分只記在該醫生的賬單上。'
         },
         'rewards.cfg.allDoctors': { en: 'All Doctors', 'zh-CN': '全部医生', 'zh-Hant': '全部醫生' },
         'rewards.cfg.joined': { en: 'joined', 'zh-CN': '已加入', 'zh-Hant': '已加入' },

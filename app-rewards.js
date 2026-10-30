@@ -431,6 +431,36 @@ var REWARDS = (function () {
         return String(d.english_name || d.chinese_name || d.doctor_code || '').trim();
     }
 
+    /** Participation is one switch: earning and redeeming turn on together. */
+    function rowJoined(row) {
+        return !!(row && (row.join_gain || row.join_redeem || row.enabled));
+    }
+
+    /**
+     * Clinic-scope: the clinic is in the scheme when All Doctors is on, or
+     * at least one dentist is ticked. Used for the config tab dot and
+     * Refer a friend selectability. Earn / redeem / referral credit on a
+     * bill still use the treating dentist (effectiveJoinFlags).
+     */
+    function clinicScopeJoined(clinicMap, docMap, clinicId, clinicCode) {
+        var clinicFlags = lookupClinicFlags(clinicMap || {}, clinicId, clinicCode);
+        var bucket = lookupDoctorClinicBucket(docMap, clinicId, clinicCode);
+        if (!bucket || !Object.keys(bucket).length) return rowJoined(clinicFlags);
+        if (rowJoined(bucket[ALL_DOCTORS_KEY])) return true;
+        var keys = Object.keys(bucket);
+        var i;
+        var sawDentist = false;
+        for (i = 0; i < keys.length; i++) {
+            if (keys[i] === ALL_DOCTORS_KEY) continue;
+            sawDentist = true;
+            if (rowJoined(bucket[keys[i]])) return true;
+        }
+        if (!sawDentist) {
+            return bucket[ALL_DOCTORS_KEY] ? false : rowJoined(clinicFlags);
+        }
+        return false;
+    }
+
     /**
      * Effective gain/redeem for a clinic + optional treating doctor.
      * Prefer doctor rows when present: __all__ covers everyone; else match doctor_key.
@@ -462,18 +492,12 @@ var REWARDS = (function () {
             );
         }
 
-        // Participation is one switch: earning and redeeming turn on together.
-        function scopeJoined(row) {
-            if (!row) return false;
-            return !!(row.join_gain || row.join_redeem || row.enabled);
-        }
-
         // No __all__ row yet → inherit clinic default for the All Doctors scope
         // (keeps PL joined for every doctor until reception narrows participation).
-        var allOn = all ? scopeJoined(all) : scopeJoined(clinicFlags);
+        var allOn = all ? rowJoined(all) : rowJoined(clinicFlags);
         // An explicit doctor row is that person's opt-in / opt-out. All Doctors
         // must not keep granting points after a dentist has been unticked.
-        var gain = matched ? scopeJoined(matched) : allOn;
+        var gain = matched ? rowJoined(matched) : allOn;
         return {
             enabled: gain,
             join_gain: gain,
@@ -581,6 +605,11 @@ var REWARDS = (function () {
     /** One participation switch: gain and redeem must always give the same answer. */
     function isClinicJoined(clinicId, clinicCode, doctorInput) {
         return loadJoinMaps(false).then(function (maps) {
+            // No treating dentist yet (config tab, Refer a friend option):
+            // clinic is in while any dentist is ticked.
+            if (doctorInput == null || doctorInput === '') {
+                return clinicScopeJoined(maps.clinicMap, maps.doctorMap, clinicId, clinicCode);
+            }
             return !!effectiveJoinFlags(maps.clinicMap, maps.doctorMap, clinicId, clinicCode, doctorInput).enabled;
         });
     }
@@ -3490,12 +3519,7 @@ var REWARDS = (function () {
     function panelPointsJoined() {
         var ctx = clinicCtx();
         return loadJoinMaps(false).then(function (maps) {
-            if (effectiveJoinFlags(maps.clinicMap, maps.doctorMap, ctx.clinic_id, ctx.clinic_code, null).enabled) return true;
-            var bucket = lookupDoctorClinicBucket(maps.doctorMap, ctx.clinic_id, ctx.clinic_code) || {};
-            return Object.keys(bucket).some(function (k) {
-                var row = bucket[k];
-                return !!(row && (row.join_gain || row.join_redeem || row.enabled));
-            });
+            return clinicScopeJoined(maps.clinicMap, maps.doctorMap, ctx.clinic_id, ctx.clinic_code);
         }, function () { return false; });
     }
 
@@ -5442,7 +5466,7 @@ var REWARDS = (function () {
             html += '<div class="rw-cfg-card-title">' + esc(tr('rewards.cfg.clinicsTitle', 'Clinics in scheme')) + '</div>';
             html += '<p style="margin:0 0 10px;font-size:12px;color:#64748b;">' +
                 esc(tr('rewards.cfg.clinicsHintDoctors',
-                    'Default: PL · All Doctors joined. Tick All Doctors for every dentist. Untick one dentist and All Doctors turns off; the others stay in.')) +
+                    'Default: PL · All Doctors joined. Tick All Doctors for every dentist. Untick one dentist and All Doctors turns off; the others stay in. A green dot means the clinic is still in while any dentist is ticked. Refer a friend points only apply on those dentists’ bills.')) +
                 '</p>';
             html += '<div class="rw-clinic-scheme">';
             html += '<div class="rw-clinic-tabs" role="tablist">';
@@ -5450,10 +5474,7 @@ var REWARDS = (function () {
             (clinics || []).forEach(function (c, clinicIdx) {
                 var code = String(c.clinic_code || '').trim();
                 var name = c.english_name || c.chinese_name || code;
-                var bucket = lookupDoctorClinicBucket(docMap, c.id, code) || {};
-                var clinicFlags = lookupClinicFlags(map, c.id, code);
-                var allFlags = bucket[ALL_DOCTORS_KEY] || defaultAllDoctorsFlags(clinicFlags, code);
-                var joined = !!(allFlags.join_gain || allFlags.join_redeem || allFlags.enabled);
+                var joined = clinicScopeJoined(map, docMap, c.id, code);
                 var isActive = clinicIdx === openClinicIdx;
                 html += '<button type="button" class="rw-clinic-tab' + (isActive ? ' is-active' : '') +
                     '" role="tab" aria-selected="' + (isActive ? 'true' : 'false') +
@@ -6182,6 +6203,7 @@ var REWARDS = (function () {
         planRewardDoctorToggle: planRewardDoctorToggle,
         doctorJoinShownOn: doctorJoinShownOn,
         effectiveJoinFlags: effectiveJoinFlags,
+        clinicScopeJoined: clinicScopeJoined,
         getAccount: getAccount,
         getBalance: getBalance,
         getRedeemableBalanceForDoctor: getRedeemableBalanceForDoctor,

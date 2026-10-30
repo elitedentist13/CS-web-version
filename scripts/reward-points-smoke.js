@@ -467,6 +467,7 @@ function fakeBillSb(tables, rpcLog) {
         /setDoctorJoinRows/.test(rewardsSrc) &&
         /planRewardDoctorToggle/.test(rewardsSrc) &&
         /effectiveJoinFlags/.test(rewardsSrc) &&
+        /clinicScopeJoined/.test(rewardsSrc) &&
         /rewards\.cfg\.allDoctors/.test(rewardsSrc) &&
         /rw-doc-join/.test(rewardsSrc));
     pass('default participating clinic is PL All Doctors',
@@ -1041,6 +1042,31 @@ function fakeBillSb(tables, rpcLog) {
                 R.doctorJoinShownOn(null, true) === true &&
                 R.doctorJoinShownOn({ join_gain: false, join_redeem: false }, true) === false &&
                 R.doctorJoinShownOn({ join_gain: true, join_redeem: true }, false) === true);
+            var plPartial = {
+                'code:PL': {
+                    '__all__': { join_gain: false, join_redeem: false, enabled: false, doctor_key: '__all__' },
+                    'joseph-lam': { join_gain: false, join_redeem: false, enabled: false, doctor_key: 'joseph-lam' },
+                    'ng-pui-ching': { join_gain: true, join_redeem: true, enabled: true, doctor_key: 'ng-pui-ching' }
+                }
+            };
+            pass('clinic-scope: PL stays in the scheme when any dentist is still ticked',
+                R.clinicScopeJoined(plAll, plPartial, null, 'PL') === true);
+            pass('clinic-scope: Joseph remains out; Ng remains in',
+                R.effectiveJoinFlags(plAll, plPartial, null, 'PL', joseph).join_gain === false &&
+                R.effectiveJoinFlags(plAll, plPartial, null, 'PL', ng).join_gain === true);
+            pass('clinic-scope: no dentist ticked → clinic is out',
+                R.clinicScopeJoined(plAll, { 'code:PL': {
+                    '__all__': { join_gain: false, join_redeem: false, enabled: false },
+                    'joseph-lam': { join_gain: false, join_redeem: false, enabled: false }
+                } }, null, 'PL') === false);
+            pass('clinic-scope: All Doctors on still counts as clinic in',
+                R.clinicScopeJoined(plAll, plDocs, null, 'PL') === true);
+            pass('Refer a friend option uses clinic-scope join (any dentist ticked)',
+                R.referralPointsGate({ enabled: true, points: 100 }, R.clinicScopeJoined(plAll, plPartial, null, 'PL')).ok === true &&
+                R.referralPointsGate({ enabled: true, points: 100 },
+                    !!R.effectiveJoinFlags(plAll, plPartial, null, 'PL', joseph).enabled).reason === 'points_clinic');
+            pass('config tab dot paints clinic-scope join',
+                /var joined = clinicScopeJoined\(map, docMap, c\.id, code\)/.test(rewardsSrc));
 
             pass('gift: max is 200', R.GIFT_MAX === 200);
             var gc = R.giftCheck;
@@ -1578,6 +1604,18 @@ function fakeBillSb(tables, rpcLog) {
     out.plJoinedJosephTag = !!(await REWARDS.isClinicJoined(null, 'PL', 'DR. LAM KAM YUI JOSEPH'));
     out.plJoinedDefault = out.plJoinedAll || out.plJoinedNg;
     try {
+      const gate = await REWARDS.referralAvailability(null, 'PL');
+      out.plReferralClinic = !!(gate && gate.ok);
+      out.plReferralClinicReason = gate && gate.reason;
+      const gJ = await REWARDS.referralAvailability(null, 'PL', 'Dr Joseph Lam Kam Yui');
+      out.plReferralJoseph = !!(gJ && gJ.ok);
+      out.plReferralJosephReason = gJ && gJ.reason;
+      const gN = await REWARDS.referralAvailability(null, 'PL', 'DR. NG PUI CHING');
+      out.plReferralNg = !!(gN && gN.ok);
+    } catch (eRef) {
+      out.plReferralErr = String(eRef && eRef.message || eRef);
+    }
+    try {
       const dm = await REWARDS.loadDoctorJoinMap(true);
       const plb = (dm && (dm['code:PL'] || dm['code:pl'])) || {};
       const jr = plb['joseph-lam'];
@@ -1648,6 +1686,27 @@ function fakeBillSb(tables, rpcLog) {
                         name: liveProbe.plJoinedJoseph, tag: liveProbe.plJoinedJosephTag
                     }));
             }
+            if (liveProbe.plJoinedNg) {
+                pass('live PL clinic-scope joined while any dentist is ticked',
+                    liveProbe.plJoinedAll === true,
+                    'allDoctors=' + liveProbe.plJoinedAll + ' drNg=' + liveProbe.plJoinedNg +
+                    ' joseph=' + liveProbe.plJoinedJoseph);
+            }
+            if (liveProbe.plReferralClinicReason !== 'points_off' &&
+                liveProbe.plReferralJosephReason !== 'points_off' &&
+                liveProbe.plJosephRow === false && liveProbe.plJoinedNg && !liveProbe.plReferralErr) {
+                pass('live PL Refer a friend selectable at clinic; Joseph bills stay out',
+                    liveProbe.plReferralClinic === true && liveProbe.plReferralJoseph === false &&
+                    liveProbe.plReferralNg === true,
+                    JSON.stringify({
+                        clinic: liveProbe.plReferralClinic,
+                        clinicReason: liveProbe.plReferralClinicReason,
+                        joseph: liveProbe.plReferralJoseph,
+                        josephReason: liveProbe.plReferralJosephReason,
+                        ng: liveProbe.plReferralNg,
+                        err: liveProbe.plReferralErr
+                    }));
+            }
         } else {
             warn('live PL join probe skipped', liveProbe && liveProbe.plErr);
         }
@@ -1692,6 +1751,13 @@ function fakeBillSb(tables, rpcLog) {
       hasAllDoctors: html.indexOf('All Doctors') >= 0 || html.indexOf('全部医生') >= 0 || html.indexOf('全部醫生') >= 0,
       hasClinicTabs: html.indexOf('rw-clinic-tab') >= 0,
       hasDocJoin: html.indexOf('rw-doc-join') >= 0,
+      plDot: !!pane.querySelector('.rw-clinic-tab[data-clinic-code="PL"] .rw-clinic-tab-dot'),
+      plAnyDentist: (function () {
+        var p = pane.querySelector('.rw-clinic-panel[data-clinic-code="PL"]');
+        if (!p) return false;
+        var boxes = p.querySelectorAll('.rw-doc-row:not([data-doctor-key="__all__"]) .rw-doc-join');
+        return Array.prototype.some.call(boxes, function (b) { return b.checked; });
+      })(),
       hasError: html.indexOf('color:#dc2626') >= 0,
       capSum: (document.getElementById('rwCfgCapSum') || {}).textContent || '',
       guide: (function () {
@@ -1729,6 +1795,11 @@ function fakeBillSb(tables, rpcLog) {
                 !!cfgPaint.guide && /^📖/.test(cfgPaint.guide.text) &&
                 cfgPaint.guide.href === 'docs/loyalty-manual.html?v=20261030howto#start-rewards-' +
                     (['zh-Hant', 'zh-CN'].indexOf(cfgPaint.guide.lang) >= 0 ? cfgPaint.guide.lang : 'en'), JSON.stringify(cfgPaint.guide));
+            if (cfgPaint.plAnyDentist) {
+                pass('live PL tab keeps the joined dot while any dentist is ticked',
+                    cfgPaint.plDot === true,
+                    JSON.stringify({ plDot: cfgPaint.plDot, plAnyDentist: cfgPaint.plAnyDentist }));
+            }
         }
 
         var guideLive = await cdp.js(`(async () => {

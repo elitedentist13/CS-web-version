@@ -207,6 +207,13 @@ function loadCoupons() {
         pass('untick All Doctors: every KT doctor off', keys.every(function (k) { return !j(m4, 'KT', k); }) && m4['PL|p1'].joined === true);
         var m5 = C.planDoctorToggle(m4, 'KT', 'd3', true, keys);
         pass('then tick one doctor: only that one is in', j(m5, 'KT', 'd3') && !j(m5, 'KT', 'd1') && !j(m5, 'KT', '__all__'));
+        pass('clinic-scope: empty doctor still in while any dentist is ticked',
+            j(m2, 'KT', '') === true && C.clinicScopeJoined('KT', { clinics: on, doctors: m2 }) === true);
+        pass('clinic-scope: All Doctors off and no dentist ticked → clinic out',
+            j(m4, 'KT', '') === false && C.clinicScopeJoined('KT', { clinics: on, doctors: m4 }) === false);
+        pass('clinic-scope: PL stays in when p1 is ticked after All Doctors off',
+            C.clinicScopeJoined('PL', { clinics: on, doctors: liveKt }) === true &&
+            j(liveKt, 'PL', '') === true && j(liveKt, 'PL', 'p1') === true && j(liveKt, 'PL', 'other') === false);
         pass('config list repaints every switch of that clinic after a tick',
             /setDoctorJoined\(code, box\.getAttribute\('data-doctor'\), box\.checked, keys\);\s*boxes\.forEach\(function \(b\) \{ b\.checked = doctorJoined\(code, b\.getAttribute\('data-doctor'\)\); \}\)/.test(src));
     })();
@@ -234,6 +241,12 @@ function loadCoupons() {
         /esc\(ct\('coupons\.wqr\.btn', 'Wallet QR'\)\) \+ '<\/button>' : ''\) \+\s+\(\(typeof REWARDS !== 'undefined' && REWARDS && typeof REWARDS\.loyaltyGuideLinkHtml === 'function'\)\s+\? REWARDS\.loyaltyGuideLinkHtml\('coupons'\) : ''\) \+ '<\/div>'/.test(src));
     pass('coupon config title has the 📖 manual link (only when the reward module is loaded)',
         /REWARDS\.loyaltyGuideLinkHtml\('coupons'\) : ''/.test(src) && /'<h2 class="dc-title">'[^\n]*\+ guide \+ '<\/div>'/.test(src));
+    pass('Refer a friend coupon and points options use clinic-scope (any dentist ticked)',
+        /couponClinicScope/.test(src) && /pointsClinicScope/.test(src) &&
+        /referralBranches\(clinicCodeNow\(\), loginDoctorKey\(\), \{ couponClinicScope: true, pointsClinicScope: true \}\)/.test(src) &&
+        /referralBranches\(clinicCode, doctorKey, \{ couponClinicScope: true, pointsClinicScope: true \}\)/.test(src));
+    pass('coupon tab dot uses clinic-scope join',
+        /function clinicScopeJoined/.test(src) && /var on = clinicScopeJoined\(code\)/.test(src));
 
     console.log('=== 3a wallet tab in the ledger panel ===');
     var wl = C.walletLedgerRows([
@@ -802,6 +815,15 @@ function loadCoupons() {
     pass('coupon branch gate: on at KT, clinic-off at CWB, campaign-off when disabled', cOk.ok && cOff.reason === 'clinic' &&
         C.referralCouponGate({ campaign: Object.assign({}, refCamp, { enabled: false }), clinicCode: 'KT' }).reason === 'campaign_off',
         JSON.stringify([cOk, cOff]));
+    var mixMaps = {
+        clinics: { KT: { joined: true } },
+        doctors: { 'KT|__all__': { joined: false }, 'KT|doc-in': { joined: true }, 'KT|doc-out': { joined: false } }
+    };
+    var refMix = { campaign: refCamp, clinicCode: 'KT', clinics: mixMaps.clinics, doctors: mixMaps.doctors };
+    pass('coupon Refer a friend selectable at clinic when any dentist is ticked',
+        C.referralCouponGate(refMix).ok === true &&
+        C.referralCouponGate(Object.assign({}, refMix, { doctorKey: 'doc-in' })).ok === true &&
+        C.referralCouponGate(Object.assign({}, refMix, { doctorKey: 'doc-out' })).reason === 'clinic');
     var bothOn = C.referralOptions({ ok: true }, { ok: true });
     var ptsOnly = C.referralOptions({ ok: false, reason: 'clinic' }, { ok: true });
     var neither = C.referralOptions({ ok: false, reason: 'clinic' }, { ok: false, reason: 'points_clinic' });
@@ -1256,6 +1278,8 @@ function loadCoupons() {
     };
     pass('spend coupon issues for a joined doctor', !!(C.planTargetSpend(Object.assign({}, spendCtx, { doctorKey: 'doc-in' })) || {}).ok);
     pass('spend coupon skips an opted-out doctor', C.planTargetSpend(Object.assign({}, spendCtx, { doctorKey: 'doc-out' })) === null);
+    pass('spend coupon clinic-scope (no doctor) still issues while any dentist is ticked',
+        !!(C.planTargetSpend(Object.assign({}, spendCtx, { doctorKey: '' })) || {}).ok);
     pass('onBillFullyPaid looks up the bill doctor', src.indexOf('billDoctorKey(info.billId, info.doctorKey)') >= 0);
     var late = C.smsExpiring({ status: 'unused', nameZh: '現金券', expires_on: '2026-10-30' }, '2026-10-27');
     pass('late run still reminds within 7 days', late.indexOf('3日內到期') >= 0 && late.indexOf('3 days') >= 0, late);

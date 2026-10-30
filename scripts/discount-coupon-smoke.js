@@ -1587,7 +1587,7 @@ function loadCoupons() {
     var both = C.combineCoupons(Object.assign({ coupons: [cScale, cCash100] }, comboOpts));
     pass('treatment + bill coupon work together', both.rows.length === 2 && both.save === 660, JSON.stringify({ n: both.rows.length, s: both.save }));
     var twoBill = C.combineCoupons(Object.assign({ coupons: [cCash100, cCash50] }, comboOpts));
-    pass('only one bill-wide coupon per bill', twoBill.rows.length === 1 && twoBill.save === 100);
+    pass('bill-wide coupons stack on one bill', twoBill.rows.length === 2 && twoBill.save === 150);
     var kA = { id: 'ca', campaign_key: 'cash', scope: 'bill', mode: 'amount', face: 100, status: 'unused', patient_id: 'p', expires_on: '2027-01-01' };
     var kB = { id: 'cb', campaign_key: 'cash', scope: 'bill', mode: 'amount', face: 50, status: 'unused', patient_id: 'p', expires_on: '2026-12-01' };
     var kC = { id: 'cc', campaign_key: 'cash', scope: 'bill', mode: 'amount', face: 200, status: 'unused', patient_id: 'p', expires_on: '2026-11-15' };
@@ -1613,15 +1613,46 @@ function loadCoupons() {
     }));
     var spendFirst = C.combineCoupons(Object.assign({ coupons: [kS, kA] }, cashOpts({ maxCount: 3 })));
     var cashFirst = C.combineCoupons(Object.assign({ coupons: [kA, kS, kB] }, cashOpts({ maxCount: 3 })));
-    pass('spend coupons do not stack with cash', spendFirst.rows.length === 1 && spendFirst.rows[0].coupon.id === 'cs' &&
-        cashFirst.rows.length === 2 && cashFirst.rows.every(function (r) { return r.coupon.campaign_key === 'cash'; }));
+    pass('spend coupons stack with cash', spendFirst.rows.length === 2 && spendFirst.save === 200 &&
+        cashFirst.rows.length === 3 && cashFirst.save === 250);
+    var kR = { id: 'cr', campaign_key: 'referral', scope: 'bill', mode: 'amount', face: 80, status: 'unused', patient_id: 'p', expires_on: '2026-12-15' };
+    var kN = { id: 'cn', campaign_key: 'new_chart', scope: 'bill', mode: 'amount', face: 90, status: 'unused', patient_id: 'p', expires_on: '2026-12-20' };
+    pass('cash, spend, new-chart and referral are all cash-stack coupons',
+        C.isCashCoupon(kA) && C.isCashCoupon(kS) && C.isCashCoupon(kN) && C.isCashCoupon(kR) &&
+        !C.isCashCoupon(cScale) && C.kindOf(kR) === 'referral' && C.kindOf(kN) === 'welcome');
+    var mixStack = C.combineCoupons(Object.assign({ coupons: [kS, kN, kR, kA] }, cashOpts({ maxCount: 0 })));
+    pass('spend, new-chart, referral and cash stack together',
+        mixStack.rows.length === 4 && mixStack.save === 370 && mixStack.cashCount === 4,
+        JSON.stringify({ n: mixStack.rows.length, s: mixStack.save, c: mixStack.cashCount }));
+    var mixPct = C.combineCoupons(Object.assign({ coupons: [kS, kN, kR, kA] }, cashOpts({ maxCount: 0, maxPercent: 50, maxAmount: 3000 }, 400)));
+    pass('mixed stack obeys the 50% of bill cap', mixPct.save === 200 && mixPct.capHit && mixPct.capCents === 20000,
+        JSON.stringify({ s: mixPct.save, cap: mixPct.capCents, lost: mixPct.lost }));
+    var bigMix = [
+        Object.assign({}, kC, { id: 'bm0', campaign_key: 'spend_1', face: 1200 }),
+        Object.assign({}, kC, { id: 'bm1', campaign_key: 'new_chart', face: 900 }),
+        Object.assign({}, kC, { id: 'bm2', campaign_key: 'referral', face: 800 }),
+        Object.assign({}, kC, { id: 'bm3', campaign_key: 'cash', face: 500 })
+    ];
+    var mixAmt = C.combineCoupons(Object.assign({ coupons: bigMix }, cashOpts({ maxCount: 0, maxPercent: 50, maxAmount: 3000 }, 10000)));
+    pass('mixed stack on a large bill is capped at HK$3,000 not 50%', mixAmt.save === 3000 && mixAmt.capHit && mixAmt.capCents === 300000,
+        JSON.stringify({ s: mixAmt.save, cap: mixAmt.capCents, lost: mixAmt.lost }));
+    var mixPctWins = C.combineCoupons(Object.assign({ coupons: bigMix }, cashOpts({ maxCount: 0, maxPercent: 50, maxAmount: 3000 }, 4000)));
+    pass('mixed stack takes the smaller of 50% and HK$3,000', mixPctWins.save === 2000 && mixPctWins.capHit && mixPctWins.capCents === 200000,
+        JSON.stringify({ s: mixPctWins.save, cap: mixPctWins.capCents, lost: mixPctWins.lost }));
+    var refCap = C.combineCoupons(Object.assign({ coupons: [kR, kA] }, cashOpts({ maxCount: 3, maxAmount: 120 })));
+    pass('referral plus cash share the per-bill cash cap', refCap.save === 120 && refCap.capHit && refCap.lost === 60,
+        JSON.stringify({ s: refCap.save, lost: refCap.lost }));
+    var bestRef = C.bestCombination([kS, kR, kA], cashOpts({ maxCount: 3 }));
+    pass('best combination stacks spend, referral and cash',
+        bestRef.save === 280 && bestRef.cashCount === 3,
+        JSON.stringify({ s: bestRef.save, n: bestRef.cashCount, ids: bestRef.rows.map(function (r) { return r.coupon.id; }) }));
     var covered = C.combineCoupons(Object.assign({ coupons: [kA, kB, kC] }, cashOpts({ maxCount: 3 }, 120)));
     pass('no extra cash coupon once the bill is covered', covered.save === 120 && covered.rows.length === 2 &&
         covered.skipped.some(function (s) { return s.coupon.id === 'cc' && s.reason === 'covered'; }), JSON.stringify(covered.skipped));
     var withTreat = C.combineCoupons(Object.assign({ coupons: [cScale, kA, kB] }, cashOpts({ maxCount: 3 })));
     pass('treatment coupon plus stacked cash', withTreat.rows.length === 3 && withTreat.save === 710, String(withTreat.save));
     var bestCash = C.bestCombination([kS, kA, kB, kC], cashOpts({ maxCount: 3 }));
-    pass('best combination stacks cash when it saves more', bestCash.save === 350 && bestCash.cashCount === 3, JSON.stringify({ s: bestCash.save }));
+    pass('best combination stacks cash when it saves more', bestCash.save === 400 && bestCash.cashCount === 3, JSON.stringify({ s: bestCash.save }));
     var bestNoWaste = C.bestCombination([kA, kB, kC], cashOpts({ maxCount: 3 }, 150));
     pass('best cash stack wastes the least', bestNoWaste.save === 150 && bestNoWaste.lost === 0 &&
         bestNoWaste.rows.map(function (r) { return r.coupon.id; }).sort().join(',') === 'ca,cb',
@@ -1690,9 +1721,11 @@ function loadCoupons() {
     pass('cash rules start at any number, no %, up to HK$3,000',
         C.cashRules().maxCount === 0 && C.cashRules().maxPercent === 0 && C.cashRules().maxAmount === 3000);
     var bestCombo = C.bestCombination([cCash50, cScale, cCash100], comboOpts);
-    pass('best combination picks scaling + the larger cash',
-        bestCombo.rows.length === 2 && bestCombo.save === 660 &&
-        bestCombo.rows.some(function (r) { return r.coupon.id === 'k2'; }));
+    pass('best combination picks scaling plus stacked bill coupons',
+        bestCombo.rows.length === 3 && bestCombo.save === 710 &&
+        bestCombo.rows.some(function (r) { return r.coupon.id === 'k1'; }) &&
+        bestCombo.rows.some(function (r) { return r.coupon.id === 'k2'; }) &&
+        bestCombo.rows.some(function (r) { return r.coupon.id === 'k3'; }));
     var tight = C.combineCoupons({
         coupons: [cScale, cCash100], lines: [{ treatment_item_id: 's1', qty: 1, price: 560, disc: 0 }],
         catalog: catalog, eligibleCents: 600, patientId: 'p', billId: 'bx'
@@ -1852,9 +1885,16 @@ function loadCoupons() {
         wRules({ maxCount: 3, maxPercent: 0, maxAmount: 0 }, 'zh-CN').indexOf('<p>💳 每张账单最多使用 3 张现金券。</p>') > 0 &&
         wRules({ maxCount: 0, maxPercent: 0, maxAmount: 0 }).indexOf('💳') < 0 &&
         W.cashRuleLines({ limitMode: 'amount', limitValue: 600 }, 'en').join(' ') === 'Cash coupons per bill: at most HK$600.');
-    pass('wallet: cash line only when the patient holds a live cash coupon', wRules({ maxPercent: 50, maxAmount: 3000 }, 'en', {
-        ok: true, today: '2026-10-27', coupons: [{ code: 'X', campaign_key: 'spend_1', discount_mode: 'amount', face_value: 100, status: 'unused', expires_on: '2027-01-01' }]
-    }).indexOf('💳') < 0);
+    pass('wallet: cash line when the patient holds a live cash, spend, new-chart or referral coupon',
+        wRules({ maxPercent: 50, maxAmount: 3000 }, 'en', {
+            ok: true, today: '2026-10-27', coupons: [{ code: 'T', campaign_key: 'free_scaling', discount_mode: 'free_line', face_value: 0, status: 'unused', expires_on: '2027-01-01' }]
+        }).indexOf('💳') < 0 &&
+        wRules({ maxPercent: 50, maxAmount: 3000 }, 'en', {
+            ok: true, today: '2026-10-27', coupons: [{ code: 'X', campaign_key: 'spend_1', discount_mode: 'amount', face_value: 100, status: 'unused', expires_on: '2027-01-01' }]
+        }).indexOf('💳') >= 0 &&
+        wRules({ maxPercent: 50, maxAmount: 3000 }, 'en', {
+            ok: true, today: '2026-10-27', coupons: [{ code: 'N', campaign_key: 'new_chart', discount_mode: 'amount', face_value: 100, status: 'unused', expires_on: '2027-01-01' }]
+        }).indexOf('💳') >= 0);
     pass('wallet SQL sends the saved cash rules to the phone', (function () {
         var s = read('discount_coupon_wallet.sql');
         return /setting_value::jsonb -> 'cashRules' into v_cash/.test(s) &&
@@ -2546,6 +2586,27 @@ function loadCoupons() {
         pass('CDP typed text is not a match', live && live.typed === false);
         pass('CDP SMS heading', live && live.sms === true);
         pass('CDP reward SMS balance lines and note', live && live.rwSms === true);
+        var refStack = await cdp.js(`(function () {
+  var cash = { id: 'ca', campaign_key: 'cash', scope: 'bill', mode: 'amount', face: 100, status: 'unused', patient_id: 'p', expires_on: '2027-01-01' };
+  var ref = { id: 'cr', campaign_key: 'referral', scope: 'bill', mode: 'amount', face: 80, status: 'unused', patient_id: 'p', expires_on: '2026-12-15' };
+  var spend = { id: 'cs', campaign_key: 'spend_1', scope: 'bill', mode: 'amount', face: 100, status: 'unused', patient_id: 'p', expires_on: '2026-11-01' };
+  var welcome = { id: 'cn', campaign_key: 'new_chart', scope: 'bill', mode: 'amount', face: 90, status: 'unused', patient_id: 'p', expires_on: '2026-12-20' };
+  var treat = { id: 'k1', scope: 'items', mode: 'free_line', key: 'free_scaling', campaign_key: 'free_scaling', status: 'unused', patient_id: 'p' };
+  var opts = { lines: [], catalog: {}, eligibleCents: 8560, patientId: 'p', billId: 'bx',
+    cashRules: { maxCount: 0, maxPercent: 50, maxAmount: 3000 } };
+  var stacked = COUPONS.combineCoupons(Object.assign({ coupons: [spend, welcome, ref, cash] }, opts));
+  var capped = COUPONS.combineCoupons(Object.assign({ coupons: [spend, welcome, ref, cash] }, opts, { eligibleCents: 400 }));
+  return {
+    cashLike: COUPONS.isCashCoupon(cash) && COUPONS.isCashCoupon(spend) && COUPONS.isCashCoupon(welcome) &&
+      COUPONS.isCashCoupon(ref) && !COUPONS.isCashCoupon(treat) && COUPONS.kindOf(ref) === 'referral',
+    stackN: stacked.rows.length, stackSave: stacked.save, stackCash: stacked.cashCount,
+    capSave: capped.save, capHit: capped.capHit, capCents: capped.capCents
+  };
+})()`, false, 10000);
+        pass('CDP whole-bill coupons stack under the 50% / HK$3,000 cap',
+            !!(refStack && refStack.cashLike && refStack.stackN === 4 && refStack.stackSave === 370 &&
+                refStack.stackCash === 4 && refStack.capSave === 200 && refStack.capHit && refStack.capCents === 20000),
+            JSON.stringify(refStack));
 
         var refLive = await cdp.js(`(async () => {
   var input = document.getElementById('referredBy');

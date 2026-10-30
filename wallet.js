@@ -273,7 +273,10 @@
             if (value > 0) html += '<div class="wl-sum-item"><b>' + esc(hk(value)) + '</b>' + esc(tr('sumValue', lang)) + '</div>';
             if (next) html += '<div class="wl-sum-item"><b>' + esc(next.slice(5)) + '</b>' + esc(tr('sumNext', lang)) + '</div>';
             html += '</div>';
-            var hasCash = parts.live.some(function (c) { return kindOf(c) === 'cash'; });
+            var hasCash = parts.live.some(function (c) {
+                var k = kindOf(c);
+                return k === 'cash' || k === 'referral' || k === 'spend' || k === 'welcome';
+            });
             var cashLines = hasCash ? cashRuleLines(data.cash_rules, lang) : [];
             html += '<div class="wl-remind" role="note"><p>⏰ ' + esc(tr('yearEnd', lang).split('{YEAR}').join(String(parts.today).slice(0, 4))) + '</p>' +
                 (cashLines.length ? '<p>💳 ' + esc(cashLines.join(' ')) + '</p>' : '') + '</div>';

@@ -225,7 +225,7 @@
                         'Inside the Cash coupon card. <b>Cash coupons per bill</b>: No limit, or 1–10.',
                         '<b>Max cash off per bill</b>: a <b>% of the bill</b> and/or <b>up to HK$</b>. Both apply and the smaller one wins; blank drops that limit.',
                         'Default: any number of cash coupons, <b>up to HK$3,000 per bill</b>, with <b>no % limit</b> (the % box is blank). If you fill in a %, it is of the whole bill before coupons.',
-                        'Only cash coupons stack. Spend, new-chart and referral coupons stay one per bill and are not combined with cash.'
+                        'Cash, spend, new-chart and Refer a friend coupons stack under the same per-bill cash limit (the % of the bill and the HK$ cap both apply; the smaller one wins).'
                     ] },
                     { t: 'Treatment items for a treatment coupon', list: [
                         '<b>Smart keyword filter</b>: items whose name has one of the <b>Keywords</b> (comma separated) and none of the <b>Exclude words</b> are ticked for you.',
@@ -261,7 +261,7 @@
                 ],
                 recap: 'Coupon rules in short',
                 recapList: [
-                    'Per bill: one treatment coupon plus either one whole-bill coupon (spend, new chart, referral) or cash coupons. The treatment coupon comes off first.',
+                    'Per bill: one treatment coupon plus cash, spend, new-chart and Refer a friend coupons, under the same per-bill cash limit. The treatment coupon comes off first.',
                     'No change and no cash back: if a coupon is worth more than the bill, the rest is lost.',
                     'New-chart and referral coupons stay with the patient; other coupons can be transferred to another chart no.',
                     'Voiding a bill returns the coupons used on it and cancels coupons it issued.',
@@ -276,7 +276,7 @@
                     ['Badge “Limit reached”', 'The Issue cap or Budget is used up. Raise it, or clear the box for no limit.'],
                     ['“Coupons are switched off at …”', 'Those clinics are not joined. Open the clinic tab and tick Join.'],
                     ['A patient did not get a coupon', 'The clinic or doctor is not joined, the row is off, or the patient already holds the Hold up to number (or 20 coupons in all).'],
-                    ['A coupon cannot be used on a bill', 'The clinic or doctor is not joined, the treatment is not ticked for that coupon, the coupon has expired, or a whole-bill coupon is already on the bill.'],
+                    ['A coupon cannot be used on a bill', 'The clinic or doctor is not joined, the treatment is not ticked for that coupon, the coupon has expired, or the per-bill cash limit is already used.'],
                     ['Cash coupons stop short', 'The per-bill cash limit applies (default HK$3,000 per bill, no % limit).'],
                     ['Coupons were set to zero by mistake', 'Press Step back… on the red card. It gives back the coupons of the last set zero from its safety log.'],
                     ['Save on the set zero card is greyed out', 'You have not picked a different option or month yet. Every change needs the SMS and Google Authenticator codes.'],
@@ -365,7 +365,7 @@
                     ['The green reward box is not in Add Payment', 'The clinic or the bill’s doctor is not joined in Reward Points → Clinics in scheme.'],
                     ['“Use reward points” cannot be ticked', 'No doctor on the bill, or this patient has no points with this doctor.'],
                     ['Choose is greyed out', 'A payment is already on the bill. Coupons must be chosen before the first payment.'],
-                    ['A coupon shows a reason instead of an amount', 'The treatment is not on the bill, the coupon has expired, a whole-bill coupon is already used, or the clinic is not in the coupon scheme.'],
+                    ['A coupon shows a reason instead of an amount', 'The treatment is not on the bill, the coupon has expired, the per-bill cash limit is already used, or the clinic is not in the coupon scheme.'],
                     ['The points box stops early', 'It stops at the smallest of: the bill balance, this doctor’s points, and the per-bill limit.'],
                     ['Points from today cannot be used', 'By design: points earned on a payment are usable from the next payment.'],
                     ['Government / PDCC / CCF cannot be taken', 'Those methods are outside the scheme. If coupons or points are already on the bill, Confirm Payment refuses them — take another method, or remove the coupon / points first.']
@@ -510,7 +510,7 @@
                         '位於「現金券」設定卡內。<b>每張單現金券數量</b>：不限，或 1–10 張。',
                         '<b>每張單現金券扣減上限</b>：<b>賬單金額 %</b> 及／或<b>最多 HK$</b>。兩者同時適用，以較小者為準；留空即取消該上限。',
                         '預設：現金券數量不限，<b>每張單最多 HK$3,000</b>，<b>不設百分比上限</b>（% 欄留空）。如填寫百分比，以使用優惠券前的整張賬單計算。',
-                        '只有現金券可以疊加。消費滿額券、新客券及介紹新客券每張單只限一張，且不可與現金券同用。'
+                        '現金券、消費滿額券、新客券及介紹新客券可疊加，共用同一張單的現金券上限（賬單 % 及 HK$ 上限同時適用，以較小者為準）。'
                     ] },
                     { t: '治療券的治療項目', list: [
                         '<b>智能關鍵字篩選</b>：名稱含有<b>關鍵字</b>（以逗號分隔）而不含<b>排除字詞</b>的項目會自動剔選。',
@@ -544,7 +544,7 @@
                 ],
                 recap: '優惠券規則摘要',
                 recapList: [
-                    '每張賬單：一張治療券，加上一張全單券（消費滿額、新客、介紹）或多張現金券。先扣治療券。',
+                    '每張賬單：一張治療券，加上現金券、消費滿額券、新客券及介紹新客券，共用同一張單的現金券上限。先扣治療券。',
                     '不設找贖、不退現金：券面值高於賬單時，餘額作廢。',
                     '新客券及介紹券只限本人使用；其他券可轉給另一病歷號。',
                     '作廢賬單會退回該單已用的券，並取消該單發出的券。',
@@ -559,7 +559,7 @@
                     ['標籤「已達上限」', '發放上限或預算已用完。提高數值，或清空輸入格即不設上限。'],
                     ['「…未開啟優惠券」', '這些診所未加入。打開該診所分頁並剔選「加入」。'],
                     ['病人沒有獲發優惠券', '診所或醫生未加入、該行已關閉，或病人已持有「最多持有」的張數（或合共 20 張）。'],
-                    ['賬單不能使用某張券', '診所或醫生未加入、該治療項目未為此券剔選、券已過期，或賬單已有一張全單券。'],
+                    ['賬單不能使用某張券', '診所或醫生未加入、該治療項目未為此券剔選、券已過期，或已達每張單現金券上限。'],
                     ['現金券扣減不足', '受每張單現金券上限限制（預設每張單最多 HK$3,000，不設百分比上限）。'],
                     ['誤把優惠券清零', '在紅色卡片按「回退…」，會按安全日誌退回上次清零的優惠券。'],
                     ['清零卡片的「儲存」是灰色', '你尚未選擇不同的選項或月數。每次更改都需短訊及 Google 驗證器驗證碼。'],
@@ -647,7 +647,7 @@
                     ['新增付款沒有綠色積分框', '診所或賬單醫生未在 獎勵積分 → 參與診所 加入。'],
                     ['「使用積分抵扣」不能剔選', '賬單未選醫生，或病人沒有此醫生的積分。'],
                     ['「選擇」變灰', '賬單已有付款。優惠券須在第一筆付款前選擇。'],
-                    ['優惠券顯示原因而不是金額', '賬單上沒有該治療、優惠券已過期、已使用全單券，或診所未加入優惠券計劃。'],
+                    ['優惠券顯示原因而不是金額', '賬單上沒有該治療、優惠券已過期、已達每張單現金券上限，或診所未加入優惠券計劃。'],
                     ['積分欄提早停止', '以下最小者為上限：賬單結欠、此醫生的積分、每張賬單上限。'],
                     ['今天賺取的積分不能使用', '按設計：付款賺取的積分可於下一筆付款使用。'],
                     ['不能收 Government / PDCC / CCF', '這些方式不屬計劃。若賬單已有優惠券或積分，確認付款會拒絕——請改用其他方式，或先取消優惠券／積分。']
@@ -792,7 +792,7 @@
                         '位于「现金券」设置卡内。<b>每张单现金券数量</b>：不限，或 1–10 张。',
                         '<b>每张单现金券扣减上限</b>：<b>账单金额 %</b> 及／或<b>最多 HK$</b>。两者同时适用，以较小者为准；留空即取消该上限。',
                         '默认：现金券数量不限，<b>每张单最多 HK$3,000</b>，<b>不设百分比上限</b>（% 栏留空）。如填写百分比，以使用优惠券前的整张账单计算。',
-                        '只有现金券可以叠加。消费满额券、新客券及介绍新客券每张单只限一张，且不可与现金券同用。'
+                        '现金券、消费满额券、新客券及介绍新客券可叠加，共用同一张单的现金券上限（账单 % 及 HK$ 上限同时适用，以较小者为准）。'
                     ] },
                     { t: '治疗券的治疗项目', list: [
                         '<b>智能关键字筛选</b>：名称含有<b>关键字</b>（以逗号分隔）而不含<b>排除字词</b>的项目会自动勾选。',
@@ -826,7 +826,7 @@
                 ],
                 recap: '优惠券规则摘要',
                 recapList: [
-                    '每张账单：一张治疗券，加上一张全单券（消费满额、新客、介绍）或多张现金券。先扣治疗券。',
+                    '每张账单：一张治疗券，加上现金券、消费满额券、新客券及介绍新客券，共用同一张单的现金券上限。先扣治疗券。',
                     '不设找零、不退现金：券面值高于账单时，余额作废。',
                     '新客券及介绍券只限本人使用；其他券可转给另一病历号。',
                     '作废账单会退回该单已用的券，并取消该单发出的券。',
@@ -841,7 +841,7 @@
                     ['标签「已达上限」', '发放上限或预算已用完。提高数值，或清空输入框即不设上限。'],
                     ['「…未开启优惠券」', '这些诊所未加入。打开该诊所标签并勾选「加入」。'],
                     ['病人没有获发优惠券', '诊所或医生未加入、该行已关闭，或病人已持有「最多持有」的张数（或合共 20 张）。'],
-                    ['账单不能使用某张券', '诊所或医生未加入、该治疗项目未为此券勾选、券已过期，或账单已有一张全单券。'],
+                    ['账单不能使用某张券', '诊所或医生未加入、该治疗项目未为此券勾选、券已过期，或已达每张单现金券上限。'],
                     ['现金券扣减不足', '受每张单现金券上限限制（默认每张单最多 HK$3,000，不设百分比上限）。'],
                     ['误把优惠券清零', '在红色卡片点「回退…」，会按安全日志退回上次清零的优惠券。'],
                     ['清零卡片的「保存」是灰色', '你尚未选择不同的选项或月数。每次更改都需短信及 Google 验证器验证码。'],
@@ -929,7 +929,7 @@
                     ['添加付款没有绿色积分框', '诊所或账单医生未在 奖励积分 → 参与诊所 加入。'],
                     ['“使用积分抵扣”不能勾选', '账单未选医生，或病人没有此医生的积分。'],
                     ['“选择”变灰', '账单已有付款。优惠券须在第一笔付款前选择。'],
-                    ['优惠券显示原因而不是金额', '账单上没有该治疗、优惠券已过期、已使用全单券，或诊所未加入优惠券计划。'],
+                    ['优惠券显示原因而不是金额', '账单上没有该治疗、优惠券已过期、已达每张单现金券上限，或诊所未加入优惠券计划。'],
                     ['积分栏提早停止', '以下最小者为上限：账单结欠、此医生的积分、每张账单上限。'],
                     ['今天赚取的积分不能使用', '按设计：付款赚取的积分可于下一笔付款使用。'],
                     ['不能收 Government / PDCC / CCF', '这些方式不属计划。若账单已有优惠券或积分，确认付款会拒绝——请改用其他方式，或先取消优惠券／积分。']

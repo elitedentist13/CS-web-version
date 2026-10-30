@@ -570,9 +570,9 @@ var COUPONS = (function () {
         return scope === 'items' ? 'items' : 'bill';
     }
 
-    /** Cash coupons (campaign "cash", including gifted ones) are the only kind that can stack on one bill. */
+    /** Whole-bill coupons (cash, spend, new chart, referral) stack on one bill (same per-bill count and HK$ / % cap). */
     function isCashCoupon(c) {
-        return !!c && String(c.campaign_key || c.key || '') === 'cash' && couponSlot(c) === 'bill';
+        return !!c && couponSlot(c) === 'bill';
     }
 
     /** Pure: tidy saved cash rules. 0 = no limit for that field; missing fields take the defaults. */
@@ -623,9 +623,8 @@ var COUPONS = (function () {
     }
 
     /**
-     * Treatment coupon first on its line, then the bill-wide part on what is left:
-     * either one non-cash bill coupon (spend, new chart, referral), or a stack of cash coupons (maxCount, 0 = any)
-     * within the per-bill cash limit. Whichever bill-wide kind is picked first wins.
+     * Treatment coupon first on its line, then any stack of whole-bill coupons
+     * (cash, spend, new chart, referral; maxCount, 0 = any) within the per-bill cash limit.
      */
     function combineCoupons(opts) {
         opts = opts || {};
@@ -2052,7 +2051,7 @@ var COUPONS = (function () {
             '</span></label></div>' +
             '<p class="dc-hint dc-cash-sum" id="dcCashSum">' + esc(cashRulesSummary(r)) + '</p>' +
             '<p class="dc-hint">' + esc(ct('coupons.cash.hint',
-                'Only cash coupons stack. Spend, new-chart and referral coupons stay one per bill and are not combined with cash. Default: any number of cash coupons, up to HK$3,000 per bill, no % limit. If you also set a %, both limits apply and the smaller one wins. Leave a box blank to drop that limit. The percentage is of the whole bill before coupons.')) + '</p>' +
+                'Cash, spend, new-chart and Refer a friend coupons stack under the same per-bill cash limit. Default: any number, up to HK$3,000 per bill, no % limit. If you also set a %, both limits apply and the smaller one wins. Leave a box blank to drop that limit. The percentage is of the whole bill before coupons.')) + '</p>' +
             '</div>';
     }
 
@@ -3996,7 +3995,7 @@ var COUPONS = (function () {
             '<button type="button" class="dc-chip" data-filter="free_line">' + esc(ct('coupons.chip.free', 'Free treatment')) + '</button>' +
             '<button type="button" class="dc-chip" data-filter="items">' + esc(ct('coupons.chip.items', 'Implant / ortho')) + '</button></div>';
         html += '<p class="dc-hint">' + esc(ct('coupons.bill.rule',
-            'One bill-wide coupon (cash, spend, new chart, referral) and one treatment coupon can be used together. Tap a card to choose or unchoose it.')) + '</p>';
+            'One treatment coupon plus any number of whole-bill coupons (cash, spend, new chart, Refer a friend) can be used together. Tap a card to choose or unchoose it.')) + '</p>';
         html += rulesNoteHtml();
         html += '<div class="dc-cards">';
         if (!usable.length && !blocked.length) {
@@ -4485,7 +4484,7 @@ var COUPONS = (function () {
 
     function rulesNoteHtml() {
         var rules = [
-            ['r1', 'Per bill: one treatment coupon plus either one whole-bill coupon (spend, new chart, referral) or any number of cash coupons (by default up to HK$3,000 per bill, no % limit; change it in Configuration). The treatment coupon comes off first; the rest comes off what is left.'],
+            ['r1', 'Per bill: one treatment coupon plus any number of cash, spend, new-chart and Refer a friend coupons (by default up to HK$3,000 per bill, no % limit; change it in Configuration). The treatment coupon comes off first; the rest comes off what is left.'],
             ['r2', 'Treatment coupons only cover treatment-list items ticked for that coupon. A typed line counts only if its name is exactly the same as the treatment list.'],
             ['r3', 'No change and no cash back: if a coupon is worth more than the bill, the rest is lost.'],
             ['r4', 'Spend coupons count all cash paid on the bill (not reward points, balance transfer or voided payments). A coupon earned on a bill can be used from the next bill.'],

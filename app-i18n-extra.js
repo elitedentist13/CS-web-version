@@ -3186,15 +3186,15 @@
         'coupons.bill.slotItems': { en: 'Treatment', 'zh-CN': '治疗券', 'zh-Hant': '治療券' },
         'coupons.bill.saving': { en: 'Saving', 'zh-CN': '节省', 'zh-Hant': '節省' },
         'coupons.bill.rule': {
-            en: 'One treatment coupon plus either one whole-bill coupon (spend, new chart, referral) or several cash coupons can be used together. Tap a card to choose or unchoose it.',
-            'zh-CN': '每张账单可同时使用一张治疗券，加一张全单券（满额、新客、介绍）或多张现金券。点击卡片可选择或取消。',
-            'zh-Hant': '每張賬單可同時使用一張治療券，加一張全單券（滿額、新客、介紹）或多張現金券。點擊卡片可選擇或取消。'
+            en: 'One treatment coupon plus any number of whole-bill coupons (cash, spend, new chart, Refer a friend) can be used together. Tap a card to choose or unchoose it.',
+            'zh-CN': '每张账单可同时使用一张治疗券，加上多张全单券（现金、满额、新客、介绍）。点击卡片可选择或取消。',
+            'zh-Hant': '每張賬單可同時使用一張治療券，加上多張全單券（現金、滿額、新客、介紹）。點擊卡片可選擇或取消。'
         },
         'coupons.rules.title': { en: 'Coupon rules (tap to open)', 'zh-CN': '优惠券使用规则（点击展开）', 'zh-Hant': '優惠券使用規則（點擊展開）' },
         'coupons.rules.r1': {
-            en: 'Per bill: one treatment coupon plus either one whole-bill coupon (spend, new chart, referral) or any number of cash coupons (by default up to HK$3,000 per bill, no % limit; change it in Configuration). The treatment coupon comes off first; the rest comes off what is left.',
-            'zh-CN': '每张单：一张治疗券＋一张全单券（满额、新客、介绍）或多张现金券（预设每张单最多扣HK$3,000，不设百分比上限，可在设定更改）。先扣治疗券，其余再扣余下金额。',
-            'zh-Hant': '每張單：一張治療券＋一張全單券（滿額、新客、介紹）或多張現金券（預設每張單最多扣HK$3,000，不設百分比上限，可在設定更改）。先扣治療券，其餘再扣餘下金額。'
+            en: 'Per bill: one treatment coupon plus any number of cash, spend, new-chart and Refer a friend coupons (by default up to HK$3,000 per bill, no % limit; change it in Configuration). The treatment coupon comes off first; the rest comes off what is left.',
+            'zh-CN': '每张单：一张治疗券＋多张现金券、满额券、新客券及介绍券（预设每张单最多扣HK$3,000，不设百分比上限，可在设定更改）。先扣治疗券，其余再扣余下金额。',
+            'zh-Hant': '每張單：一張治療券＋多張現金券、滿額券、新客券及介紹券（預設每張單最多扣HK$3,000，不設百分比上限，可在設定更改）。先扣治療券，其餘再扣餘下金額。'
         },
         'coupons.rules.r2': {
             en: 'Treatment coupons only cover treatment-list items ticked for that coupon. A typed line counts only if its name is exactly the same as the treatment list.',
@@ -3530,9 +3530,9 @@
         'coupons.cash.pctLabel': { en: 'Max % of the bill', 'zh-CN': '最多扣账单百分比', 'zh-Hant': '最多扣賬單百分比' },
         'coupons.cash.amtLabel': { en: 'Max HK$ per bill', 'zh-CN': '每张单最多扣（HK$）', 'zh-Hant': '每張單最多扣（HK$）' },
         'coupons.cash.hint': {
-            en: 'Only cash coupons stack. Spend, new-chart and referral coupons stay one per bill and are not combined with cash. Default: any number of cash coupons, up to HK$3,000 per bill, no % limit. If you also set a %, both limits apply and the smaller one wins. Leave a box blank to drop that limit. The percentage is of the whole bill before coupons.',
-            'zh-CN': '只有现金券可叠加使用。满额、新客及介绍券每张单限用一张，且不与现金券同用。预设：现金券数量不限，每张单最多扣HK$3,000，不设百分比上限。如另设百分比，两个上限同时生效，以较低者为准。留空即取消该项上限；百分比按使用优惠券前的整张账单金额计算。',
-            'zh-Hant': '只有現金券可疊加使用。滿額、新客及介紹券每張單限用一張，且不與現金券同用。預設：現金券數量不限，每張單最多扣HK$3,000，不設百分比上限。如另設百分比，兩個上限同時生效，以較低者為準。留空即取消該項上限；百分比按使用優惠券前的整張賬單金額計算。'
+            en: 'Cash, spend, new-chart and Refer a friend coupons stack under the same per-bill cash limit. Default: any number, up to HK$3,000 per bill, no % limit. If you also set a %, both limits apply and the smaller one wins. Leave a box blank to drop that limit. The percentage is of the whole bill before coupons.',
+            'zh-CN': '现金券、满额券、新客券及介绍券可叠加使用，共用同一张单的现金券上限。预设：数量不限，每张单最多扣HK$3,000，不设百分比上限。如另设百分比，两个上限同时生效，以较低者为准。留空即取消该项上限；百分比按使用优惠券前的整张账单金额计算。',
+            'zh-Hant': '現金券、滿額券、新客券及介紹券可疊加使用，共用同一張單的現金券上限。預設：數量不限，每張單最多扣HK$3,000，不設百分比上限。如另設百分比，兩個上限同時生效，以較低者為準。留空即取消該項上限；百分比按使用優惠券前的整張賬單金額計算。'
         },
         'coupons.cash.tooMany': { en: 'Cash coupons per bill', 'zh-CN': '每张单现金券数量上限', 'zh-Hant': '每張單現金券數量上限' },
         'coupons.cash.untickOne': { en: 'Untick one to use this one instead.', 'zh-CN': '请先取消一张再选这张。', 'zh-Hant': '請先取消一張再選這張。' },

@@ -103,11 +103,15 @@
                 steps: [
                     { t: 'Earn rate', list: [
                         'Type the percentage of each payment that comes back as points (default <b>10%</b>), then press <b>Save</b>.',
-                        'Points already earned do not change. Points earned on a payment can be used from the <b>next</b> payment, not the same one.'
+                        'Points already earned do not change. Points earned on a payment can be used from the <b>next</b> payment, not the same one.',
+                        'A bill with any <b>Government</b>, <b>PDCC</b> or <b>CCF</b> payment is outside the scheme: it earns no points (and no coupons), and points cannot be used on it. ' +
+                            'If coupons or points are already on the bill, <b>✓ Confirm Payment</b> refuses those methods.'
                     ] },
                     { t: 'SMS notify on balance change', list: [
                         'Tick <b>Send Twilio SMS when points change</b> to text the patient each time the balance goes up or down.',
-                        'Untick to stop the SMS. It saves at once.'
+                        'Untick to stop the SMS. It saves at once.',
+                        'With <b>Set zero</b> on <b>every year on 31 Dec</b>, patients also get a year-end reminder SMS on <b>30 Nov</b> and again on <b>24 Dec</b>. ' +
+                            'Those texts are sent by the <b>server</b>. Switching Set zero to <b>Manual</b> pauses the reminders by itself.'
                     ] },
                     { t: 'Refer a friend (points)', list: [
                         'Tick <b>Give reward points for referrals</b>, fill in <b>Points</b> and <b>Min first-visit payment HK$ (full or part payment)</b>, then press <b>Save</b>.',
@@ -121,9 +125,11 @@
                         'Set the most points one bill can use: a <b>% of the bill</b>, an amount <b>up to HK$</b>, or both. Press <b>Save</b>.',
                         'Both limits apply and the <b>smaller one wins</b>. Leave a box blank to drop that limit. The % is of the bill total.',
                         'Default: <b>up to HK$3,000</b> per bill, no %. The patient’s phone page shows the limit you save here ' +
-                            '(for example “Maximum usage per bill is HK$3,000.”); with both boxes blank it shows no limit line.',
+                            '(for example “Maximum usage per bill is HK$3,000.”); with both boxes blank it shows no limit line. ' +
+                            'The phone <b>How to use</b> text says <b>1 point = HK$1</b> and “up to <i>that</i> points on one bill.”',
                         'It counts <b>every payment on the same bill</b>. At the payment desk the points box stops at the limit, ' +
-                            'an amber note shows what is left, and <b>✓ Confirm Payment</b> refuses anything over it.'
+                            'an amber note shows what is left, and <b>✓ Confirm Payment</b> refuses anything over it. ' +
+                            'Government / PDCC / CCF bills cannot use points.'
                     ] },
                     { t: 'Reset reward points to zero', danger: true, mock: zeroMock, list: [
                         'Choose how balances are cleared: <b>Manual</b> (default, points never clear by themselves), ' +
@@ -133,14 +139,17 @@
                         '<b>Manual RESET ZERO</b>: press <b>RESET ZERO</b> → verify (SMS + Authenticator) → tick <b>All clinics</b> or single clinics → ' +
                             '<b>Confirm set zero</b> → type the word <b>confirm</b> → <b>Wipe points now</b>.',
                         'Every reset keeps a <b>safety log</b>. <b>Step back and recover last balance before set zero</b> brings the last reset back. ' +
-                            'The grey line under the buttons shows the last safety log.'
+                            'The grey line under the buttons shows the last safety log.',
+                        'Year-end and life span run on the <b>server</b> (Hong Kong time) — you do not need to open this page. ' +
+                            'Switching the option to <b>Manual</b> pauses those jobs and the year-end reminder SMS by itself.'
                     ] },
                     { t: 'Clinics in scheme', list: [
                         'One tab per clinic. A <b>dot</b> on the tab means the clinic is joined. Default: <b>PL · All Doctors</b>.',
                         'Each row has a <b>Gain &amp; Redeem</b> tick. <b>All Doctors</b> joins the whole clinic; a doctor row joins only that doctor. ' +
                             'It saves at once (“Saved”).',
                         'Points belong to the <b>doctor</b> who earned them. A bill can use only points earned with the <b>same doctor</b> — ' +
-                            'at any clinic where that doctor earned them. The doctor must be chosen on the bill.'
+                            'at any clinic where that doctor earned them. The doctor must be chosen on the bill. ' +
+                            'Staff can <b>transfer</b> points to family or friends; the receiver can use them only with that same doctor.'
                     ] },
                     { t: 'Summary log', list: [
                         'The latest 80 point changes: when, clinic, doctor, chart no., patient, type, points, balance after, and who did it.'
@@ -157,8 +166,9 @@
                 recap: 'At the payment desk',
                 recapList: [
                     'In <b>Add payment</b>, tick <b>Use reward points as discount</b>, then type <b>Points to use</b> or press <b>Redeem all</b> ' +
-                        '(takes the smallest clinic balance first).',
-                    'In the patient’s points ledger, <b>📱 Points on the phone</b> makes a QR code and a WhatsApp message so the patient can see the balance.'
+                        '(takes the smallest clinic balance first). Government / PDCC / CCF bills cannot use or earn points.',
+                    'Prefer <b>Points + coupons (one QR)</b> — one phone page for both. ' +
+                        '<b>📱 Points on the phone</b> still makes a points-only QR. The phone page is browse only and ends with <b>使用說明 / How to use</b> (Chinese, then English).'
                 ],
                 tips: 'Problems?',
                 tipList: [
@@ -168,7 +178,8 @@
                     ['Today’s points cannot be used', 'By design: points earned on a payment can be used from the next payment.'],
                     ['Balances were reset by mistake', 'Press Step back… on the red card. It recovers the last RESET ZERO from its safety log.'],
                     ['Step back is greyed out', 'There is no RESET ZERO safety log left to recover.'],
-                    ['The SMS code does not arrive', 'Press Resend SMS code. If SMS cannot be sent, only the Google Authenticator code is asked.']
+                    ['The SMS code does not arrive', 'Press Resend SMS code. If SMS cannot be sent, only the Google Authenticator code is asked.'],
+                    ['“Government / PDCC / CCF bill” — no points', 'Those payment methods are outside the scheme. Take another method, or remove coupons / points already on the bill first.']
                 ]
             },
             dc: {
@@ -195,7 +206,8 @@
                         'Each row: the <b>switch</b>, <b>Spend HK$</b>, <b>Coupon HK$</b>, <b>Days</b> (valid for), <b>Hold up to</b> ' +
                             '(most unused coupons of this kind one patient can hold), <b>Issue cap</b> and <b>Budget HK$</b>.',
                         'A row issues only when it is on and both amounts are filled. One bill earns <b>every row it reaches</b>; the picture shows the tiers.',
-                        'Spend counts all cash paid on the bill (not reward points, balance transfer or voided payments). The coupon can be used from the <b>next</b> bill.'
+                        'Spend counts all cash paid on the bill (not reward points, balance transfer, voided payments, or <b>Government / PDCC / CCF</b>). The coupon can be used from the <b>next</b> bill. ' +
+                            'A Government / PDCC / CCF bill earns no coupons and cannot use them.'
                     ] },
                     { t: 'Campaigns', list: [
                         'Every other offer, each with a switch, a preview ticket and its boxes: <b>HK$</b>, <b>%</b> (percentage coupons), <b>Days</b>, ' +
@@ -219,7 +231,8 @@
                         '<b>Smart keyword filter</b>: items whose name has one of the <b>Keywords</b> (comma separated) and none of the <b>Exclude words</b> are ticked for you.',
                         'Open <b>Treatment items: … ticked</b> to see the list. Search, then tick or untick any item. ' +
                             'Tags: <i>keyword</i> = ticked by keyword, <i>unticked</i> = keyword match you took out, <i>not in list</i> = no longer in the treatment list.',
-                        'A line typed on the bill counts only if its name is exactly the same as the treatment list.'
+                        'A line typed on the bill counts only if its name is exactly the same as the treatment list. ' +
+                            'On the bill, the coupon sheet only offers treatment coupons that match a ticked item (or that exact typed name).'
                     ] },
                     { t: 'Set discount coupons to zero', danger: true, mock: dcZeroMock, list: [
                         'The red card above Referrals. Admin only; other logins see the option in use. Setting zero <b>voids every unused coupon</b> ' +
@@ -229,7 +242,8 @@
                             'or a <b>life span</b> of 1, 2, 3, 4, 6, 9, 12 or 24 months (clears unused coupons issued longer ago, even if their own expiry is later).',
                         '<b>Every change of option needs the admin SMS code and the Google Authenticator code.</b> ' +
                             '<b>Save</b> lights up only after you pick a different option or month; press it, then enter both codes. Nothing changes until both codes pass.',
-                        'Year-end and life span run by themselves when the Discount Coupons config page is opened (year-end once a year, life span at most once a day). ' +
+                        'Year-end and life span run on the <b>server</b> (Hong Kong time: year-end once a year after 31 Dec 23:59, life span at most once a day) — you do not need to open this page. ' +
+                            'Switching the option to <b>Manual</b> pauses those jobs and the year-end reminder SMS by itself. ' +
                             'Turning on year-end part way through a year starts with the coming 31 Dec.',
                         '<b>Manual RESET ZERO</b>: press <b>RESET ZERO</b> → verify → tick <b>All clinics</b> or single clinics → ' +
                             '<b>Confirm set zero</b> → type <b>confirm</b> → <b>Void coupons now</b>.',
@@ -241,7 +255,8 @@
                     ] },
                     { t: 'Coupon log', list: [
                         'Pick the dates (from → to) and an optional <b>Chart no.</b>, then press <b>Show</b>. The chips filter by action; <b>Export CSV</b> downloads the list.',
-                        'It lists every coupon issued, gifted, transferred, given back on a void, or cancelled. Gifts show the login that gave them.'
+                        'It lists every coupon issued, gifted, transferred, given back on a void, or cancelled. Gifts show the login that gave them. ' +
+                            'For clinic-wide unused value, issued vs used, and points per bill, open <b>Reports → Coupons &amp; points</b> (mini-calendar on the panel).'
                     ] }
                 ],
                 recap: 'Coupon rules in short',
@@ -250,7 +265,10 @@
                     'No change and no cash back: if a coupon is worth more than the bill, the rest is lost.',
                     'New-chart and referral coupons stay with the patient; other coupons can be transferred to another chart no.',
                     'Voiding a bill returns the coupons used on it and cancels coupons it issued.',
-                    'Expired coupons cannot be used; patients get an SMS 1 month and again 7 days before expiry. A wallet holds up to 20 unused coupons.'
+                    'Expired coupons cannot be used; patients get an SMS 1 month and again 7 days before expiry. ' +
+                        'With Set zero on year end, that SMS goes on <b>30 Nov</b> and <b>24 Dec</b> (server-side; switching to Manual pauses it). A wallet holds up to 20 unused coupons.',
+                    'A bill with any <b>Government</b>, <b>PDCC</b> or <b>CCF</b> payment is outside the scheme: it earns no coupons or points, and none can be used on it. ' +
+                        'The wallet also shows other charts of the same person (same HKID or shared phone); those household coupons stay on their own chart — use them from that patient’s bill.'
                 ],
                 tips: 'Problems?',
                 tipList: [
@@ -262,7 +280,8 @@
                     ['Cash coupons stop short', 'The per-bill cash limit applies (default HK$3,000 per bill, no % limit).'],
                     ['Coupons were set to zero by mistake', 'Press Step back… on the red card. It gives back the coupons of the last set zero from its safety log.'],
                     ['Save on the set zero card is greyed out', 'You have not picked a different option or month yet. Every change needs the SMS and Google Authenticator codes.'],
-                    ['“Run discount_coupon_zero.sql in Supabase first.”', 'The set zero tables are not in the database yet. Ask the system admin to run discount_coupon_zero.sql once.']
+                    ['“Run discount_coupon_zero.sql in Supabase first.”', 'The set zero tables are not in the database yet. Ask the system admin to run discount_coupon_zero.sql once.'],
+                    ['“Government / PDCC / CCF bill” — no coupons', 'Those payment methods are outside the scheme. Take another method, or remove coupons / points already on the bill first.']
                 ]
             },
             desk: {
@@ -272,15 +291,18 @@
                 before: 'Before you start',
                 beforeList: [
                     'Each scheme works only at clinics (and doctors) that are joined. Where a clinic is not in a scheme, its controls are hidden or greyed out.',
-                    'Choose the <b>treating doctor</b> on the bill first. Reward points belong to the doctor who earned them.',
-                    'Work in this order: <b>coupon first, then payment</b>. The coupon row locks as soon as any payment is on the bill.'
+                    'Choose the <b>treating doctor</b> on the bill first. Reward points belong to the doctor who earned them. Points can be transferred to family or friends for that <b>same doctor</b> only.',
+                    'Work in this order: <b>coupon first, then payment</b>. The coupon row locks as soon as any payment is on the bill. ' +
+                        'A <b>Government / PDCC / CCF</b> payment earns nothing and cannot be taken if coupons or points are already on the bill.'
                 ],
                 steps: [
                     { t: 'See what the patient has', list: [
                         'On the patient info banner, the <b>Rewards</b> button shows the points balance. The <b>📖 How to use</b> link next to it opens this manual.',
                         'Click <b>Rewards</b> to open the panel with two tabs: <b>🎁 Reward points</b> (ledger) and <b>🎟️ Discount coupons</b> (wallet). ' +
-                            'A tab is greyed out (“Clinic not in scheme”) where the clinic is not joined.',
-                        'The same panel opens from <b>Patients → ⋯ → Rewards</b>. On the patient <b>Dashboard</b>, the 🎁 card shows the points and the 🎟️ <b>Coupon wallet</b> card shows how many coupons are live.'
+                            'A tab is greyed out (“Clinic not in scheme”) where the clinic is not joined. ' +
+                            'The wallet also lists coupons on <b>other charts of the same person</b> (same HKID or shared phone), tagged with that chart no. Those stay on their own chart — open that patient’s bill to use them.',
+                        'The same panel opens from <b>Patients → ⋯ → Rewards</b>. On the patient <b>Dashboard</b>, the 🎁 card shows the points and the 🎟️ <b>Coupon wallet</b> card shows how many coupons are live. ' +
+                            'On <b>Queue</b> and <b>Today</b>, unused-coupon and points chips sit beside the name (Chinese on its own row, English under it); WhatsApp RSVP / tags sit underneath so they do not clip the name.'
                     ] },
                     { t: 'Use a discount coupon on the bill', key: true, mock: deskCouponMock, list: [
                         'In <b>Bill Detail</b>, press <b>Choose</b> on the 🎟️ <b>Discount coupon</b> row. The <b>Use</b> tab lists the patient’s live coupons.',
@@ -300,7 +322,8 @@
                         'Tick <b>Use reward points as discount</b>. Under <b>By clinic (same doctor)</b>, tick the clinics to take points from.',
                         'Type <b>Points to use</b>, or press <b>Redeem all</b> (it takes the smallest clinic balance first). <b>Will take:</b> shows which clinic pays for it.',
                         'The <b>Amount</b> box drops by the points, so it shows the cash still to pay. If you hit the per-bill limit, an amber note shows what is left.',
-                        'Fill in the payment method, then press <b>✓ Confirm Payment</b>. Points used are a discount, <b>not clinic income</b>.'
+                        'Fill in the payment method, then press <b>✓ Confirm Payment</b>. Points used are a discount, <b>not clinic income</b>. ' +
+                            'Do not pick Government / PDCC / CCF — those methods earn no points and are refused if coupons or points are already on the bill.'
                     ] },
                     { t: 'After the payment', list: [
                         'Points earned on this payment appear in the <b>Rewards</b> balance. They can be used from the <b>next</b> payment, not the same one.',
@@ -309,9 +332,21 @@
                         'The <b>Saved on this bill</b> line adds up line discounts, extra discount and coupons.'
                     ] },
                     { t: 'Give the patient the phone page', list: [
-                        'Points: <b>Rewards</b> → 🎁 tab → <b>📱 Points on the phone</b>. Coupons: <b>Rewards</b> → 🎟️ tab → <b>Wallet QR</b>, or the 🎟️ <b>Coupon wallet</b> card on the patient Dashboard.',
-                        'The patient scans the QR code with the phone camera. You can also copy the link, download the PNG, print a slip, or send it by <b>WhatsApp</b>.',
-                        '<b>New QR code</b> stops the old link from working (for example if the patient lost the phone). The phone page is browse only.'
+                        'Prefer <b>Points + coupons (one QR)</b> on the Rewards panel — one <b>loyalty.html</b> page with a Points tab and a Coupons tab. ' +
+                            'You can still use <b>📱 Points on the phone</b> or <b>Wallet QR</b> alone, or the 🎟️ <b>Coupon wallet</b> card on the patient Dashboard.',
+                        'The patient scans the QR code with the phone camera. You can also copy the link, download the PNG, print a slip, or send it by <b>WhatsApp</b>. ' +
+                            'SMS that include the link say <b>手機查看積分及優惠券 / See your points and coupons on the phone</b>.',
+                        '<b>New QR code</b> stops the old link from working (for example if the patient lost the phone). The phone page is browse only. ' +
+                            'The Points tab ends with <b>使用說明</b> then <b>How to use</b>: 1 point = HK$1, the per-bill cap, same dentist only, share with family or friends for that dentist, and (when Set zero is year end) use by 31 Dec.'
+                    ] },
+                    { t: 'Loyalty report (Coupons &amp; points)', list: [
+                        'Open <b>Reports → Coupons &amp; points</b>. The panel shows unused coupon value and unspent points per clinic, issued vs used, referral return, and coupon / points value per bill.',
+                        'Use the <b>mini-calendar</b> on the content panel: tap a day for that day only, tap a second day for a range. ' +
+                            'Presets: <b>Today</b>, <b>This month</b>, <b>Year to date</b>, <b>Last 30 days</b>. The tables refresh at once.'
+                    ] },
+                    { t: 'Mass-broadcast loyalty filter', list: [
+                        'On <b>Mass broadcast</b>, the contacts pane has a loyalty filter: <b>Unused coupon</b>, <b>Coupon in 30 days</b>, or <b>Points ≥ 500</b>.',
+                        'Pick one to narrow the list before you send. It uses the same unused-coupon and points balances as the Queue chips.'
                     ] },
                     { t: 'Fixing a mistake', danger: true, list: [
                         '<b>Void a payment</b>: the points used on it come back, and the points it earned are taken away.',
@@ -323,7 +358,7 @@
                 recapList: [
                     'Doctor on the bill → <b>Choose</b> a coupon → <b>Apply</b>.',
                     '<b>+ Add Payment</b> → tick <b>Use reward points</b> → <b>Points to use</b> or <b>Redeem all</b> → <b>✓ Confirm Payment</b>.',
-                    'Tell the patient about the phone page (📱 points, Wallet QR for coupons).'
+                    'Give the patient <b>Points + coupons (one QR)</b> (or 📱 Points on the phone / Wallet QR). Government / PDCC / CCF bills earn and use nothing.'
                 ],
                 tips: 'Problems?',
                 tipList: [
@@ -332,7 +367,8 @@
                     ['Choose is greyed out', 'A payment is already on the bill. Coupons must be chosen before the first payment.'],
                     ['A coupon shows a reason instead of an amount', 'The treatment is not on the bill, the coupon has expired, a whole-bill coupon is already used, or the clinic is not in the coupon scheme.'],
                     ['The points box stops early', 'It stops at the smallest of: the bill balance, this doctor’s points, and the per-bill limit.'],
-                    ['Points from today cannot be used', 'By design: points earned on a payment are usable from the next payment.']
+                    ['Points from today cannot be used', 'By design: points earned on a payment are usable from the next payment.'],
+                    ['Government / PDCC / CCF cannot be taken', 'Those methods are outside the scheme. If coupons or points are already on the bill, Confirm Payment refuses them — take another method, or remove the coupon / points first.']
                 ]
             },
             mock: {
@@ -368,11 +404,15 @@
                 steps: [
                     { t: '賺取比率', list: [
                         '輸入每筆付款轉為積分的百分比（預設 <b>10%</b>），然後按<b>儲存</b>。',
-                        '已賺取的積分不會改變。今次付款賺取的積分可於<b>下一筆</b>付款使用，不可在同一筆付款內抵扣。'
+                        '已賺取的積分不會改變。今次付款賺取的積分可於<b>下一筆</b>付款使用，不可在同一筆付款內抵扣。',
+                        '賬單上有任何<b>Government</b>、<b>PDCC</b> 或 <b>CCF</b> 付款即不屬計劃：不賺積分（也不發優惠券），亦不能用積分。' +
+                            '若賬單已有優惠券或積分，<b>✓ 確認付款</b>會拒絕這些付款方式。'
                     ] },
                     { t: '結餘變動短訊通知', list: [
                         '剔選<b>積分變動時發送 Twilio 短訊</b>，結餘每次增減都會以短訊通知病人。',
-                        '取消剔選即停止發送，一按即儲存。'
+                        '取消剔選即停止發送，一按即儲存。',
+                        '清零設為<b>每年 12 月 31 日</b>時，病人亦會在 <b>11 月 30 日</b>及 <b>12 月 24 日</b>收到年終提醒短訊。' +
+                            '短訊由<b>伺服器</b>發送。把清零改回<b>手動</b>，提醒會自動暫停。'
                     ] },
                     { t: '介紹新客（積分）', list: [
                         '剔選<b>介紹新客可獲積分</b>，填寫<b>積分</b>及<b>首次診症最低付款 HK$（全數或部分付款）</b>，然後按<b>儲存</b>。',
@@ -382,8 +422,10 @@
                     { t: '單張賬單使用積分上限', key: true, mock: capMock, list: [
                         '設定每張賬單最多可用多少積分：<b>賬單金額 %</b>、<b>最多 HK$</b>，或兩者都設，然後按<b>儲存</b>。',
                         '兩個上限同時適用，<b>以較小者為準</b>；留空即取消該上限。百分比以賬單總額計算。',
-                        '預設：每張賬單<b>最多 HK$3,000</b>，不設百分比。病人手機頁面會顯示此處儲存的上限（例如「每張賬單最高使用額為 HK$3,000。」）；兩格都留空則不顯示上限。',
-                        '同一張賬單的<b>每次付款合併計算</b>。付款時積分欄不能超過上限，琥珀色提示顯示尚餘多少，超出時<b>✓ 確認付款</b>會被拒絕。'
+                        '預設：每張賬單<b>最多 HK$3,000</b>，不設百分比。病人手機頁面會顯示此處儲存的上限（例如「每張賬單最高使用額為 HK$3,000。」）；兩格都留空則不顯示上限。' +
+                            '手機<b>使用說明</b>會寫<b>1 分 = HK$1</b>，以及「每單最多可用該上限分」。',
+                        '同一張賬單的<b>每次付款合併計算</b>。付款時積分欄不能超過上限，琥珀色提示顯示尚餘多少，超出時<b>✓ 確認付款</b>會被拒絕。' +
+                            'Government / PDCC / CCF 賬單不能使用積分。'
                     ] },
                     { t: '將獎勵積分清零', danger: true, mock: zeroMock, list: [
                         '選擇清零方式：<b>手動</b>（預設，積分不會自動清零）、<b>每年 12 月 31 日 23:59</b>（香港時間）自動清零，' +
@@ -391,12 +433,14 @@
                         '按<b>儲存</b>，再輸入<b>短訊驗證碼</b>及 <b>Google 驗證器</b>驗證碼。',
                         '<b>手動清零</b>：按<b>清零重置</b> → 驗證（短訊 + 驗證器）→ 剔選<b>全部診所</b>或個別診所 → ' +
                             '<b>確認清零</b> → 輸入 <b>confirm</b> 一字 → <b>立即清零</b>。',
-                        '每次清零都會保留<b>安全日誌</b>。<b>回退並還原清零前的上次結餘</b>可把上一次清零還原；按鈕下方的灰字顯示上一個安全日誌。'
+                        '每次清零都會保留<b>安全日誌</b>。<b>回退並還原清零前的上次結餘</b>可把上一次清零還原；按鈕下方的灰字顯示上一個安全日誌。',
+                        '年終及有效期清零由<b>伺服器</b>按香港時間執行，無需開啟此頁。把選項改回<b>手動</b>，這些工作及年終提醒短訊會自動暫停。'
                     ] },
                     { t: '參與診所', list: [
                         '每間診所一個分頁，分頁上的<b>圓點</b>表示已加入。預設：<b>PL · 全部醫生</b>。',
                         '每行有<b>賺取 &amp; 兌換</b>剔選。<b>全部醫生</b>即整間診所加入；醫生行只加入該醫生。一按即儲存（「已儲存」）。',
-                        '積分屬於賺取它的<b>醫生</b>。賬單只可使用<b>同一醫生</b>賺取的積分 — 該醫生在任何診所賺取的都可以。賬單上必須選擇醫生。'
+                        '積分屬於賺取它的<b>醫生</b>。賬單只可使用<b>同一醫生</b>賺取的積分 — 該醫生在任何診所賺取的都可以。賬單上必須選擇醫生。' +
+                            '職員可把積分<b>轉移</b>給家人或朋友；對方只可在同一位醫生的賬單使用。'
                     ] },
                     { t: '匯總日誌', list: [
                         '最近 80 筆積分變動：時間、診所、醫生、病歷號、病人、類型、積分、變動後結餘及經手人。'
@@ -412,8 +456,9 @@
                 ],
                 recap: '在收費處',
                 recapList: [
-                    '在<b>新增付款</b>剔選<b>使用積分抵扣</b>，再輸入<b>使用積分數</b>或按<b>全部兌換</b>（先扣結餘較少的診所）。',
-                    '在病人的積分紀錄面板按 <b>📱 手機查看積分</b>，可產生 QR 碼及 WhatsApp 訊息，讓病人在手機查看結餘。'
+                    '在<b>新增付款</b>剔選<b>使用積分抵扣</b>，再輸入<b>使用積分數</b>或按<b>全部兌換</b>（先扣結餘較少的診所）。Government / PDCC / CCF 賬單不能使用或賺取積分。',
+                    '優先用<b>積分＋優惠券（一個 QR 碼）</b>——一個手機頁同時看兩樣。' +
+                        '<b>📱 手機查看積分</b>仍可產生只看積分的 QR 碼。手機頁只供瀏覽，底部是<b>使用說明 / How to use</b>（先中文，後英文）。'
                 ],
                 tips: '遇到問題？',
                 tipList: [
@@ -423,7 +468,8 @@
                     ['今天賺取的積分不能用', '設計如此：今次付款賺取的積分可於下一筆付款使用。'],
                     ['誤把結餘清零', '在紅色設定卡按「回退並還原…」，系統會按安全日誌還原上一次清零。'],
                     ['「回退」按鈕是灰色', '沒有可還原的清零安全日誌。'],
-                    ['收不到短訊驗證碼', '按「重新發送短訊驗證碼」。如短訊無法發送，系統只會要求 Google 驗證器驗證碼。']
+                    ['收不到短訊驗證碼', '按「重新發送短訊驗證碼」。如短訊無法發送，系統只會要求 Google 驗證器驗證碼。'],
+                    ['「Government / PDCC / CCF 賬單」——沒有積分', '這些付款方式不屬計劃。請改用其他方式，或先取消賬單上已選的優惠券／積分。']
                 ]
             },
             dc: {
@@ -447,7 +493,8 @@
                         '每行：<b>開關</b>、<b>消費 HK$</b>、<b>優惠 HK$</b>、<b>有效日數</b>、<b>最多持有</b>（每位病人最多持有多少張未用的此類券）、' +
                             '<b>發放上限</b>及<b>預算 HK$</b>。',
                         '只有已開啟且兩個金額都已填寫的行才會發券。一張賬單可獲得<b>所有達到的級別</b>，圖示顯示各級別。',
-                        '消費金額計算賬單上所有現金付款（不包括積分、結餘轉移或已作廢付款）。獲發的券可於<b>下一張</b>賬單使用。'
+                        '消費金額計算賬單上所有現金付款（不包括積分、結餘轉移、已作廢付款，或 <b>Government / PDCC / CCF</b>）。獲發的券可於<b>下一張</b>賬單使用。' +
+                            'Government / PDCC / CCF 賬單不發券，也不能用券。'
                     ] },
                     { t: '優惠活動', list: [
                         '其餘每項優惠都有開關、預覽票券及以下輸入格：<b>HK$</b>、<b>%</b>（百分比券）、<b>有效日數</b>、<b>上限</b>（最多扣減 HK$）、' +
@@ -469,7 +516,8 @@
                         '<b>智能關鍵字篩選</b>：名稱含有<b>關鍵字</b>（以逗號分隔）而不含<b>排除字詞</b>的項目會自動剔選。',
                         '打開<b>適用治療項目：… 項已勾選</b>查看清單，可搜尋並剔選或取消任何項目。' +
                             '標記：<i>關鍵字</i> = 由關鍵字剔選；<i>已剔除</i> = 符合關鍵字但被你取消；<i>不在項目表</i> = 已不在治療項目清單。',
-                        '賬單上手動輸入的項目，名稱必須與治療項目清單完全相同才計算。'
+                        '賬單上手動輸入的項目，名稱必須與治療項目清單完全相同才計算。' +
+                            '在賬單上，優惠券清單只會列出與已剔選項目（或該準確名稱）相符的治療券。'
                     ] },
                     { t: '優惠券清零', danger: true, mock: dcZeroMock, list: [
                         '位於「介紹記錄」上方的紅色卡片。只限管理員；其他登入只會看到現用的選項。清零會<b>作廢所選診所內所有未使用的優惠券</b>' +
@@ -478,7 +526,8 @@
                             '或<b>有效期</b> 1、2、3、4、6、9、12 或 24 個月（作廢發出時間早於該月數的未使用券，即使其自身到期日較後）。',
                         '<b>每次更改清零選項都需輸入管理員短訊驗證碼及 Google 驗證器驗證碼。</b>' +
                             '只有選了不同的選項或月數，<b>儲存</b>才可按；按下後輸入兩個驗證碼，兩者通過後才會更改。',
-                        '年終及有效期清零會在開啟優惠券設定頁時自動執行（年終每年一次，有效期最多每日一次）。' +
+                        '年終及有效期清零由<b>伺服器</b>按香港時間執行（年終於 12 月 31 日 23:59 後每年一次，有效期最多每日一次），無需開啟此頁。' +
+                            '把選項改回<b>手動</b>，這些工作及年終提醒短訊會自動暫停。' +
                             '年中才開啟年終清零，會由今年 12 月 31 日開始。',
                         '<b>手動清零</b>：按<b>清零重置</b> → 驗證 → 剔選<b>全部診所</b>或個別診所 → ' +
                             '<b>確認清零</b> → 輸入 <b>confirm</b> → <b>立即作廢優惠券</b>。',
@@ -489,7 +538,8 @@
                     ] },
                     { t: '優惠券記錄', list: [
                         '選擇日期（由 → 至）及可選的<b>病歷號</b>，按<b>顯示</b>。可用標籤按動作篩選；<b>匯出 CSV</b> 下載清單。',
-                        '列出每張券的發出、贈送、轉移、作廢退回或取消。贈送會顯示經手的登入帳戶。'
+                        '列出每張券的發出、贈送、轉移、作廢退回或取消。贈送會顯示經手的登入帳戶。' +
+                            '要看全診所未用面值、發出對使用及每張賬單的積分，請打開<b>報告 → 優惠券及積分</b>（面板上有迷你日曆）。'
                     ] }
                 ],
                 recap: '優惠券規則摘要',
@@ -498,7 +548,10 @@
                     '不設找贖、不退現金：券面值高於賬單時，餘額作廢。',
                     '新客券及介紹券只限本人使用；其他券可轉給另一病歷號。',
                     '作廢賬單會退回該單已用的券，並取消該單發出的券。',
-                    '過期券不能使用；到期前 1 個月及 7 天會以短訊提醒病人。每個錢包最多持有 20 張未用的券。'
+                    '過期券不能使用；到期前 1 個月及 7 天會以短訊提醒病人。' +
+                        '清零設為年終時，短訊會在 <b>11 月 30 日</b>及 <b>12 月 24 日</b>發送（伺服器執行；改回手動即自動暫停）。每個錢包最多持有 20 張未用的券。',
+                    '賬單上有任何 <b>Government</b>、<b>PDCC</b> 或 <b>CCF</b> 付款即不屬計劃：不發券、不賺積分，也不能使用。' +
+                        '錢包亦會顯示同一人其他病歷（同一身份證或共用電話）的券；那些家庭券留在原病歷——要使用須打開該病人的賬單。'
                 ],
                 tips: '遇到問題？',
                 tipList: [
@@ -510,7 +563,8 @@
                     ['現金券扣減不足', '受每張單現金券上限限制（預設每張單最多 HK$3,000，不設百分比上限）。'],
                     ['誤把優惠券清零', '在紅色卡片按「回退…」，會按安全日誌退回上次清零的優惠券。'],
                     ['清零卡片的「儲存」是灰色', '你尚未選擇不同的選項或月數。每次更改都需短訊及 Google 驗證器驗證碼。'],
-                    ['「請先在 Supabase 執行 discount_coupon_zero.sql。」', '資料庫尚未有清零用的資料表。請系統管理員執行一次 discount_coupon_zero.sql。']
+                    ['「請先在 Supabase 執行 discount_coupon_zero.sql。」', '資料庫尚未有清零用的資料表。請系統管理員執行一次 discount_coupon_zero.sql。'],
+                    ['「Government / PDCC / CCF 賬單」——沒有優惠券', '這些付款方式不屬計劃。請改用其他方式，或先取消賬單上已選的優惠券／積分。']
                 ]
             },
             desk: {
@@ -520,15 +574,18 @@
                 before: '開始前',
                 beforeList: [
                     '兩個計劃只在已加入的診所（及醫生）適用。診所未加入時，相關按鈕會隱藏或變灰。',
-                    '先在賬單選好<b>主診醫生</b>。獎勵積分屬於賺取積分時的醫生。',
-                    '次序：<b>先選優惠券，後收款</b>。賬單一有付款，優惠券一行便會鎖定。'
+                    '先在賬單選好<b>主診醫生</b>。獎勵積分屬於賺取積分時的醫生。積分可轉移給家人或朋友，只限<b>同一位醫生</b>使用。',
+                    '次序：<b>先選優惠券，後收款</b>。賬單一有付款，優惠券一行便會鎖定。' +
+                        '<b>Government / PDCC / CCF</b> 付款不賺取任何獎賞；若賬單已有優惠券或積分，亦不能用這些方式收款。'
                 ],
                 steps: [
                     { t: '查看病人擁有甚麼', list: [
                         '病人資料橫額上的<b>積分</b>按鈕顯示積分結餘；旁邊的 <b>📖 使用說明</b> 開啟本手冊。',
                         '按<b>積分</b>開啟面板，有兩個分頁：<b>🎁 獎勵積分</b>（賬本）及 <b>🎟️ 優惠券</b>（錢包）。' +
-                            '診所未加入的計劃，其分頁會變灰（「診所未加入」）。',
-                        '在<b>病人 → ⋯ → 獎賞</b>亦會開啟同一面板。病人<b>總覽</b>頁的 🎁 卡顯示積分，🎟️ <b>優惠券錢包</b>卡顯示可用優惠券數目。'
+                            '診所未加入的計劃，其分頁會變灰（「診所未加入」）。' +
+                            '錢包亦會列出<b>同一人其他病歷</b>（同一身份證或共用電話）的券，並標示該病歷號。那些券留在原病歷——要使用須打開該病人的賬單。',
+                        '在<b>病人 → ⋯ → 獎賞</b>亦會開啟同一面板。病人<b>總覽</b>頁的 🎁 卡顯示積分，🎟️ <b>優惠券錢包</b>卡顯示可用優惠券數目。' +
+                            '在<b>輪候</b>及<b>今日</b>，未用優惠券及積分標籤在姓名旁邊（中文一行、英文在下）；WhatsApp RSVP／標籤在下方，不會遮住姓名。'
                     ] },
                     { t: '在賬單使用優惠券', key: true, mock: deskCouponMock, list: [
                         '在<b>帳單詳情</b>的 🎟️ <b>優惠券</b>一行按<b>選擇</b>。<b>使用</b>分頁列出病人可用的優惠券。',
@@ -548,7 +605,8 @@
                         '剔選<b>使用積分抵扣</b>，在<b>按診所（同一醫生）</b>剔選要扣除積分的診所。',
                         '輸入<b>使用積分數</b>，或按<b>全部兌換</b>（先扣結餘較少的診所）。<b>將扣除：</b>顯示由哪間診所扣除。',
                         '<b>金額</b>欄會減去積分，顯示仍需支付的現金。到達每張賬單上限時，琥珀色提示顯示尚餘多少。',
-                        '填寫付款方式，按 <b>✓ 確認付款</b>。積分抵扣屬折扣，<b>不計作診所收入</b>。'
+                        '填寫付款方式，按 <b>✓ 確認付款</b>。積分抵扣屬折扣，<b>不計作診所收入</b>。' +
+                            '請勿選 Government / PDCC / CCF——這些方式不賺積分；若賬單已有優惠券或積分，確認付款會拒絕。'
                     ] },
                     { t: '付款之後', list: [
                         '今次付款賺取的積分會加入<b>積分</b>結餘，可於<b>下一筆</b>付款使用，不可在同一筆付款使用。',
@@ -556,9 +614,21 @@
                         '賬單上的<b>本單共節省</b>一行合計項目折扣、額外折扣及優惠券。'
                     ] },
                     { t: '給病人手機頁', list: [
-                        '積分：<b>積分</b> → 🎁 分頁 → <b>📱 手機查看積分</b>。優惠券：<b>積分</b> → 🎟️ 分頁 → <b>錢包 QR 碼</b>，或病人總覽頁的 🎟️ <b>優惠券錢包</b>卡。',
-                        '病人用手機相機掃描 QR 碼。亦可複製連結、下載 PNG、列印紙條，或以 <b>WhatsApp</b> 發送。',
-                        '<b>重新產生 QR 碼</b>會令舊連結失效（例如病人遺失手機）。手機頁只供瀏覽。'
+                        '優先在積分面板按<b>積分＋優惠券（一個 QR 碼）</b>——一個手機頁同時有積分分頁及優惠券分頁。' +
+                            '仍可用 <b>📱 手機查看積分</b>或<b>錢包 QR 碼</b>單獨發送，或病人總覽頁的 🎟️ <b>優惠券錢包</b>卡。',
+                        '病人用手機相機掃描 QR 碼。亦可複製連結、下載 PNG、列印紙條，或以 <b>WhatsApp</b> 發送。' +
+                            '帶連結的短訊會寫<b>手機查看積分及優惠券 / See your points and coupons on the phone</b>。',
+                        '<b>重新產生 QR 碼</b>會令舊連結失效（例如病人遺失手機）。手機頁只供瀏覽。' +
+                            '積分分頁底部先是<b>使用說明</b>，再是 <b>How to use</b>：1 分 = HK$1、每單上限、專醫專用、可轉給家人朋友（同一醫生），以及（清零設為年終時）須於 12 月 31 日前使用。'
+                    ] },
+                    { t: '優惠券及積分報告', list: [
+                        '打開<b>報告 → 優惠券及積分</b>。面板顯示各診所未用優惠券面值及未用積分、發出對使用、介紹回報，以及每張賬單的優惠券／積分。',
+                        '用內容區的<b>迷你日曆</b>：按一天即該日，再按另一天即日期範圍。' +
+                            '快捷：<b>今天</b>、<b>本月</b>、<b>年初至今</b>、<b>最近 30 天</b>。表格即時更新。'
+                    ] },
+                    { t: '群發訊息的獎賞篩選', list: [
+                        '在<b>群發訊息</b>的聯絡人面板有獎賞篩選：<b>未用優惠券</b>、<b>30 天內到期的券</b>，或<b>積分 ≥ 500</b>。',
+                        '選一項以縮小名單再發送。結餘與輪候列的標籤相同。'
                     ] },
                     { t: '更正錯誤', danger: true, list: [
                         '<b>作廢付款</b>：該次使用的積分會退回，該次賺取的積分會扣除。',
@@ -570,7 +640,7 @@
                 recapList: [
                     '賬單選醫生 → <b>選擇</b>優惠券 → <b>使用</b>。',
                     '<b>+ 新增付款</b> → 剔選<b>使用積分抵扣</b> → <b>使用積分數</b>或<b>全部兌換</b> → <b>✓ 確認付款</b>。',
-                    '告訴病人手機頁（📱 積分，優惠券用錢包 QR 碼）。'
+                    '給病人<b>積分＋優惠券（一個 QR 碼）</b>（或 📱 手機查看積分／錢包 QR 碼）。Government / PDCC / CCF 賬單不賺、也不用。'
                 ],
                 tips: '遇到問題？',
                 tipList: [
@@ -579,7 +649,8 @@
                     ['「選擇」變灰', '賬單已有付款。優惠券須在第一筆付款前選擇。'],
                     ['優惠券顯示原因而不是金額', '賬單上沒有該治療、優惠券已過期、已使用全單券，或診所未加入優惠券計劃。'],
                     ['積分欄提早停止', '以下最小者為上限：賬單結欠、此醫生的積分、每張賬單上限。'],
-                    ['今天賺取的積分不能使用', '按設計：付款賺取的積分可於下一筆付款使用。']
+                    ['今天賺取的積分不能使用', '按設計：付款賺取的積分可於下一筆付款使用。'],
+                    ['不能收 Government / PDCC / CCF', '這些方式不屬計劃。若賬單已有優惠券或積分，確認付款會拒絕——請改用其他方式，或先取消優惠券／積分。']
                 ]
             },
             mock: {
@@ -615,11 +686,15 @@
                 steps: [
                     { t: '赚取比率', list: [
                         '输入每笔付款转为积分的百分比（默认 <b>10%</b>），然后点<b>保存</b>。',
-                        '已赚取的积分不会改变。本次付款赚取的积分可于<b>下一笔</b>付款使用，不可在同一笔付款内抵扣。'
+                        '已赚取的积分不会改变。本次付款赚取的积分可于<b>下一笔</b>付款使用，不可在同一笔付款内抵扣。',
+                        '账单上有任何<b>Government</b>、<b>PDCC</b> 或 <b>CCF</b> 付款即不属计划：不赚积分（也不发优惠券），也不能用积分。' +
+                            '若账单已有优惠券或积分，<b>✓ 确认付款</b>会拒绝这些付款方式。'
                     ] },
                     { t: '余额变动短信通知', list: [
                         '勾选<b>积分变动时发送 Twilio 短信</b>，余额每次增减都会以短信通知病人。',
-                        '取消勾选即停止发送，一点即保存。'
+                        '取消勾选即停止发送，一点即保存。',
+                        '清零设为<b>每年 12 月 31 日</b>时，病人也会在 <b>11 月 30 日</b>及 <b>12 月 24 日</b>收到年终提醒短信。' +
+                            '短信由<b>服务器</b>发送。把清零改回<b>手动</b>，提醒会自动暂停。'
                     ] },
                     { t: '介绍新客（积分）', list: [
                         '勾选<b>介绍新客可获积分</b>，填写<b>积分</b>及<b>首次就诊最低付款 HK$（全数或部分付款）</b>，然后点<b>保存</b>。',
@@ -629,8 +704,10 @@
                     { t: '单张账单使用积分上限', key: true, mock: capMock, list: [
                         '设置每张账单最多可用多少积分：<b>账单金额 %</b>、<b>最多 HK$</b>，或两者都设，然后点<b>保存</b>。',
                         '两个上限同时适用，<b>以较小者为准</b>；留空即取消该上限。百分比以账单总额计算。',
-                        '默认：每张账单<b>最多 HK$3,000</b>，不设百分比。病人手机页面会显示此处保存的上限（例如「每张账单最高使用额为 HK$3,000。」）；两格都留空则不显示上限。',
-                        '同一张账单的<b>每次付款合并计算</b>。付款时积分栏不能超过上限，琥珀色提示显示尚余多少，超出时<b>✓ 确认付款</b>会被拒绝。'
+                        '默认：每张账单<b>最多 HK$3,000</b>，不设百分比。病人手机页面会显示此处保存的上限（例如「每张账单最高使用额为 HK$3,000。」）；两格都留空则不显示上限。' +
+                            '手机<b>使用说明</b>会写<b>1 分 = HK$1</b>，以及「每单最多可用该上限分」。',
+                        '同一张账单的<b>每次付款合并计算</b>。付款时积分栏不能超过上限，琥珀色提示显示尚余多少，超出时<b>✓ 确认付款</b>会被拒绝。' +
+                            'Government / PDCC / CCF 账单不能使用积分。'
                     ] },
                     { t: '将奖励积分清零', danger: true, mock: zeroMock, list: [
                         '选择清零方式：<b>手动</b>（默认，积分不会自动清零）、<b>每年 12 月 31 日 23:59</b>（香港时间）自动清零，' +
@@ -638,12 +715,14 @@
                         '点<b>保存</b>，再输入<b>短信验证码</b>及 <b>Google 验证器</b>验证码。',
                         '<b>手动清零</b>：点<b>清零重置</b> → 验证（短信 + 验证器）→ 勾选<b>全部诊所</b>或个别诊所 → ' +
                             '<b>确认清零</b> → 输入 <b>confirm</b> 一词 → <b>立即清零</b>。',
-                        '每次清零都会保留<b>安全日志</b>。<b>回退并恢复清零前的上次余额</b>可把上一次清零恢复；按钮下方的灰字显示上一个安全日志。'
+                        '每次清零都会保留<b>安全日志</b>。<b>回退并恢复清零前的上次余额</b>可把上一次清零恢复；按钮下方的灰字显示上一个安全日志。',
+                        '年终及有效期清零由<b>服务器</b>按香港时间执行，无需打开此页。把选项改回<b>手动</b>，这些工作及年终提醒短信会自动暂停。'
                     ] },
                     { t: '参与诊所', list: [
                         '每间诊所一个标签，标签上的<b>圆点</b>表示已加入。默认：<b>PL · 全部医生</b>。',
                         '每行有<b>赚取 &amp; 兑换</b>勾选。<b>全部医生</b>即整间诊所加入；医生行只加入该医生。一点即保存（「已保存」）。',
-                        '积分属于赚取它的<b>医生</b>。账单只可使用<b>同一医生</b>赚取的积分 — 该医生在任何诊所赚取的都可以。账单上必须选择医生。'
+                        '积分属于赚取它的<b>医生</b>。账单只可使用<b>同一医生</b>赚取的积分 — 该医生在任何诊所赚取的都可以。账单上必须选择医生。' +
+                            '职员可把积分<b>转移</b>给家人或朋友；对方只可在同一位医生的账单使用。'
                     ] },
                     { t: '汇总日志', list: [
                         '最近 80 笔积分变动：时间、诊所、医生、病历号、病人、类型、积分、变动后余额及经手人。'
@@ -659,8 +738,9 @@
                 ],
                 recap: '在收费处',
                 recapList: [
-                    '在<b>添加付款</b>勾选<b>使用积分抵扣</b>，再输入<b>使用积分数</b>或点<b>全部兑换</b>（先扣余额较少的诊所）。',
-                    '在病人的积分记录面板点 <b>📱 手机查看积分</b>，可生成 QR 码及 WhatsApp 信息，让病人在手机查看余额。'
+                    '在<b>添加付款</b>勾选<b>使用积分抵扣</b>，再输入<b>使用积分数</b>或点<b>全部兑换</b>（先扣余额较少的诊所）。Government / PDCC / CCF 账单不能使用或赚取积分。',
+                    '优先用<b>积分＋优惠券（一个二维码）</b>——一个手机页同时看两样。' +
+                        '<b>📱 手机查看积分</b>仍可生成只看积分的二维码。手机页只供浏览，底部是<b>使用说明 / How to use</b>（先中文，后英文）。'
                 ],
                 tips: '遇到问题？',
                 tipList: [
@@ -670,7 +750,8 @@
                     ['今天赚取的积分不能用', '设计如此：本次付款赚取的积分可于下一笔付款使用。'],
                     ['误把余额清零', '在红色设置卡点「回退并恢复…」，系统会按安全日志恢复上一次清零。'],
                     ['「回退」按钮是灰色', '没有可恢复的清零安全日志。'],
-                    ['收不到短信验证码', '点「重新发送短信验证码」。如短信无法发送，系统只会要求 Google 验证器验证码。']
+                    ['收不到短信验证码', '点「重新发送短信验证码」。如短信无法发送，系统只会要求 Google 验证器验证码。'],
+                    ['「Government / PDCC / CCF 账单」——没有积分', '这些付款方式不属计划。请改用其他方式，或先取消账单上已选的优惠券／积分。']
                 ]
             },
             dc: {
@@ -694,7 +775,8 @@
                         '每行：<b>开关</b>、<b>消费 HK$</b>、<b>优惠 HK$</b>、<b>有效日数</b>、<b>最多持有</b>（每位病人最多持有多少张未用的此类券）、' +
                             '<b>发放上限</b>及<b>预算 HK$</b>。',
                         '只有已开启且两个金额都已填写的行才会发券。一张账单可获得<b>所有达到的级别</b>，图示显示各级别。',
-                        '消费金额计算账单上所有现金付款（不包括积分、余额转移或已作废付款）。获发的券可于<b>下一张</b>账单使用。'
+                        '消费金额计算账单上所有现金付款（不包括积分、余额转移、已作废付款，或 <b>Government / PDCC / CCF</b>）。获发的券可于<b>下一张</b>账单使用。' +
+                            'Government / PDCC / CCF 账单不发券，也不能用券。'
                     ] },
                     { t: '优惠活动', list: [
                         '其余每项优惠都有开关、预览票券及以下输入框：<b>HK$</b>、<b>%</b>（百分比券）、<b>有效日数</b>、<b>上限</b>（最多扣减 HK$）、' +
@@ -716,7 +798,8 @@
                         '<b>智能关键字筛选</b>：名称含有<b>关键字</b>（以逗号分隔）而不含<b>排除字词</b>的项目会自动勾选。',
                         '打开<b>适用治疗项目：… 项已勾选</b>查看清单，可搜索并勾选或取消任何项目。' +
                             '标记：<i>关键字</i> = 由关键字勾选；<i>已剔除</i> = 符合关键字但被你取消；<i>不在项目表</i> = 已不在治疗项目清单。',
-                        '账单上手动输入的项目，名称必须与治疗项目清单完全相同才计算。'
+                        '账单上手动输入的项目，名称必须与治疗项目清单完全相同才计算。' +
+                            '在账单上，优惠券清单只会列出与已勾选项目（或该准确名称）相符的治疗券。'
                     ] },
                     { t: '优惠券清零', danger: true, mock: dcZeroMock, list: [
                         '位于「介绍记录」上方的红色卡片。只限管理员；其他登录只会看到现用的选项。清零会<b>作废所选诊所内所有未使用的优惠券</b>' +
@@ -725,7 +808,8 @@
                             '或<b>有效期</b> 1、2、3、4、6、9、12 或 24 个月（作废发出时间早于该月数的未使用券，即使其自身到期日较后）。',
                         '<b>每次更改清零选项都需输入管理员短信验证码及 Google 验证器验证码。</b>' +
                             '只有选了不同的选项或月数，<b>保存</b>才可点；点下后输入两个验证码，两者通过后才会更改。',
-                        '年终及有效期清零会在打开优惠券设置页时自动执行（年终每年一次，有效期最多每日一次）。' +
+                        '年终及有效期清零由<b>服务器</b>按香港时间执行（年终于 12 月 31 日 23:59 后每年一次，有效期最多每日一次），无需打开此页。' +
+                            '把选项改回<b>手动</b>，这些工作及年终提醒短信会自动暂停。' +
                             '年中才开启年终清零，会由今年 12 月 31 日开始。',
                         '<b>手动清零</b>：点<b>清零重置</b> → 验证 → 勾选<b>全部诊所</b>或个别诊所 → ' +
                             '<b>确认清零</b> → 输入 <b>confirm</b> → <b>立即作废优惠券</b>。',
@@ -736,7 +820,8 @@
                     ] },
                     { t: '优惠券记录', list: [
                         '选择日期（由 → 至）及可选的<b>病历号</b>，点<b>显示</b>。可用标签按动作筛选；<b>导出 CSV</b> 下载清单。',
-                        '列出每张券的发出、赠送、转移、作废退回或取消。赠送会显示经手的登录账户。'
+                        '列出每张券的发出、赠送、转移、作废退回或取消。赠送会显示经手的登录账户。' +
+                            '要看全诊所未用面值、发出对使用及每张账单的积分，请打开<b>报告 → 优惠券及积分</b>（面板上有迷你日历）。'
                     ] }
                 ],
                 recap: '优惠券规则摘要',
@@ -745,7 +830,10 @@
                     '不设找零、不退现金：券面值高于账单时，余额作废。',
                     '新客券及介绍券只限本人使用；其他券可转给另一病历号。',
                     '作废账单会退回该单已用的券，并取消该单发出的券。',
-                    '过期券不能使用；到期前 1 个月及 7 天会以短信提醒病人。每个钱包最多持有 20 张未用的券。'
+                    '过期券不能使用；到期前 1 个月及 7 天会以短信提醒病人。' +
+                        '清零设为年终时，短信会在 <b>11 月 30 日</b>及 <b>12 月 24 日</b>发送（服务器执行；改回手动即自动暂停）。每个钱包最多持有 20 张未用的券。',
+                    '账单上有任何 <b>Government</b>、<b>PDCC</b> 或 <b>CCF</b> 付款即不属计划：不发券、不赚积分，也不能使用。' +
+                        '钱包也会显示同一人其他病历（同一身份证或共用电话）的券；那些家庭券留在原病历——要使用须打开该病人的账单。'
                 ],
                 tips: '遇到问题？',
                 tipList: [
@@ -757,7 +845,8 @@
                     ['现金券扣减不足', '受每张单现金券上限限制（默认每张单最多 HK$3,000，不设百分比上限）。'],
                     ['误把优惠券清零', '在红色卡片点「回退…」，会按安全日志退回上次清零的优惠券。'],
                     ['清零卡片的「保存」是灰色', '你尚未选择不同的选项或月数。每次更改都需短信及 Google 验证器验证码。'],
-                    ['「请先在 Supabase 运行 discount_coupon_zero.sql。」', '数据库尚未有清零用的数据表。请系统管理员运行一次 discount_coupon_zero.sql。']
+                    ['「请先在 Supabase 运行 discount_coupon_zero.sql。」', '数据库尚未有清零用的数据表。请系统管理员运行一次 discount_coupon_zero.sql。'],
+                    ['「Government / PDCC / CCF 账单」——没有优惠券', '这些付款方式不属计划。请改用其他方式，或先取消账单上已选的优惠券／积分。']
                 ]
             },
             desk: {
@@ -767,15 +856,18 @@
                 before: '开始前',
                 beforeList: [
                     '两个计划只在已加入的诊所（及医生）适用。诊所未加入时，相关按钮会隐藏或变灰。',
-                    '先在账单选好<b>主诊医生</b>。奖励积分属于赚取积分时的医生。',
-                    '次序：<b>先选优惠券，后收款</b>。账单一有付款，优惠券一行便会锁定。'
+                    '先在账单选好<b>主诊医生</b>。奖励积分属于赚取积分时的医生。积分可转移给家人或朋友，只限<b>同一位医生</b>使用。',
+                    '次序：<b>先选优惠券，后收款</b>。账单一有付款，优惠券一行便会锁定。' +
+                        '<b>Government / PDCC / CCF</b> 付款不赚取任何奖赏；若账单已有优惠券或积分，也不能用这些方式收款。'
                 ],
                 steps: [
                     { t: '查看病人拥有什么', list: [
                         '病人资料横幅上的<b>积分</b>按钮显示积分余额；旁边的 <b>📖 使用说明</b> 打开本手册。',
                         '点<b>积分</b>打开面板，有两个分页：<b>🎁 奖励积分</b>（账本）及 <b>🎟️ 优惠券</b>（钱包）。' +
-                            '诊所未加入的计划，其分页会变灰（“诊所未加入”）。',
-                        '在<b>病人 → ⋯ → 奖赏</b>也会打开同一面板。病人<b>总览</b>页的 🎁 卡显示积分，🎟️ <b>优惠券钱包</b>卡显示可用优惠券数目。'
+                            '诊所未加入的计划，其分页会变灰（“诊所未加入”）。' +
+                            '钱包也会列出<b>同一人其他病历</b>（同一身份证或共用电话）的券，并标示该病历号。那些券留在原病历——要使用须打开该病人的账单。',
+                        '在<b>病人 → ⋯ → 奖赏</b>也会打开同一面板。病人<b>总览</b>页的 🎁 卡显示积分，🎟️ <b>优惠券钱包</b>卡显示可用优惠券数目。' +
+                            '在<b>轮候</b>及<b>今日</b>，未用优惠券及积分标签在姓名旁边（中文一行、英文在下）；WhatsApp RSVP／标签在下方，不会遮住姓名。'
                     ] },
                     { t: '在账单使用优惠券', key: true, mock: deskCouponMock, list: [
                         '在<b>账单详情</b>的 🎟️ <b>优惠券</b>一行点<b>选择</b>。<b>使用</b>分页列出病人可用的优惠券。',
@@ -795,7 +887,8 @@
                         '勾选<b>使用积分抵扣</b>，在<b>按诊所（同一医生）</b>勾选要扣除积分的诊所。',
                         '输入<b>使用积分数</b>，或点<b>全部兑换</b>（先扣余额较少的诊所）。<b>将扣除：</b>显示由哪间诊所扣除。',
                         '<b>金额</b>栏会减去积分，显示仍需支付的现金。到达每张账单上限时，琥珀色提示显示尚余多少。',
-                        '填写付款方式，点 <b>✓ 确认付款</b>。积分抵扣属折扣，<b>不计作诊所收入</b>。'
+                        '填写付款方式，点 <b>✓ 确认付款</b>。积分抵扣属折扣，<b>不计作诊所收入</b>。' +
+                            '请勿选 Government / PDCC / CCF——这些方式不赚积分；若账单已有优惠券或积分，确认付款会拒绝。'
                     ] },
                     { t: '付款之后', list: [
                         '本次付款赚取的积分会加入<b>积分</b>余额，可于<b>下一笔</b>付款使用，不可在同一笔付款使用。',
@@ -803,9 +896,21 @@
                         '账单上的<b>本单共节省</b>一行合计项目折扣、额外折扣及优惠券。'
                     ] },
                     { t: '给病人手机页', list: [
-                        '积分：<b>积分</b> → 🎁 分页 → <b>📱 手机查看积分</b>。优惠券：<b>积分</b> → 🎟️ 分页 → <b>钱包二维码</b>，或病人总览页的 🎟️ <b>优惠券钱包</b>卡。',
-                        '病人用手机相机扫描二维码。也可复制链接、下载 PNG、打印纸条，或以 <b>WhatsApp</b> 发送。',
-                        '<b>重新生成二维码</b>会令旧链接失效（例如病人遗失手机）。手机页只供浏览。'
+                        '优先在积分面板点<b>积分＋优惠券（一个二维码）</b>——一个手机页同时有积分分页及优惠券分页。' +
+                            '仍可用 <b>📱 手机查看积分</b>或<b>钱包二维码</b>单独发送，或病人总览页的 🎟️ <b>优惠券钱包</b>卡。',
+                        '病人用手机相机扫描二维码。也可复制链接、下载 PNG、打印纸条，或以 <b>WhatsApp</b> 发送。' +
+                            '带链接的短信会写<b>手机查看积分及优惠券 / See your points and coupons on the phone</b>。',
+                        '<b>重新生成二维码</b>会令旧链接失效（例如病人遗失手机）。手机页只供浏览。' +
+                            '积分分页底部先是<b>使用说明</b>，再是 <b>How to use</b>：1 分 = HK$1、每单上限、专医专用、可转给家人朋友（同一医生），以及（清零设为年终时）须于 12 月 31 日前使用。'
+                    ] },
+                    { t: '优惠券及积分报告', list: [
+                        '打开<b>报告 → 优惠券及积分</b>。面板显示各诊所未用优惠券面值及未用积分、发出对使用、介绍回报，以及每张账单的优惠券／积分。',
+                        '用内容区的<b>迷你日历</b>：点一天即该日，再点另一天即日期范围。' +
+                            '快捷：<b>今天</b>、<b>本月</b>、<b>年初至今</b>、<b>最近 30 天</b>。表格即时更新。'
+                    ] },
+                    { t: '群发信息的奖赏筛选', list: [
+                        '在<b>群发信息</b>的联系人面板有奖赏筛选：<b>未用优惠券</b>、<b>30 天内到期的券</b>，或<b>积分 ≥ 500</b>。',
+                        '选一项以缩小名单再发送。余额与轮候列的标签相同。'
                     ] },
                     { t: '更正错误', danger: true, list: [
                         '<b>作废付款</b>：该次使用的积分会退回，该次赚取的积分会扣除。',
@@ -817,7 +922,7 @@
                 recapList: [
                     '账单选医生 → <b>选择</b>优惠券 → <b>使用</b>。',
                     '<b>+ 添加付款</b> → 勾选<b>使用积分抵扣</b> → <b>使用积分数</b>或<b>全部兑换</b> → <b>✓ 确认付款</b>。',
-                    '告诉病人手机页（📱 积分，优惠券用钱包二维码）。'
+                    '给病人<b>积分＋优惠券（一个二维码）</b>（或 📱 手机查看积分／钱包二维码）。Government / PDCC / CCF 账单不赚、也不用。'
                 ],
                 tips: '遇到问题？',
                 tipList: [
@@ -826,7 +931,8 @@
                     ['“选择”变灰', '账单已有付款。优惠券须在第一笔付款前选择。'],
                     ['优惠券显示原因而不是金额', '账单上没有该治疗、优惠券已过期、已使用全单券，或诊所未加入优惠券计划。'],
                     ['积分栏提早停止', '以下最小者为上限：账单结欠、此医生的积分、每张账单上限。'],
-                    ['今天赚取的积分不能使用', '按设计：付款赚取的积分可于下一笔付款使用。']
+                    ['今天赚取的积分不能使用', '按设计：付款赚取的积分可于下一笔付款使用。'],
+                    ['不能收 Government / PDCC / CCF', '这些方式不属计划。若账单已有优惠券或积分，确认付款会拒绝——请改用其他方式，或先取消优惠券／积分。']
                 ]
             },
             mock: {
@@ -921,6 +1027,8 @@
                 '病人資料橫額 → <b>積分</b> 📖 — 前台步驟：🧾 ' + T['zh-Hant'].coverPart.dk + '。<br>' +
                 '病人资料横幅 → <b>积分</b> 📖 — 前台步骤：🧾 ' + T['zh-CN'].coverPart.dk + '。</p>' +
                 '<p><b>💳 HK$3,000</b> — ' + T.en.rw.steps[3].t + ' · ' + T['zh-Hant'].rw.steps[3].t + ' · ' + T['zh-CN'].rw.steps[3].t + '</p>' +
+                '<p><b>🚫 Government / PDCC / CCF</b> — no points or coupons earned or used · 不賺、不用積分或優惠券 · 不赚、不用积分或优惠券</p>' +
+                '<p><b>📱 One QR</b> — Points + coupons (one QR) · 積分＋優惠券（一個 QR 碼） · 积分＋优惠券（一个二维码）</p>' +
             '</div>' +
         '</section>';
         root.innerHTML = cover + LANGS.map(function (l) {

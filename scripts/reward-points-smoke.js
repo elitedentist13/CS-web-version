@@ -860,7 +860,7 @@ function fakeBillSb(tables, rpcLog) {
             st.id === 'manualCover' && st.lang === 'zh-CN' && st.part === 'coupons' && LM.targetFor('#start-rewards-fr') === null, JSON.stringify(st));
         pass('manual: payment desk part covers coupons and points at the desk, step by step',
             ['See what the patient has', 'Use a discount coupon on the bill', 'Gift or transfer a coupon', 'Use reward points in Add Payment',
-                'After the payment', 'Give the patient the phone page', 'Fixing a mistake'].join('|') === LM.T.en.desk.steps.map(function (s) { return s.t; }).join('|') &&
+                'After the payment', 'Give the patient the phone page', 'Loyalty report (Coupons &amp; points)', 'Mass-broadcast loyalty filter', 'Fixing a mistake'].join('|') === LM.T.en.desk.steps.map(function (s) { return s.t; }).join('|') &&
             LM.T['zh-Hant'].desk.steps[1].t === '在賬單使用優惠券' && LM.T['zh-CN'].desk.steps[3].t === '在添加付款使用奖励积分', LM.T.en.desk.steps.map(function (s) { return s.t; }).join('|'));
         pass('manual: desk part names the real buttons (Choose, Apply, + Add Payment, Redeem all, ✓ Confirm Payment) in all 3 languages',
             LM.LANGS.every(function (l) {
@@ -887,6 +887,26 @@ function fakeBillSb(tables, rpcLog) {
         pass('manual: HK$3,000 defaults stated for points and cash coupons in all 3 languages', LM.LANGS.every(function (l) {
             var t = LM.T[l.id];
             return t.rw.steps[3].list.join(' ').indexOf('HK$3,000') >= 0 && t.dc.steps[3].list.join(' ').indexOf('HK$3,000') >= 0;
+        }));
+        pass('manual: Government / PDCC / CCF excluded in all 3 languages', LM.LANGS.every(function (l) {
+            var all = JSON.stringify(LM.T[l.id]);
+            return all.indexOf('Government') >= 0 && all.indexOf('PDCC') >= 0 && all.indexOf('CCF') >= 0;
+        }));
+        pass('manual: combined phone QR and How to use (Chinese then English) in all 3 languages', LM.LANGS.every(function (l) {
+            var desk = JSON.stringify(LM.T[l.id].desk);
+            return /Points \+ coupons|積分＋優惠券|积分＋优惠券/.test(desk) &&
+                desk.indexOf('How to use') >= 0 && desk.indexOf('使用說明') + desk.indexOf('使用说明') > -2;
+        }));
+        pass('manual: set zero and year-end SMS run on the server; Manual pauses them',
+            /run on the <b>server<\/b>/.test(LM.T.en.rw.steps[4].list.join(' ')) &&
+            /pauses those jobs and the year-end reminder SMS/.test(LM.T.en.dc.steps[5].list.join(' ')) &&
+            /由<b>伺服器<\/b>/.test(LM.T['zh-Hant'].dc.steps[5].list.join(' ')) &&
+            /由<b>服务器<\/b>/.test(LM.T['zh-CN'].dc.steps[5].list.join(' ')) &&
+            JSON.stringify(LM.T).indexOf('when the Discount Coupons config page is opened') < 0);
+        pass('manual: loyalty report mini-calendar and mass-broadcast filter in all 3 languages', LM.LANGS.every(function (l) {
+            var t = LM.T[l.id].desk.steps;
+            return t.length === 9 && /mini-calendar|迷你日曆|迷你日历/.test(t[6].list.join(' ')) &&
+                /Unused coupon|未用優惠券|未用优惠券/.test(t[7].list.join(' '));
         }));
     } catch (eMan) {
         pass('manual unit', false, eMan && eMan.message);
@@ -1061,7 +1081,7 @@ function fakeBillSb(tables, rpcLog) {
                 R.pickPanelTab('coupons', { points: true, coupons: false }) === 'points' &&
                 R.pickPanelTab('points', { points: false, coupons: false }) === '');
             pass('manual link: part + dashboard language (en / 简 / 繁 kept; unknown or missing -> 繁)',
-                R.loyaltyGuideHref('coupons', 'zh-CN') === 'docs/loyalty-manual.html?v=20261029refladder#start-coupons-zh-CN' &&
+                R.loyaltyGuideHref('coupons', 'zh-CN') === 'docs/loyalty-manual.html?v=20261030howto#start-coupons-zh-CN' &&
                 /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-Hant')) && /#start-rewards-en$/.test(R.loyaltyGuideHref('rewards', 'en')) &&
                 /#start-rewards-en$/.test(R.loyaltyGuideHref('rewards', 'en-GB')) &&
                 /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('rewards', 'zh-TW')) && /#start-rewards-zh-Hant$/.test(R.loyaltyGuideHref('x', 'fr')) &&
@@ -1131,7 +1151,7 @@ function fakeBillSb(tables, rpcLog) {
         pass('HTML has rwPhoneQrBtn', idx.body.indexOf('id="rwPhoneQrBtn"') >= 0);
         pass('HTML ledger panel has the 📖 manual link (points part)',
             /id="rwGuideBtn" class="[^"]*loyalty-guide-btn[^"]*" data-guide-part="rewards"/.test(idx.body) &&
-            /href="docs\/loyalty-manual\.html\?v=20261029refladder#start-rewards-zh-Hant" target="_blank"/.test(idx.body));
+            /href="docs\/loyalty-manual\.html\?v=20261030howto#start-rewards-zh-Hant" target="_blank"/.test(idx.body));
         var ptsHtml = await httpGetText(PAGE_PORT, '/points.html');
         pass('GET /points.html loads points.js + wallet.css and boots', ptsHtml.status === 200 &&
             /src="points\.js\?v=/.test(ptsHtml.body) && /href="wallet\.css\?v=/.test(ptsHtml.body) &&
@@ -1141,7 +1161,7 @@ function fakeBillSb(tables, rpcLog) {
         var manHtml = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.html');
         var manJs = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.js');
         var manPdf = await httpGetText(PAGE_PORT, '/docs/loyalty-manual.pdf');
-        pass('GET manual html + js + pdf', manHtml.status === 200 && /src="loyalty-manual\.js\?v=20261029refladder"/.test(manHtml.body) &&
+        pass('GET manual html + js + pdf', manHtml.status === 200 && /src="loyalty-manual\.js\?v=20261030howto"/.test(manHtml.body) &&
             /href="loyalty-manual\.pdf"/.test(manHtml.body) && manJs.status === 200 && manPdf.status === 200 &&
             manPdf.body.slice(0, 5) === '%PDF-', manHtml.status + '/' + manJs.status + '/' + manPdf.status);
         var pwSqlHttp = await httpGetText(PAGE_PORT, '/reward_points_wallet.sql');
@@ -1641,7 +1661,7 @@ function fakeBillSb(tables, rpcLog) {
             pass('live config: points-per-bill card shows its limit', cfgPaint.capBeforeZero && /HK\$|limit|上限/.test(cfgPaint.capSum), cfgPaint.capSum);
             pass('live config: 📖 How to use opens the points part in the dashboard language',
                 !!cfgPaint.guide && /^📖/.test(cfgPaint.guide.text) &&
-                cfgPaint.guide.href === 'docs/loyalty-manual.html?v=20261029refladder#start-rewards-' +
+                cfgPaint.guide.href === 'docs/loyalty-manual.html?v=20261030howto#start-rewards-' +
                     (['zh-Hant', 'zh-CN'].indexOf(cfgPaint.guide.lang) >= 0 ? cfgPaint.guide.lang : 'en'), JSON.stringify(cfgPaint.guide));
         }
 
@@ -1937,11 +1957,11 @@ function fakeBillSb(tables, rpcLog) {
             bg.con && bg.con.btn && bg.con.guide && bg.con.next && bg.appt && bg.appt.guide && bg.appt.next &&
             /^📖/.test(bg.con.text) && bg.con.target === '_blank' && /rw-banner-guide/.test(bg.con.cls), JSON.stringify(bg.con) + ' ' + JSON.stringify(bg.appt));
         pass('live banner: 📖 opens the manual contents with the payment desk part marked, in the dashboard language',
-            /^docs\/loyalty-manual\.html\?v=20261029refladder#start-desk-(en|zh-Hant|zh-CN)$/.test((bg.con || {}).href || '') && /#start-desk-zh-CN$/.test(bg.afterCn || ''),
+            /^docs\/loyalty-manual\.html\?v=20261030howto#start-desk-(en|zh-Hant|zh-CN)$/.test((bg.con || {}).href || '') && /#start-desk-zh-CN$/.test(bg.afterCn || ''),
             (bg.con || {}).href + ' / ' + bg.afterCn);
         pass('live manual: #start-desk-x opens the contents page with 🧾 desk marked (3 desk links)', bg.start && bg.start.part === 'desk' &&
             bg.start.scrollY === 0 && bg.start.deskLinks === 3, JSON.stringify(bg.start));
-        pass('live manual: #desk-en jumps to the desk part: 7 steps, 2 pictures, green header', bg.desk && bg.desk.deskSteps === 7 && bg.desk.mocks === 2 &&
+        pass('live manual: #desk-en jumps to the desk part: 9 steps, 2 pictures, green header', bg.desk && bg.desk.deskSteps === 9 && bg.desk.mocks === 2 &&
             /payment desk/.test(bg.desk.deskTitle) && bg.desk.deskHead && bg.desk.scrollY > 1000 && bg.desk.deskTop >= 0 && bg.desk.deskTop < 90, JSON.stringify(bg.desk));
 
         // Admin view of the cap card; the save is stubbed so no setting is written.
@@ -2080,7 +2100,7 @@ function fakeBillSb(tables, rpcLog) {
         pass('CDP ledger panel shows Points on the phone', !!(pqr && pqr.btnShown), JSON.stringify(pqr).slice(0, 300));
         pass('CDP ledger panel has 📖 How to use -> points part of the manual in the dashboard language (new tab)',
             !!(pqr && pqr.guide && pqr.guide.shown && /^📖/.test(pqr.guide.text) && pqr.guide.target === '_blank' &&
-                pqr.guide.href === 'docs/loyalty-manual.html?v=20261029refladder#start-rewards-' + pqr.guide.lang), JSON.stringify(pqr && pqr.guide));
+                pqr.guide.href === 'docs/loyalty-manual.html?v=20261030howto#start-rewards-' + pqr.guide.lang), JSON.stringify(pqr && pqr.guide));
         pass('CDP points QR covers the screen above the ledger panel (not clipped by the panel box)',
             !!(pqr && pqr.inModal && pqr.onTop && pqr.fullScreen && pqr.notInBox && pqr.inView),
             pqr && JSON.stringify(pqr.topDebug || ''));

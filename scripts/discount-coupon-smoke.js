@@ -2857,7 +2857,7 @@ function loadCoupons() {
         pass('CDP sheet shows the Wallet QR button', !!(wqr && wqr.btn && wqr.overlay), JSON.stringify(wqr));
         pass('CDP coupon sheet has 📖 How to use -> coupon part of the manual in the dashboard language (new tab)',
             !!(wqr && wqr.guide && wqr.guide.shown && /^📖/.test(wqr.guide.text) && wqr.guide.target === '_blank' &&
-                wqr.guide.href === 'docs/loyalty-manual.html?v=20261029refladder#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
+                wqr.guide.href === 'docs/loyalty-manual.html?v=20261030howto#start-coupons-' + wqr.guide.lang), JSON.stringify(wqr && wqr.guide));
         pass('CDP Wallet QR explains when the link cannot be made', !!(wqr && /discount_coupon_wallet\.sql|Could not make/.test(wqr.realErr)), wqr && wqr.realErr);
         pass('CDP Esc closes the QR and keeps the sheet', !!(wqr && wqr.escClosesQrOnly));
         pass('CDP Wallet QR draws the wallet link', !!(wqr && wqr.qr && /\/wallet\.html\?t=0123456789abcdef0123456789abcdef$/.test(wqr.link) && wqr.qrUrl === wqr.link),

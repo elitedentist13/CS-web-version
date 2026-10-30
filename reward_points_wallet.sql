@@ -82,6 +82,7 @@ declare
     v_rows jsonb;
     v_prog jsonb;
     v_cap jsonb;
+    v_doctors jsonb := '[]'::jsonb;
 begin
     if p_token is null or p_token !~ '^[0-9a-f]{32}$' then
         return jsonb_build_object('ok', false, 'reason', 'bad_link');
@@ -159,6 +160,20 @@ begin
              order by created_at desc
              limit 80) l;
 
+    begin
+        select coalesce((
+            select jsonb_agg(x.d order by x.d)
+              from (
+                  select distinct left(trim(l.doctor_name), 80) as d
+                    from public.reward_ledger l
+                   where l.patient_id = any (v_ids)
+                     and nullif(trim(l.doctor_name), '') is not null
+              ) x
+        ), '[]'::jsonb) into v_doctors;
+    exception when undefined_column then
+        v_doctors := '[]'::jsonb;
+    end;
+
     select to_jsonb(p) into v_prog from public.reward_program p where p.id = 1;
 
     -- Per-bill limit from Configuration → Reward Points (same default as the app when never saved).
@@ -181,7 +196,8 @@ begin
         'earn_rate', v_prog -> 'earn_rate_percent',
         'zero_policy', v_prog ->> 'zero_policy',
         'lifespan_months', v_prog -> 'lifespan_months',
-        'redeem_cap', coalesce(v_cap, '{"maxPercent": 0, "maxAmount": 3000}'::jsonb)
+        'redeem_cap', coalesce(v_cap, '{"maxPercent": 0, "maxAmount": 3000}'::jsonb),
+        'doctors', coalesce(v_doctors, '[]'::jsonb)
     );
 end;
 $$;

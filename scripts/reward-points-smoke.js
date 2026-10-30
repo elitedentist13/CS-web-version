@@ -782,6 +782,34 @@ function fakeBillSb(tables, rpcLog) {
         pass('points page: token only from a 32-hex t=', P.tokenFrom({ search: '?t=0123456789ABCDEF0123456789abcdef&g=en' }) === '0123456789abcdef0123456789abcdef' &&
             P.tokenFrom({ search: '?t=123' }) === '');
         pass('points page: fmtPts whole / decimals', P.fmtPts(120) === '120' && P.fmtPts(0.5) === '0.50' && P.fmtPts(1000000) === '1,000,000');
+        pass('points page: How to use is Chinese then English, with doctor and balance filled', (function () {
+            var h = P.renderHtml({
+                ok: true, today: '2026-10-30', balance: 62.5, doctor: 'NG PUI CHING',
+                redeem_cap: { maxAmount: 3000 }, zero_policy: 'year_end', rows: []
+            }, 'en', false);
+            var zh = h.indexOf('class="wl-how-zh"');
+            var en = h.indexOf('class="wl-how-en"');
+            return zh > 0 && en > zh &&
+                /您在 NG PUI CHING 醫生 這裡累積的牙科活動獎賞積分餘額為 62\.50 分/.test(h) &&
+                /balance with Dr NG PUI CHING is 62\.50 points/.test(h) &&
+                h.indexOf('樂意牙科') > 0 && h.indexOf('Hello! We are Joyful Smile Dental') > 0 &&
+                h.indexOf('每單最多可用3,000分') > 0 && h.indexOf('Up to 3,000 points') > 0 &&
+                h.indexOf('12 月 31 日') > 0 && h.indexOf('31 December') > 0 &&
+                h.indexOf('<b>NG') < 0;
+        })());
+        pass('points page: How to use skips year-end when Set zero is not year end; escapes the doctor', (function () {
+            var h = P.howToUseHtml({ balance: 10, doctor: '<b>X</b>', zero_policy: 'manual' });
+            return h.indexOf('&lt;b&gt;X&lt;/b&gt;') > 0 && h.indexOf('<b>X</b>') < 0 &&
+                h.indexOf('12 月 31 日') < 0 && h.indexOf('31 December') < 0 &&
+                h.indexOf('主診') < 0 && h.indexOf('your treating dentist') < 0;
+        })());
+        pass('points page: How to use falls back to 主診 / your treating dentist', (function () {
+            var h = P.howToUseHtml({ balance: 8, zero_policy: 'year_end' });
+            return h.indexOf('您在 主診 醫生') > 0 && h.indexOf('with your treating dentist is 8 points') > 0;
+        })());
+        pass('points SQL sends treating doctors to the phone How to use',
+            /'doctors', coalesce\(v_doctors/.test(read('reward_points_wallet.sql')) &&
+            /distinct left\(trim\(l\.doctor_name\)/.test(read('reward_points_wallet.sql')));
     } catch (ePts) {
         pass('points page unit', false, ePts && ePts.message);
     }

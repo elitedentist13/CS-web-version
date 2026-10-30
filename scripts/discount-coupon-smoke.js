@@ -2287,7 +2287,7 @@ function loadCoupons() {
     pass('reward panel has the one-QR button beside "Points on the phone"',
         /id="rwPhoneQrBtn"[\s\S]{0,600}id="rwLoyaltyQrBtn"[^>]*>?[\s\S]{0,80}onclick="REWARDS && REWARDS\.openLoyaltyQr\(\)"/.test(read('index.html')) &&
         /function openLoyaltyQr\(patientId\)[\s\S]{0,400}COUPONS\.openLoyaltyQr\(modal, pid\)/.test(read('app-rewards.js')));
-    pass('tab CSS in wallet.css', /\.ly-tab\.is-on \{/.test(read('wallet.css')));
+    pass('tab CSS in wallet.css', /\.ly-tab\.is-on \{/.test(read('wallet.css')) && /\.wl-how \{/.test(read('wallet.css')));
 
     console.log('\n=== Banana: appointments, bill fit, broadcast, household ===');
     pass('node --check appt / mass-broadcast / rewards / i18n',
@@ -3240,6 +3240,10 @@ function loadCoupons() {
     out.badges = Array.prototype.map.call(doc.querySelectorAll('.ly-badge'), function (b) { return b.textContent; });
     out.first = (doc.querySelector('.ly-tab.is-on') || {}).getAttribute ? doc.querySelector('.ly-tab.is-on').getAttribute('data-tab') : '';
     out.balance = (doc.getElementById('wlPtsBalance') || {}).textContent;
+    var how = doc.querySelector('.wl-how');
+    out.howZh = how && how.querySelector('.wl-how-zh') ? how.querySelector('.wl-how-zh').textContent : '';
+    out.howEn = how && how.querySelector('.wl-how-en') ? how.querySelector('.wl-how-en').textContent : '';
+    out.howOrder = !!(how && how.innerHTML.indexOf('wl-how-zh') < how.innerHTML.indexOf('wl-how-en'));
     doc.querySelector('.ly-tab[data-tab="coupons"]').click();
     await sleep(100);
     out.second = doc.querySelector('.ly-tab.is-on').getAttribute('data-tab');
@@ -3297,6 +3301,11 @@ function loadCoupons() {
             !!(lyPhone && lyPhone.first === 'points' && lyPhone.badges.length === 2 && lyPhone.title === 'My points & coupons' &&
                 lyPhone.balance === lyPhone.badges[0] && Number(String(lyPhone.balance).replace(/,/g, '')) === Number(lyPhone.expBalance) && !!lyPhone.who),
             lyPhone && JSON.stringify({ badges: lyPhone.badges, balance: lyPhone.balance, exp: lyPhone.expBalance, who: lyPhone.who }));
+        pass('live #001003 points How to use: Chinese then English, with the live balance',
+            !!(lyPhone && lyPhone.howOrder && /樂意牙科/.test(lyPhone.howZh) && /Hello! We are Joyful Smile Dental/.test(lyPhone.howEn) &&
+                String(lyPhone.howZh).indexOf(String(lyPhone.balance) + ' 分') >= 0 &&
+                String(lyPhone.howEn).indexOf(String(lyPhone.balance) + ' points') >= 0),
+            lyPhone && JSON.stringify({ howZh: (lyPhone.howZh || '').slice(0, 80), howEn: (lyPhone.howEn || '').slice(0, 80) }));
         pass('live #001003 loyalty.html: Coupons tab shows the live coupons; browse only',
             !!(lyPhone && lyPhone.second === 'coupons' && lyPhone.tickets === lyPhone.expLive && String(lyPhone.expLive) === lyPhone.badges[1] &&
                 lyPhone.hash === '#tab=coupons' && lyPhone.controls === 0), lyPhone && (lyPhone.tickets + ' tickets / ' + lyPhone.expLive + ' live'));

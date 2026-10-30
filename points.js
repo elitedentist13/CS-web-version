@@ -132,6 +132,83 @@
         return tr(key, lang).split('{PCT}').join(String(Math.round(pct * 100) / 100)).split('{AMT}').join(fmtPts(amt));
     }
 
+    function uniqueDoctors(data) {
+        var seen = {};
+        var out = [];
+        function add(v) {
+            var s = String(v || '').trim();
+            if (!s || seen[s]) return;
+            seen[s] = 1;
+            out.push(s);
+        }
+        if (data && data.doctor) add(data.doctor);
+        (data && data.doctors || []).forEach(add);
+        return out;
+    }
+    function howToUseDoctorZh(data) {
+        return uniqueDoctors(data).join(' / ') || '主診';
+    }
+    function howToUseDoctorEn(data) {
+        var names = uniqueDoctors(data).map(function (n) {
+            return /^dr\.?\s/i.test(n) ? n : ('Dr ' + n);
+        });
+        return names.length ? names.join(' / ') : 'your treating dentist';
+    }
+    function howToUseMax(data) {
+        var cap = data && data.redeem_cap;
+        var amt = cap && cap.maxAmount != null && cap.maxAmount !== '' ? num(cap.maxAmount) : 3000;
+        return fmtPts(amt > 0 ? amt : 3000);
+    }
+    function howToUseShowYearEnd(data) {
+        var p = data && data.zero_policy;
+        return !p || p === 'year_end';
+    }
+
+    /** Chinese How to use, then English, at the bottom of the points phone page. */
+    function howToUseHtml(data) {
+        var drZh = howToUseDoctorZh(data);
+        var drEn = howToUseDoctorEn(data);
+        var pts = fmtPts(data && data.balance);
+        var max = howToUseMax(data);
+        var ye = howToUseShowYearEnd(data);
+        function p(s) { return '<p>' + esc(s) + '</p>'; }
+        function li(s) { return '<li>' + esc(s) + '</li>'; }
+        var zh = p('您好！我地係 樂意牙科🥰感謝您對我們的支持與信任。😊') +
+            p('特意通知您，根據您之前的診療紀錄，您在 ' + drZh + ' 醫生 這裡累積的牙科活動獎賞積分餘額為 ' + pts + ' 分。') +
+            '<h3>' + esc('【積分使用及分享方法】') + '</h3><ul>' +
+            li('一分抵一元： 每 1 分可以當作 HK$1 使用。每單最多可用' + max + '分') +
+            li('專醫專用： 為了確保治療的延續性，這筆積分只限於下一次預約 ' + drZh + ' 醫生 的療程時直接扣減費用。') +
+            li('愛心共享： 這筆積分非常靈活！您不僅可以自己留著下次用，也可以選擇轉移給您的家人或朋友使用。只要他們預約的是同一位醫生，就可以在結帳時扣減這筆積分。') +
+            '</ul>';
+        if (ye) {
+            zh += '<h3>' + esc('⚠️【積分有效期重要提示】') + '</h3><ul>' +
+                li('請於今年 12 月 31 日或之前使用：本年度累積之積分將於 12 月 31 日到期。') +
+                li('每年結算清零：牙科活動獎賞積分會在每年 12 月 31 日進行結算，並於翌年 1 月 1 日重新開始計算，逾期未使用的積分將會自動失效，記得把握時間喔！') +
+                '</ul>' + p('如有任何爭議 本公司保留最終使用決定權');
+        }
+        zh += p('如果您想為自己或親友預約時間，或者對積分轉移有任何疑問，歡迎隨時回覆這條訊息，我們會立即為您安排！祝您有美好的一天！✨');
+        var en = p('Hello! We are Joyful Smile Dental 🥰 Thank you for your support and trust. 😊') +
+            p('From your previous treatment records, your dental activity reward points balance with ' + drEn + ' is ' + pts + ' points.') +
+            '<h3>' + esc('How to use and share your points') + '</h3><ul>' +
+            li('1 point = HK$1: each point can be used as HK$1. Up to ' + max + ' points can be used on one bill.') +
+            li('Same dentist only: to keep your care continuous, these points can only be deducted at your next visit with ' + drEn + '.') +
+            li('Share with loved ones: you can keep the points for your next visit, or transfer them to family or friends. They can use the points at checkout as long as they book the same dentist.') +
+            '</ul>';
+        if (ye) {
+            en += '<h3>' + esc('Important: points expiry') + '</h3><ul>' +
+                li('Please use them on or before 31 December this year. Points earned this year expire on 31 December.') +
+                li('Year-end reset: dental activity reward points are settled on 31 December each year and start again on 1 January. Unused points expire automatically — please use them in time.') +
+                '</ul>' + p('In the event of any dispute, the clinic reserves the final right of decision.');
+        }
+        en += p('If you would like to book for yourself or a family member or friend, or have any questions about transferring points, please reply to this message and we will arrange it right away. Have a lovely day! ✨');
+        return '<section class="wl-how">' +
+            '<h2 class="wl-how-h">' + esc('使用說明') + '</h2>' +
+            '<div class="wl-how-zh" lang="zh-Hant">' + zh + '</div>' +
+            '<h2 class="wl-how-h wl-how-h-en">' + esc('How to use') + '</h2>' +
+            '<div class="wl-how-en" lang="en">' + en + '</div>' +
+            '</section>';
+    }
+
     function kindKey(k) {
         return T['k_' + k] ? k : 'adjust';
     }
@@ -178,14 +255,14 @@
         if (notes.length) html += '<ul class="wl-pts-notes">' + notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>';
         var rows = data.rows || [];
         html += '<h2 class="wl-sec-title">' + esc(tr('recent', lang)) + '</h2>';
-        if (!rows.length) return html + '<p class="wl-empty">' + esc(tr('none', lang)) + '</p>';
+        if (!rows.length) return html + '<p class="wl-empty">' + esc(tr('none', lang)) + '</p>' + howToUseHtml(data);
         var showAfter = num(data.charts) <= 1;
         var shown = showAll ? rows : rows.slice(0, FIRST_ROWS);
         html += '<ul class="wl-pts-list">' + shown.map(function (r) { return rowHtml(r, lang, showAfter); }).join('') + '</ul>';
         if (rows.length > shown.length) {
             html += '<button type="button" class="wl-more" id="wlPtsMore">' + esc(tr('more', lang)) + ' (' + (rows.length - shown.length) + ')</button>';
         }
-        return html;
+        return html + howToUseHtml(data);
     }
 
     function tokenFrom(loc) {
@@ -263,6 +340,7 @@
     root.CSPoints = {
         boot: boot,
         renderHtml: renderHtml,
+        howToUseHtml: howToUseHtml,
         perBillText: perBillText,
         fmtPts: fmtPts,
         hkDate: hkDate,

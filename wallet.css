@@ -92,6 +92,28 @@ body { padding: 16px 14px calc(32px + env(safe-area-inset-bottom)); }
 .wl-pts-amt.is-plus { color: var(--wl-green); }
 .wl-pts-amt.is-minus { color: #c2410c; }
 
+.wl-how {
+    margin-top: 22px;
+    padding: 14px 14px 12px;
+    background: #fff;
+    border: 1px solid var(--wl-border);
+    border-radius: 14px;
+    font-size: 13px;
+    line-height: 1.65;
+    color: #334155;
+}
+.wl-how-h {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--wl-green);
+    margin: 0 0 8px;
+}
+.wl-how-h-en { margin-top: 16px; padding-top: 14px; border-top: 1px dashed #bbf7d0; }
+.wl-how p { margin: 0 0 8px; }
+.wl-how h3 { font-size: 13px; font-weight: 800; color: #0f172a; margin: 10px 0 6px; }
+.wl-how ul { margin: 0 0 8px 1.1em; padding: 0; }
+.wl-how li { margin: 0 0 4px; }
+
 /* One page for points and coupons (loyalty.html) */
 .ly-tabs { display: flex; gap: 6px; padding: 4px; margin-bottom: 14px; background: #fff; border: 1px solid #bbf7d0; border-radius: 999px; }
 .ly-tab { flex: 1; border: 0; background: transparent; color: var(--wl-green); border-radius: 999px; padding: 9px 10px; font: inherit; font-size: 15px; font-weight: 800; cursor: pointer; }

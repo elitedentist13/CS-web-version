@@ -1144,6 +1144,23 @@ body.app-session-active {
     color: #0f766e;
     font-weight: 600;
 }
+.bill-pay-coupon-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #7c3aed;
+    background: #f3e8ff;
+    border: 1px solid #ddd6fe;
+    border-radius: 999px;
+    padding: 2px 7px;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+.bill-pay-row--coupon td {
+    background: #faf5ff !important;
+}
 .patient-adv-actions {
     display: flex;
     flex-wrap: wrap;

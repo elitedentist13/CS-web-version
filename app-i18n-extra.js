@@ -629,9 +629,9 @@
         'report.tab.loyalty': { en: 'Coupons & points', 'zh-CN': '优惠券及积分', 'zh-Hant': '優惠券及積分' },
         'report.title.loyalty': { en: 'Coupons & points', 'zh-CN': '优惠券及积分', 'zh-Hant': '優惠券及積分' },
         'report.hint.loyalty': {
-            en: 'Unused value per clinic, coupons issued vs used, refer-a-friend return, and coupons / points used on bills between the dates.',
-            'zh-CN': '各诊所未用价值、优惠券发出与使用、介绍朋友回报，以及期间内账单使用的优惠券及积分。',
-            'zh-Hant': '各診所未用價值、優惠券發出與使用、介紹朋友回報，以及期間內賬單使用的優惠券及積分。'
+            en: 'Unused value per clinic, coupons issued vs used, refer-a-friend return, coupons / points used on bills, and the coupon tracking log.',
+            'zh-CN': '各诊所未用价值、优惠券发出与使用、介绍朋友回报、期间内账单使用的优惠券及积分，以及优惠券追踪记录。',
+            'zh-Hant': '各診所未用價值、優惠券發出與使用、介紹朋友回報、期間內賬單使用的優惠券及積分，以及優惠券追蹤記錄。'
         },
         'report.col.couponsNotIncome': { en: 'Coupons used (not income)', 'zh-CN': '已用优惠券（非收入）', 'zh-Hant': '已用優惠券（非收入）' },
         'report.col.pointsNotIncome': { en: 'Points used (not income)', 'zh-CN': '已用积分（非收入）', 'zh-Hant': '已用積分（非收入）' },
@@ -661,6 +661,17 @@
             'zh-CN': '用券前金额 = 优惠券 + 积分 + 已付（收入）+ 余额。优惠券及积分不算收入。',
             'zh-Hant': '用券前金額 = 優惠券 + 積分 + 已付（收入）+ 餘額。優惠券及積分不算收入。'
         },
+        'loyaltyReport.log': { en: 'Coupon tracking log', 'zh-CN': '优惠券追踪记录', 'zh-Hant': '優惠券追蹤記錄' },
+        'loyaltyReport.logHint': {
+            en: 'Use, payment and void lines for tracking. These are not income. The full list is also on Configuration → Coupon log.',
+            'zh-CN': '使用、付款及作废记录，只供追踪，不算收入。完整列表亦在设定 → 优惠券记录。',
+            'zh-Hant': '使用、付款及作廢記錄，只供追蹤，不算收入。完整列表亦在設定 → 優惠券記錄。'
+        },
+        'loyaltyReport.col.when': { en: 'When', 'zh-CN': '时间', 'zh-Hant': '時間' },
+        'loyaltyReport.col.action': { en: 'Action', 'zh-CN': '动作', 'zh-Hant': '動作' },
+        'loyaltyReport.col.who': { en: 'By', 'zh-CN': '经手人', 'zh-Hant': '經手人' },
+        'loyaltyReport.col.chart': { en: 'Chart no.', 'zh-CN': '病历号', 'zh-Hant': '病歷號' },
+        'loyaltyReport.col.detail': { en: 'Detail', 'zh-CN': '详情', 'zh-Hant': '詳情' },
         'loyaltyReport.cal.range': { en: 'Dates', 'zh-CN': '日期', 'zh-Hant': '日期' },
         'loyaltyReport.cal.hint': { en: 'Tap a date, then another, to filter.', 'zh-CN': '点一个日期，再点另一个，即可筛选。', 'zh-Hant': '點一個日期，再點另一個，即可篩選。' },
         'loyaltyReport.cal.hintEnd': { en: 'Tap the end date.', 'zh-CN': '再点结束日期。', 'zh-Hant': '再點結束日期。' },
@@ -3231,6 +3242,9 @@
             'zh-Hant': '錢包最多 20 張未用券。每類上限：'
         },
         'coupons.camp.cash': { en: 'Cash coupon', 'zh-CN': '现金券', 'zh-Hant': '現金券' },
+        'coupons.camp.spend_1': { en: 'Spend $1000 get $100', 'zh-CN': '满$1000送$100', 'zh-Hant': '滿$1000送$100' },
+        'coupons.camp.spend_2': { en: 'Spend $5000 get $500', 'zh-CN': '满$5000送$500', 'zh-Hant': '滿$5000送$500' },
+        'coupons.camp.spend_3': { en: 'Spend $10000 get $1000', 'zh-CN': '满$10000送$1000', 'zh-Hant': '滿$10000送$1000' },
         'coupons.camp.spend_4': { en: 'Custom spend 1', 'zh-CN': '自订满额 1', 'zh-Hant': '自訂滿額 1' },
         'coupons.camp.spend_5': { en: 'Custom spend 2', 'zh-CN': '自订满额 2', 'zh-Hant': '自訂滿額 2' },
         'coupons.camp.new_chart': { en: 'New chart', 'zh-CN': '新客券', 'zh-Hant': '新客券' },
@@ -3300,6 +3314,9 @@
         'coupons.log.issue': { en: 'Issue', 'zh-CN': '发出', 'zh-Hant': '發出' },
         'coupons.log.transfer': { en: 'Transfer', 'zh-CN': '转让', 'zh-Hant': '轉讓' },
         'coupons.log.restore': { en: 'Restore', 'zh-CN': '退回', 'zh-Hant': '退回' },
+        'coupons.log.use': { en: 'Use', 'zh-CN': '使用', 'zh-Hant': '使用' },
+        'coupons.log.pay': { en: 'Payment', 'zh-CN': '付款', 'zh-Hant': '付款' },
+        'coupons.log.voidPay': { en: 'Void payment', 'zh-CN': '作废付款', 'zh-Hant': '作廢付款' },
         'coupons.log.cancel': { en: 'Cancel', 'zh-CN': '取消', 'zh-Hant': '取消' },
         'coupons.log.when': { en: 'When', 'zh-CN': '时间', 'zh-Hant': '時間' },
         'coupons.log.what': { en: 'Action', 'zh-CN': '动作', 'zh-Hant': '動作' },
@@ -3812,9 +3829,9 @@
             'zh-Hant': '管理員驗證不可用，請重新載入後再試。'
         },
         'coupons.log.hint': {
-            en: 'Every coupon issued, gifted, transferred, given back on a void, or cancelled. Gifts show the login that gave them.',
-            'zh-CN': '所有发出、赠送、转让、作废退回或取消的优惠券。赠送会显示操作的登入用户。',
-            'zh-Hant': '所有發出、贈送、轉讓、作廢退回或取消的優惠券。贈送會顯示操作的登入用戶。'
+            en: 'Every coupon issued, gifted, transferred, used on a bill, plus each payment and payment void. Gifts show the login that gave them.',
+            'zh-CN': '所有发出、赠送、转让、在账单使用的优惠券，以及每笔付款与作废付款。赠送会显示操作的登入用户。',
+            'zh-Hant': '所有發出、贈送、轉讓、在賬單使用的優惠券，以及每筆付款與作廢付款。贈送會顯示操作的登入用戶。'
         },
         'coupons.cfg.get': { en: 'Coupon HK$', 'zh-CN': '优惠 HK$', 'zh-Hant': '優惠 HK$' },
         'coupons.bill.title': { en: 'Discount coupon', 'zh-CN': '优惠券', 'zh-Hant': '優惠券' },
@@ -3840,6 +3857,7 @@
         },
 
         'bill.pay.rewardPoints': { en: 'Reward points', 'zh-CN': '奖励积分', 'zh-Hant': '獎勵積分' },
+        'bill.pay.discountCoupon': { en: 'Discount coupon', 'zh-CN': '优惠券', 'zh-Hant': '優惠券' },
 
         'rewards.link.label': { en: 'Rewards', 'zh-CN': '积分', 'zh-Hant': '積分' },
         'rewards.link.title': { en: 'Reward points', 'zh-CN': '奖励积分', 'zh-Hant': '獎勵積分' },
@@ -5348,6 +5366,7 @@
         'bill.detail.notesSaveFailed': { en: 'Could not save notes.', 'zh-CN': '无法保存备注。', 'zh-Hant': '無法儲存備註。' },
         'bill.detail.noItems': { en: 'No items recorded.', 'zh-CN': '没有记录项目。', 'zh-Hant': '沒有紀錄項目。' },
         'bill.detail.paymentHistory': { en: '💰 Payment History', 'zh-CN': '💰 付款记录', 'zh-Hant': '💰 付款紀錄' },
+        'bill.detail.couponBadge': { en: 'Coupon', 'zh-CN': '优惠券', 'zh-Hant': '優惠券' },
         'bill.detail.btnAddPayment': { en: '+ Add Payment', 'zh-CN': '+ 添加付款', 'zh-Hant': '+ 新增付款' },
         'bill.detail.outstandingPrefix': { en: '⚠️ Outstanding balance:', 'zh-CN': '⚠️ 尚欠余额：', 'zh-Hant': '⚠️ 尚欠餘額：' },
         'bill.detail.outstandingSuffix': { en: '— payment(s) still pending.', 'zh-CN': '— 仍有待付款项。', 'zh-Hant': '— 仍有待付款項。' },

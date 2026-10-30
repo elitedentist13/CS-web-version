@@ -240,6 +240,51 @@ var LOYALTY_REPORT = (function () {
     function loadCoupons() {
         return soft(pageAll(function () { return SB.from('discount_coupons').select(COUPON_COLS).order('issued_at', { ascending: true }); }));
     }
+    function loadCouponAudit(from, to) {
+        var table = (typeof AUDIT_TRAIL_TABLE !== 'undefined' && AUDIT_TRAIL_TABLE) ? AUDIT_TRAIL_TABLE : 'audit_trail';
+        var q = Promise.resolve(SB.from(table)
+            .select('created_at,operation,user_name,user_id,clinic_tag,patient_no,changes_detail,record_id')
+            .eq('table_name', 'discount_coupons')
+            .gte('created_at', hkStartUtc(from)).lt('created_at', hkStartUtc(nextDay(to)))
+            .order('created_at', { ascending: false })
+            .limit(80)).then(function (r) {
+            if (r && r.error) return [];
+            return (r && r.data) || [];
+        }, function () { return []; });
+        return Promise.race([
+            q,
+            new Promise(function (resolve) { setTimeout(function () { resolve([]); }, 8000); })
+        ]);
+    }
+
+    /** Coupon log rows for the report (use / pay / void and other tracking). */
+    function trackingLog(audits, opts) {
+        opts = opts || {};
+        function opName(op) {
+            var key = ({
+                USE: 'coupons.log.use', PAY: 'coupons.log.pay', VOID_PAY: 'coupons.log.voidPay',
+                ISSUE: 'coupons.log.issue', GIFT: 'coupons.log.gift', TRANSFER: 'coupons.log.transfer',
+                RESTORE: 'coupons.log.restore', CANCEL: 'coupons.log.cancel'
+            })[op];
+            return key ? tt(key, op) : op;
+        }
+        return (audits || []).filter(function (a) {
+            return inRange(hkDay(a.created_at), opts.from, opts.to) &&
+                clinicOk(a.clinic_tag, opts.clinic);
+        }).map(function (a) {
+            var op = String(a.operation || '').toUpperCase();
+            return {
+                at: String(a.created_at || '').replace('T', ' ').slice(0, 19),
+                op: op,
+                action: opName(op),
+                who: a.user_name || a.user_id || '',
+                clinic: a.clinic_tag || '',
+                chart: a.patient_no || '',
+                note: a.changes_detail || ''
+            };
+        }).slice(0, 80);
+    }
+
     function loadRedeemLedger(from, to) {
         return soft(pageAll(function () {
             return SB.from('reward_ledger').select('id,kind,points,bill_id,created_at,clinic_code')
@@ -289,7 +334,8 @@ var LOYALTY_REPORT = (function () {
             soft(pageAll(function () { return SB.from('discount_coupon_referrals').select('id,referred_patient_id,referrer_patient_id,reward_kind,points,status,coupon_id,clinic_code,created_at').order('created_at'); })),
             loadRedeemLedger(from, to),
             policyP,
-            schemeP
+            schemeP,
+            loadCouponAudit(from, to)
         ]).then(function (res) {
             var refs = res[2];
             var friends = {};
@@ -304,7 +350,7 @@ var LOYALTY_REPORT = (function () {
                 ids.length && opts.fetchBills ? opts.fetchBills(ids) : []
             ]).then(function (more) {
                 return Promise.resolve(opts.filterBills ? opts.filterBills(more[1] || [], from, to) : more[1]).then(function (bills) {
-                    return { coupons: res[0], accounts: res[1], referrals: refs, ledger: res[3], policy: res[4], friendBills: more[0], bills: bills || [] };
+                    return { coupons: res[0], accounts: res[1], referrals: refs, ledger: res[3], policy: res[4], friendBills: more[0], bills: bills || [], audits: res[6] || [] };
                 });
             });
         });
@@ -318,7 +364,8 @@ var LOYALTY_REPORT = (function () {
             outstanding: outstanding(data.coupons, data.accounts, base),
             campaigns: campaigns(data.coupons, Object.assign({ label: label }, base)),
             referrals: referrals(data.referrals, data.friendBills, data.coupons, base),
-            bills: perBill(data.coupons, data.ledger, data.bills, base)
+            bills: perBill(data.coupons, data.ledger, data.bills, base),
+            log: trackingLog(data.audits, base)
         };
     }
 
@@ -386,6 +433,16 @@ var LOYALTY_REPORT = (function () {
                 { key: 'points', label: tt('loyaltyReport.col.pointsUsed', 'Points'), num: true, money: true },
                 { key: 'paid', label: tt('loyaltyReport.col.paidIncome', 'Paid (income)'), num: true, money: true },
                 { key: 'balance', label: tt('loyaltyReport.col.balance', 'Balance'), num: true, money: true }
+            ];
+        },
+        log: function () {
+            return [
+                { key: 'at', label: tt('loyaltyReport.col.when', 'When') },
+                { key: 'action', label: tt('loyaltyReport.col.action', 'Action') },
+                { key: 'who', label: tt('loyaltyReport.col.who', 'By') },
+                { key: 'clinic', label: tt('loyaltyReport.col.clinic', 'Clinic') },
+                { key: 'chart', label: tt('loyaltyReport.col.chart', 'Chart no.') },
+                { key: 'note', label: tt('loyaltyReport.col.detail', 'Detail') }
             ];
         }
     };
@@ -596,6 +653,9 @@ var LOYALTY_REPORT = (function () {
             section('bills', tt('loyaltyReport.bills', 'Coupons and points used on bills'),
                 tt('loyaltyReport.billsHint', 'Before coupons = coupons + points + paid (income) + balance. Coupons and points are not income.'),
                 table(COLS.bills(), bills, billFoot)) +
+            section('log', tt('loyaltyReport.log', 'Coupon tracking log'),
+                tt('loyaltyReport.logHint', 'Use, payment and void lines for tracking. These are not income. The full list is also on Configuration → Coupon log.'),
+                table(COLS.log(), model.log || [])) +
             '</div>';
     }
 
@@ -613,6 +673,7 @@ var LOYALTY_REPORT = (function () {
         add('campaigns', model.campaigns, COLS.campaigns());
         add('referrals', model.referrals, COLS.referrals());
         add('bills', model.bills.rows, COLS.bills());
+        add('log', model.log || [], COLS.log());
         var keys = {};
         rows.forEach(function (r) { Object.keys(r).forEach(function (k) { keys[k] = 1; }); });
         return rows.map(function (r) {
@@ -636,6 +697,7 @@ var LOYALTY_REPORT = (function () {
         campaigns: campaigns,
         referrals: referrals,
         perBill: perBill,
+        trackingLog: trackingLog,
         build: build,
         html: html,
         csvRows: csvRows,

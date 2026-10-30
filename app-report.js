@@ -181,6 +181,7 @@ var REPORT = (function () {
       (s.indexOf('transferred') >= 0 && s.indexOf('settled') >= 0)) return true;
     if (s === 'reward points' || s === 'reward point' ||
       (s.indexOf('reward') >= 0 && s.indexOf('point') >= 0)) return true;
+    if (s === 'discount coupon' || (s.indexOf('discount') >= 0 && s.indexOf('coupon') >= 0)) return true;
     return false;
   }
 

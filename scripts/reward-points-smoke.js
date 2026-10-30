@@ -1185,6 +1185,7 @@ function fakeBillSb(tables, rpcLog) {
             });
             pass('nonIncome Reward points', fn('Reward points') === true);
             pass('nonIncome Balance transfer', fn('Balance transfer') === true);
+            pass('nonIncome Discount coupon', fn('Discount coupon') === true);
             pass('income Cash', fn('Cash') === false);
         }
     } catch (e) {

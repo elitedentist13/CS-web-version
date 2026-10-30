@@ -436,6 +436,7 @@ function dispPayMethod(raw, noCfgLookup) {
         'balance transfer': 'bill.pay.balanceTransfer',
         'reward points': 'bill.pay.rewardPoints',
         'reward point': 'bill.pay.rewardPoints',
+        'discount coupon': 'bill.pay.discountCoupon',
         'insurance': 'bill.pay.insurance',
         'waived': 'bill.pay.waived',
         'other': 'bill.pay.other',

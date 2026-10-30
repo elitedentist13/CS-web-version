@@ -21666,14 +21666,17 @@ function saveBill(doPrint) {
                     (typeof REWARDS !== 'undefined' && typeof REWARDS.isRewardPayMethod === 'function' &&
                         REWARDS.isRewardPayMethod(payload.bill_type));
                 if (earnPatientId && typeof COUPONS !== 'undefined' && typeof COUPONS.onBillPayment === 'function') {
-                    COUPONS.onBillPayment({
-                        patientId: earnPatientId,
-                        billId: savedBillId,
-                        cashAmount: nonCashPay ? 0 : paid,
-                        balanceAfter: bal,
-                        clinicCode: payRecord.clinic_code || payRecord.clinic_tag || '',
-                        method: payload.bill_type
-                    });
+                COUPONS.onBillPayment({
+                    patientId: earnPatientId,
+                    billId: savedBillId,
+                    cashAmount: nonCashPay ? 0 : paid,
+                    balanceAfter: bal,
+                    clinicCode: payRecord.clinic_code || payRecord.clinic_tag || '',
+                    method: payload.bill_type,
+                    amount: paid,
+                    couponAmount: payload.coupon_amount,
+                    patientNo: payload.patient_no || ''
+                });
                 }
                 if (bal <= 0.005 && earnPatientId && typeof COUPONS !== 'undefined' &&
                         typeof COUPONS.onBillFullyPaid === 'function') {
@@ -23630,9 +23633,14 @@ function billPaymentIsVoid(p) {
     return !!(p && p.voided_at);
 }
 
+function billPaymentIsCouponRow(p) {
+    return typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.isCouponHistoryRow === 'function'
+        ? COUPONS.isCouponHistoryRow(p) : !!(p && p._couponRecord);
+}
+
 function billPaymentActiveAmountSum(rows) {
     return (rows || []).reduce(function(sum, x) {
-        if (billPaymentIsVoid(x)) return sum;
+        if (billPaymentIsVoid(x) || billPaymentIsCouponRow(x)) return sum;
         return sum + (parseFloat(x.amount) || 0);
     }, 0);
 }
@@ -23647,7 +23655,7 @@ function billPendingMethodForHeader() {
 }
 
 function billCurrentPaymentMethodFromRows(bill, rows) {
-    var active = billPaymentsActiveOnly(rows || []);
+    var active = billPaymentsActiveOnly(rows || []).filter(function (x) { return !billPaymentIsCouponRow(x); });
     if (active.length) {
         return active[active.length - 1].method || (bill && bill.bill_type) || billPendingMethodForHeader();
     }
@@ -23760,7 +23768,11 @@ function mergeBillPaymentHistoryWithBill(bill, rows) {
 }
 
 function normalizeReceiptPayments(bill, payments) {
-    return mergeBillPaymentHistoryWithBill(bill, billPaymentsActiveOnly(payments || []));
+    var rows = mergeBillPaymentHistoryWithBill(bill, billPaymentsActiveOnly(payments || []));
+    if (typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.mergeCouponHistory === 'function') {
+        rows = COUPONS.mergeCouponHistory(bill, rows);
+    }
+    return rows;
 }
 
 function appendBillPaymentHistoryRow(tbody, p, rowIndex, bill) {
@@ -23793,7 +23805,9 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex, bill) {
     var dateTdClass = voided ? ' bill-pay-void-date-col' : '';
     var clinicLabel = billPaymentReceivingClinicDisplay(p, bill);
     var isXfer = !voided && isBalanceTransferPayMethod(p.method);
+    var isCoupon = !voided && billPaymentIsCouponRow(p);
     if (isXfer) row.classList.add('bill-pay-row--transfer');
+    if (isCoupon) row.classList.add('bill-pay-row--coupon');
     var methodHtml = esc((typeof dispPayMethod === 'function')
         ? dispPayMethod(p.method)
         : (p.method || '—'));
@@ -23801,6 +23815,12 @@ function appendBillPaymentHistoryRow(tbody, p, rowIndex, bill) {
         methodHtml =
             '<span class="bill-pay-transfer-badge">' +
             esc(tr('bill.transfer.badge', 'Balance transfer')) + '</span> ' +
+            methodHtml;
+    }
+    if (isCoupon) {
+        methodHtml =
+            '<span class="bill-pay-coupon-badge">' +
+            esc(tr('bill.detail.couponBadge', 'Coupon')) + '</span> ' +
             methodHtml;
     }
     var notesHtml = esc(p.notes || '');
@@ -23857,6 +23877,9 @@ function loadBillPayments(billId) {
         var billForRows = (bdCurrentBill && bdCurrentBill.id === billId) ? bdCurrentBill : null;
         if (billForRows) {
             rows = mergeBillPaymentHistoryWithBill(billForRows, rows);
+            if (typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.mergeCouponHistory === 'function') {
+                rows = COUPONS.mergeCouponHistory(billForRows, rows);
+            }
             var currentMethod = billCurrentPaymentMethodFromRows(billForRows, rows);
             billForRows.bill_type = currentMethod;
             refreshBillDetailPaymentMethod(currentMethod);
@@ -24169,7 +24192,10 @@ function executeAddPaymentSave(ctx) {
                     cashAmount: ctx.isBalanceTransfer ? 0 : cashAmount,
                     balanceAfter: newBalance,
                     clinicCode: clinicCode,
-                    method: payMethod
+                    method: payMethod,
+                    amount: (parseFloat(cashAmount) || 0) + (parseFloat(rewardPts) || 0),
+                    couponAmount: bdCurrentBill && bdCurrentBill.coupon_amount,
+                    patientNo: (bdCurrentBill && bdCurrentBill.patient_no) || ''
                 });
             }
             if (newBalance <= 0.005 && typeof COUPONS !== 'undefined' &&
@@ -24576,7 +24602,14 @@ function voidPaymentRecord(p) {
         .then(function(u) {
             if (u.error) return;
             if (typeof COUPONS !== 'undefined' && typeof COUPONS.onPaymentVoided === 'function') {
-                COUPONS.onPaymentVoided({ billId: p.bill_id, balanceAfter: newBalance }).catch(function (e) {
+                COUPONS.onPaymentVoided({
+                    billId: p.bill_id,
+                    balanceAfter: newBalance,
+                    amount: p.amount,
+                    method: p.method,
+                    couponAmount: bdCurrentBill && bdCurrentBill.coupon_amount,
+                    patientNo: (bdCurrentBill && bdCurrentBill.patient_no) || ''
+                }).catch(function (e) {
                     console.warn('Coupon take-back on payment void failed:', e && e.message ? e.message : e);
                 });
             }

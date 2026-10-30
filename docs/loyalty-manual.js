@@ -255,8 +255,8 @@
                     ] },
                     { t: 'Coupon log', list: [
                         'Pick the dates (from → to) and an optional <b>Chart no.</b>, then press <b>Show</b>. The chips filter by action; <b>Export CSV</b> downloads the list.',
-                        'It lists every coupon issued, gifted, transferred, given back on a void, or cancelled. Gifts show the login that gave them. ' +
-                            'For clinic-wide unused value, issued vs used, and points per bill, open <b>Reports → Coupons &amp; points</b> (mini-calendar on the panel).'
+                        'It lists every coupon issued, gifted, transferred, used on a bill, plus each payment and payment void. Gifts show the login that gave them. ' +
+                            'For clinic-wide unused value, issued vs used, points per bill, and the tracking log, open <b>Reports → Coupons &amp; points</b> (mini-calendar on the panel).'
                     ] }
                 ],
                 recap: 'Coupon rules in short',
@@ -538,8 +538,8 @@
                     ] },
                     { t: '優惠券記錄', list: [
                         '選擇日期（由 → 至）及可選的<b>病歷號</b>，按<b>顯示</b>。可用標籤按動作篩選；<b>匯出 CSV</b> 下載清單。',
-                        '列出每張券的發出、贈送、轉移、作廢退回或取消。贈送會顯示經手的登入帳戶。' +
-                            '要看全診所未用面值、發出對使用及每張賬單的積分，請打開<b>報告 → 優惠券及積分</b>（面板上有迷你日曆）。'
+                        '列出每張券的發出、贈送、轉移、在賬單使用，以及每筆付款與作廢付款。贈送會顯示經手的登入帳戶。' +
+                            '要看全診所未用面值、發出對使用、每張賬單的積分及追蹤記錄，請打開<b>報告 → 優惠券及積分</b>（面板上有迷你日曆）。'
                     ] }
                 ],
                 recap: '優惠券規則摘要',
@@ -820,8 +820,8 @@
                     ] },
                     { t: '优惠券记录', list: [
                         '选择日期（由 → 至）及可选的<b>病历号</b>，点<b>显示</b>。可用标签按动作筛选；<b>导出 CSV</b> 下载清单。',
-                        '列出每张券的发出、赠送、转移、作废退回或取消。赠送会显示经手的登录账户。' +
-                            '要看全诊所未用面值、发出对使用及每张账单的积分，请打开<b>报告 → 优惠券及积分</b>（面板上有迷你日历）。'
+                        '列出每张券的发出、赠送、转移、在账单使用，以及每笔付款与作废付款。赠送会显示经手的登录账户。' +
+                            '要看全诊所未用面值、发出对使用、每张账单的积分及追踪记录，请打开<b>报告 → 优惠券及积分</b>（面板上有迷你日历）。'
                     ] }
                 ],
                 recap: '优惠券规则摘要',

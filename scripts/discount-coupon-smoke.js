@@ -271,6 +271,40 @@ function loadCoupons() {
     pass('wallet tab: live coupons soonest expiry first', wl.live.map(function (c) { return c.id; }).join(',') === 'b,a');
     pass('wallet tab: history newest first with used / cancelled / expired', wl.history.map(function (h) { return h.coupon.id + ':' + h.state; }).join(',') ===
         'd:used,e:void,c:expired', JSON.stringify(wl.history.map(function (h) { return [h.coupon.id, h.state, h.at]; })));
+    var ALL_CAMP_KEYS = ['cash', 'spend_1', 'spend_2', 'spend_3', 'spend_4', 'spend_5', 'new_chart', 'referral',
+        'free_scaling', 'free_filling', 'free_extraction', 'implant', 'ortho', 'crown_bridge', 'root_canal', 'whitening'];
+    var allWallet = ALL_CAMP_KEYS.map(function (k, i) {
+        var mode = /free_/.test(k) ? 'free_line' : (k === 'ortho' ? 'percent' : 'amount');
+        return {
+            id: 't' + i, status: 'used', campaign_key: k, discount_mode: mode,
+            face_value: mode === 'amount' ? 100 : 0, percent: mode === 'percent' ? 10 : 0,
+            redeemed_amount: 80, redeemed_at: '2026-10-20T0' + (i % 9) + ':00:00Z',
+            issued_at: '2026-09-01T00:00:00Z', code: 'DC-' + k
+        };
+    });
+    var allHist = C.walletLedgerRows(allWallet, '2026-10-28');
+    pass('ledger coupon history includes every campaign type (cash, spend, new chart, referral, free and discount treatment)',
+        allHist.live.length === 0 && allHist.history.length === ALL_CAMP_KEYS.length &&
+        ALL_CAMP_KEYS.every(function (k) { return allHist.history.some(function (h) { return h.coupon.campaign_key === k; }); }));
+    var allNames = ALL_CAMP_KEYS.map(function (k) { return C.campLabel({ campaign_key: k }); });
+    pass('every campaign type has a human name, not the raw key',
+        ALL_CAMP_KEYS.every(function (k, i) { return allNames[i] && allNames[i] !== k && !/^spend_\d$/.test(allNames[i]); }),
+        ALL_CAMP_KEYS.map(function (k, i) { return k + '=' + allNames[i]; }).join(', '));
+    var allKinds = ALL_CAMP_KEYS.map(function (k, i) { return C.kindOf(allWallet[i]); });
+    pass('ledger kinds cover cash, spend, welcome, referral, free treatment and treatment discount',
+        allKinds.indexOf('cash') >= 0 && allKinds.indexOf('spend') >= 0 && allKinds.indexOf('welcome') >= 0 &&
+        allKinds.indexOf('referral') >= 0 && allKinds.indexOf('free') >= 0 && allKinds.indexOf('treat') >= 0,
+        allKinds.join(','));
+    var allLog = C.buildCouponLog(allWallet, [], {});
+    pass('coupon log lists every campaign type with its kind',
+        ALL_CAMP_KEYS.every(function (k) {
+            return allLog.some(function (r) { return r.code === 'DC-' + k && r.coupon; });
+        }) && /Free treatment/.test(allLog.filter(function (r) { return r.code === 'DC-free_scaling'; })[0].coupon) &&
+        /Referral/.test(allLog.filter(function (r) { return r.code === 'DC-referral'; })[0].coupon) &&
+        /Welcome/.test(allLog.filter(function (r) { return r.code === 'DC-new_chart'; })[0].coupon),
+        JSON.stringify(allLog.map(function (r) { return r.code + ':' + r.coupon; })));
+    pass('ledger history table paints a kind badge for each row',
+        /dc-wl-kind/.test(src) && /kindLabel\(kind\)/.test(src));
     var wlSrc = src.slice(src.indexOf('function renderWalletPane'), src.indexOf('function loadWallet('));
     pass('wallet tab: Wallet / Gift / Transfer like the Choose sheet, but no Use / Apply (not tied to a bill)',
         /function renderWalletPane\(el, patientId, opts\)/.test(src) && /\['wallet', ct\('coupons\.tab\.wallet', 'Wallet'\)/.test(wlSrc) &&
@@ -811,8 +845,8 @@ function loadCoupons() {
         src.slice(src.indexOf('function onBillFullyPaid'), src.indexOf('function onBillFullyPaid') + 1700).indexOf('referralOnBillPaid(') < 0);
     var apptRef = read('app-appt.js');
     pass('bill create + pay and add payment both call onBillPayment before the fully-paid check',
-        /insertBillPaymentRecord\(payRecord, function\(pr\)[\s\S]{0,1400}COUPONS\.onBillPayment\(\{[\s\S]{0,300}cashAmount: nonCashPay \? 0 : paid[\s\S]{0,500}COUPONS\.onBillFullyPaid\(/.test(apptRef) &&
-        /function finishBillUpdate[\s\S]{0,1600}COUPONS\.onBillPayment\(\{[\s\S]{0,200}cashAmount: ctx\.isBalanceTransfer \? 0 : cashAmount[\s\S]{0,400}COUPONS\.onBillFullyPaid\(/.test(apptRef));
+        /insertBillPaymentRecord\(payRecord, function\(pr\)[\s\S]{0,1400}COUPONS\.onBillPayment\(\{[\s\S]{0,300}cashAmount: nonCashPay \? 0 : paid[\s\S]{0,700}COUPONS\.onBillFullyPaid\(/.test(apptRef) &&
+        /function finishBillUpdate[\s\S]{0,1600}COUPONS\.onBillPayment\(\{[\s\S]{0,200}cashAmount: ctx\.isBalanceTransfer \? 0 : cashAmount[\s\S]{0,600}COUPONS\.onBillFullyPaid\(/.test(apptRef));
     pass('both patient forms use the referrer picker', /id="referredBy" data-ref-picker/.test(html) && /id="edit_referredBy" data-ref-picker/.test(html) &&
         /id="referredById" class="dc-ref-id"/.test(html) && /id="edit_referredById" class="dc-ref-id"/.test(html));
     var refSql = read('discount_coupon_referrals.sql');
@@ -1409,12 +1443,13 @@ function loadCoupons() {
     var pvLogs = pvWrites.filter(function (w) { return w.insert && w.t !== 'discount_coupons'; });
     pass('payment void cancels only the unused earned coupon in the database', pvRes.ok && pvVoided.length === 1 &&
         pvVoided[0].f.id === 'p1' && pvVoided[0].f.status === 'unused', JSON.stringify(pvWrites.map(function (w) { return w.t + ':' + (w.update ? 'upd' : 'ins'); })));
-    pass('payment void writes the coupon log', pvLogs.length === 2 && pvLogs.every(function (w) { return w.insert[0].operation === 'CANCEL'; }));
+    pass('payment void writes the coupon log', pvLogs.filter(function (w) { return w.insert[0].operation === 'VOID_PAY'; }).length === 1 &&
+        pvLogs.filter(function (w) { return w.insert[0].operation === 'CANCEL'; }).length === 2, JSON.stringify(pvLogs.map(function (w) { return w.insert[0].operation; })));
     var pvSkip = await pvCtx.COUPONS.onPaymentVoided({ billId: 'bill-3', balanceAfter: 0 });
     pass('payment void on a still-paid bill does nothing', pvSkip.ok && pvSkip.skipped === true);
     var apptSrc0 = read('app-appt.js');
     pass('payment void is wired after the new balance is saved',
-        /function voidPaymentRecord[\s\S]{0,4000}COUPONS\.onPaymentVoided\(\{ billId: p\.bill_id, balanceAfter: newBalance \}\)/.test(apptSrc0));
+        /function voidPaymentRecord[\s\S]{0,4200}COUPONS\.onPaymentVoided\(\{[\s\S]{0,200}billId: p\.bill_id,[\s\S]{0,80}balanceAfter: newBalance/.test(apptSrc0));
     pass('deleting an unpaid bill gives its coupons back first',
         /function deleteUnpaidBillForPendingList[\s\S]{0,1200}COUPONS\.onBillVoided\([\s\S]{0,300}couponP\.then\(function \(\) \{ return SB\.from\('bills'\)\.delete\(\)/.test(apptSrc0));
     function giftCamp(key, extra) {
@@ -1675,6 +1710,7 @@ function loadCoupons() {
         { amount: 400, method: 'Visa' },
         { amount: 300, method: 'Reward points' },
         { amount: 200, method: 'Balance transfer' },
+        { amount: 560, method: 'Discount coupon' },
         { amount: 100, method: 'Cash', voided_at: '2026-10-26T01:00:00Z' }
     ]) === 900);
     var held = C.planTargetSpend({
@@ -1696,9 +1732,27 @@ function loadCoupons() {
     pass('coupon log merges issue, gift and transfer', log.length === 3 && log[0].op === 'TRANSFER' &&
         log.some(function (r) { return r.op === 'GIFT' && r.who === 'Nurse A' && r.chart === 'T1'; }) &&
         log.some(function (r) { return r.op === 'ISSUE'; }), JSON.stringify(log.map(function (r) { return r.op; })));
+    var hist = C.mergeCouponHistory({ id: 'b1', coupon_amount: 560, coupon_label: 'Free scaling', bill_date: '2026-10-21', clinic_tag: 'KT' },
+        [{ id: 'p1', amount: 800, method: 'Cash' }]);
+    pass('payment history shows a display-only coupon row plus cash', hist.length === 2 && hist[0]._couponRecord &&
+        hist[0].amount === 560 && hist[0].method === 'Discount coupon' && hist[0].id == null &&
+        C.isCouponHistoryRow(hist[0]) && !C.isCouponHistoryRow(hist[1]) &&
+        C.mergeCouponHistory({ coupon_amount: 0 }, [{ id: 'p1', amount: 10, method: 'Cash' }]).length === 1, JSON.stringify(hist[0]));
+    pass('coupon history row is not income and names the coupons', hist[0].notes === 'Free scaling' && hist[0]._fromBillRecord === true);
+    pass('payment track text includes coupon on the bill',
+        C.paymentTrackDetail('PAY', { amount: 800, method: 'Cash', billId: 'aaaaaaaa-bbbb', couponAmount: 560 }) ===
+            'Paid HK$800.00 Cash on bill aaaaaaaa · coupon on bill HK$560.00' &&
+        C.paymentTrackDetail('VOID_PAY', { amount: 200, method: 'Visa', billId: 'b' }) ===
+            'Voided HK$200.00 Visa on bill b · no coupon');
+    pass('apply / clear / pay / void write USE RESTORE PAY VOID_PAY',
+        /logCoupon\('USE'/.test(src) && /logCoupon\('RESTORE'/.test(src) &&
+        /logBillTrack\('PAY'/.test(src) && /logBillTrack\('VOID_PAY'/.test(src));
     pass('spend issue re-sums bill payments', src.indexOf('billCashPaid(') >= 0 && src.indexOf("from('bill_payments')") >= 0);
     pass('spend issue shows a notice', src.indexOf('couponNotice(') >= 0);
     var apptSrc = read('app-appt.js');
+    pass('bill payment history merges the coupon row',
+        /COUPONS\.mergeCouponHistory\(billForRows, rows\)/.test(apptSrc) &&
+        /billPaymentIsCouponRow/.test(apptSrc));
     pass('checkout (bill create + pay) issues spend coupons',
         /insertBillPaymentRecord\(payRecord, function\(pr\)[\s\S]{0,2200}COUPONS\.onBillFullyPaid\(/.test(apptSrc));
     pass('checkout passes 0 cash for reward / balance-transfer payments', /cashAmount: nonCashPay \? 0 : paid/.test(apptSrc));
@@ -2186,9 +2240,16 @@ function loadCoupons() {
     pass('per bill: a voided bill drops out', LR.perBill(lyrCoupons, [], [{ id: 'B1', total: 875, voided_at: '2026-10-22' }], {}).rows.length === 0);
     var lyrModel = { outstanding: lyrOut, campaigns: lyrCamp, referrals: lyrRef, bills: lyrBill };
     var lyrHtml = LR.html(lyrModel, { from: '2026-10-01', to: '2026-10-30', today: '2026-10-30', viewMonth: '2026-10' });
-    pass('report page: four sections, totals row, money right-aligned, text escaped',
-        (lyrHtml.match(/class="lyr-sec"/g) || []).length === 4 && /<tfoot>/.test(lyrHtml) && /class="lyr-num">HK\$405\.50</.test(lyrHtml) &&
+    pass('report page: five sections, totals row, money right-aligned, text escaped',
+        (lyrHtml.match(/class="lyr-sec"/g) || []).length === 5 && /<tfoot>/.test(lyrHtml) && /class="lyr-num">HK\$405\.50</.test(lyrHtml) &&
         LR.html({ outstanding: { rows: [], total: {} }, campaigns: [{ name: '<b>x', issued: 1 }], referrals: [], bills: { rows: [] } }).indexOf('&lt;b&gt;x') >= 0);
+    var lyrTrack = LR.trackingLog([
+        { created_at: '2026-10-21T04:00:00Z', operation: 'USE', user_name: 'Amy', clinic_tag: 'KT', patient_no: '001003', changes_detail: 'Used on bill abc' },
+        { created_at: '2026-10-21T05:00:00Z', operation: 'PAY', user_name: 'Amy', clinic_tag: 'KT', patient_no: '001003', changes_detail: 'Paid HK$800' },
+        { created_at: '2026-08-01T01:00:00Z', operation: 'PAY', user_name: 'Amy', clinic_tag: 'KT', patient_no: '001003', changes_detail: 'old' }
+    ], { from: '2026-10-01', to: '2026-10-31' });
+    pass('loyalty tracking log keeps use and pay in the date range', lyrTrack.length === 2 && lyrTrack[0].op === 'USE' && lyrTrack[1].op === 'PAY',
+        JSON.stringify(lyrTrack));
     var lyrCal = LR.calHtml({ from: '2026-10-01', to: '2026-10-15', today: '2026-10-30', viewMonth: '2026-10' });
     pass('loyalty report mini-calendar sits on the content panel with the selected range marked',
         /class="lyr-cal"/.test(lyrHtml) && /data-lyr-day="2026-10-01"/.test(lyrCal) &&
@@ -2764,7 +2825,13 @@ function loadCoupons() {
         var exIssue = await cdp.js(`(async function () {
   var calls = [];
   var realSB = SB;
-  var spy = { from: function (t) { calls.push(t); return realSB.from(t); }, rpc: function (f) { calls.push('rpc:' + f); return Promise.resolve({ data: null, error: null }); } };
+  var spy = { from: function (t) {
+    calls.push(t);
+    if (t === 'audit_trail') {
+      return { insert: function () { return Promise.resolve({ data: [], error: null }); } };
+    }
+    return realSB.from(t);
+  }, rpc: function (f) { calls.push('rpc:' + f); return Promise.resolve({ data: null, error: null }); } };
   SB = spy;
   try {
     var full = await COUPONS.onBillFullyPaid({ patientId: 'smoke-none', billId: 'smoke-none', cashAmount: 5000, clinicCode: 'KT', method: 'PDCC' });
@@ -2772,8 +2839,9 @@ function loadCoupons() {
     return { full: full, part: part, calls: calls };
   } finally { SB = realSB; }
 })()`, true, 15000);
-        pass('CDP PDCC fully-paid bill issues no spend coupon (no database call)', exIssue && exIssue.full && exIssue.full.reason === 'excluded_method' &&
-            exIssue.calls.length === 0, exIssue && JSON.stringify(exIssue));
+        pass('CDP PDCC fully-paid bill issues no spend coupon', exIssue && exIssue.full && exIssue.full.reason === 'excluded_method' &&
+            !(exIssue.calls || []).some(function (c) { return c === 'discount_coupons' || String(c).indexOf('rpc:') === 0; }),
+            exIssue && JSON.stringify(exIssue));
         pass('CDP Government payment gives no referral credit', exIssue && exIssue.part && exIssue.part.reason === 'excluded_method');
         pass('CDP checkout hint: $1200 cash earns $1000→$100 and shows $3800 to the next',
             hint && hint.ok && hint.cash.hidden === false && /Spend \$1000 get \$100/.test(hint.cash.text) &&
@@ -3217,8 +3285,8 @@ function loadCoupons() {
   } catch (e) { out.err = String(e && e.message || e); }
   return out;
 })()`, true, 120000);
-        pass('live Reports → Coupons & points opens: 4 sections, year-to-date, no chart',
-            !!(lyrLive && lyrLive.ok && lyrLive.sections === 4 && lyrLive.chartHidden && /-01-01$/.test(lyrLive.from)), JSON.stringify(lyrLive));
+        pass('live Reports → Coupons & points opens: 5 sections, year-to-date, no chart',
+            !!(lyrLive && lyrLive.ok && lyrLive.sections === 5 && lyrLive.chartHidden && /-01-01$/.test(lyrLive.from)), JSON.stringify(lyrLive));
         pass('live loyalty mini-calendar is on the panel and Year to date is selected',
             !!(lyrLive && lyrLive.hasCal && lyrLive.calDays >= 28 && lyrLive.ytdOn),
             lyrLive && (lyrLive.calDays + ' days, ytd=' + lyrLive.ytdOn));

@@ -152,20 +152,33 @@ var COUPONS = (function () {
         return 'en';
     }
     /** Coupon name in the dashboard language (SMS and stored labels keep nameZh). */
+    function campaignDefByKey(key) {
+        for (var i = 0; i < CAMPAIGN_DEFS.length; i++) {
+            if (CAMPAIGN_DEFS[i].key === key) return CAMPAIGN_DEFS[i];
+        }
+        return null;
+    }
+
     function campLabel(c) {
         if (!c) return '';
         var key = c.trigger ? c.key : (c.campaign_key || c.key);
-        var camp = c.trigger ? c : (campaignByKey(key) || c);
+        var camp = (c.trigger ? c : campaignByKey(key)) || c;
+        var def = campaignDefByKey(key);
         var L = uiLang();
-        if (camp.trigger === 'target_spend' && (parseFloat(camp.target) || 0) > 0 && (parseFloat(camp.face) || 0) > 0) {
-            var t = round2(camp.target);
-            var f = round2(camp.face);
+        var trigger = camp.trigger || (def && def.trigger);
+        var target = parseFloat(camp.target != null ? camp.target : (def && def.target)) || 0;
+        var face = parseFloat(camp.face != null ? camp.face : (camp.face_value != null ? camp.face_value : (def && def.face))) || 0;
+        if (trigger === 'target_spend' && target > 0 && face > 0) {
+            var t = round2(target);
+            var f = round2(face);
             if (L === 'en') return 'Spend $' + t + ' get $' + f;
             return (L === 'zh-CN' ? '满$' : '滿$') + t + '送$' + f;
         }
         var s = ct('coupons.camp.' + key, '');
         if (s) return s;
-        return L === 'en' ? (camp.name || camp.nameZh || key || '') : (camp.nameZh || camp.name || key || '');
+        return L === 'en'
+            ? (camp.name || (def && def.name) || camp.nameZh || (def && def.nameZh) || key || '')
+            : (camp.nameZh || (def && def.nameZh) || camp.name || (def && def.name) || key || '');
     }
 
     function blankCampaign(def) {
@@ -2177,7 +2190,7 @@ var COUPONS = (function () {
         var from = new Date(today.getTime() - 30 * 86400000);
         html += '<div class="dc-card" id="dcLogCard"><div class="dc-card-title">' + esc(ct('coupons.log.title', 'Coupon log')) + '</div>' +
             '<p class="dc-hint">' + esc(ct('coupons.log.hint',
-                'Every coupon issued, gifted, transferred, given back on a void, or cancelled. Gifts show the login that gave them.')) + '</p>' +
+                'Every coupon issued, gifted, transferred, used on a bill, plus each payment and payment void. Gifts show the login that gave them.')) + '</p>' +
             '<div class="dc-log-filter">' +
             '<input type="date" id="dcLogFrom" value="' + from.toISOString().slice(0, 10) + '">' +
             '<span>→</span>' +
@@ -2214,8 +2227,8 @@ var COUPONS = (function () {
     function couponAmountText(c) {
         var camp = campaignByKey(c && c.campaign_key) || {};
         var mode = (c && c.discount_mode) || camp.mode;
-        if (mode === 'free_line') return '';
-        if (mode === 'percent') return round2(parseFloat(c.percent) || 0) + '%';
+        if (mode === 'free_line') return ct('coupons.face.free', 'FREE');
+        if (mode === 'percent') return round2(parseFloat(c && c.percent) || camp.percent || 0) + '%';
         return 'HK$' + round2(c && c.face_value).toFixed(2);
     }
 
@@ -2244,7 +2257,7 @@ var COUPONS = (function () {
                 who: (grant && (grant.user_name || grant.user_id)) || c.issued_by || (gifted ? '' : ct('coupons.log.auto', 'Automatic')),
                 clinic: c.clinic_code || (grant && grant.clinic_tag) || '',
                 chart: (grant && grant.patient_no) || p.patient_no || '',
-                coupon: campLabel(camp.key ? camp : c),
+                coupon: [kindLabel(kindOf(c)), campLabel(camp.key ? camp : c)].filter(Boolean).join(' · '),
                 amount: couponAmountText(c),
                 code: c.code || '',
                 status: c.status || '',
@@ -2262,7 +2275,7 @@ var COUPONS = (function () {
                 who: a.user_name || a.user_id || '',
                 clinic: a.clinic_tag || '',
                 chart: a.patient_no || '',
-                coupon: c ? campLabel(camp.key ? camp : c) : '',
+                coupon: c ? [kindLabel(kindOf(c)), campLabel(camp.key ? camp : c)].filter(Boolean).join(' · ') : '',
                 amount: c ? couponAmountText(c) : '',
                 code: c ? (c.code || '') : '',
                 status: '',
@@ -2336,16 +2349,74 @@ var COUPONS = (function () {
 
     var _logRows = [];
     var _logFilter = 'all';
-    var LOG_OPS = ['ISSUE', 'GIFT', 'TRANSFER', 'RESTORE', 'CANCEL'];
+    var LOG_OPS = ['ISSUE', 'GIFT', 'TRANSFER', 'USE', 'PAY', 'VOID_PAY', 'RESTORE', 'CANCEL'];
+    var COUPON_PAY_METHOD = 'Discount coupon';
 
     function logOpNames() {
         return {
-            GIFT: ct('coupons.log.gift', '贈送 Gift'),
-            ISSUE: ct('coupons.log.issue', '發出 Issue'),
-            TRANSFER: ct('coupons.log.transfer', '轉讓 Transfer'),
-            RESTORE: ct('coupons.log.restore', '退回 Restore'),
-            CANCEL: ct('coupons.log.cancel', '取消 Cancel')
+            GIFT: ct('coupons.log.gift', 'Gift'),
+            ISSUE: ct('coupons.log.issue', 'Issue'),
+            TRANSFER: ct('coupons.log.transfer', 'Transfer'),
+            USE: ct('coupons.log.use', 'Use'),
+            PAY: ct('coupons.log.pay', 'Payment'),
+            VOID_PAY: ct('coupons.log.voidPay', 'Void payment'),
+            RESTORE: ct('coupons.log.restore', 'Restore'),
+            CANCEL: ct('coupons.log.cancel', 'Cancel')
         };
+    }
+
+    function isCouponHistoryRow(p) {
+        return !!(p && (p._couponRecord || p.method === COUPON_PAY_METHOD));
+    }
+
+    /** Pure: display-only payment-history row. Not a bill_payments record and not income. */
+    function couponHistoryRow(bill) {
+        var amt = round2(bill && bill.coupon_amount);
+        if (amt <= 0.005) return null;
+        var day = String(bill.coupon_redeemed_on || bill.bill_date || todayIso() || '').slice(0, 10);
+        return {
+            id: null,
+            bill_id: bill && bill.id,
+            paid_date: day,
+            amount: amt,
+            method: COUPON_PAY_METHOD,
+            notes: bill.coupon_label || ct('coupons.bill.applied', 'Coupon applied'),
+            received_by: null,
+            clinic_id: bill && (bill.clinic_id || null),
+            clinic_tag: bill && (bill.clinic_tag || null),
+            clinic_code: bill && (bill.clinic_tag || bill.clinic_code || null),
+            _couponRecord: true,
+            _fromBillRecord: true
+        };
+    }
+
+    function mergeCouponHistory(bill, rows) {
+        var list = (rows || []).filter(function (p) { return !isCouponHistoryRow(p); });
+        var extra = couponHistoryRow(bill);
+        if (extra) list.unshift(extra);
+        return list;
+    }
+
+    /** Pure: coupon-log detail for a desk payment or void. */
+    function paymentTrackDetail(op, info) {
+        info = info || {};
+        var amt = round2(parseFloat(info.amount != null ? info.amount : info.cashAmount) || 0);
+        var method = String(info.method || '').trim();
+        var coupon = round2(parseFloat(info.couponAmount) || 0);
+        var billRef = String(info.billId || '').replace(/-/g, '').slice(0, 8);
+        var verb = String(op || '').toUpperCase() === 'VOID_PAY' ? 'Voided' : 'Paid';
+        return verb + ' HK$' + amt.toFixed(2) + (method ? ' ' + method : '') +
+            (billRef ? ' on bill ' + billRef : '') +
+            (coupon > 0.005 ? ' · coupon on bill HK$' + coupon.toFixed(2) : ' · no coupon');
+    }
+
+    function logBillTrack(op, info) {
+        return logCoupon(op, paymentTrackDetail(op, info), (info && info.patientNo) || null, (info && info.billId) || null);
+    }
+
+    function refreshBillPaymentHistory(bill) {
+        if (!bill || !bill.id) return;
+        if (typeof loadBillPayments === 'function') loadBillPayments(bill.id);
     }
 
     function paintLogChips(rows) {
@@ -2742,7 +2813,7 @@ var COUPONS = (function () {
                 info.hidden = true;
                 return null;
             }
-            var usedQ = SB.from('discount_coupons').select('id,campaign_key,redeemed_amount')
+            var usedQ = SB.from('discount_coupons').select('id,campaign_key,redeemed_amount,redeemed_at')
                 .eq('bill_id', bill.id).eq('status', 'used');
             var earnedQ = SB.from('discount_coupons').select('id,campaign_key,face_value,expires_on,issued_at,status')
                 .eq('origin_bill_id', bill.id);
@@ -2756,10 +2827,14 @@ var COUPONS = (function () {
                 var excluded = !!res[2];
                 var earned = applyZeroExpiry((res[1] && res[1].data) || [], res[3])
                     .filter(function (c) { return c.status !== 'void'; });
-                if (used.length && !bill.coupon_label) {
-                    bill.coupon_label = couponLabelFor(used.map(function (c) { return { coupon: c }; }));
-                    var label = document.getElementById('bdCouponLabel');
-                    if (label) label.textContent = bill.coupon_label;
+                if (used.length) {
+                    var earliest = used.map(function (c) { return c.redeemed_at; }).filter(Boolean).sort()[0];
+                    if (earliest) bill.coupon_redeemed_on = String(earliest).slice(0, 10);
+                    if (!bill.coupon_label) {
+                        bill.coupon_label = couponLabelFor(used.map(function (c) { return { coupon: c }; }));
+                        var label = document.getElementById('bdCouponLabel');
+                        if (label) label.textContent = bill.coupon_label;
+                    }
                 }
                 var lines = [];
                 var bar = '';
@@ -2994,12 +3069,14 @@ var COUPONS = (function () {
                     var clinic = bm.clinic || c.clinic_code || '';
                     var note = c.note || (h.state === 'expired' && c.expires_on ? String(c.expires_on).slice(0, 10) : '');
                     var stamp = h.at.replace('T', ' ');
-                    html += '<tr data-state="' + esc(h.state) + '">' +
+                    var kind = kindOf(w);
+                    html += '<tr data-state="' + esc(h.state) + '" data-kind="' + esc(kind) + '">' +
                         '<td class="dc-wl-when"><span class="dc-wl-date">' + esc(stamp.slice(0, 10)) + '</span>' +
                         '<span class="dc-wl-time">' + esc(stamp.slice(11, 16)) + '</span></td>' +
                         '<td>' + (clinic ? '<span class="dc-wl-clinic">' + esc(clinic) + '</span>' : '—') + '</td>' +
                         '<td class="dc-wl-dr" title="' + esc(bm.doctor || '') + '">' + esc(bm.doctor || '—') + '</td>' +
-                        '<td class="dc-wl-coupon">' + esc(campLabel(w)) + (c.code ? '<small class="dc-wl-code">' + esc(c.code) + '</small>' : '') +
+                        '<td class="dc-wl-coupon"><span class="dc-wl-kind" data-kind="' + esc(kind) + '">' + esc(kindLabel(kind)) + '</span> ' +
+                        esc(campLabel(w)) + (c.code ? '<small class="dc-wl-code">' + esc(c.code) + '</small>' : '') +
                         (c.household_no ? '<small class="dc-wl-hh">#' + esc(c.household_no) + '</small>' : '') + '</td>' +
                         '<td class="dc-wl-num dc-wl-val">' + esc(val) + '</td>' +
                         '<td class="dc-wl-state"><span class="dc-wl-badge">' + esc(walletStateLabel(h.state)) + '</span></td>' +
@@ -4279,6 +4356,8 @@ var COUPONS = (function () {
             id: c.id,
             code: c.code,
             campaign_key: c.campaign_key,
+            key: c.campaign_key || camp.key,
+            trigger: camp.trigger,
             name: camp.name,
             nameZh: camp.nameZh || c.campaign_key,
             scope: camp.scope || (ITEM_GROUPS[c.campaign_key] ? 'items' : 'bill'),
@@ -4557,11 +4636,18 @@ var COUPONS = (function () {
             bill.coupon_id = leadId;
             bill.coupon_amount = save;
             bill.coupon_label = couponLabelFor(rows);
+            bill.coupon_redeemed_on = todayIso();
             bill.total = total;
             bill.balance = balance;
             bill.status = status;
             syncBillDetail(bill);
             paintBillTotals(total, balance);
+            refreshBillPaymentHistory(bill);
+            if (rows.length) {
+                logCoupon('USE', 'Used on bill ' + String(bill.id || '').replace(/-/g, '').slice(0, 8) +
+                    ' · HK$' + save.toFixed(2) + (bill.coupon_label ? ' · ' + bill.coupon_label : ''),
+                    bill.patient_no || null, bill.id);
+            }
             return { ok: true };
         }
         if (typeof SB === 'undefined' || !SB || !bill.id) return Promise.resolve(commit());
@@ -4604,9 +4690,12 @@ var COUPONS = (function () {
         var total = Math.max(0, round2(sub - disc));
         var balance = Math.max(0, round2(total - paid));
         var prev = bill.coupon_id;
+        var prevAmt = round2(bill.coupon_amount || 0);
+        var prevLabel = bill.coupon_label || '';
         bill.coupon_id = null;
         bill.coupon_amount = 0;
         bill.coupon_label = '';
+        bill.coupon_redeemed_on = '';
         bill.total = total;
         bill.balance = balance;
         var chain = Promise.resolve();
@@ -4627,6 +4716,12 @@ var COUPONS = (function () {
         return chain.then(function () {
             syncBillDetail(bill);
             paintBillTotals(total, balance);
+            refreshBillPaymentHistory(bill);
+            if (prev || prevAmt > 0.005) {
+                logCoupon('RESTORE', 'Removed from bill ' + String(bill.id || '').replace(/-/g, '').slice(0, 8) +
+                    (prevAmt > 0.005 ? ' · HK$' + prevAmt.toFixed(2) : '') + (prevLabel ? ' · ' + prevLabel : ''),
+                    bill.patient_no || null, bill.id);
+            }
         });
     }
 
@@ -5926,6 +6021,7 @@ var COUPONS = (function () {
         var s = String(method == null ? '' : method).trim().toLowerCase().replace(/[_-]+/g, ' ');
         if (s.indexOf('balance transfer') >= 0 || s === '余额转移' || s === '餘額轉移') return true;
         if (s.indexOf('reward') >= 0 && s.indexOf('point') >= 0) return true;
+        if (s === 'discount coupon' || (s.indexOf('discount') >= 0 && s.indexOf('coupon') >= 0)) return true;
         if (s === '積分' || s === '积分' || s === '獎勵積分' || s === '奖励积分') return true;
         return false;
     }
@@ -6122,12 +6218,19 @@ var COUPONS = (function () {
     function onBillPayment(info) {
         info = info || {};
         if (!info.patientId || !info.billId) return Promise.resolve({ ok: false, reason: 'no_bill' });
+        if (info.couponAmount == null && typeof bdCurrentBill !== 'undefined' && bdCurrentBill &&
+                String(bdCurrentBill.id) === String(info.billId)) {
+            info.couponAmount = bdCurrentBill.coupon_amount;
+            if (!info.patientNo) info.patientNo = bdCurrentBill.patient_no;
+        }
         var clinicCode = String(info.clinicCode || '').trim() ||
             String((typeof bdCurrentBill !== 'undefined' && bdCurrentBill && bdCurrentBill.clinic_tag) || '').trim() ||
             clinicCodeNow();
-        return billExcluded(info.billId, info.method).then(function (excluded) {
-            if (excluded) return { ok: false, reason: 'excluded_method' };
-            return onBillPaymentChecked(info, clinicCode);
+        return logBillTrack('PAY', info).then(function () {
+            return billExcluded(info.billId, info.method).then(function (excluded) {
+                if (excluded) return { ok: false, reason: 'excluded_method' };
+                return onBillPaymentChecked(info, clinicCode);
+            });
         });
     }
 
@@ -6381,10 +6484,19 @@ var COUPONS = (function () {
     function onPaymentVoided(info) {
         info = info || {};
         var billId = info.billId;
-        if (!billId || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
-            return Promise.resolve({ ok: false, reason: 'no_db' });
+        if (info.couponAmount == null && typeof bdCurrentBill !== 'undefined' && bdCurrentBill &&
+                String(bdCurrentBill.id) === String(billId)) {
+            info.couponAmount = bdCurrentBill.coupon_amount;
+            if (!info.patientNo) info.patientNo = bdCurrentBill.patient_no;
         }
-        if (!((parseFloat(info.balanceAfter) || 0) > 0.005)) return Promise.resolve({ ok: true, skipped: true });
+        var tracked = logBillTrack('VOID_PAY', info);
+        if (!billId || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') {
+            return tracked.then(function () { return { ok: false, reason: 'no_db' }; });
+        }
+        if (!((parseFloat(info.balanceAfter) || 0) > 0.005)) {
+            return tracked.then(function () { return { ok: true, skipped: true }; });
+        }
+        return tracked.then(function () {
         return Promise.all([
             SB.from('discount_coupons').select('id,code,status,bill_id,origin_bill_id').eq('origin_bill_id', billId),
             referralKeptOnBill(billId)
@@ -6405,6 +6517,7 @@ var COUPONS = (function () {
             }, function (e) {
                 return { ok: false, error: String(e && e.message || e) };
             });
+        });
     }
 
     function giftOfferText(camp) {
@@ -6685,6 +6798,11 @@ var COUPONS = (function () {
         buildCouponLog: buildCouponLog,
         loadCouponLog: loadCouponLog,
         couponLogCsv: couponLogCsv,
+        COUPON_PAY_METHOD: COUPON_PAY_METHOD,
+        isCouponHistoryRow: isCouponHistoryRow,
+        couponHistoryRow: couponHistoryRow,
+        mergeCouponHistory: mergeCouponHistory,
+        paymentTrackDetail: paymentTrackDetail,
         isCashCoupon: isCashCoupon,
         normalizeCashRules: normalizeCashRules,
         cashCapCents: cashCapCents,

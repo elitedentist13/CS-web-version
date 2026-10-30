@@ -146,15 +146,15 @@ var REWARDS = (function () {
         return false;
     }
 
-    /** Government / PDCC: one such payment puts the whole bill outside reward points and discount coupons. */
+    /** Government / PDCC / CCF: one such payment puts the whole bill outside reward points and discount coupons. */
     function isLoyaltyExcludedPayMethod(method) {
         var s = String(method == null ? '' : method).trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
         if (!s) return false;
         if (s === 'gov' || s === '政府' || /(^|[^a-z])gover[nm]*ment/.test(s)) return true;
-        return /(^|[^a-z])pdcc([^a-z]|$)/.test(s);
+        return /(^|[^a-z])(pdcc|ccf)([^a-z]|$)/.test(s);
     }
 
-    /** Resolves true when extraMethod or any live payment on the bill is Government / PDCC. */
+    /** Resolves true when extraMethod or any live payment on the bill is Government / PDCC / CCF. */
     function billLoyaltyExcluded(billId, extraMethod) {
         if (extraMethod && isLoyaltyExcludedPayMethod(extraMethod)) return Promise.resolve(true);
         if (!billId || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve(false);
@@ -169,12 +169,12 @@ var REWARDS = (function () {
 
     function excludedBillMessage() {
         return tr('rewards.pay.excludedMethod',
-            'Government / PDCC bill: reward points and discount coupons are not earned or used.');
+            'Government / PDCC / CCF bill: reward points and discount coupons are not earned or used.');
     }
 
     /**
      * Pre-save check for Add payment. Resolves '' when OK, else an error message.
-     * A Government / PDCC payment is refused while the bill carries a coupon or redeemed points.
+     * A Government / PDCC / CCF payment is refused while the bill carries a coupon or redeemed points.
      */
     function excludedPaymentBlock(bill, method, rewardPts) {
         if (!bill) return Promise.resolve('');
@@ -185,21 +185,21 @@ var REWARDS = (function () {
             if (!excludedNow) return '';
             if ((parseFloat(bill.coupon_amount) || 0) > 0.005) {
                 return tr('rewards.pay.excludedCoupon',
-                    'This bill used a discount coupon. Remove the coupon before taking a Government / PDCC payment.');
+                    'This bill used a discount coupon. Remove the coupon before taking a Government / PDCC / CCF payment.');
             }
             return loadBillPointsUsed(bill.id).then(function (used) {
                 return used > 0.005
                     ? tr('rewards.pay.excludedPointsUsed',
-                        'This bill used reward points. Void the reward points payment before taking a Government / PDCC payment.')
+                        'This bill used reward points. Void the reward points payment before taking a Government / PDCC / CCF payment.')
                     : '';
             });
         });
     }
 
-    /** After a Government / PDCC payment: take back points earned by earlier payments on the bill. */
+    /** After a Government / PDCC / CCF payment: take back points earned by earlier payments on the bill. */
     function excludeBillFromLoyalty(billId, patientId) {
         if (!billId) return Promise.resolve(null);
-        return voidForBill(billId, 'Government / PDCC bill: no reward points', patientId || null)
+        return voidForBill(billId, 'Government / PDCC / CCF bill: no reward points', patientId || null)
             .catch(function () { return null; });
     }
 

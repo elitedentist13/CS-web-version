@@ -4358,7 +4358,7 @@ var COUPONS = (function () {
             ['r6', 'Dr / reception / nurses can gift a cash coupon (HK$1–200) or a switched-on treatment coupon. Spend, new-chart and referral coupons are issued automatically only. Every gift and transfer is logged under your login.'],
             ['r7', 'Voiding a bill returns the coupons used on it and cancels coupons it issued. A refund after payment does not create a new coupon.'],
             ['r8', 'Expired coupons cannot be used. Patients get an SMS 1 month and again 7 days before expiry. With Set zero on year end, the SMS goes on 30 Nov and 24 Dec.'],
-            ['r9', 'A bill with any Government or PDCC payment is outside the scheme: it earns no coupons or reward points, and no coupons or points can be used on it.']
+            ['r9', 'A bill with any Government, PDCC or CCF payment is outside the scheme: it earns no coupons or reward points, and no coupons or points can be used on it.']
         ];
         var holds = campaigns().filter(function (c) {
             if (!c) return false;
@@ -5873,7 +5873,7 @@ var COUPONS = (function () {
             !!window.isLoyaltyExcludedPayMethod(method);
     }
 
-    /** Resolves true for a Government / PDCC bill (no coupons issued or used). */
+    /** Resolves true for a Government / PDCC / CCF bill (no coupons issued or used). */
     function billExcluded(billId, method) {
         if (isExcludedMethod(method)) return Promise.resolve(true);
         if (typeof REWARDS === 'undefined' || !REWARDS || typeof REWARDS.billLoyaltyExcluded !== 'function') return Promise.resolve(false);
@@ -5881,7 +5881,7 @@ var COUPONS = (function () {
     }
 
     function excludedText() {
-        return ct('coupons.info.excluded', 'Government / PDCC bill: no discount coupons or reward points are earned or used.');
+        return ct('coupons.info.excluded', 'Government / PDCC / CCF bill: no discount coupons or reward points are earned or used.');
     }
 
     /** Pure: cash paid on a bill from its payment rows (void, reward and balance-transfer rows left out). */

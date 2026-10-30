@@ -2201,7 +2201,7 @@ function loadCoupons() {
 
     console.log('\n=== One phone page for points + coupons, combined checkout hint ===');
     var LC = lyrCtx.C;
-    lyrCtx.isLoyaltyExcludedPayMethod = function (m) { return /^(PDCC|Government)$/i.test(String(m || '').trim()); };
+    lyrCtx.isLoyaltyExcludedPayMethod = function (m) { return /^(PDCC|Government|CCF)$/i.test(String(m || '').trim()); };
     var TOK_C = 'c'.repeat(32);
     var TOK_P = 'a'.repeat(32);
     pass('one link: loyalty.html?c=<coupon token>&p=<points token>; either may be missing',
@@ -2240,9 +2240,10 @@ function loadCoupons() {
     pass('combined checkout hint: cash payment shows points earned at the scheme rate',
         LC.pointsEarnText(1200, 10, 'Cash') === '⭐ Paying HK$1200.00 earns about 120.00 reward points' &&
         LC.pointsEarnText(333.33, 5, '') === '⭐ Paying HK$333.33 earns about 16.67 reward points');
-    pass('combined checkout hint: no points line for reward points, balance transfer, Government, PDCC, or HK$0',
+    pass('combined checkout hint: no points line for reward points, balance transfer, Government, PDCC, CCF, or HK$0',
         LC.pointsEarnText(1200, 10, 'Reward Points') === '' && LC.pointsEarnText(1200, 10, 'PDCC') === '' &&
-        LC.pointsEarnText(1200, 10, 'Government') === '' && LC.pointsEarnText(0, 10, 'Cash') === '' && LC.pointsEarnText(100, 0, 'Cash') === '');
+        LC.pointsEarnText(1200, 10, 'Government') === '' && LC.pointsEarnText(1200, 10, 'CCF') === '' &&
+        LC.pointsEarnText(0, 10, 'Cash') === '' && LC.pointsEarnText(100, 0, 'Cash') === '');
     pass('checkout hint: coupon part and points part drawn together (points line async, newest wins)',
         /var couponHtml = couponHintHtml\(total, paid, method\);[\s\S]{0,200}checkoutPointsLine\(total, paid, method\)\.then[\s\S]{0,120}seq !== _hintSeq/.test(src) &&
         /REWARDS\.currentClinicJoined\(doctor\), REWARDS\.earnRatePercent\(\)/.test(src));
@@ -2720,8 +2721,8 @@ function loadCoupons() {
   return { ok: true, cash: cash, reward: reward, partial: partial, small: small, plHidden: plHidden, gov: gov, pdcc: pdcc };
 })()`, false, 10000);
         pass('CDP checkout hint: Government bill earns no coupons (no spend bar)', hint && hint.gov && hint.gov.hidden === false &&
-            /Government \/ PDCC bill/.test(hint.gov.text) && !/earns:/.test(hint.gov.text) && hint.gov.bar === false, hint && JSON.stringify(hint.gov));
-        pass('CDP checkout hint: PDCC bill earns no coupons', hint && /Government \/ PDCC bill/.test(hint.pdcc) && !/earns:/.test(hint.pdcc));
+            /Government \/ PDCC \/ CCF bill/.test(hint.gov.text) && !/earns:/.test(hint.gov.text) && hint.gov.bar === false, hint && JSON.stringify(hint.gov));
+        pass('CDP checkout hint: PDCC bill earns no coupons', hint && /Government \/ PDCC \/ CCF bill/.test(hint.pdcc) && !/earns:/.test(hint.pdcc));
         var exIssue = await cdp.js(`(async function () {
   var calls = [];
   var realSB = SB;

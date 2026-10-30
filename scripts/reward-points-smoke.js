@@ -876,13 +876,14 @@ function fakeBillSb(tables, rpcLog) {
             pass('reject Cash', R.isRewardPayMethod('Cash') === false);
             pass('reject Balance transfer', R.isRewardPayMethod('Balance transfer') === false);
             var exM = R.isLoyaltyExcludedPayMethod;
-            pass('Government / PDCC methods are excluded from loyalty',
+            pass('Government / PDCC / CCF methods are excluded from loyalty',
                 exM('Government') && exM('GOVERNMENT') && exM('GOV') && exM('gov') && exM('PDCC') && exM(' pdcc ') &&
+                exM('CCF') && exM('ccf') && exM(' CCF ') && exM('Other CCF') &&
                 exM('Government Elderly') && exM('政府') && exM('GOVERMMENT') && exM('Goverment'), '');
             pass('cash, card, HCV, reward points are not excluded',
                 !exM('Cash') && !exM('Visa') && !exM('Health Care Voucher (HCV)') && !exM('Reward points') &&
                 !exM('Balance transfer') && !exM('') && !exM(null) && !exM('Governor card'));
-            pass('words containing pdcc letters are not excluded', !exM('xpdccx') && !exM('Octopus'));
+            pass('words containing pdcc or ccf letters are not excluded', !exM('xpdccx') && !exM('xccfx') && !exM('Octopus'));
             var earnEx = await R.applyEarnForPayment({ patientId: 'p1', eligibleAmount: 500, billId: 'b1', method: 'PDCC' });
             pass('earn skipped for a PDCC payment', earnEx && earnEx.ok && earnEx.skipped && earnEx.reason === 'excluded_method',
                 JSON.stringify(earnEx));

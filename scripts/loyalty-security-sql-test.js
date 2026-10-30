@@ -92,7 +92,7 @@ async function main() {
     ok('non-cash: reward points', (await one("select dc_is_noncash('Reward Points') r")).r === true);
     ok('non-cash: balance transfer', (await one("select dc_is_noncash('balance_transfer') r")).r === true);
     ok('cash: Cash / Visa', (await one("select dc_is_noncash('Cash') a, dc_is_noncash('Visa') b")).a === false);
-    ok('excluded: Government / PDCC / 政府', (await one("select dc_is_excluded_method('Government Voucher') and dc_is_excluded_method('PDCC') and dc_is_excluded_method('政府') r")).r === true);
+    ok('excluded: Government / PDCC / CCF / 政府', (await one("select dc_is_excluded_method('Government Voucher') and dc_is_excluded_method('PDCC') and dc_is_excluded_method('CCF') and dc_is_excluded_method('政府') r")).r === true);
     ok('not excluded: EPS', (await one("select dc_is_excluded_method('EPS') r")).r === false);
     var camp = (await one("select dc_campaign(dc_setting_json('discount_coupon_scheme'), 'referral') r")).r;
     ok('campaign = defaults + saved', camp.face === 100 && camp.refPercent === 10 && camp.trigger === 'referral' && camp.enabled === true, camp);

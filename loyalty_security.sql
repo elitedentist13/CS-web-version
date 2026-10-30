@@ -101,10 +101,10 @@ returns boolean language sql immutable as $$
       from (select regexp_replace(lower(btrim(coalesce(p_method, ''))), '[_-]+', ' ', 'g') as s) x
 $$;
 
-/** Government / PDCC (same as isLoyaltyExcludedPayMethod in app-rewards.js). */
+/** Government / PDCC / CCF (same as isLoyaltyExcludedPayMethod in app-rewards.js). */
 create or replace function public.dc_is_excluded_method(p_method text)
 returns boolean language sql immutable as $$
-    select s = 'gov' or s = '政府' or s ~ '(^|[^a-z])gover[nm]*ment' or s ~ '(^|[^a-z])pdcc([^a-z]|$)'
+    select s = 'gov' or s = '政府' or s ~ '(^|[^a-z])gover[nm]*ment' or s ~ '(^|[^a-z])(pdcc|ccf)([^a-z]|$)'
       from (select lower(btrim(coalesce(p_method, ''))) as s) x
 $$;
 

@@ -2181,9 +2181,9 @@ var COUPONS = (function () {
         });
         html += '</div></div>';
         html += zeroCardHtml();
-        html += '<div class="dc-card" id="dcRefCard"><div class="dc-card-title">' + esc(ct('coupons.ref.title', 'Referrals')) + '</div>' +
+        html += '<div class="dc-card" id="dcRefCard"><div class="dc-card-title">' + esc(ct('coupons.ref.title', 'Referral coupons')) + '</div>' +
             '<p class="dc-hint">' + esc(ct('coupons.ref.listHint',
-                'Each new patient with a referrer. Pending waits for the new patient’s qualifying bill (coupon: a bill of at least the minimum, fully paid; points: the minimum paid, full or part payment); blocked shows why no reward is given.')) + '</p>' +
+                'Coupon-reward referrals only. Pending waits for the new patient’s fully paid bill of at least the minimum. Points-reward referrals are on Configuration → Reward Points. Blocked shows why no coupon was given.')) + '</p>' +
             '<div class="dc-log-wrap" id="dcRefBody"></div></div>';
         var today = new Date();
         var from = new Date(today.getTime() - 30 * 86400000);
@@ -2209,7 +2209,7 @@ var COUPONS = (function () {
         var csv = document.getElementById('dcLogCsv');
         if (csv) csv.onclick = downloadCouponLog;
         loadCouponLog();
-        loadReferralList();
+        loadReferralList({ kind: 'coupon', bodyId: 'dcRefBody', root: pane });
     }
 
     function patientNoMap(ids) {
@@ -2239,7 +2239,7 @@ var COUPONS = (function () {
         patients = patients || {};
         var byId = {};
         Object.keys(couponById || {}).forEach(function (k) { byId[k] = couponById[k]; });
-        (coupons || []).forEach(function (c) { if (c && c.id != null) byId[String(c.id)] = c; });
+        indexLogCoupons(coupons, byId);
         var grants = {};
         (audits || []).forEach(function (a) {
             if (String(a.operation || '').toUpperCase() === 'GRANT' && a.record_id) grants[String(a.record_id)] = a;
@@ -2266,7 +2266,8 @@ var COUPONS = (function () {
         (audits || []).forEach(function (a) {
             var op = String(a.operation || '').toUpperCase();
             if (op === 'GRANT') return;
-            var c = a.record_id ? byId[String(a.record_id)] : null;
+            var rid = a.record_id ? String(a.record_id) : '';
+            var c = rid ? (byId[rid] || byId['bill:' + rid]) : null;
             var camp = c ? (campaignByKey(c.campaign_key) || {}) : {};
             out.push({
                 at: a.created_at || '',
@@ -2275,7 +2276,9 @@ var COUPONS = (function () {
                 clinic: a.clinic_tag || '',
                 chart: a.patient_no || '',
                 coupon: c ? [kindLabel(kindOf(c)), campLabel(camp.key ? camp : c)].filter(Boolean).join(' · ') : '',
-                amount: c ? couponAmountText(c) : '',
+                amount: (op === 'PAY' || op === 'VOID_PAY')
+                    ? (logAmountFromDetail(a.changes_detail) || (c ? couponAmountText(c) : ''))
+                    : (c ? couponAmountText(c) : logAmountFromDetail(a.changes_detail)),
                 code: c ? (c.code || '') : '',
                 status: '',
                 note: a.changes_detail || ''
@@ -2283,6 +2286,23 @@ var COUPONS = (function () {
         });
         out.sort(function (x, y) { return String(y.at).localeCompare(String(x.at)); });
         return out;
+    }
+
+    function indexLogCoupons(list, map) {
+        map = map || {};
+        (list || []).forEach(function (c) {
+            if (!c) return;
+            if (c.id != null) map[String(c.id)] = c;
+            if (c.bill_id) map['bill:' + String(c.bill_id)] = map['bill:' + String(c.bill_id)] || c;
+            if (c.origin_bill_id) map['bill:' + String(c.origin_bill_id)] = map['bill:' + String(c.origin_bill_id)] || c;
+        });
+        return map;
+    }
+
+    /** Pure: HK$ amount mentioned in a coupon-log detail (payment / void / use). */
+    function logAmountFromDetail(detail) {
+        var m = String(detail || '').match(/HK\$([0-9][0-9,]*\.\d{2})/);
+        return m ? 'HK$' + m[1] : '';
     }
 
     function loadCouponLog() {
@@ -2313,7 +2333,7 @@ var COUPONS = (function () {
                 .order('created_at', { ascending: false }).limit(500);
             if (patient && patient.patient_no) {
                 var no = String(patient.patient_no).replace(/[^A-Za-z0-9_\-]/g, '');
-                aq = aq.or('patient_no.eq.' + no + ',changes_detail.ilike."*from ' + no + ' to*"');
+                aq = aq.or('patient_no.eq.' + no + ',changes_detail.ilike."*' + no + '*"');
             }
             return Promise.all([cq, aq.then(function (r) { return r; }, function () { return { data: [] }; })])
                 .then(function (res) {
@@ -2332,10 +2352,29 @@ var COUPONS = (function () {
                         var id = a.record_id ? String(a.record_id) : '';
                         if (id && !have[id] && missing.indexOf(id) < 0 && /^[0-9a-f-]{36}$/i.test(id)) missing.push(id);
                     });
-                    var extraP = missing.length
-                        ? SB.from('discount_coupons').select('*').in('id', missing.slice(0, 300)).then(function (r) {
+                    var billIds = [];
+                    audits.forEach(function (a) {
+                        var op = String(a.operation || '').toUpperCase();
+                        var id = a.record_id ? String(a.record_id) : '';
+                        if (!id || have[id] || !/^[0-9a-f-]{36}$/i.test(id)) return;
+                        if ((op === 'PAY' || op === 'VOID_PAY' || op === 'USE' || op === 'RESTORE') && billIds.indexOf(id) < 0) {
+                            billIds.push(id);
+                        }
+                    });
+                    var extraP = (missing.length || billIds.length)
+                        ? Promise.all([
+                            missing.length
+                                ? SB.from('discount_coupons').select('*').in('id', missing.slice(0, 300))
+                                : Promise.resolve({ data: [] }),
+                            billIds.length
+                                ? SB.from('discount_coupons').select('*').or(
+                                    'bill_id.in.(' + billIds.slice(0, 80).join(',') + '),origin_bill_id.in.(' + billIds.slice(0, 80).join(',') + ')'
+                                )
+                                : Promise.resolve({ data: [] })
+                        ]).then(function (parts) {
                             var map = {};
-                            ((r && r.data) || []).forEach(function (c) { map[String(c.id)] = c; });
+                            indexLogCoupons((parts[0] && parts[0].data) || [], map);
+                            indexLogCoupons((parts[1] && parts[1].data) || [], map);
                             return map;
                         }, function () { return {}; })
                         : Promise.resolve({});
@@ -2348,7 +2387,7 @@ var COUPONS = (function () {
 
     var _logRows = [];
     var _logFilter = 'all';
-    var LOG_OPS = ['ISSUE', 'GIFT', 'TRANSFER', 'USE', 'PAY', 'VOID_PAY', 'RESTORE', 'CANCEL'];
+    var LOG_OPS = ['ISSUE', 'GIFT', 'TRANSFER', 'USE', 'PAY', 'VOID_PAY', 'RESTORE', 'CANCEL', 'REFERRAL'];
     var COUPON_PAY_METHOD = 'Discount coupon';
 
     function logOpNames() {
@@ -2360,7 +2399,8 @@ var COUPONS = (function () {
             PAY: ct('coupons.log.pay', 'Payment'),
             VOID_PAY: ct('coupons.log.voidPay', 'Void payment'),
             RESTORE: ct('coupons.log.restore', 'Restore'),
-            CANCEL: ct('coupons.log.cancel', 'Cancel')
+            CANCEL: ct('coupons.log.cancel', 'Cancel'),
+            REFERRAL: ct('coupons.log.referral', 'Referral')
         };
     }
 
@@ -2926,6 +2966,84 @@ var COUPONS = (function () {
         return { live: live, history: history };
     }
 
+    function historyStateOf(op) {
+        op = String(op || '').toUpperCase();
+        if (op === 'USE') return 'used';
+        if (op === 'CANCEL') return 'void';
+        if (op === 'VOID_PAY') return 'void_pay';
+        if (op === 'PAY') return 'pay';
+        if (op === 'TRANSFER') return 'transfer';
+        if (op === 'RESTORE') return 'restore';
+        if (op === 'GIFT' || op === 'GRANT') return 'gift';
+        if (op === 'ISSUE') return 'issue';
+        if (op === 'REFERRAL') return 'referral';
+        return String(op || '').toLowerCase();
+    }
+
+    /**
+     * Patient-panel history: expired / used / cancelled coupon rows plus pay / void / transfer
+     * (and other) audit events. A USE or CANCEL audit replaces the matching snapshot row.
+     */
+    function mergeWalletHistory(wallet, audits, today) {
+        var snap = walletLedgerRows(wallet, today);
+        var byId = {};
+        (wallet || []).forEach(function (c) { if (c && c.id != null) byId[String(c.id)] = c; });
+        var liveIds = {};
+        snap.live.forEach(function (c) { if (c && c.id != null) liveIds[String(c.id)] = true; });
+        var usedIds = {};
+        var cancelIds = {};
+        (audits || []).forEach(function (a) {
+            var op = String(a.operation || '').toUpperCase();
+            var id = a.record_id ? String(a.record_id) : '';
+            if (op === 'USE' && id) usedIds[id] = true;
+            if (op === 'CANCEL' && id) cancelIds[id] = true;
+        });
+        var history = snap.history.filter(function (h) {
+            var id = h.coupon && h.coupon.id != null ? String(h.coupon.id) : '';
+            if (h.state === 'used' && usedIds[id]) return false;
+            if (h.state === 'void' && cancelIds[id]) return false;
+            return true;
+        });
+        (audits || []).forEach(function (a) {
+            var op = String(a.operation || '').toUpperCase();
+            if (op === 'GRANT') return;
+            var id = a.record_id ? String(a.record_id) : '';
+            var coupon = id ? (byId[id] || byId['bill:' + id]) : null;
+            if ((op === 'ISSUE' || op === 'GIFT') && coupon && liveIds[String(coupon.id)]) return;
+            history.push({
+                coupon: coupon || { note: a.changes_detail, clinic_code: a.clinic_tag || '' },
+                state: historyStateOf(op),
+                at: String(a.created_at || ''),
+                audit: a
+            });
+        });
+        history.sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : 0; });
+        return { live: snap.live, history: history };
+    }
+
+    function loadWalletAudits(patientNo, coupons) {
+        if (typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve([]);
+        var no = String(patientNo || '').replace(/[^A-Za-z0-9_\-]/g, '');
+        var ids = (coupons || []).map(function (c) { return c && c.id; }).filter(Boolean).slice(0, 80);
+        if (!no && !ids.length) return Promise.resolve([]);
+        var table = (typeof AUDIT_TRAIL_TABLE !== 'undefined' && AUDIT_TRAIL_TABLE) ? AUDIT_TRAIL_TABLE : 'audit_trail';
+        var q = SB.from(table)
+            .select('created_at,operation,user_name,user_id,clinic_tag,patient_no,changes_detail,record_id')
+            .eq('table_name', 'discount_coupons')
+            .order('created_at', { ascending: false })
+            .limit(200);
+        if (no && ids.length) {
+            q = q.or('patient_no.eq.' + no + ',record_id.in.(' + ids.join(',') + '),changes_detail.ilike."*' + no + '*"');
+        } else if (no) {
+            q = q.or('patient_no.eq.' + no + ',changes_detail.ilike."*' + no + '*"');
+        } else {
+            q = q.in('record_id', ids);
+        }
+        return Promise.resolve(q).then(function (r) {
+            return (r && !r.error && r.data) || [];
+        }, function () { return []; });
+    }
+
     function walletCardHtml(c, today) {
         var w = walletCoupon(c);
         var slot = couponSlot(w);
@@ -2942,6 +3060,13 @@ var COUPONS = (function () {
         if (state === 'used') return ct('coupons.wl.used', 'Used');
         if (state === 'void') return ct('coupons.wl.void', 'Cancelled');
         if (state === 'expired') return ct('coupons.reason.expired', '已過期');
+        if (state === 'pay') return ct('coupons.log.pay', 'Payment');
+        if (state === 'void_pay') return ct('coupons.log.voidPay', 'Void payment');
+        if (state === 'transfer') return ct('coupons.log.transfer', 'Transfer');
+        if (state === 'restore') return ct('coupons.log.restore', 'Restore');
+        if (state === 'gift') return ct('coupons.log.gift', 'Gift');
+        if (state === 'issue') return ct('coupons.log.issue', 'Issue');
+        if (state === 'referral') return ct('coupons.log.referral', 'Referral');
         return state;
     }
 
@@ -2951,9 +3076,14 @@ var COUPONS = (function () {
             .then(function (r) { return (r && r.data && r.data.patient_no) || ''; }, function () { return ''; });
     }
 
-    /** Pure: the bill behind a history row — the bill it was used on, else the bill that issued it. */
-    function walletHistoryBillId(c) {
-        return String((c && (c.bill_id || c.origin_bill_id)) || '');
+    /** Pure: the bill behind a history row — payment/void audit, the bill it was used on, else the bill that issued it. */
+    function walletHistoryBillId(cOrRow) {
+        if (cOrRow && cOrRow.audit) {
+            var op = String(cOrRow.audit.operation || '').toUpperCase();
+            if ((op === 'PAY' || op === 'VOID_PAY') && cOrRow.audit.record_id) return String(cOrRow.audit.record_id);
+            return walletHistoryBillId(cOrRow.coupon);
+        }
+        return String((cOrRow && (cOrRow.bill_id || cOrRow.origin_bill_id)) || '');
     }
 
     function walletBillDoctor(b) {
@@ -2978,7 +3108,7 @@ var COUPONS = (function () {
     function loadWalletBillMeta(history) {
         var ids = [];
         (history || []).forEach(function (h) {
-            var id = walletHistoryBillId(h.coupon);
+            var id = walletHistoryBillId(h);
             if (id && ids.indexOf(id) < 0) ids.push(id);
         });
         if (!ids.length || typeof SB === 'undefined' || !SB || typeof SB.from !== 'function') return Promise.resolve({});
@@ -3011,14 +3141,20 @@ var COUPONS = (function () {
         var token = {};
         el.__dcWalletToken = token;
         return Promise.all([loadState().then(loadUsage), loadWallet(patientId, { household: true }), loadPatientNo(patientId)]).then(function (res) {
-            return loadWalletBillMeta(walletLedgerRows(res[1] || []).history).then(function (meta) { return res.concat([meta]); });
+            var wallet = res[1] || [];
+            return loadWalletAudits(res[2] || '', wallet).then(function (audits) {
+                var merged = mergeWalletHistory(wallet, audits, todayIso());
+                return loadWalletBillMeta(merged.history).then(function (meta) {
+                    return res.concat([meta, merged]);
+                });
+            });
         }).then(function (res) {
             if (el.__dcWalletToken !== token) return false;
             var wallet = res[1] || [];
             var patientNo = res[2] || '';
             var billMeta = res[3] || {};
             var today = todayIso();
-            var rows = walletLedgerRows(wallet, today);
+            var rows = res[4] || mergeWalletHistory(wallet, [], today);
             var tab = opts.tab === 'gift' || opts.tab === 'transfer' ? opts.tab : 'wallet';
             function hiddenUnless(on) { return on ? '' : ' hidden'; }
             var html = '<div class="dc-wl">';
@@ -3047,9 +3183,9 @@ var COUPONS = (function () {
             html += rows.live.length
                 ? '<div class="dc-cards dc-wl-cards">' + rows.live.map(function (c) { return walletCardHtml(c, today); }).join('') + '</div>'
                 : '<p class="dc-empty">' + esc(ct('coupons.bill.empty', 'This patient has no unused coupons.')) + '</p>';
-            html += '<h4 class="dc-wl-h">' + esc(ct('coupons.wl.history', 'Used, cancelled and expired')) + ' <span class="dc-stab-n">' + rows.history.length + '</span></h4>';
+            html += '<h4 class="dc-wl-h">' + esc(ct('coupons.wl.history', 'Used, cancelled, expired and other activity')) + ' <span class="dc-stab-n">' + rows.history.length + '</span></h4>';
             if (!rows.history.length) {
-                html += '<p class="dc-hint">' + esc(ct('coupons.wl.noHistory', 'No used, cancelled or expired coupons yet.')) + '</p>';
+                html += '<p class="dc-hint">' + esc(ct('coupons.wl.noHistory', 'No uses, payments, voids, transfers or expired coupons yet.')) + '</p>';
             } else {
                 html += '<div class="dc-log-wrap"><table class="dc-log dc-wl-table"><thead><tr>' +
                     '<th>' + esc(ct('coupons.wl.when', 'When')) + '</th>' +
@@ -3060,22 +3196,27 @@ var COUPONS = (function () {
                     '<th>' + esc(ct('coupons.wl.status', 'Status')) + '</th>' +
                     '<th>' + esc(ct('coupons.wl.note', 'Note')) + '</th></tr></thead><tbody>';
                 rows.history.forEach(function (h) {
-                    var c = h.coupon;
+                    var c = h.coupon || {};
                     var w = walletCoupon(c);
+                    var auditNote = h.audit ? String(h.audit.changes_detail || '') : '';
                     var val = h.state === 'used' && c.redeemed_amount != null
-                        ? '−HK$' + round2(c.redeemed_amount).toFixed(2) : faceText(w);
-                    var bm = billMeta[walletHistoryBillId(c)] || {};
-                    var clinic = bm.clinic || c.clinic_code || '';
-                    var note = c.note || (h.state === 'expired' && c.expires_on ? String(c.expires_on).slice(0, 10) : '');
-                    var stamp = h.at.replace('T', ' ');
+                        ? '−HK$' + round2(c.redeemed_amount).toFixed(2)
+                        : (c.campaign_key || c.key ? faceText(w) : logAmountFromDetail(auditNote));
+                    var bm = billMeta[walletHistoryBillId(h)] || {};
+                    var clinic = (h.audit && h.audit.clinic_tag) || bm.clinic || c.clinic_code || '';
+                    var note = auditNote || c.note || (h.state === 'expired' && c.expires_on ? String(c.expires_on).slice(0, 10) : '');
+                    var stamp = String(h.at || '').replace('T', ' ');
                     var kind = kindOf(w);
+                    var name = campLabel(w);
                     html += '<tr data-state="' + esc(h.state) + '" data-kind="' + esc(kind) + '">' +
                         '<td class="dc-wl-when"><span class="dc-wl-date">' + esc(stamp.slice(0, 10)) + '</span>' +
                         '<span class="dc-wl-time">' + esc(stamp.slice(11, 16)) + '</span></td>' +
                         '<td>' + (clinic ? '<span class="dc-wl-clinic">' + esc(clinic) + '</span>' : '—') + '</td>' +
                         '<td class="dc-wl-dr" title="' + esc(bm.doctor || '') + '">' + esc(bm.doctor || '—') + '</td>' +
-                        '<td class="dc-wl-coupon"><span class="dc-wl-kind" data-kind="' + esc(kind) + '">' + esc(kindLabel(kind)) + '</span> ' +
-                        esc(campLabel(w)) + (c.code ? '<small class="dc-wl-code">' + esc(c.code) + '</small>' : '') +
+                        '<td class="dc-wl-coupon">' + (c.campaign_key || c.key
+                            ? '<span class="dc-wl-kind" data-kind="' + esc(kind) + '">' + esc(kindLabel(kind)) + '</span> ' +
+                                esc(name) + (c.code ? '<small class="dc-wl-code">' + esc(c.code) + '</small>' : '')
+                            : esc(auditNote ? auditNote.split(' · ')[0] : '—')) +
                         (c.household_no ? '<small class="dc-wl-hh">#' + esc(c.household_no) + '</small>' : '') + '</td>' +
                         '<td class="dc-wl-num dc-wl-val">' + esc(val) + '</td>' +
                         '<td class="dc-wl-state"><span class="dc-wl-badge">' + esc(walletStateLabel(h.state)) + '</span></td>' +
@@ -5979,36 +6120,63 @@ var COUPONS = (function () {
         });
     }
 
-    function loadReferralList() {
-        var body = typeof document !== 'undefined' && document.getElementById('dcRefBody');
+    function referralKindOf(row) {
+        return String((row && row.reward_kind) || 'coupon') === 'points' ? 'points' : 'coupon';
+    }
+
+    function filterReferralList(rows, kind) {
+        kind = kind === 'points' ? 'points' : 'coupon';
+        return (rows || []).filter(function (r) { return referralKindOf(r) === kind; });
+    }
+
+    function referralRewardCell(x, kind) {
+        if (kind === 'points') {
+            return '⭐ ' + ct('coupons.ref.kindPoints', 'Reward points') + (x && x.points ? ' +' + round2(x.points).toFixed(0) : '');
+        }
+        return '🎟️ ' + ct('coupons.ref.kindCoupon', 'Discount coupon');
+    }
+
+    /** Pure: HTML for the coupon or points referral activity table. */
+    function referralListHtml(rows, kind) {
+        kind = kind === 'points' ? 'points' : 'coupon';
+        var list = filterReferralList(rows, kind);
+        if (!list.length) {
+            return '<p class="dc-hint">' + esc(kind === 'points'
+                ? ct('coupons.ref.nonePoints', 'No referral-points records yet.')
+                : ct('coupons.ref.none', 'No referral-coupon records yet.')) + '</p>';
+        }
+        return '<table class="dc-log"><thead><tr>' +
+            '<th>' + esc(ct('coupons.log.when', 'When')) + '</th>' +
+            '<th>' + esc(ct('coupons.ref.colFriend', 'New patient')) + '</th>' +
+            '<th>' + esc(ct('coupons.ref.colReferrer', 'Referrer')) + '</th>' +
+            '<th>' + esc(ct('coupons.ref.colReward', 'Reward')) + '</th>' +
+            '<th>' + esc(ct('coupons.ref.colStatus', 'Status')) + '</th>' +
+            '<th>' + esc(ct('coupons.log.note', 'Detail')) + '</th></tr></thead><tbody>' +
+            list.map(function (x) {
+                return '<tr data-ref-status="' + esc(x.status) + '" data-ref-kind="' + esc(referralKindOf(x)) + '">' +
+                    '<td>' + esc(String(x.created_at || '').replace('T', ' ').slice(0, 16)) + '</td>' +
+                    '<td>#' + esc(x.referred_no || '') + '</td><td>#' + esc(x.referrer_no || '') + '</td>' +
+                    '<td>' + esc(referralRewardCell(x, kind)) + '</td>' +
+                    '<td>' + esc(referralStatusText(x.status)) + '</td>' +
+                    '<td>' + esc(x.reason ? referralReason(x.reason) : (x.issued_at ? String(x.issued_at).slice(0, 10) : '')) + '</td></tr>';
+            }).join('') + '</tbody></table>';
+    }
+
+    function loadReferralList(opts) {
+        opts = opts || {};
+        var kind = opts.kind === 'points' ? 'points' : 'coupon';
+        var id = opts.bodyId || (kind === 'points' ? 'rwRefBody' : 'dcRefBody');
+        var root = opts.root;
+        var body = root && root.querySelector ? root.querySelector('#' + id)
+            : (typeof document !== 'undefined' ? document.getElementById(id) : null);
         if (!body) return Promise.resolve();
         if (!sbReady()) { body.innerHTML = ''; return Promise.resolve(); }
-        return SB.from(REF_TABLE).select('*').order('created_at', { ascending: false }).limit(100).then(function (r) {
+        return SB.from(REF_TABLE).select('*').order('created_at', { ascending: false }).limit(200).then(function (r) {
             if (!r || r.error) {
                 body.innerHTML = '<p class="dc-hint">' + esc(ct('coupons.ref.noTable', 'Referrals table not set up yet — run discount_coupon_referrals.sql in Supabase.')) + '</p>';
                 return;
             }
-            var rows = r.data || [];
-            if (!rows.length) {
-                body.innerHTML = '<p class="dc-hint">' + esc(ct('coupons.ref.none', 'No referrals yet.')) + '</p>';
-                return;
-            }
-            body.innerHTML = '<table class="dc-log"><thead><tr>' +
-                '<th>' + esc(ct('coupons.log.when', 'When')) + '</th>' +
-                '<th>' + esc(ct('coupons.ref.colFriend', 'New patient')) + '</th>' +
-                '<th>' + esc(ct('coupons.ref.colReferrer', 'Referrer')) + '</th>' +
-                '<th>' + esc(ct('coupons.ref.colReward', 'Reward')) + '</th>' +
-                '<th>' + esc(ct('coupons.ref.colStatus', 'Status')) + '</th>' +
-                '<th>' + esc(ct('coupons.log.note', 'Detail')) + '</th></tr></thead><tbody>' +
-                rows.map(function (x) {
-                    return '<tr data-ref-status="' + esc(x.status) + '"><td>' + esc(String(x.created_at || '').replace('T', ' ').slice(0, 16)) + '</td>' +
-                        '<td>#' + esc(x.referred_no || '') + '</td><td>#' + esc(x.referrer_no || '') + '</td>' +
-                        '<td>' + esc(x.reward_kind === 'points'
-                            ? '⭐ ' + ct('coupons.ref.kindPoints', '積分 Reward points') + (x.points ? ' +' + round2(x.points).toFixed(0) : '')
-                            : '🎟️ ' + ct('coupons.ref.kindCoupon', '優惠券 Discount coupon')) + '</td>' +
-                        '<td>' + esc(referralStatusText(x.status)) + '</td>' +
-                        '<td>' + esc(x.reason ? referralReason(x.reason) : (x.issued_at ? String(x.issued_at).slice(0, 10) : '')) + '</td></tr>';
-                }).join('') + '</tbody></table>';
+            body.innerHTML = referralListHtml(r.data || [], kind);
         }, function () { body.innerHTML = ''; });
     }
 
@@ -6709,6 +6877,9 @@ var COUPONS = (function () {
         resetReferrerPicker: resetReferrerPicker,
         pickReferrer: pickReferrer,
         loadReferralList: loadReferralList,
+        filterReferralList: filterReferralList,
+        referralKindOf: referralKindOf,
+        referralListHtml: referralListHtml,
         REF_EDIT_DAYS: REF_EDIT_DAYS,
         WALLET_CAP: WALLET_CAP,
         isLive: isLive,
@@ -6761,6 +6932,9 @@ var COUPONS = (function () {
         renderConfigPane: renderConfigPane,
         walletAvailable: walletAvailable,
         walletLedgerRows: walletLedgerRows,
+        mergeWalletHistory: mergeWalletHistory,
+        walletStateLabel: walletStateLabel,
+        logAmountFromDetail: logAmountFromDetail,
         effectiveExpiry: effectiveExpiry,
         applyZeroExpiry: applyZeroExpiry,
         freshZeroPolicy: freshZeroPolicy,

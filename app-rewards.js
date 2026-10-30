@@ -5367,6 +5367,9 @@ var REWARDS = (function () {
                         tr('rewards.cfg.refMin', 'Min first-visit payment HK$ (full or part payment)') + ' ' + (refCfg.minFirstSpend > 0 ? fmtPts(refCfg.minFirstSpend) : '—'))
                     : esc(tr('common.off', 'Off'))) + '</div>';
             }
+            html += '<p style="margin:12px 0 8px;font-size:12px;color:#64748b;">' + esc(tr('rewards.cfg.refLogHint',
+                'Points-reward referrals only. Pending waits for the new patient to pay at least the minimum in cash on one bill (full or part payment). Coupon-reward referrals are on Configuration → Discount Coupons.')) + '</p>';
+            html += '<div class="dc-log-wrap" id="rwRefBody"></div>';
             html += '</div>';
 
             var cap = normalizeRedeemCap(ctx.cap);
@@ -5591,6 +5594,9 @@ var REWARDS = (function () {
             html += '</div>';
 
             pane.innerHTML = html;
+            if (typeof COUPONS !== 'undefined' && COUPONS && typeof COUPONS.loadReferralList === 'function') {
+                COUPONS.loadReferralList({ kind: 'points', bodyId: 'rwRefBody', root: pane });
+            }
 
             if (admin) {
                 wireGiftConfigCard(pane);
@@ -6075,6 +6081,11 @@ var REWARDS = (function () {
             '.rw-cfg-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 18px;margin-bottom:14px;}' +
             '.rw-cfg-card--danger{border-color:#fecaca;background:#fff7f7;}' +
             '.rw-cfg-card-title{font-weight:700;margin-bottom:10px;font-size:14px;}' +
+            '.rw-cfg-card .dc-log-wrap{max-height:360px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;}' +
+            '.rw-cfg-card .dc-log{width:100%;border-collapse:collapse;font-size:12px;}' +
+            '.rw-cfg-card .dc-log th{position:sticky;top:0;background:#f8fafc;text-align:left;padding:6px 8px;}' +
+            '.rw-cfg-card .dc-log td{padding:6px 8px;border-top:1px solid #f1f5f9;vertical-align:top;}' +
+            '.rw-cfg-card .dc-hint{margin:8px;font-size:12px;color:#64748b;}' +
             '.btn--danger{background:#dc2626;color:#fff;border:1px solid #b91c1c;border-radius:8px;cursor:pointer;}' +
             '.btn--danger:hover{background:#b91c1c;}' +
             '#rwResetZeroModal.reward-points-modal{z-index:3300;background:rgba(15,23,42,.4);display:none;align-items:center;justify-content:center;}' +

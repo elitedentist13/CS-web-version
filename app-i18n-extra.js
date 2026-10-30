@@ -3318,6 +3318,7 @@
         'coupons.log.pay': { en: 'Payment', 'zh-CN': '付款', 'zh-Hant': '付款' },
         'coupons.log.voidPay': { en: 'Void payment', 'zh-CN': '作废付款', 'zh-Hant': '作廢付款' },
         'coupons.log.cancel': { en: 'Cancel', 'zh-CN': '取消', 'zh-Hant': '取消' },
+        'coupons.log.referral': { en: 'Referral', 'zh-CN': '介绍', 'zh-Hant': '介紹' },
         'coupons.log.when': { en: 'When', 'zh-CN': '时间', 'zh-Hant': '時間' },
         'coupons.log.what': { en: 'Action', 'zh-CN': '动作', 'zh-Hant': '動作' },
         'coupons.log.who': { en: 'By', 'zh-CN': '经手人', 'zh-Hant': '經手人' },
@@ -3392,12 +3393,13 @@
             'zh-CN': '等待此账单全数付清——介绍券按全数付款计算',
             'zh-Hant': '等待此賬單全數付清——介紹券按全數付款計算'
         },
-        'coupons.ref.title': { en: 'Referrals', 'zh-CN': '介绍记录', 'zh-Hant': '介紹記錄' },
+        'coupons.ref.title': { en: 'Referral coupons', 'zh-CN': '介绍券记录', 'zh-Hant': '介紹券記錄' },
         'coupons.ref.listHint': {
-            en: 'Each new patient with a referrer. Pending waits for the new patient’s qualifying bill (coupon: a bill of at least the minimum, fully paid; points: the minimum paid, full or part payment); blocked shows why no reward is given.',
-            'zh-CN': '每位有介绍人的新病人。「等待中」表示等待新病人合资格的账单（优惠券：至少达最低金额的账单全数付清；积分：付款达最低金额，全数或部分付款）；「不发出」会显示原因。',
-            'zh-Hant': '每位有介紹人的新病人。「等待中」表示等待新病人合資格的賬單（優惠券：至少達最低金額的賬單全數付清；積分：付款達最低金額，全數或部分付款）；「不發出」會顯示原因。'
+            en: 'Coupon-reward referrals only. Pending waits for the new patient’s fully paid bill of at least the minimum. Points-reward referrals are on Configuration → Reward Points. Blocked shows why no coupon was given.',
+            'zh-CN': '只列出优惠券介绍记录。「等待中」表示等待新病人至少达最低金额的账单全数付清。积分介绍记录在「设定 → 积分」。「不发出」会显示原因。',
+            'zh-Hant': '只列出優惠券介紹記錄。「等待中」表示等待新病人至少達最低金額的賬單全數付清。積分介紹記錄在「設定 → 積分」。「不發出」會顯示原因。'
         },
+        'coupons.ref.nonePoints': { en: 'No referral-points records yet.', 'zh-CN': '暂无介绍积分记录。', 'zh-Hant': '暫無介紹積分記錄。' },
         'coupons.ref.bonusTitle': { en: 'Refer a friend bonus activated', 'zh-CN': '介绍新客奖赏已启动', 'zh-Hant': '介紹新客獎賞已啟動' },
         'coupons.ref.bonusCoupon': { en: 'Referrer #{REF} gets a HK${N} coupon', 'zh-CN': '介绍人 #{REF} 获发 HK${N} 优惠券', 'zh-Hant': '介紹人 #{REF} 獲發 HK${N} 優惠券' },
         'coupons.ref.bonusPts': { en: 'Referrer #{REF} gets +{N} reward points', 'zh-CN': '介绍人 #{REF} 获发 +{N} 积分', 'zh-Hant': '介紹人 #{REF} 獲發 +{N} 積分' },
@@ -3426,6 +3428,11 @@
         'rewards.cfg.refOn': { en: 'Give reward points for referrals', 'zh-CN': '介绍新客可获积分', 'zh-Hant': '介紹新客可獲積分' },
         'rewards.cfg.refPoints': { en: 'Points', 'zh-CN': '积分', 'zh-Hant': '積分' },
         'rewards.cfg.refMin': { en: 'Min first-visit payment HK$ (full or part payment)', 'zh-CN': '首次就诊最低付款 HK$（全数或部分付款）', 'zh-Hant': '首次診症最低付款 HK$（全數或部分付款）' },
+        'rewards.cfg.refLogHint': {
+            en: 'Points-reward referrals only. Pending waits for the new patient to pay at least the minimum in cash on one bill (full or part payment). Coupon-reward referrals are on Configuration → Discount Coupons.',
+            'zh-CN': '只列出积分介绍记录。「等待中」表示等待新病人在一张账单现金付款达最低金额（全数或部分付款）。优惠券介绍记录在「设定 → 优惠券」。',
+            'zh-Hant': '只列出積分介紹記錄。「等待中」表示等待新病人在一張賬單現金付款達最低金額（全數或部分付款）。優惠券介紹記錄在「設定 → 優惠券」。'
+        },
         'coupons.ref.after': { en: 'once this patient has paid the minimum on a bill (full or part payment)', 'zh-CN': '于此病人在一张账单付款达最低金额后发出（全数或部分付款）', 'zh-Hant': '於此病人在一張賬單付款達最低金額後發出（全數或部分付款）' },
         'coupons.ref.min': { en: 'min', 'zh-CN': '最低', 'zh-Hant': '最低' },
         'coupons.ref.recorded': { en: 'Referral already recorded', 'zh-CN': '已有介绍记录', 'zh-Hant': '已有介紹記錄' },
@@ -3436,7 +3443,7 @@
             'zh-CN': '尚未建立介绍记录表——请在 Supabase 执行 discount_coupon_referrals.sql。',
             'zh-Hant': '尚未建立介紹記錄表——請在 Supabase 執行 discount_coupon_referrals.sql。'
         },
-        'coupons.ref.none': { en: 'No referrals yet.', 'zh-CN': '暂无介绍记录。', 'zh-Hant': '暫無介紹記錄。' },
+        'coupons.ref.none': { en: 'No referral-coupon records yet.', 'zh-CN': '暂无介绍券记录。', 'zh-Hant': '暫無介紹券記錄。' },
         'coupons.ref.colFriend': { en: 'New patient', 'zh-CN': '新病人', 'zh-Hant': '新病人' },
         'coupons.ref.colReferrer': { en: 'Referrer', 'zh-CN': '介绍人', 'zh-Hant': '介紹人' },
         'coupons.ref.colStatus': { en: 'Status', 'zh-CN': '状态', 'zh-Hant': '狀態' },
@@ -3730,11 +3737,11 @@
             'zh-Hant': '這裡沒有可轉讓的券。已過期，以及新症或推薦券都只屬於此病人。'
         },
         'coupons.wl.live': { en: 'Unused coupons', 'zh-CN': '未使用的优惠券', 'zh-Hant': '未使用的優惠券' },
-        'coupons.wl.history': { en: 'Used, cancelled and expired', 'zh-CN': '已使用、已取消及已过期', 'zh-Hant': '已使用、已取消及已過期' },
+        'coupons.wl.history': { en: 'Used, cancelled, expired and other activity', 'zh-CN': '已使用、已取消、已过期及其他纪录', 'zh-Hant': '已使用、已取消、已過期及其他紀錄' },
         'coupons.wl.noHistory': {
-            en: 'No used, cancelled or expired coupons yet.',
-            'zh-CN': '暂无已使用、已取消或已过期的优惠券。',
-            'zh-Hant': '暫無已使用、已取消或已過期的優惠券。'
+            en: 'No uses, payments, voids, transfers or expired coupons yet.',
+            'zh-CN': '暂无使用、付款、作废、转让或过期的优惠券纪录。',
+            'zh-Hant': '暫無使用、付款、作廢、轉讓或過期的優惠券紀錄。'
         },
         'coupons.wl.when': { en: 'When', 'zh-CN': '时间', 'zh-Hant': '時間' },
         'coupons.wl.clinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },

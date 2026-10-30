@@ -119,7 +119,8 @@
                             'A small <b>Refer a friend bonus activated</b> message then pops up at the bottom right of the screen. ' +
                             'Leave the minimum blank for any amount.',
                         'On the patient form, staff pick the referrer under <b>Referred by</b> and choose <b>points</b> or a <b>discount coupon</b>. ' +
-                            'A choice is greyed out where the clinic is not in that scheme.'
+                            'A choice is greyed out where the clinic is not in that scheme.',
+                        'The table on this card lists <b>points-reward</b> referrals only. Coupon-reward referrals stay on <b>Configuration → Discount Coupons → Referrals</b>.'
                     ] },
                     { t: 'Using points on one bill', key: true, mock: capMock, list: [
                         'Set the most points one bill can use: a <b>% of the bill</b>, an amount <b>up to HK$</b>, or both. Press <b>Save</b>.',
@@ -251,7 +252,8 @@
                             'makes those coupons usable again. The grey line under the buttons shows the last safety log.'
                     ] },
                     { t: 'Referrals', list: [
-                        'Each new patient with a referrer. <b>Pending</b> waits for the new patient’s qualifying bill (coupon: a bill of at least the minimum, fully paid; points: the minimum paid, full or part payment); <b>blocked</b> shows why no reward was given.'
+                        'Coupon-reward referrals only. <b>Pending</b> waits for the new patient’s fully paid bill of at least the minimum; <b>blocked</b> shows why no coupon was given.',
+                        'Points-reward referrals are on <b>Configuration → Reward Points → Refer a friend (points)</b>.'
                     ] },
                     { t: 'Coupon log', list: [
                         'Pick the dates (from → to) and an optional <b>Chart no.</b>, then press <b>Show</b>. The chips filter by action; <b>Export CSV</b> downloads the list.',
@@ -417,7 +419,8 @@
                     { t: '介紹新客（積分）', list: [
                         '剔選<b>介紹新客可獲積分</b>，填寫<b>積分</b>及<b>首次診症最低付款 HK$（全數或部分付款）</b>，然後按<b>儲存</b>。',
                         '新病人在<b>同一張賬單的現金付款累計達最低金額</b>（全數或部分付款均計算），介紹人即獲得積分，畫面右下角會彈出<b>介紹新客獎賞已啟動</b>的小提示。最低金額留空即不設下限。',
-                        '在病人資料表的<b>轉介人</b>選擇介紹人，再選<b>積分</b>或<b>優惠券</b>。如該診所未參加某計劃，該選項會變灰。'
+                        '在病人資料表的<b>轉介人</b>選擇介紹人，再選<b>積分</b>或<b>優惠券</b>。如該診所未參加某計劃，該選項會變灰。',
+                        '此卡的表格只列出<b>積分介紹</b>記錄。優惠券介紹記錄在<b>設定 → 優惠券 → 介紹記錄</b>。'
                     ] },
                     { t: '單張賬單使用積分上限', key: true, mock: capMock, list: [
                         '設定每張賬單最多可用多少積分：<b>賬單金額 %</b>、<b>最多 HK$</b>，或兩者都設，然後按<b>儲存</b>。',
@@ -534,7 +537,8 @@
                         '每次清零都會保留<b>安全日誌</b>，並在優惠券記錄留下一行。<b>回退並退回上次清零的優惠券</b>可令該批券重新可用；按鈕下方的灰字顯示上一個安全日誌。'
                     ] },
                     { t: '介紹記錄', list: [
-                        '列出每位有介紹人的新病人。<b>待定</b>表示等待新病人合資格的賬單（優惠券：至少達最低金額的賬單全數付清；積分：付款達最低金額，全數或部分付款）；<b>受阻</b>顯示未發獎賞的原因。'
+                        '只列出優惠券介紹記錄。<b>待定</b>表示等待新病人至少達最低金額的賬單全數付清；<b>受阻</b>顯示未發券的原因。',
+                        '積分介紹記錄在<b>設定 → 獎勵積分 → 介紹新客（積分）</b>。'
                     ] },
                     { t: '優惠券記錄', list: [
                         '選擇日期（由 → 至）及可選的<b>病歷號</b>，按<b>顯示</b>。可用標籤按動作篩選；<b>匯出 CSV</b> 下載清單。',
@@ -699,7 +703,8 @@
                     { t: '介绍新客（积分）', list: [
                         '勾选<b>介绍新客可获积分</b>，填写<b>积分</b>及<b>首次就诊最低付款 HK$（全数或部分付款）</b>，然后点<b>保存</b>。',
                         '新病人在<b>同一张账单的现金付款累计达最低金额</b>（全数或部分付款均计算），介绍人即获得积分，画面右下角会弹出<b>介绍新客奖赏已启动</b>的小提示。最低金额留空即不设下限。',
-                        '在病人资料表的<b>转介人</b>选择介绍人，再选<b>积分</b>或<b>优惠券</b>。如该诊所未参加某计划，该选项会变灰。'
+                        '在病人资料表的<b>转介人</b>选择介绍人，再选<b>积分</b>或<b>优惠券</b>。如该诊所未参加某计划，该选项会变灰。',
+                        '此卡的表格只列出<b>积分介绍</b>记录。优惠券介绍记录在<b>设置 → 优惠券 → 介绍记录</b>。'
                     ] },
                     { t: '单张账单使用积分上限', key: true, mock: capMock, list: [
                         '设置每张账单最多可用多少积分：<b>账单金额 %</b>、<b>最多 HK$</b>，或两者都设，然后点<b>保存</b>。',
@@ -816,7 +821,8 @@
                         '每次清零都会保留<b>安全日志</b>，并在优惠券记录留下一行。<b>回退并退回上次清零的优惠券</b>可令该批券重新可用；按钮下方的灰字显示上一个安全日志。'
                     ] },
                     { t: '介绍记录', list: [
-                        '列出每位有介绍人的新病人。<b>待定</b>表示等待新病人合资格的账单（优惠券：至少达最低金额的账单全数付清；积分：付款达最低金额，全数或部分付款）；<b>受阻</b>显示未发奖赏的原因。'
+                        '只列出优惠券介绍记录。<b>待定</b>表示等待新病人至少达最低金额的账单全数付清；<b>受阻</b>显示未发券的原因。',
+                        '积分介绍记录在<b>设置 → 奖励积分 → 介绍新客（积分）</b>。'
                     ] },
                     { t: '优惠券记录', list: [
                         '选择日期（由 → 至）及可选的<b>病历号</b>，点<b>显示</b>。可用标签按动作筛选；<b>导出 CSV</b> 下载清单。',

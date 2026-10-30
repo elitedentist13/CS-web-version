@@ -123,8 +123,12 @@
 .dc-op-badge[data-op="ISSUE"] { background: #dbeafe; color: #1e40af; }
 .dc-op-badge[data-op="GIFT"] { background: #ede9fe; color: #5b21b6; }
 .dc-op-badge[data-op="TRANSFER"] { background: #fef3c7; color: #92400e; }
+.dc-op-badge[data-op="USE"] { background: #dcfce7; color: #166534; }
+.dc-op-badge[data-op="PAY"] { background: #e0f2fe; color: #075985; }
+.dc-op-badge[data-op="VOID_PAY"] { background: #ffe4e6; color: #9f1239; }
 .dc-op-badge[data-op="RESTORE"] { background: #dcfce7; color: #166534; }
 .dc-op-badge[data-op="CANCEL"] { background: #fee2e2; color: #991b1b; }
+.dc-op-badge[data-op="REFERRAL"] { background: #fce7f3; color: #9d174d; }
 
 /* ---------- Wallet sheet ---------- */
 #dcSheetHost { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); z-index: 8000; display: flex; align-items: center; justify-content: center; padding: 18px; }
@@ -202,6 +206,13 @@ div.dc-card.dc-wcard { margin-bottom: 0; grid-template-columns: var(--stub) 1fr;
 .dc-wl-table tr[data-state="used"] .dc-wl-badge { background: #dcfce7; color: #166534; }
 .dc-wl-table tr[data-state="void"] .dc-wl-badge { background: #fee2e2; color: #991b1b; }
 .dc-wl-table tr[data-state="expired"] .dc-wl-badge { background: #fef3c7; color: #92400e; }
+.dc-wl-table tr[data-state="pay"] .dc-wl-badge { background: #e0f2fe; color: #075985; }
+.dc-wl-table tr[data-state="void_pay"] .dc-wl-badge { background: #ffe4e6; color: #9f1239; }
+.dc-wl-table tr[data-state="transfer"] .dc-wl-badge { background: #fef3c7; color: #92400e; }
+.dc-wl-table tr[data-state="restore"] .dc-wl-badge { background: #dcfce7; color: #166534; }
+.dc-wl-table tr[data-state="gift"] .dc-wl-badge { background: #ede9fe; color: #5b21b6; }
+.dc-wl-table tr[data-state="issue"] .dc-wl-badge { background: #dbeafe; color: #1e40af; }
+.dc-wl-table tr[data-state="referral"] .dc-wl-badge { background: #fce7f3; color: #9d174d; }
 .dc-wl-table tr[data-state="void"] .dc-wl-coupon, .dc-wl-table tr[data-state="expired"] .dc-wl-coupon,
 .dc-wl-table tr[data-state="void"] .dc-wl-val, .dc-wl-table tr[data-state="expired"] .dc-wl-val { color: #94a3b8; }
 .dc-wl-table tr[data-state="void"] .dc-wl-val, .dc-wl-table tr[data-state="expired"] .dc-wl-val { text-decoration: line-through; }

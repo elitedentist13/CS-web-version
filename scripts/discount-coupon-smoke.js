@@ -271,6 +271,31 @@ function loadCoupons() {
     pass('wallet tab: live coupons soonest expiry first', wl.live.map(function (c) { return c.id; }).join(',') === 'b,a');
     pass('wallet tab: history newest first with used / cancelled / expired', wl.history.map(function (h) { return h.coupon.id + ':' + h.state; }).join(',') ===
         'd:used,e:void,c:expired', JSON.stringify(wl.history.map(function (h) { return [h.coupon.id, h.state, h.at]; })));
+    var wlTx = C.mergeWalletHistory([
+        { id: 'd', status: 'used', redeemed_at: '2026-09-01T03:00:00Z', issued_at: '2026-04-01T00:00:00Z', campaign_key: 'cash', face_value: 50 },
+        { id: 'e', status: 'void', issued_at: '2026-06-01T00:00:00Z', campaign_key: 'cash', face_value: 20 },
+        { id: 'c', status: 'unused', expires_on: '2026-05-01', issued_at: '2026-03-01T00:00:00Z', campaign_key: 'cash', face_value: 10 },
+        { id: 'live', status: 'unused', expires_on: '2027-01-01', issued_at: '2026-08-01T00:00:00Z', campaign_key: 'cash', face_value: 80 }
+    ], [
+        { created_at: '2026-09-01T03:00:00Z', operation: 'USE', record_id: 'd', changes_detail: 'Used on bill abc · HK$50.00', patient_no: '001003' },
+        { created_at: '2026-10-21T05:00:00Z', operation: 'PAY', record_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', changes_detail: 'Paid HK$800.00 Cash on bill bbbbbbbb · coupon on bill HK$50.00', patient_no: '001003', clinic_tag: 'KT' },
+        { created_at: '2026-10-22T05:00:00Z', operation: 'VOID_PAY', record_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', changes_detail: 'Voided HK$200.00 Visa on bill bbbbbbbb · no coupon', patient_no: '001003', clinic_tag: 'KT' },
+        { created_at: '2026-10-23T02:00:00Z', operation: 'TRANSFER', record_id: 'gone', changes_detail: 'Coupon DC-X · Cash coupon HK$80.00 · from 001003 to 001004', patient_no: '001004' }
+    ], '2026-10-28');
+    pass('wallet history merges pay, void and transfer with used / cancelled / expired',
+        wlTx.live.length === 1 && wlTx.live[0].id === 'live' &&
+        wlTx.history.some(function (h) { return h.state === 'pay' && h.audit && /Paid HK\$800/.test(h.audit.changes_detail); }) &&
+        wlTx.history.some(function (h) { return h.state === 'void_pay'; }) &&
+        wlTx.history.some(function (h) { return h.state === 'transfer'; }) &&
+        wlTx.history.some(function (h) { return h.state === 'used'; }) &&
+        wlTx.history.some(function (h) { return h.state === 'void'; }) &&
+        wlTx.history.some(function (h) { return h.state === 'expired'; }) &&
+        wlTx.history.filter(function (h) { return h.state === 'used'; }).length === 1,
+        JSON.stringify(wlTx.history.map(function (h) { return h.state; })));
+    pass('wallet history labels pay / void / transfer',
+        C.walletStateLabel('pay') === 'Payment' && C.walletStateLabel('void_pay') === 'Void payment' &&
+        C.walletStateLabel('transfer') === 'Transfer');
+    pass('log amount is read from a payment detail', C.logAmountFromDetail('Paid HK$800.00 Cash on bill abc · no coupon') === 'HK$800.00');
     var ALL_CAMP_KEYS = ['cash', 'spend_1', 'spend_2', 'spend_3', 'spend_4', 'spend_5', 'new_chart', 'referral',
         'free_scaling', 'free_filling', 'free_extraction', 'implant', 'ortho', 'crown_bridge', 'root_canal', 'whitening'];
     var allWallet = ALL_CAMP_KEYS.map(function (k, i) {
@@ -878,6 +903,23 @@ function loadCoupons() {
     pass('pick kind: keeps the requested branch when on', C.pickReferralKind('points', bothOn) === 'points' && C.pickReferralKind('coupon', bothOn) === 'coupon');
     pass('pick kind: falls back to the branch that is on', C.pickReferralKind('coupon', ptsOnly) === 'points' && C.pickReferralKind(undefined, ptsOnly) === 'points');
     pass('pick kind: neither scheme → no referral', C.pickReferralKind('points', neither) === '');
+    var refRows = [
+        { id: '1', reward_kind: 'coupon', status: 'pending', referred_no: 'A', referrer_no: 'B', created_at: '2026-10-01T00:00:00Z' },
+        { id: '2', reward_kind: 'points', status: 'issued', points: 100, referred_no: 'C', referrer_no: 'D', created_at: '2026-10-02T00:00:00Z' },
+        { id: '3', status: 'pending', referred_no: 'E', referrer_no: 'F', created_at: '2026-10-03T00:00:00Z' }
+    ];
+    pass('referral list splits coupon vs points', C.filterReferralList(refRows, 'coupon').length === 2 &&
+        C.filterReferralList(refRows, 'points').length === 1 && C.referralKindOf(refRows[2]) === 'coupon');
+    var cHtml = C.referralListHtml(refRows, 'coupon');
+    var pHtml = C.referralListHtml(refRows, 'points');
+    pass('coupon referral table has no points rows', cHtml.indexOf('data-ref-kind="points"') < 0 &&
+        cHtml.indexOf('data-ref-kind="coupon"') >= 0 && cHtml.indexOf('#A') >= 0 && cHtml.indexOf('#C') < 0);
+    pass('points referral table has no coupon rows', pHtml.indexOf('data-ref-kind="coupon"') < 0 &&
+        pHtml.indexOf('data-ref-kind="points"') >= 0 && pHtml.indexOf('+100') >= 0 && pHtml.indexOf('#C') >= 0);
+    pass('coupon config loads coupon referrals; points config loads points referrals',
+        /loadReferralList\(\{ kind: 'coupon', bodyId: 'dcRefBody'/.test(src) &&
+        /id="rwRefBody"/.test(read('app-rewards.js')) &&
+        /loadReferralList\(\{ kind: 'points', bodyId: 'rwRefBody'/.test(read('app-rewards.js')));
     var kh = C.referralKindsHtml('refKind_referredBy', ptsOnly, 'points', refCamp, { points: 100 });
     pass('kind radios: the off branch is greyed out and disabled with its reason',
         /class="dc-ref-k is-off" data-kind="coupon"[^>]*title="[^"]+"><input type="radio" name="refKind_referredBy" value="coupon" disabled>/.test(kh) &&
@@ -1765,6 +1807,24 @@ function loadCoupons() {
     pass('coupon log merges issue, gift and transfer', log.length === 3 && log[0].op === 'TRANSFER' &&
         log.some(function (r) { return r.op === 'GIFT' && r.who === 'Nurse A' && r.chart === 'T1'; }) &&
         log.some(function (r) { return r.op === 'ISSUE'; }), JSON.stringify(log.map(function (r) { return r.op; })));
+    var payLog = C.buildCouponLog(
+        [{ id: 'c9', issued_at: '2026-10-01T02:00:00Z', campaign_key: 'cash', patient_id: 'p1', face_value: 50, code: 'A9', bill_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' }],
+        [
+            { created_at: '2026-10-21T05:00:00Z', operation: 'PAY', record_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', user_name: 'Amy', patient_no: '001003', changes_detail: 'Paid HK$800.00 Cash on bill bbbbbbbb · coupon on bill HK$50.00' },
+            { created_at: '2026-10-22T05:00:00Z', operation: 'VOID_PAY', record_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', user_name: 'Amy', patient_no: '001003', changes_detail: 'Voided HK$200.00 Visa on bill bbbbbbbb · no coupon' },
+            { created_at: '2026-10-23T02:00:00Z', operation: 'TRANSFER', user_name: 'Dr B', patient_no: '001004', changes_detail: 'Coupon A9 · from 001003 to 001004' }
+        ],
+        { p1: { patient_no: '001003' } }
+    );
+    pass('config coupon log lists payment, void and transfer',
+        payLog.some(function (r) { return r.op === 'PAY' && r.amount === 'HK$800.00' && r.coupon; }) &&
+        payLog.some(function (r) { return r.op === 'VOID_PAY' && r.amount === 'HK$200.00'; }) &&
+        payLog.some(function (r) { return r.op === 'TRANSFER'; }),
+        JSON.stringify(payLog.map(function (r) { return r.op + ':' + r.amount + ':' + r.coupon; })));
+    pass('config log loads pay / void / transfer and the patient history merges the same audits',
+        /loadWalletAudits\(/.test(src) && /mergeWalletHistory\(/.test(src) &&
+        /changes_detail\.ilike\."\*' \+ no \+ '\*"/.test(src) &&
+        /data-op="PAY"/.test(read('style-coupons.css')) && /data-state="void_pay"/.test(read('style-coupons.css')));
     var hist = C.mergeCouponHistory({ id: 'b1', coupon_amount: 560, coupon_label: 'Free scaling', bill_date: '2026-10-21', clinic_tag: 'KT' },
         [{ id: 'p1', amount: 800, method: 'Cash' }]);
     pass('payment history shows a display-only coupon row plus cash', hist.length === 2 && hist[0]._couponRecord &&
@@ -2607,6 +2667,32 @@ function loadCoupons() {
             !!(refStack && refStack.cashLike && refStack.stackN === 4 && refStack.stackSave === 370 &&
                 refStack.stackCash === 4 && refStack.capSave === 200 && refStack.capHit && refStack.capCents === 20000),
             JSON.stringify(refStack));
+        var histLive = await cdp.js(`(function () {
+  var wallet = [
+    { id: 'd', status: 'used', redeemed_at: '2026-09-01T03:00:00Z', issued_at: '2026-04-01T00:00:00Z', campaign_key: 'cash', face_value: 50 },
+    { id: 'live', status: 'unused', expires_on: '2027-01-01', issued_at: '2026-08-01T00:00:00Z', campaign_key: 'cash', face_value: 80 }
+  ];
+  var audits = [
+    { created_at: '2026-10-21T05:00:00Z', operation: 'PAY', changes_detail: 'Paid HK$800.00 Cash on bill abc · no coupon', patient_no: '001003' },
+    { created_at: '2026-10-22T05:00:00Z', operation: 'VOID_PAY', changes_detail: 'Voided HK$200.00 Visa on bill abc · no coupon', patient_no: '001003' },
+    { created_at: '2026-10-23T02:00:00Z', operation: 'TRANSFER', changes_detail: 'Coupon X · from 001003 to 001004', patient_no: '001004' }
+  ];
+  var rows = COUPONS.mergeWalletHistory(wallet, audits, '2026-10-28');
+  var log = COUPONS.buildCouponLog(wallet, audits, {});
+  return {
+    hist: rows.history.map(function (h) { return h.state; }),
+    log: log.map(function (r) { return r.op + ':' + r.amount; }),
+    labels: [COUPONS.walletStateLabel('pay'), COUPONS.walletStateLabel('void_pay'), COUPONS.walletStateLabel('transfer')]
+  };
+})()`, false, 10000);
+        pass('CDP patient history and config log both list pay / void / transfer',
+            !!(histLive && histLive.hist.indexOf('pay') >= 0 && histLive.hist.indexOf('void_pay') >= 0 &&
+                histLive.hist.indexOf('transfer') >= 0 && histLive.hist.indexOf('used') >= 0 &&
+                histLive.log.some(function (s) { return s.indexOf('PAY:HK$800.00') === 0; }) &&
+                histLive.log.some(function (s) { return s.indexOf('VOID_PAY:HK$200.00') === 0; }) &&
+                histLive.log.some(function (s) { return s.indexOf('TRANSFER:') === 0; }) &&
+                histLive.labels[0] === 'Payment' && histLive.labels[2] === 'Transfer'),
+            JSON.stringify(histLive));
 
         var refLive = await cdp.js(`(async () => {
   var input = document.getElementById('referredBy');
@@ -2638,9 +2724,17 @@ function loadCoupons() {
     REWARDS.renderConfigPane(rwPane);
     var rwDeadline = Date.now() + 25000;
     while (Date.now() < rwDeadline && !rwPane.querySelector('#rwCfgReferral')) await new Promise(function (r) { setTimeout(r, 250); });
+    var rwBodyWait = Date.now() + 8000;
+    while (Date.now() < rwBodyWait) {
+      var rb = rwPane.querySelector('#rwRefBody');
+      if (rb && String(rb.textContent || '').trim()) break;
+      await new Promise(function (r) { setTimeout(r, 200); });
+    }
     var rwCard = rwPane.querySelector('#rwCfgReferral');
     var rwAdmin = String(typeof currentRole !== 'undefined' ? currentRole : '').toLowerCase() === 'admin';
     out.rwRefCard = !!rwCard && (rwAdmin ? !!rwCard.querySelector('#rwCfgRefPoints') && !!rwCard.querySelector('#rwCfgRefMin') : !rwCard.querySelector('input'));
+    out.rwRefBody = !!rwPane.querySelector('#rwRefBody');
+    out.rwRefNoCoupon = !rwPane.querySelector('#rwRefBody [data-ref-kind="coupon"]');
     out.rwPaneText = (rwAdmin ? 'admin: ' : 'read-only: ') + (rwCard ? rwCard.textContent : rwPane.textContent).replace(/\s+/g, ' ').slice(0, 200);
   }
   var rwStyle = document.getElementById('rwStyles');
@@ -2661,6 +2755,7 @@ function loadCoupons() {
     out.minField = !!pane.querySelector('.dc-num[data-key="referral"][data-prop="minFirstSpend"]');
     out.refCard = !!pane.querySelector('#dcRefCard');
     out.refBody = (pane.querySelector('#dcRefBody') || {}).textContent || '';
+    out.refNoPoints = !pane.querySelector('#dcRefBody [data-ref-kind="points"]');
   }
   return out;
 })()`, true, 20000);
@@ -2673,8 +2768,10 @@ function loadCoupons() {
         pass('CDP greyed-out branch is not clickable', refLive && refLive.offGrey === true);
         pass('CDP reward ledger panel has the summary, chips and new styles', refLive && refLive.ledgerUi === true);
         pass('CDP Reward Points config has the refer-a-friend card', refLive && refLive.rwRefCard === true, refLive && refLive.rwPaneText);
+        pass('CDP Reward Points config has the points referral log', refLive && refLive.rwRefBody === true && refLive.rwRefNoCoupon === true,
+            refLive && JSON.stringify({ body: refLive.rwRefBody, noCoupon: refLive.rwRefNoCoupon }));
         pass('CDP Config has the min first-visit field and the Referrals card', refLive && refLive.minField && refLive.refCard &&
-            refLive.refBody.length > 0, refLive && refLive.refBody.slice(0, 120));
+            refLive.refBody.length > 0 && refLive.refNoPoints === true, refLive && refLive.refBody.slice(0, 120));
 
         var paint = await cdp.js(`(async () => {
   var pane = document.getElementById('cfgPane-coupons');

@@ -823,6 +823,54 @@ var COUPONS = (function () {
     /** Today's date in Hong Kong (UTC+8), whatever the station clock zone. */
     function todayIso() { return new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10); }
 
+    function couponDateLocale() {
+        if (typeof APP_LOCALE !== 'undefined' && APP_LOCALE) return APP_LOCALE;
+        if (typeof appUiLocale === 'function') {
+            try { return appUiLocale(); } catch (e) { /* ignore */ }
+        }
+        return 'en-HK';
+    }
+
+    /** Hong Kong (UTC+8) calendar date + 12-hour AM/PM clock from a timestamptz / ISO stamp. */
+    function hkParts(iso) {
+        if (!iso) return { date: '', dateIso: '', time: '', when: '' };
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) {
+            var raw = String(iso).replace('T', ' ');
+            return { date: raw.slice(0, 10), dateIso: raw.slice(0, 10), time: raw.slice(11, 16), when: (raw.slice(0, 10) + ' ' + raw.slice(11, 16)).trim() };
+        }
+        var dateIso = new Date(d.getTime() + 8 * 3600000).toISOString().slice(0, 10);
+        var loc = couponDateLocale();
+        var dateLbl = dateIso;
+        try {
+            dateLbl = d.toLocaleDateString(loc, {
+                timeZone: 'Asia/Hong_Kong',
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric'
+            });
+        } catch (e) { /* keep YYYY-MM-DD */ }
+        var timeLbl = '';
+        try {
+            timeLbl = d.toLocaleTimeString(loc, {
+                timeZone: 'Asia/Hong_Kong',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+            });
+        } catch (e2) {
+            var s = new Date(d.getTime() + 8 * 3600000).toISOString();
+            var hh = parseInt(s.slice(11, 13), 10);
+            var mm = s.slice(14, 16);
+            var ap = hh >= 12 ? 'PM' : 'AM';
+            var h12 = hh % 12;
+            if (!h12) h12 = 12;
+            timeLbl = ('0' + h12).slice(-2) + ':' + mm + ' ' + ap;
+        }
+        return { date: dateLbl, dateIso: dateIso, time: timeLbl, when: (dateLbl + ' ' + timeLbl).trim() };
+    }
+    function fmtHkWhen(iso) { return hkParts(iso).when; }
+
     /** Unused and not past expiry. Expired coupons keep status 'unused' in the table. */
     function isLive(c, today) {
         if (!c || c.status !== 'unused') return false;
@@ -1813,7 +1861,7 @@ var COUPONS = (function () {
             if (!res.ok && zeroSqlMissing(res.error)) { meta.textContent = zeroErrorText(res.error); return; }
             if (!b) { meta.textContent = ct('coupons.zero.none', 'No set zero safety log to step back yet.'); return; }
             meta.textContent = ct('coupons.zero.lastMeta', 'Last safety log: {when} · {source} · {scope} · {N} coupon(s)')
-                .replace('{when}', String(b.created_at || '').replace('T', ' ').slice(0, 16))
+                .replace('{when}', fmtHkWhen(b.created_at))
                 .replace('{source}', String(b.source || 'manual'))
                 .replace('{scope}', b.scope_all ? ct('rewards.cfg.resetZeroAll', 'All clinics') : (b.clinic_codes || []).join(', '))
                 .replace('{N}', String(b.coupons || 0));
@@ -2500,7 +2548,7 @@ var COUPONS = (function () {
         var out = [head.join(',')];
         (rows || []).forEach(function (r) {
             out.push([
-                r.at ? String(r.at).replace('T', ' ').slice(0, 19) : '', names[r.op] || r.op, r.who, r.clinic, r.chart,
+                r.at ? fmtHkWhen(r.at) : '', names[r.op] || r.op, r.who, r.clinic, r.chart,
                 r.coupon, r.amount, r.code, r.status, r.note
             ].map(cell).join(','));
         });
@@ -2549,7 +2597,7 @@ var COUPONS = (function () {
             '<th>' + esc(ct('coupons.log.note', 'Detail')) + '</th>' +
             '</tr></thead><tbody>';
         rows.forEach(function (r) {
-            var when = r.at ? String(r.at).replace('T', ' ').slice(0, 16) : '';
+            var when = r.at ? fmtHkWhen(r.at) : '';
             html += '<tr><td>' + esc(when) + '</td>' +
                 '<td class="dc-op"><span class="dc-op-badge" data-op="' + esc(r.op) + '">' + esc(opName[r.op] || r.op) + '</span></td>' +
                 '<td>' + esc(r.who) + '</td>' +
@@ -3205,12 +3253,12 @@ var COUPONS = (function () {
                     var bm = billMeta[walletHistoryBillId(h)] || {};
                     var clinic = (h.audit && h.audit.clinic_tag) || bm.clinic || c.clinic_code || '';
                     var note = auditNote || c.note || (h.state === 'expired' && c.expires_on ? String(c.expires_on).slice(0, 10) : '');
-                    var stamp = String(h.at || '').replace('T', ' ');
+                    var stamp = hkParts(h.at);
                     var kind = kindOf(w);
                     var name = campLabel(w);
                     html += '<tr data-state="' + esc(h.state) + '" data-kind="' + esc(kind) + '">' +
-                        '<td class="dc-wl-when"><span class="dc-wl-date">' + esc(stamp.slice(0, 10)) + '</span>' +
-                        '<span class="dc-wl-time">' + esc(stamp.slice(11, 16)) + '</span></td>' +
+                        '<td class="dc-wl-when"><span class="dc-wl-date">' + esc(stamp.date) + '</span>' +
+                        '<span class="dc-wl-time">' + esc(stamp.time) + '</span></td>' +
                         '<td>' + (clinic ? '<span class="dc-wl-clinic">' + esc(clinic) + '</span>' : '—') + '</td>' +
                         '<td class="dc-wl-dr" title="' + esc(bm.doctor || '') + '">' + esc(bm.doctor || '—') + '</td>' +
                         '<td class="dc-wl-coupon">' + (c.campaign_key || c.key
@@ -6154,7 +6202,7 @@ var COUPONS = (function () {
             '<th>' + esc(ct('coupons.log.note', 'Detail')) + '</th></tr></thead><tbody>' +
             list.map(function (x) {
                 return '<tr data-ref-status="' + esc(x.status) + '" data-ref-kind="' + esc(referralKindOf(x)) + '">' +
-                    '<td>' + esc(String(x.created_at || '').replace('T', ' ').slice(0, 16)) + '</td>' +
+                    '<td>' + esc(fmtHkWhen(x.created_at)) + '</td>' +
                     '<td>#' + esc(x.referred_no || '') + '</td><td>#' + esc(x.referrer_no || '') + '</td>' +
                     '<td>' + esc(referralRewardCell(x, kind)) + '</td>' +
                     '<td>' + esc(referralStatusText(x.status)) + '</td>' +
@@ -6929,6 +6977,8 @@ var COUPONS = (function () {
         claimYearEndSms: claimYearEndSms,
         finishYearEndSms: finishYearEndSms,
         todayIso: todayIso,
+        hkParts: hkParts,
+        fmtHkWhen: fmtHkWhen,
         renderConfigPane: renderConfigPane,
         walletAvailable: walletAvailable,
         walletLedgerRows: walletLedgerRows,

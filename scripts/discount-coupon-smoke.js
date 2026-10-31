@@ -1259,6 +1259,15 @@ function loadCoupons() {
     pass('year-end claim table patch exists with a unique person key',
         /unique \(scheme, year, stage, person_key\)/.test(read('loyalty_yearend_sms.sql')));
     pass('coupon "today" is the Hong Kong date', /function todayIso\(\) \{ return new Date\(Date\.now\(\) \+ 8 \* 3600000\)/.test(src));
+    var hkNow = C.hkParts('2026-10-30T23:45:00.000Z');
+    pass('ledger history clock is HK banana date + 12-hour AM/PM',
+        hkNow.dateIso === '2026-10-31' &&
+        (/31/.test(hkNow.date) && /2026/.test(hkNow.date)) &&
+        /0?7:45\s*AM/i.test(hkNow.time) && !/23:45/.test(hkNow.time + ' ' + hkNow.when),
+        JSON.stringify(hkNow));
+    pass('wallet / log / referral paint HK 12-hour stamps',
+        /hkParts\(h\.at\)/.test(src) && /fmtHkWhen\(r\.at\)/.test(src) && /fmtHkWhen\(x\.created_at\)/.test(src) &&
+        /hour12:\s*true/.test(src));
 
     console.log('=== 9b gift / transfer login ===');
     var authUsers = [
@@ -2615,6 +2624,13 @@ function loadCoupons() {
         pass('live BUILD ' + BUILD, true);
         await waitJs(cdp, "typeof COUPONS !== 'undefined' && COUPONS.DEFAULT_JOIN_CODE === 'KT'", 30000);
         pass('live COUPONS loaded', true);
+        var hkCdp = await cdp.js(`(function () {
+  return COUPONS.hkParts('2026-10-30T23:45:00.000Z');
+})()`, false, 8000);
+        pass('CDP HK ledger clock is 31 Oct 2026 7:45 AM',
+            !!(hkCdp && hkCdp.dateIso === '2026-10-31' && /31/.test(hkCdp.date) && /2026/.test(hkCdp.date) &&
+                /0?7:45\s*AM/i.test(hkCdp.time) && !/23:45/.test(String(hkCdp.time || ''))),
+            JSON.stringify(hkCdp));
         var live = await cdp.js(`(function () {
   var camps = COUPONS.defaultCampaigns();
   var catalog = ${JSON.stringify(catalog)};

@@ -73,37 +73,43 @@ var REWARDS = (function () {
         return 'en-HK';
     }
 
+    /** Banana Hong Kong (UTC+8) date + 12-hour AM/PM clock from a timestamptz / ISO stamp. */
+    function hkStampParts(iso) {
+        if (!iso) return { date: '', dateIso: '', time: '', when: '' };
+        var t = Date.parse(iso);
+        if (!isFinite(t)) {
+            var raw = String(iso).replace('T', ' ');
+            return { date: raw.slice(0, 10), dateIso: raw.slice(0, 10), time: raw.slice(11, 16), when: (raw.slice(0, 10) + ' ' + raw.slice(11, 16)).trim() };
+        }
+        var dateIso = new Date(t + 8 * 3600000).toISOString().slice(0, 10);
+        var dateLbl = fmtLedgerDateHK(iso);
+        var timeLbl = ledgerClock(iso);
+        return { date: dateLbl, dateIso: dateIso, time: timeLbl, when: (dateLbl + ' ' + timeLbl).trim() };
+    }
+
     /**
-     * Format ledger timestamptz like the consultation banner + realtime sync clock:
-     * browser-local instant via APP_LOCALE (clinic PCs are HK), AM/PM like fmtNowDateTimeHK.
+     * Format ledger timestamptz on the Banana Hong Kong clock (UTC+8):
+     * calendar date + 12-hour AM/PM, same day as hkDayKey / coupon todayIso.
      */
     function fmtLedgerTimeHK(iso) {
         if (!iso) return '—';
         var d = new Date(iso);
         if (isNaN(d.getTime())) {
-            return String(iso).replace('T', ' ').slice(0, 19);
+            return String(iso).replace('T', ' ').slice(0, 16);
         }
         var loc = ledgerDateLocale();
         try {
             var datePart = d.toLocaleDateString(loc, {
+                timeZone: 'Asia/Hong_Kong',
                 weekday: 'short',
                 day: 'numeric',
                 month: 'short',
                 year: 'numeric'
             });
-            var timePart = d.toLocaleTimeString(loc, {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: true
-            });
-            return datePart + ' ' + timePart;
+            return datePart + ' ' + ledgerClock(iso);
         } catch (e) {
-            try {
-                return d.toLocaleString(loc);
-            } catch (e2) {
-                return String(iso).replace('T', ' ').slice(0, 19);
-            }
+            var parts = hkStampParts(iso);
+            return parts.when || String(iso).replace('T', ' ').slice(0, 16);
         }
     }
 
@@ -114,12 +120,13 @@ var REWARDS = (function () {
         var loc = ledgerDateLocale();
         try {
             return d.toLocaleDateString(loc, {
+                timeZone: 'Asia/Hong_Kong',
                 day: 'numeric',
                 month: 'short',
                 year: 'numeric'
             });
         } catch (e) {
-            return String(iso).slice(0, 10);
+            return hkDayKey(iso) || String(iso).slice(0, 10);
         }
     }
 
@@ -3023,7 +3030,14 @@ var REWARDS = (function () {
     function ledgerClock(iso) {
         var d = new Date(iso);
         if (!iso || isNaN(d.getTime())) return '';
-        try { return d.toLocaleTimeString(ledgerDateLocale(), { hour: '2-digit', minute: '2-digit', hour12: true }); } catch (e) { return ''; }
+        try {
+            return d.toLocaleTimeString(ledgerDateLocale(), {
+                timeZone: 'Asia/Hong_Kong',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+            });
+        } catch (e) { return ''; }
     }
 
     function ledgerClinicTag(row) {
@@ -6249,6 +6263,10 @@ var REWARDS = (function () {
         giftTodayRow: giftTodayRow,
         giftReasonText: giftReasonText,
         hkDayKey: hkDayKey,
+        hkStampParts: hkStampParts,
+        fmtLedgerTimeHK: fmtLedgerTimeHK,
+        fmtLedgerDateHK: fmtLedgerDateHK,
+        ledgerClock: ledgerClock,
         loadGiftLog: loadGiftLog,
         renderGiftLogCard: renderGiftLogCard,
         syncGiftUi: syncGiftUi,

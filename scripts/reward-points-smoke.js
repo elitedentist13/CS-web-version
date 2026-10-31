@@ -595,7 +595,8 @@ function fakeBillSb(tables, rpcLog) {
         /kindLabelBilingual/.test(rewardsSrc));
     pass('ledger time matches banner/realtime locale clock',
         /ledgerDateLocale/.test(rewardsSrc) && /fmtLedgerTimeHK/.test(rewardsSrc) &&
-        /APP_LOCALE/.test(rewardsSrc) && /hour12:\s*true/.test(rewardsSrc));
+        /APP_LOCALE/.test(rewardsSrc) && /hour12:\s*true/.test(rewardsSrc) &&
+        /Asia\/Hong_Kong/.test(rewardsSrc));
     pass('banner balance instant paint API',
         /paintBannerBalance/.test(rewardsSrc) &&
         /refreshBannerBalances\(info\.patientId, info\.balance\)/.test(rewardsSrc) &&
@@ -926,6 +927,14 @@ function fakeBillSb(tables, rpcLog) {
             pass('detect reward-point variant', R.isRewardPayMethod('reward-point') === true);
             pass('reject Cash', R.isRewardPayMethod('Cash') === false);
             pass('reject Balance transfer', R.isRewardPayMethod('Balance transfer') === false);
+            var hkLed = R.hkStampParts('2026-10-30T23:45:00.000Z');
+            var hkClk = R.ledgerClock('2026-10-30T23:45:00.000Z');
+            pass('ledger clock is HK banana date + 12-hour AM/PM',
+                R.hkDayKey('2026-10-30T23:45:00.000Z') === '2026-10-31' &&
+                hkLed.dateIso === '2026-10-31' &&
+                /0?7:45\s*AM/i.test(hkClk) && /0?7:45\s*AM/i.test(hkLed.time) &&
+                !/23:45/.test(hkClk + ' ' + hkLed.when),
+                JSON.stringify({ clock: hkClk, parts: hkLed }));
             var exM = R.isLoyaltyExcludedPayMethod;
             pass('Government / PDCC / CCF methods are excluded from loyalty',
                 exM('Government') && exM('GOVERNMENT') && exM('GOV') && exM('gov') && exM('PDCC') && exM(' pdcc ') &&
@@ -1566,6 +1575,18 @@ function fakeBillSb(tables, rpcLog) {
             "typeof REWARDS !== 'undefined' && typeof REWARDS.isRewardPayMethod === 'function'",
             30000);
         pass('live REWARDS loaded', !!rewardsReady);
+        var hkCdp = await cdp.js(`(function () {
+  return {
+    parts: REWARDS.hkStampParts('2026-10-30T23:45:00.000Z'),
+    clock: REWARDS.ledgerClock('2026-10-30T23:45:00.000Z'),
+    day: REWARDS.hkDayKey('2026-10-30T23:45:00.000Z')
+  };
+})()`, false, 8000);
+        pass('CDP HK ledger clock is 31 Oct 2026 7:45 AM',
+            !!(hkCdp && hkCdp.day === '2026-10-31' && hkCdp.parts && hkCdp.parts.dateIso === '2026-10-31' &&
+                /0?7:45\s*AM/i.test(hkCdp.clock) && /0?7:45\s*AM/i.test(hkCdp.parts.time) &&
+                !/23:45/.test(String(hkCdp.clock || '') + ' ' + String(hkCdp.parts.when || ''))),
+            JSON.stringify(hkCdp));
 
         var liveProbe = await cdp.js(`(async () => {
   const out = {

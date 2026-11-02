@@ -3456,7 +3456,11 @@
         'coupons.ref.r.off': { en: 'Refer a friend is switched off in Configuration', 'zh-CN': '「介绍新客」已在设定中关闭', 'zh-Hant': '「介紹新客」已在設定中關閉' },
         'coupons.ref.r.clinic': { en: 'This clinic or the bill’s doctor is switched off in the coupon scheme (Configuration → Discount Coupons)', 'zh-CN': '此诊所或账单医生未参加优惠券计划（设定 → 优惠券）', 'zh-Hant': '此診所或賬單醫生未參加優惠券計劃（設定 → 優惠券）' },
         'coupons.ref.r.window': { en: 'A referrer can only be added within 30 days of registration', 'zh-CN': '只可于登记后 30 天内加入介绍人', 'zh-Hant': '只可於登記後 30 天內加入介紹人' },
-        'coupons.ref.r.same': { en: 'Referrer looks like the same person (same chart, HKID or phone)', 'zh-CN': '介绍人与病人似为同一人（同病历、身份证或电话）', 'zh-Hant': '介紹人與病人似為同一人（同病歷、身份證或電話）' },
+        'coupons.ref.r.same': {
+            en: 'Referrer looks like the same person (same chart or HKID). A shared phone counts only when an HKID is missing.',
+            'zh-CN': '介绍人与病人似为同一人（同病历或身份证）。缺少身份证时，相同电话也算同一人。',
+            'zh-Hant': '介紹人與病人似為同一人（同病歷或身份證）。缺少身份證時，相同電話也算同一人。'
+        },
         'coupons.ref.r.newer': { en: 'Referrer’s chart is newer than this patient’s', 'zh-CN': '介绍人的病历比此病人新', 'zh-Hant': '介紹人的病歷比此病人新' },
         'coupons.ref.r.notNew': { en: 'This patient already had an earlier chart', 'zh-CN': '此病人之前已有病历', 'zh-Hant': '此病人之前已有病歷' },
         'coupons.ref.r.min': { en: 'Paid so far on the bill is below the minimum', 'zh-CN': '账单已付金额低于最低金额', 'zh-Hant': '賬單已付金額低於最低金額' },

@@ -580,11 +580,11 @@ function loadCoupons() {
     pass('referral config hint spells out the ladder', rh.indexOf('10%') > 0 && rh.indexOf('HK$500') > 0 && rh.indexOf('HK$1000') > 0 &&
         rh.indexOf('HK$10000') > 0 && rh.indexOf('HK$10.') > 0 && /fully paid/.test(rh), rh);
     pass('same person: same HKID with different punctuation', C.samePerson(oldP, { id: 'x', hkid: 'a1234567' }));
-    pass('same person: shared phone (+852 and spaces ignored)', C.samePerson(oldP, { id: 'x', mobile_phone: '+852 91234567' }));
+    pass('same person: shared phone when an HKID is missing', C.samePerson(oldP, { id: 'x', mobile_phone: '+852 91234567' }));
+    pass('different HKID: a shared phone is still two people', !C.samePerson(oldP, { id: 'x', hkid: 'B7654321', phone_number: '91234567', mobile_phone: '+852 91234567' }));
     pass('different people are not the same person', !C.samePerson(oldP, newP));
     pass('earlier chart: same HKID, older', C.isEarlierChart(newP, { id: 'n0', hkid: 'B7654321', created_at: '2020-01-01' }));
-    pass('earlier chart: same phone + same name, no date (imported)', C.isEarlierChart(newP, { id: 'n0', phone_number: '9876 5432', full_name: 'lee  siu ming' }));
-    pass('not an earlier chart: same phone, different name (family)', !C.isEarlierChart(newP, { id: 'n0', phone_number: '98765432', full_name: 'LEE TAI MAN' }));
+    pass('earlier chart ignores a shared phone and the same name', !C.isEarlierChart(newP, { id: 'n0', phone_number: '9876 5432', full_name: 'lee  siu ming', hkid: 'A123456(7)' }));
     pass('mask name: 陳大文 → 陳**, CHAN TAI MAN → CHAN **', C.maskName(oldP) === '陳**' && C.maskName({ full_name: 'CHAN TAI MAN' }) === 'CHAN **');
     var rp = function (extra) {
         return C.planReferral(Object.assign({ friend: newP, referrer: oldP, campaign: refCamp, clinicCode: 'KT' }, extra || {}));
@@ -595,7 +595,8 @@ function loadCoupons() {
     pass('referral plan: campaign off → skip', rp({ campaign: Object.assign({}, refCamp, { enabled: false }) }).reason === 'campaign_off');
     pass('referral plan: clinic off → skip', rp({ clinicCode: 'CWB' }).reason === 'clinic');
     pass('referral plan: self referral → blocked', rp({ referrer: Object.assign({}, newP) }).status === 'blocked' && rp({ referrer: Object.assign({}, newP) }).reason === 'same_person');
-    pass('referral plan: household phone → blocked', rp({ referrer: Object.assign({}, oldP, { phone_number: '98765432' }) }).reason === 'same_person');
+    pass('referral plan: different HKID, shared phone → pending', rp({ referrer: Object.assign({}, oldP, { phone_number: '98765432' }) }).status === 'pending');
+    pass('referral plan: shared phone with no HKID → blocked', rp({ referrer: Object.assign({}, oldP, { hkid: '', phone_number: '98765432' }) }).reason === 'same_person');
     pass('referral plan: referrer newer than friend → blocked', rp({ referrer: Object.assign({}, oldP, { created_at: '2026-10-28T00:00:00Z' }) }).reason === 'referrer_newer');
     pass('referral plan: friend had an earlier chart → blocked', rp({ lookalikes: [{ id: 'n0', hkid: 'B7654321', created_at: '2019-01-01' }] }).reason === 'not_new');
     var nowMs = new Date('2026-11-10T00:00:00Z').getTime();
@@ -787,7 +788,12 @@ function loadCoupons() {
     refDb.patients.push({ id: 'kid', patient_no: '000999', full_name: 'CHAN SIU MING', phone_number: '91234567', created_at: '2026-10-28T01:00:00Z' });
     await RC.onPatientCreated({ id: 'kid', patient_no: '000999' }, '000123', null);
     var kidRec = recs.filter(function (r) { return r.referred_patient_id === 'kid'; })[0];
-    pass('flow: typed chart no. resolves; same household phone is recorded as blocked', kidRec && kidRec.status === 'blocked' && kidRec.reason === 'same_person', JSON.stringify(kidRec));
+    pass('flow: typed chart no. resolves; shared phone with no HKID is recorded as blocked', kidRec && kidRec.status === 'blocked' && kidRec.reason === 'same_person', JSON.stringify(kidRec));
+    refDb.patients.push({ id: 'sib', patient_no: '000998', full_name: 'CHAN SIU YI', phone_number: '91234567', hkid: 'C333333(3)', created_at: '2026-10-28T01:30:00Z' });
+    await RC.onPatientCreated({ id: 'sib', patient_no: '000998' }, '000123', null);
+    await settle();
+    var sibRec = recs.filter(function (r) { return r.referred_patient_id === 'sib'; })[0];
+    pass('flow: different HKID with the same phone is a pending referral', sibRec && sibRec.status === 'pending' && !sibRec.reason, JSON.stringify(sibRec));
     var kidPaid = await RC.referralOnBillPaid({ patientId: 'kid', billId: 'bill-K', cashPaid: 5000, clinicCode: 'KT' });
     pass('flow: a blocked referral never issues', kidPaid.skipped === true);
     refDb.bills = [];

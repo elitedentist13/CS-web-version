@@ -5343,34 +5343,33 @@ var COUPONS = (function () {
         return d.length >= 8 ? d : '';
     }
     function hkidKey(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
-    function nameKey(s) { return String(s || '').toUpperCase().replace(/\s+/g, ' ').trim(); }
     function phonesOf(p) {
         return [phoneKey(p && p.phone_number), phoneKey(p && p.mobile_phone)].filter(Boolean);
     }
-
-    /** Pure: same chart, same HKID, or a shared phone number (one household counts as one person). */
-    function samePerson(a, b) {
-        if (!a || !b) return false;
-        if (a.id && b.id && String(a.id) === String(b.id)) return true;
-        var ha = hkidKey(a.hkid);
-        if (ha && ha === hkidKey(b.hkid)) return true;
+    function sharePhone(a, b) {
         var pb = phonesOf(b);
         return phonesOf(a).some(function (x) { return pb.indexOf(x) >= 0; });
     }
 
-    /** Pure: another chart that is this patient registered earlier (same HKID, or same phone and same name). */
+    /**
+     * Pure: same chart, or the same HKID. When both charts have an HKID and the
+     * IDs differ, a shared phone (main or Other Phone Numbers) is a different person.
+     * A shared phone still counts as one person when either chart has no HKID.
+     */
+    function samePerson(a, b) {
+        if (!a || !b) return false;
+        if (a.id && b.id && String(a.id) === String(b.id)) return true;
+        var ha = hkidKey(a.hkid);
+        var hb = hkidKey(b.hkid);
+        if (ha && hb) return ha === hb;
+        return sharePhone(a, b);
+    }
+
+    /** Pure: an earlier chart of this patient. Same HKID only; phone and address are ignored. */
     function isEarlierChart(friend, other) {
         if (!friend || !other || String(friend.id) === String(other.id)) return false;
         var ha = hkidKey(friend.hkid);
-        var same = !!ha && ha === hkidKey(other.hkid);
-        if (!same) {
-            var po = phonesOf(other);
-            var phone = phonesOf(friend).some(function (x) { return po.indexOf(x) >= 0; });
-            var name = (nameKey(friend.full_name) && nameKey(friend.full_name) === nameKey(other.full_name)) ||
-                (nameKey(friend.chinese_name) && nameKey(friend.chinese_name) === nameKey(other.chinese_name));
-            same = phone && !!name;
-        }
-        if (!same) return false;
+        if (!ha || ha !== hkidKey(other.hkid)) return false;
         if (!other.created_at || !friend.created_at) return true;
         return String(other.created_at) < String(friend.created_at);
     }
@@ -5518,7 +5517,7 @@ var COUPONS = (function () {
             campaign_off: ['coupons.ref.r.off', 'Refer a friend is switched off in Configuration'],
             clinic: ['coupons.ref.r.clinic', 'This clinic or the bill’s doctor is switched off in the coupon scheme (Configuration → Discount Coupons)'],
             edit_window: ['coupons.ref.r.window', 'A referrer can only be added within 30 days of registration'],
-            same_person: ['coupons.ref.r.same', 'Referrer looks like the same person (same chart, HKID or phone)'],
+            same_person: ['coupons.ref.r.same', 'Referrer looks like the same person (same chart or HKID). A shared phone counts only when an HKID is missing.'],
             referrer_newer: ['coupons.ref.r.newer', 'Referrer’s chart is newer than this patient’s'],
             not_new: ['coupons.ref.r.notNew', 'This patient already had an earlier chart'],
             below_min: ['coupons.ref.r.min', 'Paid so far on the bill is below the minimum'],
@@ -5615,23 +5614,12 @@ var COUPONS = (function () {
 
     function orValue(v) { return '"' + String(v).replace(/["\\]/g, '') + '"'; }
 
-    /** Other charts sharing this patient's HKID or phone. */
+    /** Other charts with this patient's HKID. Phone and address are not used. */
     function loadLookalikes(friend) {
         if (!sbReady() || !friend) return Promise.resolve([]);
-        var parts = [];
         var hk = String(friend.hkid || '').trim();
-        if (hk) parts.push('hkid.eq.' + orValue(hk));
-        [friend.phone_number, friend.mobile_phone].forEach(function (p) {
-            var raw = String(p || '').trim();
-            if (!phoneKey(raw)) return;
-            var vals = [raw, phoneKey(raw)].filter(function (v, i, a) { return a.indexOf(v) === i; });
-            vals.forEach(function (v) {
-                parts.push('phone_number.eq.' + orValue(v));
-                parts.push('mobile_phone.eq.' + orValue(v));
-            });
-        });
-        if (!parts.length) return Promise.resolve([]);
-        return SB.from('patients').select(REF_PATIENT_COLS).or(parts.join(',')).neq('id', friend.id).limit(20)
+        if (!hkidKey(hk)) return Promise.resolve([]);
+        return SB.from('patients').select(REF_PATIENT_COLS).eq('hkid', hk).neq('id', friend.id).limit(20)
             .then(function (r) { return (r && r.data) || []; }, function () { return []; });
     }
 

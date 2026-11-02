@@ -378,6 +378,35 @@ function fakeBillSb(tables, rpcLog) {
         idxSrc.indexOf('rewards.pay.byClinicTitle') >= 0 &&
         idxSrc.indexOf('rewards.pay.crossClinicBlurb') >= 0 &&
         /Available for this doctor \(all clinics\)/.test(idxSrc));
+    pass('index clones reward panel onto payment detail',
+        idxSrc.indexOf('id="bdRewardPanel"') >= 0 &&
+        idxSrc.indexOf('id="bdRewardSources"') >= 0 &&
+        idxSrc.indexOf('id="bdRewardUse"') >= 0 &&
+        idxSrc.indexOf('id="apRewardFriends"') >= 0 &&
+        idxSrc.indexOf('id="bdRewardFriends"') >= 0 &&
+        idxSrc.indexOf('id="apRewardCapsule"') >= 0 &&
+        idxSrc.indexOf('id="bdRewardCapsule"') >= 0);
+    pass('rewards syncs both panels and can add a friend chart',
+        /addPayFriendChart/.test(rewardsSrc) &&
+        /PAY_MIRROR/.test(rewardsSrc) &&
+        /bdRewardUse/.test(rewardsSrc) &&
+        /Friends & relatives/.test(rewardsSrc));
+    pass('pay rows take a per-chart amount, including friends',
+        /ap-rw-take/.test(rewardsSrc) &&
+        /readPayTakesForPayment/.test(rewardsSrc) &&
+        /reward_redeem_takes/.test(rewardsSrc) &&
+        /reward_redeem_takes/.test(sqlChartSrc) &&
+        /colUse/.test(i18nExtra));
+    pass('friend chart search uses the patient directory search',
+        /searchFriendPatients/.test(rewardsSrc) &&
+        /patientSearchOrFilter/.test(rewardsSrc) &&
+        /rw-pay-friend-drop/.test(rewardsSrc) &&
+        /friendsPick/.test(i18nExtra));
+    pass('friends panel can add charts one after another',
+        /focusFriendSearch/.test(rewardsSrc) &&
+        /friendsAddMore/.test(rewardsSrc) &&
+        /friendsAdded/.test(i18nExtra) &&
+        /friendsAnother/.test(i18nExtra));
     pass('app groups pay sources by clinic',
         /groupPaySourcesByClinic/.test(rewardsSrc) &&
         /updatePayClinicMeta/.test(rewardsSrc) &&
@@ -711,7 +740,8 @@ function fakeBillSb(tables, rpcLog) {
         /id="rwCfgCap"/.test(rewardsSrc) && /id="rwCfgCapPct"/.test(rewardsSrc) && /id="rwCfgCapAmt"/.test(rewardsSrc) &&
         /id="rwCfgCapSave"/.test(rewardsSrc) && /loadRedeemCap\(true\),\s*loadGiftLog\(300\),\s*loadGiftConfig\(true\)\s*\]\)\.then/.test(rewardsSrc));
     pass('points cap: payment box max also clamped by the per-bill limit',
-        /if \(_payCap && _payCap\.left !== Infinity\) max = round2\(Math\.min\(max, _payCap\.left\)\);/.test(rewardsSrc) &&
+        /if \(_payCap && _payCap\.left !== Infinity\) room = Math\.min\(room, round2\(_payCap\.left\)\);/.test(rewardsSrc) &&
+        /el\.max = String\(room\)/.test(rewardsSrc) &&
         /loadBillPointsUsed\(bill\.id\)/.test(rewardsSrc) && /id="apRewardCapNote"/.test(idxSrc));
     pass('points cap: Save payment refuses points over the limit',
         /REWARDS\.payRedeemCapLeft\(\)/.test(apptSrc) && /trRepl\('rewards\.cap\.errOver'/.test(apptSrc));
@@ -1212,6 +1242,10 @@ function fakeBillSb(tables, rpcLog) {
         pass('HTML has apRewardSources', idx.body.indexOf('id="apRewardSources"') >= 0);
         pass('HTML has apRewardAllocPreview', idx.body.indexOf('id="apRewardAllocPreview"') >= 0);
         pass('HTML has apRewardClinicMeta', idx.body.indexOf('id="apRewardClinicMeta"') >= 0);
+        pass('HTML has payment-detail reward clone',
+            idx.body.indexOf('id="bdRewardPanel"') >= 0 &&
+            idx.body.indexOf('id="bdRewardFriends"') >= 0 &&
+            idx.body.indexOf('id="apRewardCapsule"') >= 0);
         pass('HTML has rwTransferSources', idx.body.indexOf('id="rwTransferSources"') >= 0);
         pass('HTML has rwTransferSubmit', idx.body.indexOf('id="rwTransferSubmit"') >= 0);
         pass('HTML has rwAdminAdjust', idx.body.indexOf('id="rwAdminAdjust"') >= 0);
@@ -1484,6 +1518,50 @@ function fakeBillSb(tables, rpcLog) {
                 pass('RPC redeem_multi zero-points rejects',
                     dryMulti.json.ok === false,
                     JSON.stringify(dryMulti.json).slice(0, 140));
+            }
+            var anchorId = global.__REWARD_SMOKE_PATIENT__ &&
+                global.__REWARD_SMOKE_PATIENT__.patient_id;
+            var pyId = global.__REWARD_SMOKE_XFER_PAIR__ &&
+                global.__REWARD_SMOKE_XFER_PAIR__.py_id;
+            var ledFriends = await restGet(sb.url, sb.key, 'reward_ledger',
+                'select=patient_id,doctor_name&doctor_name=ilike.*PUI CHING*&limit=80');
+            var friendIds = [];
+            if (ledFriends.status < 300 && Array.isArray(ledFriends.json)) {
+                ledFriends.json.forEach(function (row) {
+                    if (!row || !row.patient_id) return;
+                    if (row.patient_id === anchorId || row.patient_id === pyId) return;
+                    if (friendIds.indexOf(row.patient_id) < 0) friendIds.push(row.patient_id);
+                });
+            }
+            var friendNos = [];
+            if (friendIds.length) {
+                var idList = friendIds.slice(0, 12).join(',');
+                var friendPats = await restGet(sb.url, sb.key, 'patients',
+                    'id=in.(' + idList + ')&select=id,patient_no,full_name,chinese_name');
+                if (friendPats.status < 300 && Array.isArray(friendPats.json)) {
+                    friendPats.json.forEach(function (p) {
+                        if (p && p.patient_no && p.patient_no !== '001003' && p.patient_no !== '021713') {
+                            friendNos.push(p.patient_no);
+                        }
+                    });
+                }
+            }
+            if (!friendNos.length) {
+                var friendPool = await restGet(sb.url, sb.key, 'reward_accounts',
+                    'select=patient_id,patient_no,balance&balance=gt.0&order=balance.desc&limit=40');
+                if (friendPool.status < 300 && Array.isArray(friendPool.json)) {
+                    friendPool.json.forEach(function (a) {
+                        if (!a || !a.patient_no || a.patient_no === '001003' || a.patient_no === '021713') return;
+                        if (anchorId && a.patient_id === anchorId) return;
+                        if (friendNos.indexOf(a.patient_no) < 0) friendNos.push(a.patient_no);
+                    });
+                }
+            }
+            global.__REWARD_SMOKE_FRIENDS__ = friendNos.slice(0, 8);
+            if (friendNos.length) {
+                pass('API charts that can be tried as friends', true, friendNos.slice(0, 4).join(', '));
+            } else {
+                warn('API no separate friend chart', 'ledger and balances only showed #001003 / #021713');
             }
         } else if (/does not exist|schema cache/i.test(realAcc.raw || '')) {
             warn('reward_accounts missing', realAcc.raw);
@@ -2318,6 +2396,7 @@ function fakeBillSb(tables, rpcLog) {
             warn('live real patient skipped', 'no patient from API probe');
         } else {
             var pidJson = JSON.stringify(smokePat.patient_id);
+            var friendNoJson = JSON.stringify(global.__REWARD_SMOKE_FRIENDS__ || []);
             var realLive = await cdp.js(`(async () => {
   const pid = ${pidJson};
   const out = { patientId: pid };
@@ -2432,6 +2511,100 @@ function fakeBillSb(tables, rpcLog) {
         out.redeemAllAmt = amt ? String(amt.value || '') : '';
         const prev = document.getElementById('apRewardAllocPreview');
         out.redeemAllPreview = prev ? String(prev.textContent || '').trim() : '';
+        const bdAmt = document.getElementById('bdRewardAmount');
+        out.amountsMatch = !!(amt && bdAmt && String(amt.value) === String(bdAmt.value));
+        out.bdUseChecked = !!(document.getElementById('bdRewardUse') &&
+          document.getElementById('bdRewardUse').checked);
+        out.takeCount = document.querySelectorAll('#apRewardSources .ap-rw-take').length;
+        out.bdTakeCount = document.querySelectorAll('#bdRewardSources .ap-rw-take').length;
+        out.takeMatch = true;
+        document.querySelectorAll('#apRewardSources .ap-rw-take').forEach(function (el) {
+          var id = el.getAttribute('data-account-id');
+          var twin = document.querySelector('#bdRewardSources .ap-rw-take[data-account-id="' + id + '"]');
+          if (!twin || twin.value !== el.value) out.takeMatch = false;
+        });
+      }
+      const bdPanel = document.getElementById('bdRewardPanel');
+      out.bdPanel = bdPanel ? bdPanel.style.display : null;
+      out.bdSources = !!(document.getElementById('bdRewardSources') &&
+        document.getElementById('bdRewardSources').querySelector('.ap-rw-src'));
+      out.friendInputs = document.querySelectorAll('.rw-pay-friend-q').length;
+      out.capsule = String((document.getElementById('apRewardCapsule') || {}).textContent || '').trim();
+      out.capsEqual = out.capsule === String((document.getElementById('bdRewardCapsule') || {}).textContent || '').trim();
+      if (typeof REWARDS.addPayFriendChart === 'function') {
+        out.selfFriend = await REWARDS.addPayFriendChart('021713');
+        const friendNos = ${friendNoJson};
+        out.friendSearch = [];
+        if (typeof REWARDS.searchFriendPatients === 'function') {
+          for (let si = 0; si < friendNos.length; si++) {
+            const sample = String(friendNos[si] || '');
+            if (!/[A-Za-z]/.test(sample)) continue;
+            const digits = sample.replace(/\\D/g, '').replace(/^0+/, '');
+            const low = sample.toLowerCase();
+            const byDigits = digits.length >= 4 ? await REWARDS.searchFriendPatients(digits) : [];
+            const byCase = await REWARDS.searchFriendPatients(low);
+            const want = sample.toLowerCase();
+            out.friendSearch.push({
+              no: sample,
+              digits: digits,
+              digitHit: (byDigits || []).some(function (p) {
+                return String(p.patient_no || '').toLowerCase() === want;
+              }),
+              caseHit: (byCase || []).some(function (p) {
+                return String(p.patient_no || '').toLowerCase() === want;
+              })
+            });
+            break;
+          }
+        }
+        out.friendTries = [];
+        out.friendAdds = [];
+        for (let fi = 0; fi < friendNos.length && out.friendAdds.length < 2; fi++) {
+          const no = friendNos[fi];
+          const res = await REWARDS.addPayFriendChart(no);
+          out.friendTries.push(no + ':' + ((res && (res.ok ? 'ok' : res.error)) || 'empty'));
+          if (!(res && res.ok)) continue;
+          out.friendAdds.push({ patientId: res.patientId, patientNo: res.patientNo || no });
+          if (!out.friendAdd) {
+            out.friendAdd = res;
+            const apTxt = String((document.getElementById('apRewardFriends') || {}).textContent || '');
+            const bdTxt = String((document.getElementById('bdRewardFriends') || {}).textContent || '');
+            out.friendOnBoth = apTxt.indexOf(String(res.patientNo || no)) >= 0 &&
+              bdTxt.indexOf(String(res.patientNo || no)) >= 0;
+            out.capsuleAfter = String((document.getElementById('apRewardCapsule') || {}).textContent || '').trim();
+            out.capsuleMatch = out.capsuleAfter === String((document.getElementById('bdRewardCapsule') || {}).textContent || '').trim();
+            out.amountAfter = String((document.getElementById('apRewardAmount') || {}).value || '');
+            out.amountAfterMatch = out.amountAfter === String((document.getElementById('bdRewardAmount') || {}).value || '');
+            out.friendTakeCount = document.querySelectorAll('#apRewardFriends .ap-rw-take').length;
+            out.bdFriendTakeCount = document.querySelectorAll('#bdRewardFriends .ap-rw-take').length;
+          }
+        }
+        if (out.friendAdds.length) {
+          const apKept = String((document.getElementById('apRewardFriends') || {}).textContent || '');
+          const bdKept = String((document.getElementById('bdRewardFriends') || {}).textContent || '');
+          out.friendCards = document.querySelectorAll('#apRewardFriends .rw-pay-friend-card').length;
+          out.bdFriendCards = document.querySelectorAll('#bdRewardFriends .rw-pay-friend-card').length;
+          out.friendSearchLeft = document.querySelectorAll('.rw-pay-friend-q').length;
+          out.friendAddAnother = /Add another|再加入/.test(apKept) && /Add another|再加入/.test(bdKept);
+          out.friendKept = out.friendAdds.every(function (r) {
+            const no = String(r.patientNo || '');
+            return no && apKept.indexOf(no) >= 0 && bdKept.indexOf(no) >= 0;
+          });
+          for (let ri = 0; ri < out.friendAdds.length; ri++) {
+            const added = out.friendAdds[ri];
+            if (added.patientId && typeof REWARDS.removePayFriend === 'function') {
+              await REWARDS.removePayFriend(added.patientId);
+            }
+          }
+        }
+      }
+      const bdUse = document.getElementById('bdRewardUse');
+      const apUse = document.getElementById('apRewardUse');
+      if (bdUse && apUse) {
+        const next = !apUse.checked;
+        bdUse.checked = next;
+        bdUse.dispatchEvent(new Event('change', { bubbles: true }));
+        out.useSynced = apUse.checked === bdUse.checked && apUse.checked === next;
       }
       delete window.bdCurrentBill;
     }
@@ -2493,12 +2666,80 @@ function fakeBillSb(tables, rpcLog) {
                     realLive.payPanelDisplay !== 'none' || Number(realLive.payDataBal) > 0.005,
                     'display=' + realLive.payPanelDisplay + ' bal=' + realLive.payBal +
                     ' joined=' + realLive.payJoined);
+                pass('live payment-detail reward panel visible',
+                    realLive.bdPanel !== 'none' && realLive.bdSources === true,
+                    'display=' + realLive.bdPanel + ' sources=' + realLive.bdSources);
+                pass('live friends box on both panels',
+                    Number(realLive.friendInputs) >= 2,
+                    'inputs=' + realLive.friendInputs);
+                if (realLive.friendSearch && realLive.friendSearch.length) {
+                    var fs0 = realLive.friendSearch[0];
+                    pass('live friend search ignores case and clinic prefix',
+                        fs0.digitHit === true && fs0.caseHit === true,
+                        fs0.no + ' digits=' + fs0.digits +
+                        ' digitHit=' + fs0.digitHit + ' caseHit=' + fs0.caseHit);
+                } else {
+                    warn('live friend search prefix probe skipped', 'no prefixed chart in the sample');
+                }
+                pass('live point capsules match',
+                    realLive.capsEqual === true && String(realLive.capsule || '').length > 4,
+                    String(realLive.capsule || '').slice(0, 80));
+                pass('live same-person chart is not added again',
+                    realLive.selfFriend && realLive.selfFriend.ok !== true,
+                    realLive.selfFriend && (realLive.selfFriend.error || 'no result'));
+                if (realLive.friendAdd) {
+                    pass('live friend chart added for this doctor',
+                        realLive.friendAdd.ok === true && realLive.friendOnBoth === true,
+                        '#' + (realLive.friendAdd.patientNo || '?') +
+                        ' both=' + realLive.friendOnBoth +
+                        ' tries=' + (realLive.friendTries || []).join(','));
+                    pass('live friend points stay in sync',
+                        realLive.capsuleMatch === true && realLive.amountAfterMatch === true,
+                        'cap=' + String(realLive.capsuleAfter || '').slice(0, 80) +
+                        ' amt=' + realLive.amountAfter);
+                    pass('live friend charts have a use amount',
+                        Number(realLive.friendTakeCount) > 0 &&
+                        Number(realLive.friendTakeCount) === Number(realLive.bdFriendTakeCount),
+                        'takes=' + realLive.friendTakeCount + ' bd=' + realLive.bdFriendTakeCount);
+                    if (realLive.friendAdds && realLive.friendAdds.length >= 2) {
+                        pass('live several friend charts stay added one by one',
+                            realLive.friendKept === true &&
+                            Number(realLive.friendCards) >= 2 &&
+                            Number(realLive.bdFriendCards) >= 2 &&
+                            Number(realLive.friendSearchLeft) >= 2 &&
+                            realLive.friendAddAnother === true,
+                            'cards=' + realLive.friendCards +
+                            ' kept=' + realLive.friendKept +
+                            ' search=' + realLive.friendSearchLeft +
+                            ' nos=' + realLive.friendAdds.map(function (r) { return r.patientNo; }).join(','));
+                    } else {
+                        warn('live second friend chart skipped',
+                            (realLive.friendTries || []).join(','));
+                    }
+                } else {
+                    warn('live friend chart add skipped',
+                        (realLive.friendTries && realLive.friendTries.length)
+                            ? realLive.friendTries.join(',')
+                            : 'no separate chart from API');
+                }
+                pass('live use-points checkbox syncs both panels',
+                    realLive.useSynced === true,
+                    'synced=' + realLive.useSynced);
                 if (realLive.redeemAllChecked != null) {
                     pass('live Redeem all fills amount',
                         realLive.redeemAllChecked === true &&
                         Number(realLive.redeemAllAmt) > 0,
                         'amt=' + realLive.redeemAllAmt + ' preview=' +
                         String(realLive.redeemAllPreview || '').slice(0, 80));
+                    pass('live Redeem all copies onto payment detail',
+                        realLive.amountsMatch === true && realLive.bdUseChecked === true,
+                        'bdUse=' + realLive.bdUseChecked + ' match=' + realLive.amountsMatch);
+                    pass('live each chart has a use amount',
+                        Number(realLive.takeCount) > 0 &&
+                        Number(realLive.takeCount) === Number(realLive.bdTakeCount) &&
+                        realLive.takeMatch === true,
+                        'takes=' + realLive.takeCount + ' bd=' + realLive.bdTakeCount +
+                        ' match=' + realLive.takeMatch);
                 } else if (Number(realLive.total) > 0.005 && realLive.payJoined === false) {
                     warn('live Redeem all skipped', 'clinic redeem join false without patch');
                 }

@@ -23615,6 +23615,10 @@ function showBillDetail(b) {
         renderStep1UI({ focusBillId: b.id });
     }
 
+    if (typeof REWARDS !== 'undefined' && typeof REWARDS.refreshAddPaymentRewardPanel === 'function') {
+        REWARDS.refreshAddPaymentRewardPanel();
+    }
+
     openModal('billDetailModal');
 }
 
@@ -24325,6 +24329,7 @@ function executeAddPaymentSave(ctx) {
     }
 
     var lastRewardPaymentId = null;
+    var lastRewardPaymentIds = [];
 
     function insertCashThenFinish() {
         if (cashAmount <= 0.005) {
@@ -24337,14 +24342,18 @@ function executeAddPaymentSave(ctx) {
         payRecord.amount = cashAmount;
         insertBillPaymentRecord(payRecord, function(r) {
             if (r.error) {
-                if (lastRewardPaymentId && typeof REWARDS !== 'undefined' &&
-                        typeof REWARDS.voidForPayment === 'function') {
-                    REWARDS.voidForPayment(lastRewardPaymentId, 'Rollback: cash payment failed');
+                var rollbackIds = lastRewardPaymentIds.length
+                    ? lastRewardPaymentIds
+                    : (lastRewardPaymentId ? [lastRewardPaymentId] : []);
+                rollbackIds.forEach(function (rid) {
+                    if (typeof REWARDS !== 'undefined' && typeof REWARDS.voidForPayment === 'function') {
+                        REWARDS.voidForPayment(rid, 'Rollback: cash payment failed');
+                    }
                     SB.from('bill_payments').update({
                         voided_at: new Date().toISOString(),
                         voided_by: (typeof currentName !== 'undefined' ? currentName : null)
-                    }).eq('id', lastRewardPaymentId).then(function () {});
-                }
+                    }).eq('id', rid).then(function () {});
+                });
                 reportAddPaymentSaveError(ctx, r.error.message);
                 return;
             }
@@ -24370,6 +24379,9 @@ function executeAddPaymentSave(ctx) {
                 var sourceIds = (typeof REWARDS.readRedeemSourceIdsForPayment === 'function')
                     ? REWARDS.readRedeemSourceIdsForPayment()
                     : null;
+                var rewardTakes = (typeof REWARDS.readPayTakesForPayment === 'function')
+                    ? REWARDS.readPayTakesForPayment()
+                    : null;
                 return REWARDS.applyRedeemForBill({
                     patientId: patientId,
                     points: rewardPts,
@@ -24379,6 +24391,7 @@ function executeAddPaymentSave(ctx) {
                     clinicId: payRecord.clinic_id,
                     clinicCode: clinicCode,
                     sourceAccountIds: sourceIds,
+                    takes: rewardTakes,
                     doctorName: (typeof billDisplayDoctorLabel === 'function' &&
                         typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
                         ? billDisplayDoctorLabel(bdCurrentBill)
@@ -24389,6 +24402,9 @@ function executeAddPaymentSave(ctx) {
                         return;
                     }
                     lastRewardPaymentId = rr.rewardPaymentId || null;
+                    lastRewardPaymentIds = (rr.rewardPaymentIds && rr.rewardPaymentIds.length)
+                        ? rr.rewardPaymentIds.slice()
+                        : (lastRewardPaymentId ? [lastRewardPaymentId] : []);
                     insertCashThenFinish();
                 });
             }

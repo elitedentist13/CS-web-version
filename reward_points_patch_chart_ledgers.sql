@@ -719,3 +719,145 @@ comment on column public.reward_program_clinics.join_gain is
     'Clinic participates in earning (reception may toggle).';
 comment on column public.reward_program_clinics.join_redeem is
     'Clinic participates in redeeming (reception may toggle).';
+
+-- Exact per-chart takes. One payment, one batch. Falls back in the app to
+-- one single-account redeem per chart when this function is not deployed yet.
+create or replace function public.reward_redeem_takes(
+    p_anchor_patient_id uuid,
+    p_points numeric,
+    p_source_account_ids uuid[],
+    p_takes jsonb,
+    p_bill_id uuid default null,
+    p_bill_payment_id uuid default null,
+    p_clinic_id uuid default null,
+    p_clinic_code text default null,
+    p_created_by text default null,
+    p_note text default null
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+    v_points numeric(12, 2);
+    v_code text := trim(coalesce(p_clinic_code, ''));
+    v_new_bal numeric(12, 2);
+    v_ledger public.reward_ledger;
+    v_parts jsonb := '[]'::jsonb;
+    v_batch uuid := gen_random_uuid();
+    v_total_after numeric(12, 2);
+    v_count int := 0;
+    v_i int;
+    v_elem jsonb;
+    v_take numeric(12, 2);
+    v_take_sum numeric(12, 2) := 0;
+    v_acc_id uuid;
+    v_acc public.reward_accounts;
+begin
+    v_points := public.reward_round2(p_points);
+    if v_points <= 0 then
+        return jsonb_build_object('ok', false, 'error', 'points must be > 0');
+    end if;
+    if p_anchor_patient_id is null then
+        return jsonb_build_object('ok', false, 'error', 'patient required');
+    end if;
+    if not public.reward_clinic_redeem_enabled(p_clinic_id, v_code) then
+        return jsonb_build_object('ok', false, 'error', 'clinic not open for redeem');
+    end if;
+    if p_takes is null or jsonb_typeof(p_takes) <> 'array' or jsonb_array_length(p_takes) is null then
+        return jsonb_build_object('ok', false, 'error', 'select at least one chart source');
+    end if;
+    if p_bill_payment_id is not null then
+        if exists (
+            select 1 from public.reward_ledger
+            where bill_payment_id = p_bill_payment_id and kind = 'redeem'
+        ) then
+            return jsonb_build_object('ok', false, 'error', 'already redeemed for this payment');
+        end if;
+    end if;
+
+    begin
+        for v_i in 0 .. jsonb_array_length(p_takes) - 1 loop
+            v_elem := p_takes -> v_i;
+            v_acc_id := nullif(v_elem->>'account_id', '')::uuid;
+            v_take := public.reward_round2(coalesce((v_elem->>'points')::numeric, 0));
+            if v_acc_id is null or v_take <= 0 then
+                continue;
+            end if;
+            if p_source_account_ids is not null
+               and array_length(p_source_account_ids, 1) is not null
+               and not (v_acc_id = any (p_source_account_ids)) then
+                raise exception 'chart is not in the selected sources';
+            end if;
+            select * into v_acc
+            from public.reward_accounts
+            where id = v_acc_id
+            for update;
+            if not found then
+                raise exception 'reward account not found';
+            end if;
+            if public.reward_round2(v_acc.balance) + 0.005 < v_take then
+                raise exception 'insufficient reward balance on chart %', coalesce(v_acc.patient_no, '');
+            end if;
+            v_new_bal := public.reward_round2(v_acc.balance - v_take);
+            update public.reward_accounts
+            set balance = v_new_bal,
+                lifetime_redeemed = public.reward_round2(lifetime_redeemed + v_take),
+                updated_at = now()
+            where id = v_acc.id;
+            insert into public.reward_ledger (
+                account_id, patient_id, kind, points, balance_after,
+                bill_id, bill_payment_id, clinic_id, clinic_code,
+                note, created_by, transfer_id
+            ) values (
+                v_acc.id, v_acc.patient_id, 'redeem', -v_take, v_new_bal,
+                p_bill_id, p_bill_payment_id, p_clinic_id, v_code,
+                trim(both ' · ' from coalesce(p_note, '') || ' · chart ' || coalesce(v_acc.patient_no, '')),
+                p_created_by,
+                v_batch
+            )
+            returning * into v_ledger;
+            v_parts := v_parts || jsonb_build_array(jsonb_build_object(
+                'account_id', v_acc.id,
+                'patient_id', v_acc.patient_id,
+                'patient_no', v_acc.patient_no,
+                'points', -v_take,
+                'balance', v_new_bal,
+                'ledger_id', v_ledger.id
+            ));
+            v_count := v_count + 1;
+            v_take_sum := public.reward_round2(v_take_sum + v_take);
+        end loop;
+        if abs(public.reward_round2(v_take_sum) - v_points) > 0.02 then
+            raise exception 'selected chart amounts do not match the points total';
+        end if;
+    exception when others then
+        return jsonb_build_object('ok', false, 'error', SQLERRM);
+    end;
+
+    if v_count = 0 then
+        return jsonb_build_object('ok', false, 'error', 'nothing to redeem');
+    end if;
+
+    select public.reward_round2(coalesce(sum(a.balance), 0)) into v_total_after
+    from public.reward_accounts a
+    where a.patient_id = any (public.reward_related_patient_ids(p_anchor_patient_id));
+
+    return jsonb_build_object(
+        'ok', true,
+        'points', -v_points,
+        'balance', v_total_after,
+        'total_balance', v_total_after,
+        'batch_id', v_batch,
+        'parts', v_parts,
+        'kind', 'redeem',
+        'patient_id', p_anchor_patient_id,
+        'ledger_id', v_ledger.id
+    );
+end;
+$$;
+
+grant execute on function public.reward_redeem_takes(uuid, numeric, uuid[], jsonb, uuid, uuid, uuid, text, text, text)
+    to anon, authenticated;
+
+comment on function public.reward_redeem_takes is
+    'Redeem exact amounts from each selected chart. Does not drain smallest-first.';

@@ -21,6 +21,18 @@ var REWARDS = (function () {
     var _paySourceAccounts = [];   // chart ledgers for add-payment panel (doctor-capped)
     var _payDoctor = null;         // { key, label } for current bill
     var _payDoctorNets = null;     // nets from loadDoctorLedgerNets
+    var _payFriends = [];          // { patientId, patientNo, name, accounts } same doctor
+    var _payFriendDraft = '';
+    var _payFriendMsg = '';
+    var _payFriendMsgOk = false;
+    var _payFriendHits = [];
+    var _payFriendSearchSeq = 0;
+    var _payFriendSearchTimer = null;
+    var _payChecked = null;        // account_id -> bool; null = not seeded
+    var _payTake = null;           // account_id -> amount to use; missing = not chosen yet
+    var _payBillKey = '';
+    var _payKeep = null;           // { use, amt } preserved across refresh of the same bill
+    var _payRefreshToken = 0;
 
     function tr(key, fallback) {
         if (typeof t === 'function') {
@@ -948,10 +960,31 @@ var REWARDS = (function () {
         });
     }
 
+    function normalizeExplicitTakes(list) {
+        var out = [];
+        var seen = {};
+        (list || []).forEach(function (t) {
+            if (!t || !t.account_id) return;
+            var pts = round2(t.points);
+            if (pts <= 0.005) return;
+            var id = String(t.account_id);
+            if (seen[id]) return;
+            seen[id] = true;
+            out.push({
+                account_id: id,
+                points: pts,
+                patient_id: t.patient_id || null,
+                patient_no: t.patient_no || ''
+            });
+        });
+        return out;
+    }
+
     function redeem(opts) {
         opts = opts || {};
         var sourceIds = opts.sourceAccountIds || null;
-        if (sourceIds && sourceIds.length) {
+        var takes = normalizeExplicitTakes(opts.takes);
+        if ((sourceIds && sourceIds.length) || takes.length) {
             return redeemMulti(opts);
         }
         return rewardRpc('reward_redeem', {
@@ -971,11 +1004,15 @@ var REWARDS = (function () {
 
     function redeemMulti(opts) {
         opts = opts || {};
+        var takes = normalizeExplicitTakes(opts.takes);
         var ids = (opts.sourceAccountIds || []).filter(Boolean);
+        if (takes.length) {
+            ids = takes.map(function (t) { return t.account_id; });
+        }
         if (!ids.length) {
             return Promise.resolve({ ok: false, error: 'select at least one chart source' });
         }
-        return rewardRpc('reward_redeem_multi', {
+        var payload = {
             p_anchor_patient_id: opts.patientId,
             p_points: round2(opts.points),
             p_source_account_ids: ids,
@@ -985,10 +1022,26 @@ var REWARDS = (function () {
             p_clinic_code: opts.clinicCode || null,
             p_created_by: opts.createdBy || actorName(),
             p_note: opts.note || null
-        }).then(function (r) {
+        };
+        if (takes.length) {
+            payload.p_takes = takes.map(function (t) {
+                return { account_id: t.account_id, points: t.points };
+            });
+            return rewardRpc('reward_redeem_takes', payload).then(function (r) {
+                if (r.error) {
+                    var msg = String(r.error.message || '');
+                    if (/reward_redeem_takes|could not find|404|PGRST202|schema cache/i.test(msg)) {
+                        return { ok: false, error: msg, code: 'no-takes-rpc' };
+                    }
+                    return { ok: false, error: msg };
+                }
+                return stampDoctorOnLedgerResult(rpcResult(r.data), opts.doctorName);
+            });
+        }
+        return rewardRpc('reward_redeem_multi', payload).then(function (r) {
             if (r.error) {
                 // Fallback: sequential single-chart redeem if multi RPC not deployed yet
-                if (/reward_redeem_multi|could not find|404|PGRST/i.test(String(r.error.message || ''))) {
+                if (/reward_redeem_multi|could not find|404|PGRST/i.test(msgOf(r))) {
                     return redeemMultiFallback(opts, ids).then(function (res) {
                         return stampDoctorOnLedgerResult(res, opts.doctorName);
                     });
@@ -997,6 +1050,10 @@ var REWARDS = (function () {
             }
             return stampDoctorOnLedgerResult(rpcResult(r.data), opts.doctorName);
         });
+    }
+
+    function msgOf(r) {
+        return String((r && r.error && r.error.message) || '');
     }
 
     /** When multi RPC missing: single-chart only; multi-chart needs SQL patch applied. */
@@ -2406,6 +2463,73 @@ var REWARDS = (function () {
         });
     }
 
+    function resolveExplicitTakes(takes, patientAccounts, patientNets, doc) {
+        var capped = isKnownRewardDoctor(doc)
+            ? accountsCappedForDoctor(patientAccounts, patientNets, doc.key)
+            : [];
+        var map = {};
+        capped.forEach(function (a) {
+            if (a && a.account_id) map[a.account_id] = a;
+        });
+        function finish() {
+            var sum = 0;
+            var i;
+            for (i = 0; i < takes.length; i++) {
+                var acc = map[takes[i].account_id];
+                if (!acc) {
+                    return {
+                        ok: false,
+                        rewardAmount: 0,
+                        error: trRepl('rewards.pay.sameDoctorNone', { DOCTOR: doc.label },
+                            'No reward points for ' + doc.label + ' to redeem.')
+                    };
+                }
+                if (takes[i].points > round2(acc.balance) + 0.005) {
+                    return {
+                        ok: false,
+                        rewardAmount: 0,
+                        error: trRepl('rewards.pay.sameDoctorShort', {
+                            DOCTOR: doc.label, AVAIL: fmtPts(acc.balance)
+                        }, 'Only ' + fmtPts(acc.balance) + ' pts available for ' + doc.label +
+                            ' (same doctor only).')
+                    };
+                }
+                takes[i].patient_id = acc.patient_id || takes[i].patient_id;
+                takes[i].patient_no = acc.patient_no || takes[i].patient_no;
+                sum = round2(sum + takes[i].points);
+            }
+            if (sum <= 0.005) {
+                return { ok: false, rewardAmount: 0, error: 'points must be > 0' };
+            }
+            return { ok: true, takes: takes, sum: sum };
+        }
+        var missing = takes.filter(function (t) { return !map[t.account_id]; });
+        if (!missing.length || typeof SB === 'undefined') return Promise.resolve(finish());
+        return SB.from('reward_accounts').select('id,patient_id').in('id', missing.map(function (t) {
+            return t.account_id;
+        })).then(function (r) {
+            var rows = (r && r.data) || [];
+            var pids = [];
+            var seen = {};
+            rows.forEach(function (row) {
+                if (row.patient_id && !seen[row.patient_id]) {
+                    seen[row.patient_id] = true;
+                    pids.push(row.patient_id);
+                }
+            });
+            return Promise.all(pids.map(function (pid) {
+                return Promise.all([
+                    listPersonAccountsFresh(pid),
+                    loadDoctorLedgerNets(pid)
+                ]).then(function (pair) {
+                    accountsCappedForDoctor(pair[0], pair[1], doc.key).forEach(function (a) {
+                        if (a && a.account_id) map[a.account_id] = a;
+                    });
+                });
+            })).then(finish);
+        }).catch(function () { return finish(); });
+    }
+
     function applyRedeemForBillChecked(opts, pts) {
         var doc = payDoctorFor(opts);
         if (!isKnownRewardDoctor(doc)) {
@@ -2435,7 +2559,155 @@ var REWARDS = (function () {
                 };
             }
             parts = parts.slice(1);
-            var capped = accountsCappedForDoctor(parts[0], parts[1], doc.key);
+            var patientAccounts = parts[0];
+            var patientNets = parts[1];
+            var capped = accountsCappedForDoctor(patientAccounts, patientNets, doc.key);
+
+            function insertPay(rec) {
+                return SB.from('bill_payments').insert([rec]).select('id').single()
+                    .then(function (ir) {
+                        if (ir.error) {
+                            var stripped = Object.assign({}, rec);
+                            delete stripped.clinic_id;
+                            delete stripped.clinic_tag;
+                            delete stripped.clinic_code;
+                            return SB.from('bill_payments').insert([stripped]).select('id').single();
+                        }
+                        return ir;
+                    });
+            }
+
+            function voidPayRow(payId) {
+                if (!payId || typeof SB === 'undefined') return Promise.resolve();
+                return SB.from('bill_payments').update({
+                    voided_at: new Date().toISOString(),
+                    voided_by: actorName()
+                }).eq('id', payId).then(function () {}, function () {});
+            }
+
+            function basePayRecord(amount, note) {
+                var payRecord = {
+                    bill_id: opts.billId,
+                    paid_date: opts.paidDate || (typeof todayISO === 'function' ? todayISO() : null),
+                    amount: amount,
+                    method: METHOD,
+                    notes: note || opts.note || tr('rewards.pay.redeemNote', 'Reward points discount'),
+                    received_by: actorName()
+                };
+                var payCtx = clinicCtx();
+                payRecord.clinic_id = opts.clinicId || payCtx.clinic_id;
+                payRecord.clinic_tag = opts.clinicCode || payCtx.clinic_code;
+                payRecord.clinic_code = opts.clinicCode || payCtx.clinic_code;
+                return payRecord;
+            }
+
+            function finishOk(amount, payIds, rr) {
+                var bal = rr && (rr.total_balance != null ? rr.total_balance : rr.balance);
+                if (bal != null) refreshBannerBalances(opts.patientId, bal);
+                return {
+                    ok: true,
+                    rewardAmount: amount,
+                    rewardPaymentId: (payIds && payIds[0]) || null,
+                    rewardPaymentIds: payIds || [],
+                    redeemResult: rr,
+                    doctorName: doctorLabel
+                };
+            }
+
+            function redeemSeparate(takes) {
+                var ids = [];
+                var i = 0;
+                function rollback(err) {
+                    return Promise.all(ids.map(function (id) {
+                        return voidForPayment(id, 'Rollback: chart redeem failed').then(function () {
+                            return voidPayRow(id);
+                        }, function () { return voidPayRow(id); });
+                    })).then(function () {
+                        return { ok: false, error: err || 'redeem failed', rewardAmount: 0 };
+                    });
+                }
+                function next(last) {
+                    if (i >= takes.length) {
+                        var sum = 0;
+                        takes.forEach(function (t) { sum = round2(sum + t.points); });
+                        return finishOk(sum, ids.slice(), last);
+                    }
+                    var step = takes[i++];
+                    var note = (opts.note || tr('rewards.pay.redeemNote', 'Reward points discount')) +
+                        (step.patient_no ? ' · #' + step.patient_no : '');
+                    var rec = basePayRecord(step.points, note);
+                    return insertPay(rec).then(function (ir) {
+                        if (ir.error) return rollback(ir.error.message);
+                        var payId = ir.data && ir.data.id;
+                        if (payId) ids.push(payId);
+                        return redeem({
+                            patientId: opts.patientId,
+                            points: step.points,
+                            billId: opts.billId,
+                            billPaymentId: payId,
+                            clinicId: rec.clinic_id,
+                            clinicCode: rec.clinic_code,
+                            note: rec.notes,
+                            sourceAccountIds: [step.account_id],
+                            doctorName: doctorLabel
+                        }).then(function (rr) {
+                            if (!rr || !rr.ok) return rollback((rr && rr.error) || 'redeem failed');
+                            return next(rr);
+                        });
+                    });
+                }
+                return next(null);
+            }
+
+            function commitOne(amount, sourceIds, takes) {
+                var payRecord = basePayRecord(amount, null);
+                return insertPay(payRecord).then(function (ir) {
+                    if (ir.error) return { ok: false, error: ir.error.message, rewardAmount: 0 };
+                    var payId = ir.data && ir.data.id;
+                    return redeem({
+                        patientId: opts.patientId,
+                        points: amount,
+                        billId: opts.billId,
+                        billPaymentId: payId,
+                        clinicId: payRecord.clinic_id,
+                        clinicCode: payRecord.clinic_code,
+                        note: payRecord.notes,
+                        sourceAccountIds: sourceIds,
+                        takes: takes,
+                        doctorName: doctorLabel
+                    }).then(function (rr) {
+                        if (rr && rr.code === 'no-takes-rpc' && takes && takes.length) {
+                            return voidPayRow(payId).then(function () { return redeemSeparate(takes); });
+                        }
+                        if (!rr || !rr.ok) {
+                            return voidPayRow(payId).then(function () {
+                                return { ok: false, error: (rr && rr.error) || 'redeem failed', rewardAmount: 0 };
+                            });
+                        }
+                        return finishOk(amount, payId ? [payId] : [], rr);
+                    });
+                });
+            }
+
+            var explicit = normalizeExplicitTakes(opts.takes);
+            if (explicit.length) {
+                return resolveExplicitTakes(explicit, patientAccounts, patientNets, doc).then(function (resolved) {
+                    if (!resolved.ok) return resolved;
+                    if (Math.abs(resolved.sum - pts) > 0.02) {
+                        return {
+                            ok: false,
+                            rewardAmount: 0,
+                            error: tr('rewards.pay.allocShort', 'Selected clinics do not cover this amount.')
+                        };
+                    }
+                    return commitOne(
+                        resolved.sum,
+                        resolved.takes.map(function (t) { return t.account_id; }),
+                        resolved.takes
+                    );
+                });
+            }
+
             var avail = sumPersonBalance(capped);
             if (pts > avail + 0.005) {
                 return {
@@ -2464,86 +2736,283 @@ var REWARDS = (function () {
                     rewardAmount: 0
                 };
             }
-
-            var payRecord = {
-                bill_id: opts.billId,
-                paid_date: opts.paidDate || (typeof todayISO === 'function' ? todayISO() : null),
-                amount: pts,
-                method: METHOD,
-                notes: opts.note || tr('rewards.pay.redeemNote', 'Reward points discount'),
-                received_by: actorName()
-            };
-            var ctx = clinicCtx();
-            payRecord.clinic_id = opts.clinicId || ctx.clinic_id;
-            payRecord.clinic_tag = opts.clinicCode || ctx.clinic_code;
-            payRecord.clinic_code = opts.clinicCode || ctx.clinic_code;
-
-            function insertPay(rec) {
-                return SB.from('bill_payments').insert([rec]).select('id').single()
-                    .then(function (ir) {
-                        if (ir.error) {
-                            var stripped = Object.assign({}, rec);
-                            delete stripped.clinic_id;
-                            delete stripped.clinic_tag;
-                            delete stripped.clinic_code;
-                            return SB.from('bill_payments').insert([stripped]).select('id').single();
-                        }
-                        return ir;
-                    });
-            }
-
-            return insertPay(payRecord).then(function (ir) {
-                if (ir.error) {
-                    return { ok: false, error: ir.error.message, rewardAmount: 0 };
-                }
-                var payId = ir.data && ir.data.id;
-                return redeem({
-                    patientId: opts.patientId,
-                    points: pts,
-                    billId: opts.billId,
-                    billPaymentId: payId,
-                    clinicId: payRecord.clinic_id,
-                    clinicCode: payRecord.clinic_code,
-                    note: payRecord.notes,
-                    sourceAccountIds: sourceIds,
-                    doctorName: doctorLabel
-                }).then(function (rr) {
-                    if (!rr.ok) {
-                        if (payId) {
-                            SB.from('bill_payments').update({
-                                voided_at: new Date().toISOString(),
-                                voided_by: actorName()
-                            }).eq('id', payId).then(function () {});
-                        }
-                        return { ok: false, error: rr.error || 'redeem failed', rewardAmount: 0 };
-                    }
-                    var bal = rr.total_balance != null ? rr.total_balance : rr.balance;
-                    if (bal != null) {
-                        refreshBannerBalances(opts.patientId, bal);
-                    }
-                    return {
-                        ok: true,
-                        rewardAmount: pts,
-                        rewardPaymentId: payId,
-                        redeemResult: rr,
-                        doctorName: doctorLabel
-                    };
-                });
-            });
+            return commitOne(pts, sourceIds, null);
         });
     }
 
-    function readSelectedPaySourceAccountIds() {
-        var box = document.getElementById('apRewardSources');
-        if (!box) {
-            return (_paySourceAccounts || [])
-                .filter(function (a) { return a.account_id && a.balance > 0.005; })
-                .map(function (a) { return a.account_id; });
+    var PAY_MIRROR = {
+        apRewardPanel: 'bdRewardPanel',
+        apRewardDoctor: 'bdRewardDoctor',
+        apRewardBalance: 'bdRewardBalance',
+        apRewardClinicMeta: 'bdRewardClinicMeta',
+        apRewardUse: 'bdRewardUse',
+        apRewardAmountWrap: 'bdRewardAmountWrap',
+        apRewardSources: 'bdRewardSources',
+        apRewardFriends: 'bdRewardFriends',
+        apRewardAmount: 'bdRewardAmount',
+        apRewardAllocPreview: 'bdRewardAllocPreview',
+        apRewardCapNote: 'bdRewardCapNote',
+        apRewardHint: 'bdRewardHint',
+        apRewardCapsule: 'bdRewardCapsule',
+        apRewardRedeemAll: 'bdRewardRedeemAll'
+    };
+
+    function payNodes(id) {
+        var nodes = [];
+        var a = document.getElementById(id);
+        if (a) nodes.push(a);
+        var otherId = PAY_MIRROR[id];
+        if (otherId) {
+            var b = document.getElementById(otherId);
+            if (b) nodes.push(b);
         }
+        return nodes;
+    }
+
+    function paySetText(id, text) {
+        payNodes(id).forEach(function (el) { el.textContent = text; });
+    }
+
+    function paySetHtml(id, html) {
+        payNodes(id).forEach(function (el) { el.innerHTML = html; });
+    }
+
+    function payUseChecked() {
+        var nodes = payNodes('apRewardUse');
+        if (!nodes.length) return false;
+        return !!nodes[0].checked;
+    }
+
+    function setPayUse(on) {
+        payNodes('apRewardUse').forEach(function (el) {
+            el.checked = !!on;
+        });
+    }
+
+    function payAmountValue() {
+        var nodes = payNodes('apRewardAmount');
+        if (!nodes.length) return '';
+        return nodes[0].value;
+    }
+
+    function setPayAmount(v) {
+        var s = v == null ? '' : String(v);
+        payNodes('apRewardAmount').forEach(function (el) { el.value = s; });
+    }
+
+    function setPayWrapVisible(on) {
+        payNodes('apRewardAmountWrap').forEach(function (el) {
+            el.style.display = on ? '' : 'none';
+        });
+    }
+
+    function setPayPanelsVisible(on) {
+        payNodes('apRewardPanel').forEach(function (el) {
+            el.style.display = on ? '' : 'none';
+        });
+    }
+
+    function setPayAttr(id, name, value) {
+        payNodes(id).forEach(function (el) {
+            if (value == null) el.removeAttribute(name);
+            else el.setAttribute(name, value);
+        });
+    }
+
+    function allPayAccounts() {
+        var out = [];
+        var seen = {};
+        function push(a) {
+            if (!a || !a.account_id || seen[a.account_id]) return;
+            seen[a.account_id] = true;
+            out.push(a);
+        }
+        (_paySourceAccounts || []).forEach(push);
+        (_payFriends || []).forEach(function (f) {
+            (f.accounts || []).forEach(push);
+        });
+        return out;
+    }
+
+    function rememberPayChecked(accountId, on) {
+        if (!accountId) return;
+        if (!_payChecked) _payChecked = {};
+        _payChecked[accountId] = !!on;
+    }
+
+    function rememberPayTake(accountId, points) {
+        if (!accountId) return;
+        if (!_payTake) _payTake = {};
+        var n = round2(points);
+        if (n < 0) n = 0;
+        _payTake[accountId] = n;
+    }
+
+    function takeOf(accountId) {
+        if (!_payTake || !Object.prototype.hasOwnProperty.call(_payTake, accountId)) return null;
+        return round2(_payTake[accountId]);
+    }
+
+    function accountById(accountId) {
+        var found = null;
+        var id = String(accountId || '');
+        allPayAccounts().forEach(function (a) {
+            if (a && String(a.account_id) === id) found = a;
+        });
+        return found;
+    }
+
+    /** Smallest balance first, same order the redeem uses when no per-chart amount is sent. */
+    function orderedPayAccounts() {
+        return allPayAccounts().filter(function (a) {
+            return a && a.account_id && round2(a.balance) > 0.005;
+        }).slice().sort(function (a, b) {
+            if (a.balance !== b.balance) return a.balance - b.balance;
+            return String(a.patient_no || '').localeCompare(String(b.patient_no || ''));
+        });
+    }
+
+    /** Bill balance still unpaid, also cut by the per-bill points cap when one is loaded. */
+    function payRoom() {
+        var billBal = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
+            ? round2(bdCurrentBill.balance) : 0;
+        var room = billBal;
+        if (_payCap && _payCap.left !== Infinity) room = Math.min(room, round2(_payCap.left));
+        if (room < 0) room = 0;
+        return round2(room);
+    }
+
+    /**
+     * Checked charts keep a typed amount. Charts with no amount yet get their full
+     * balance, smallest first, until the bill room is used. Unticked charts are 0.
+     */
+    function fillDefaultTakes(forceAll) {
+        var room = payRoom();
+        var used = 0;
+        var list = orderedPayAccounts();
+        if (!_payTake) _payTake = {};
+        if (forceAll) {
+            list.forEach(function (a) {
+                if (a && a.account_id) delete _payTake[a.account_id];
+            });
+        }
+        list.forEach(function (a) {
+            if (!a || !a.account_id) return;
+            if (!accountIsChecked(a.account_id, true)) {
+                _payTake[a.account_id] = 0;
+                return;
+            }
+            if (!Object.prototype.hasOwnProperty.call(_payTake, a.account_id)) return;
+            var want = round2(_payTake[a.account_id]);
+            if (want < 0) want = 0;
+            var left = round2(Math.max(0, room - used));
+            var take = round2(Math.min(want, a.balance, left));
+            _payTake[a.account_id] = take;
+            used = round2(used + take);
+        });
+        list.forEach(function (a) {
+            if (!a || !a.account_id) return;
+            if (!accountIsChecked(a.account_id, true)) return;
+            if (Object.prototype.hasOwnProperty.call(_payTake, a.account_id)) return;
+            var left2 = round2(Math.max(0, room - used));
+            var take2 = round2(Math.min(a.balance, left2));
+            _payTake[a.account_id] = take2;
+            used = round2(used + take2);
+        });
+    }
+
+    function sumCheckedTakes() {
+        var total = 0;
+        allPayAccounts().forEach(function (a) {
+            if (!a || !a.account_id || !accountIsChecked(a.account_id, true)) return;
+            var n = takeOf(a.account_id);
+            if (n == null || n <= 0) return;
+            total += Math.min(round2(a.balance), n);
+        });
+        return round2(total);
+    }
+
+    function sumTakesExcept(accountId) {
+        var skip = String(accountId || '');
+        var total = 0;
+        allPayAccounts().forEach(function (a) {
+            if (!a || !a.account_id || String(a.account_id) === skip) return;
+            if (!accountIsChecked(a.account_id, true)) return;
+            var n = takeOf(a.account_id);
+            if (n == null || n <= 0) return;
+            total += Math.min(round2(a.balance), n);
+        });
+        return round2(total);
+    }
+
+    function syncTakeInputs() {
+        var nodes = document.querySelectorAll('input.ap-rw-take');
+        var i;
+        for (i = 0; i < nodes.length; i++) {
+            var el = nodes[i];
+            var id = el.getAttribute('data-account-id');
+            var acc = accountById(id);
+            var on = accountIsChecked(id, true);
+            el.disabled = !on;
+            if (acc) el.max = String(round2(acc.balance));
+            var take = takeOf(id);
+            if (take == null) take = 0;
+            var text = fmtPts(take);
+            if (document.activeElement === el) {
+                var cur = round2(parseFloat(el.value));
+                if (!isFinite(cur) || Math.abs(cur - take) > 0.001) el.value = text;
+            } else if (el.value !== text) {
+                el.value = text;
+            }
+        }
+    }
+
+    function publishTakeSum() {
+        var sum = sumCheckedTakes();
+        setPayAmount(sum > 0.005 ? fmtPts(sum) : '');
+        updatePayAllocPreview();
+        applyPayCashSplit(payUseChecked() ? sum : 0);
+        return sum;
+    }
+
+    function accountIsChecked(accountId, selectAll) {
+        if (_payChecked && Object.prototype.hasOwnProperty.call(_payChecked, accountId)) {
+            return _payChecked[accountId] !== false;
+        }
+        return selectAll !== false;
+    }
+
+    function seedPayChecked(accounts, selectAll) {
+        if (!_payChecked) _payChecked = {};
+        (accounts || []).forEach(function (a) {
+            if (!a || !a.account_id) return;
+            if (!Object.prototype.hasOwnProperty.call(_payChecked, a.account_id)) {
+                _payChecked[a.account_id] = selectAll !== false;
+            }
+        });
+    }
+
+    function syncSrcCheckbox(accountId, on) {
+        var nodes = document.querySelectorAll('input.ap-rw-src');
+        var id = String(accountId || '');
+        for (var i = 0; i < nodes.length; i++) {
+            if (nodes[i].getAttribute('data-account-id') === id) nodes[i].checked = !!on;
+        }
+    }
+
+    function applyPayCashSplit(pts) {
+        var cash = document.getElementById('apAmount');
+        var billBal = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
+            ? round2(bdCurrentBill.balance) : 0;
+        if (cash && billBal > 0) cash.value = fmtPts(Math.max(0, round2(billBal - (pts || 0))));
+        paintPayCapsule();
+    }
+
+    function readSelectedPaySourceAccountIds() {
         var ids = [];
-        box.querySelectorAll('input.ap-rw-src:checked').forEach(function (cb) {
-            var id = cb.getAttribute('data-account-id');
-            if (id) ids.push(id);
+        allPayAccounts().forEach(function (a) {
+            if (!a.account_id || round2(a.balance) <= 0.005) return;
+            if (accountIsChecked(a.account_id, true)) ids.push(a.account_id);
         });
         return ids;
     }
@@ -2552,7 +3021,7 @@ var REWARDS = (function () {
         var ids = readSelectedPaySourceAccountIds();
         var idSet = {};
         ids.forEach(function (id) { idSet[id] = true; });
-        return (_paySourceAccounts || []).filter(function (a) {
+        return allPayAccounts().filter(function (a) {
             return a.account_id && idSet[a.account_id];
         });
     }
@@ -2590,42 +3059,39 @@ var REWARDS = (function () {
     }
 
     function updatePayClinicMeta(accounts) {
-        var meta = document.getElementById('apRewardClinicMeta');
-        if (!meta) return;
         var groups = groupPaySourcesByClinic(accounts || _paySourceAccounts);
         var n = groups.length;
         var total = sumPersonBalance(accounts || _paySourceAccounts);
         if (!isKnownRewardDoctor(_payDoctor) || total <= 0.005 || !n) {
-            meta.textContent = '';
+            paySetText('apRewardClinicMeta', '');
             return;
         }
         var codes = groups.map(function (g) { return g.clinic_code; }).filter(Boolean);
         var clinicList = codes.length ? codes.join(', ') : '';
-        meta.textContent = trRepl('rewards.pay.clinicMeta', {
+        paySetText('apRewardClinicMeta', trRepl('rewards.pay.clinicMeta', {
             N: String(n),
             CLINICS: clinicList,
             DOCTOR: _payDoctor.label
         }, n === 1
             ? '1 clinic · ' + clinicList + ' · same doctor (' + _payDoctor.label + ')'
-            : n + ' clinics · ' + clinicList + ' · same doctor (' + _payDoctor.label + ')');
+            : n + ' clinics · ' + clinicList + ' · same doctor (' + _payDoctor.label + ')'));
     }
 
-    function renderPaySourceList(accounts, selectAll) {
-        var box = document.getElementById('apRewardSources');
-        if (!box) return;
+    function payChartHeadHtml() {
+        return '<div class="ap-rw-clinic-head" aria-hidden="true">' +
+            '<span></span>' +
+            '<span>' + esc(tr('rewards.pay.colClinic', 'Clinic')) + '</span>' +
+            '<span>' + esc(tr('rewards.pay.colChart', 'Chart')) + '</span>' +
+            '<span class="ap-rw-num">' + esc(tr('rewards.pay.colPts', 'Points')) + '</span>' +
+            '<span class="ap-rw-num">' + esc(tr('rewards.pay.colUse', 'Use')) + '</span>' +
+            '</div>';
+    }
+
+    function payChartRowsHtml(accounts) {
         var withBal = (accounts || []).filter(function (a) {
             return a.account_id && round2(a.balance) > 0.005;
         });
-        updatePayClinicMeta(withBal);
-        if (!withBal.length) {
-            var emptyMsg = (_payDoctor && isKnownRewardDoctor(_payDoctor))
-                ? trRepl('rewards.pay.sameDoctorNone', { DOCTOR: _payDoctor.label },
-                    'No reward points for ' + _payDoctor.label + ' to redeem.')
-                : tr('rewards.pay.noCharts', 'No chart balances available.');
-            box.innerHTML = '<div class="ap-rw-empty" style="font-size:12px;color:#94a3b8;">' +
-                esc(emptyMsg) + '</div>';
-            return;
-        }
+        if (!withBal.length) return '';
         var groups = groupPaySourcesByClinic(withBal);
         var flat = [];
         groups.forEach(function (g) {
@@ -2638,18 +3104,14 @@ var REWARDS = (function () {
                 });
             });
         });
-        var checked = selectAll !== false ? ' checked' : '';
-        var head =
-            '<div class="ap-rw-clinic-head" aria-hidden="true">' +
-            '<span></span>' +
-            '<span>' + esc(tr('rewards.pay.colClinic', 'Clinic')) + '</span>' +
-            '<span>' + esc(tr('rewards.pay.colChart', 'Chart')) + '</span>' +
-            '<span class="ap-rw-num">' + esc(tr('rewards.pay.colPts', 'Points')) + '</span>' +
-            '</div>';
-        var body = flat.map(function (row, idx) {
+        return flat.map(function (row, idx) {
             var a = row.account;
-            var showClinic = idx === 0 ||
-                flat[idx - 1].clinic_code !== row.clinic_code;
+            var on = accountIsChecked(a.account_id, true);
+            var take = on ? takeOf(a.account_id) : 0;
+            if (take == null) take = 0;
+            var checked = on ? ' checked' : '';
+            var disabled = on ? '' : ' disabled';
+            var showClinic = idx === 0 || flat[idx - 1].clinic_code !== row.clinic_code;
             var clinicCell = showClinic
                 ? ('<span class="ap-rw-clinic-code">' + esc(row.clinic_code) +
                     (row.clinic_count > 1
@@ -2657,39 +3119,136 @@ var REWARDS = (function () {
                         : '') +
                     '</span>')
                 : '<span class="ap-rw-clinic-code ap-rw-clinic-cont" aria-hidden="true"></span>';
-            return '<label class="ap-rw-clinic-row' + (showClinic ? ' ap-rw-clinic-start' : '') + '">' +
+            return '<div class="ap-rw-clinic-row' + (showClinic ? ' ap-rw-clinic-start' : '') + '">' +
                 '<input type="checkbox" class="ap-rw-src" data-account-id="' + esc(a.account_id) +
                 '" data-clinic="' + esc(row.clinic_code) + '"' + checked + '>' +
                 clinicCell +
                 '<span class="ap-rw-clinic-charts">#' + esc(a.patient_no || '—') + '</span>' +
                 '<span class="ap-rw-num ap-rw-clinic-pts">' + esc(fmtPts(a.balance)) + '</span>' +
-                '</label>';
+                '<input type="number" class="ap-rw-take" inputmode="decimal" min="0" max="' +
+                esc(String(round2(a.balance))) + '" step="0.01" autocomplete="off" data-account-id="' +
+                esc(a.account_id) + '" value="' + esc(fmtPts(take)) + '"' + disabled + '>' +
+                '</div>';
         }).join('');
-        box.innerHTML = '<div class="ap-rw-clinic-table">' + head + body + '</div>';
+    }
+
+    function renderPaySourceList(accounts) {
+        if (!payNodes('apRewardSources').length) return;
+        var withBal = (accounts || []).filter(function (a) {
+            return a.account_id && round2(a.balance) > 0.005;
+        });
+        updatePayClinicMeta(withBal);
+        if (!withBal.length) {
+            var emptyMsg = (_payDoctor && isKnownRewardDoctor(_payDoctor))
+                ? trRepl('rewards.pay.sameDoctorNone', { DOCTOR: _payDoctor.label },
+                    'No reward points for ' + _payDoctor.label + ' to redeem.')
+                : tr('rewards.pay.noCharts', 'No chart balances available.');
+            paySetHtml('apRewardSources',
+                '<div class="ap-rw-empty" style="font-size:12px;color:#94a3b8;">' +
+                esc(emptyMsg) + '</div>');
+            return;
+        }
+        paySetHtml('apRewardSources',
+            '<div class="ap-rw-clinic-table">' + payChartHeadHtml() + payChartRowsHtml(withBal) + '</div>');
+    }
+
+    function clinicRowsHtml(accounts) {
+        return payChartRowsHtml(accounts);
+    }
+
+    function setFriendMsg(text, ok) {
+        _payFriendMsg = text || '';
+        _payFriendMsgOk = !!ok && !!_payFriendMsg;
+    }
+
+    function focusFriendSearch() {
+        var nodes = document.querySelectorAll('.rw-pay-friend-q');
+        var i, el, pick = null;
+        for (i = 0; i < nodes.length; i++) {
+            el = nodes[i];
+            if (el.offsetParent !== null) { pick = el; break; }
+        }
+        if (!pick && nodes.length) pick = nodes[0];
+        if (!pick) return;
+        try {
+            if (pick.scrollIntoView) pick.scrollIntoView({ block: 'nearest' });
+            pick.focus();
+        } catch (e) { /* focus is optional */ }
+    }
+
+    function renderPayFriends() {
+        if (!payNodes('apRewardFriends').length) return;
+        var more = !!(_payFriends && _payFriends.length);
+        var title = tr('rewards.pay.friendsTitle', 'Friends & relatives');
+        var blurb = tr('rewards.pay.friendsBlurb',
+            'Search like the patient directory. Add as many friends and relatives as you need, one chart after another.');
+        var cards = (_payFriends || []).map(function (f) {
+            var label = '#' + (f.patientNo || '—') + (f.name ? '  ' + f.name : '');
+            var rows = clinicRowsHtml(f.accounts);
+            return '<div class="rw-pay-friend-card">' +
+                '<div class="rw-pay-friend-head"><strong>' + esc(label) + '</strong>' +
+                '<button type="button" class="rw-pay-friend-remove" data-pid="' + esc(f.patientId) + '">' +
+                esc(tr('rewards.pay.friendsRemove', 'Remove')) + '</button></div>' +
+                '<div class="ap-rw-clinic-table">' +
+                (rows ? (payChartHeadHtml() + rows) : '') + '</div></div>';
+        }).join('');
+        var msg = _payFriendMsg
+            ? '<div class="rw-pay-friend-msg' + (_payFriendMsgOk ? ' is-ok' : '') + '">' + esc(_payFriendMsg) + '</div>'
+            : '';
+        var ph = more
+            ? tr('rewards.pay.friendsAnother', 'Add another chart…')
+            : tr('rewards.pay.friendsPh', 'Name, no., phone, HKID…');
+        var addLabel = more
+            ? tr('rewards.pay.friendsAddMore', 'Add another')
+            : tr('rewards.pay.friendsAdd', 'Add');
+        var html = '<div class="rw-pay-friend">' +
+            '<div class="rw-pay-friend-title">' + esc(title) + '</div>' +
+            '<p class="rw-pay-friend-blurb">' + esc(blurb) + '</p>' +
+            cards + msg +
+            '<div class="rw-pay-friend-row">' +
+            '<div class="ps-wrap rw-pay-friend-search">' +
+            '<input type="text" class="rw-pay-friend-q" value="' + esc(_payFriendDraft) + '" placeholder="' +
+            esc(ph) + '" autocomplete="off">' +
+            '<div class="ps-drop rw-pay-friend-drop"></div></div>' +
+            '<button type="button" class="rw-pay-friend-add">' +
+            esc(addLabel) + '</button></div></div>';
+        paySetHtml('apRewardFriends', html);
+    }
+
+    function paintPayCapsule() {
+        var sel = sumPersonBalance(selectedPaySourceRows());
+        var usePts = payUseChecked() ? round2(parseFloat(payAmountValue()) || 0) : 0;
+        if (usePts < 0) usePts = 0;
+        var billBal = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
+            ? round2(bdCurrentBill.balance) : 0;
+        var cash = Math.max(0, round2(billBal - usePts));
+        var text = trRepl('rewards.pay.capsule', {
+            SEL: fmtPts(sel),
+            USE: fmtPts(usePts),
+            CASH: fmtPts(cash)
+        }, 'Selected ' + fmtPts(sel) + ' · Use ' + fmtPts(usePts) + ' · Self-pay ' + fmtPts(cash));
+        payNodes('apRewardCapsule').forEach(function (el) { el.textContent = text; });
     }
 
     function updatePayAllocPreview() {
-        var prev = document.getElementById('apRewardAllocPreview');
-        var amtEl = document.getElementById('apRewardAmount');
-        var pts = round2(amtEl ? parseFloat(amtEl.value) : 0);
         var rows = selectedPaySourceRows();
         var totalSel = sumPersonBalance(rows);
-        if (prev) {
-            if (pts <= 0 || !rows.length) {
-                prev.textContent = '';
-                return;
+        var text = '';
+        if (payUseChecked()) {
+            var parts = [];
+            orderedPayAccounts().forEach(function (a) {
+                if (!accountIsChecked(a.account_id, true)) return;
+                var n = takeOf(a.account_id);
+                if (n == null || n <= 0.005) return;
+                var clinic = a.clinic_code ? String(a.clinic_code) + ' ' : '';
+                parts.push(clinic + '#' + (a.patient_no || '?') + ' −' + fmtPts(n));
+            });
+            if (parts.length) {
+                text = tr('rewards.pay.allocPrefix', 'Will take:') + ' ' + parts.join(' · ');
             }
-            var alloc = allocateAcrossAccounts(rows, pts);
-            if (!alloc.ok) {
-                prev.textContent = tr('rewards.pay.allocShort', 'Selected clinics do not cover this amount.');
-                return;
-            }
-            prev.textContent = tr('rewards.pay.allocPrefix', 'Will take:') + ' ' +
-                alloc.plan.map(function (s) {
-                    var clinic = s.clinic_code ? String(s.clinic_code) + ' ' : '';
-                    return clinic + '#' + (s.patient_no || '?') + ' −' + fmtPts(s.take);
-                }).join(' · ');
         }
+        payNodes('apRewardAllocPreview').forEach(function (prev) { prev.textContent = text; });
+        paintPayCapsule();
         return totalSel;
     }
 
@@ -2726,27 +3285,50 @@ var REWARDS = (function () {
 
     // ── Add Payment panel UI ─────────────────────────────────
     function readUsePointsFromPanel() {
-        var toggle = document.getElementById('apRewardUse');
-        if (!toggle || !toggle.checked) return 0;
-        var inp = document.getElementById('apRewardAmount');
-        return round2(inp ? parseFloat(inp.value) : 0);
+        if (!payUseChecked()) return 0;
+        return sumCheckedTakes();
+    }
+
+    function readPayTakesForPayment() {
+        var out = [];
+        if (!payUseChecked()) return out;
+        orderedPayAccounts().forEach(function (a) {
+            if (!accountIsChecked(a.account_id, true)) return;
+            var n = takeOf(a.account_id);
+            if (n == null || n <= 0.005) return;
+            n = round2(Math.min(n, a.balance));
+            if (n <= 0.005) return;
+            out.push({
+                account_id: a.account_id,
+                points: n,
+                patient_id: a.patient_id || null,
+                patient_no: a.patient_no || ''
+            });
+        });
+        return out;
     }
 
     function readRedeemSourceIdsForPayment() {
+        var takes = readPayTakesForPayment();
+        if (takes.length) return takes.map(function (t) { return t.account_id; });
         return readSelectedPaySourceAccountIds();
     }
 
     var _payCap = null;
+    var _payLastSel = null;
 
     function paintPayCapNote() {
-        var el = document.getElementById('apRewardCapNote');
-        if (!el) return;
-        if (!_payCap || _payCap.limit === Infinity) { el.hidden = true; el.textContent = ''; return; }
-        el.textContent = trRepl('rewards.cap.payNote', {
+        var nodes = payNodes('apRewardCapNote');
+        if (!nodes.length) return;
+        if (!_payCap || _payCap.limit === Infinity) {
+            nodes.forEach(function (el) { el.hidden = true; el.textContent = ''; });
+            return;
+        }
+        var text = trRepl('rewards.cap.payNote', {
             LIMIT: fmtPts(_payCap.limit), USED: fmtPts(_payCap.used), LEFT: fmtPts(_payCap.left)
         }, 'Per-bill limit HK$' + fmtPts(_payCap.limit) + ' · already used on this bill ' + fmtPts(_payCap.used) +
             ' · can use now ' + fmtPts(_payCap.left));
-        el.hidden = false;
+        nodes.forEach(function (el) { el.textContent = text; el.hidden = false; });
     }
 
     /** Points still allowed on the open bill by the per-bill limit (Infinity = no limit or not loaded). */
@@ -2755,68 +3337,405 @@ var REWARDS = (function () {
     }
 
     function syncRewardAmountMax() {
-        var amtEl = document.getElementById('apRewardAmount');
-        var billBal = 0;
-        if (typeof bdCurrentBill !== 'undefined' && bdCurrentBill) {
-            billBal = round2(bdCurrentBill.balance);
-        }
-        var avail = sumPersonBalance(selectedPaySourceRows());
-        if (!avail) {
-            avail = sumPersonBalance((_paySourceAccounts || []).filter(function (a) {
-                return a.account_id && a.balance > 0.005;
-            }));
-        }
-        var max = Math.min(avail, billBal);
-        if (_payCap && _payCap.left !== Infinity) max = round2(Math.min(max, _payCap.left));
+        fillDefaultTakes(false);
+        var room = payRoom();
         paintPayCapNote();
-        if (amtEl) {
-            amtEl.max = String(max);
-            if (!amtEl.value || round2(amtEl.value) > max) amtEl.value = max > 0 ? fmtPts(max) : '';
-        }
+        payNodes('apRewardAmount').forEach(function (el) { el.max = String(room); });
+        syncTakeInputs();
+        var sum = sumCheckedTakes();
+        setPayAmount(sum > 0.005 ? fmtPts(sum) : '');
         updatePayAllocPreview();
-        return max;
+        return room;
+    }
+
+    /** Typing the shared total spreads it smallest-balance first, then the row boxes show that split. */
+    function applyTypedTotal(raw) {
+        var room = payRoom();
+        var rows = selectedPaySourceRows().filter(function (a) {
+            return a && a.account_id && round2(a.balance) > 0.005;
+        });
+        var avail = sumPersonBalance(rows);
+        var want = round2(Math.max(0, raw));
+        if (!isFinite(want)) want = 0;
+        if (want > room) want = room;
+        if (want > avail) want = avail;
+        var alloc = allocateAcrossAccounts(rows, want);
+        var planned = {};
+        (alloc.plan || []).forEach(function (s) { planned[s.account_id] = s.take; });
+        allPayAccounts().forEach(function (a) {
+            if (!a || !a.account_id) return;
+            if (!accountIsChecked(a.account_id, true)) {
+                rememberPayTake(a.account_id, 0);
+                return;
+            }
+            rememberPayTake(a.account_id, planned[a.account_id] || 0);
+        });
+        syncTakeInputs();
+        if (Math.abs(round2(raw) - want) > 0.001) setPayAmount(want > 0.005 ? fmtPts(want) : '');
+        updatePayAllocPreview();
+        applyPayCashSplit(payUseChecked() ? want : 0);
+        return want;
     }
 
     function applyRedeemAllOnPayment() {
-        var use = document.getElementById('apRewardUse');
-        var wrap = document.getElementById('apRewardAmountWrap');
-        if (use) {
-            use.checked = true;
-            use.disabled = false;
+        seedPayChecked(allPayAccounts(), true);
+        allPayAccounts().forEach(function (a) {
+            if (a.account_id) rememberPayChecked(a.account_id, true);
+        });
+        fillDefaultTakes(true);
+        setPayUse(true);
+        payNodes('apRewardUse').forEach(function (el) { el.disabled = false; });
+        setPayWrapVisible(true);
+        renderPaySourceList(_paySourceAccounts);
+        renderPayFriends();
+        syncRewardAmountMax();
+        _payLastSel = sumPersonBalance(selectedPaySourceRows());
+        applyPayCashSplit(readUsePointsFromPanel());
+    }
+
+    function friendSearchQuery(raw) {
+        var q = String(raw || '').replace(/^#/, '').trim();
+        if (typeof patientSearchNormalizeInputQuery === 'function') {
+            q = patientSearchNormalizeInputQuery(q);
         }
-        if (wrap) wrap.style.display = '';
-        renderPaySourceList(_paySourceAccounts, true);
-        var max = syncRewardAmountMax();
-        var amtEl = document.getElementById('apRewardAmount');
-        if (amtEl) amtEl.value = max > 0 ? fmtPts(max) : '';
-        var cash = document.getElementById('apAmount');
-        var billBal = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
-            ? round2(bdCurrentBill.balance) : 0;
-        if (cash && billBal > 0) {
-            cash.value = fmtPts(Math.max(0, billBal - max));
+        return q.replace(/^#/, '').trim();
+    }
+
+    function friendSearchLongEnough(q) {
+        q = String(q || '').trim();
+        if (!q) return false;
+        if (typeof patientDirSearchLongEnough === 'function') return patientDirSearchLongEnough(q);
+        if (typeof patientSearchMeetsMinLength === 'function') return patientSearchMeetsMinLength(q);
+        return q.replace(/\s+/g, '').length >= 2;
+    }
+
+    /** Digits after a clinic prefix, so PL011457 and 011457 share 011457. */
+    function friendChartDigits(no) {
+        return String(no || '').replace(/^[A-Za-z]+/, '').replace(/\D/g, '');
+    }
+
+    function scoreFriendHit(p, q) {
+        var raw = friendSearchQuery(q);
+        var qLower = raw.toLowerCase();
+        var no = String((p && p.patient_no) || '');
+        var noLower = no.toLowerCase();
+        if (qLower && noLower === qLower) return 100;
+        var qDigits = raw.replace(/\D/g, '');
+        var tail = friendChartDigits(no);
+        var qSig = qDigits.replace(/^0+/, '');
+        var tailSig = tail.replace(/^0+/, '');
+        if (qDigits && tail && (tail === qDigits || (qSig && tailSig === qSig))) return 80;
+        if (qLower && noLower.indexOf(qLower) >= 0) return 60;
+        return 10;
+    }
+
+    function rankFriendHits(rows, q) {
+        return (rows || []).slice().sort(function (a, b) {
+            var d = scoreFriendHit(b, q) - scoreFriendHit(a, q);
+            if (d) return d;
+            return String(a.patient_no || '').localeCompare(String(b.patient_no || ''));
+        });
+    }
+
+    /** One chart when the match is exact or the only chart with that number. */
+    function pickFriendHit(rows, q) {
+        var ranked = rankFriendHits(rows, q);
+        if (!ranked.length) return { pick: null, rows: [] };
+        var best = scoreFriendHit(ranked[0], q);
+        var tied = ranked.filter(function (p) { return scoreFriendHit(p, q) === best; });
+        if (tied.length === 1 && best >= 80) return { pick: tied[0], rows: ranked };
+        if (ranked.length === 1) return { pick: ranked[0], rows: ranked };
+        return { pick: null, rows: ranked };
+    }
+
+    function searchFriendPatients(raw) {
+        var q = friendSearchQuery(raw);
+        if (!q || typeof SB === 'undefined' || !friendSearchLongEnough(q)) {
+            return Promise.resolve([]);
         }
+        var filter = typeof patientSearchOrFilter === 'function' ? patientSearchOrFilter(q) : '';
+        if (!filter && typeof patientSearchOrFilterCore === 'function') {
+            filter = patientSearchOrFilterCore(q);
+        }
+        if (!filter) {
+            var safe = q.replace(/[%_,]/g, '');
+            var digits = q.replace(/\D/g, '');
+            filter = 'patient_no.ilike.%' + safe + '%,full_name.ilike.%' + safe +
+                '%,chinese_name.ilike.%' + safe + '%';
+            if (digits && digits !== q) filter += ',patient_no.ilike.%' + digits + '%';
+        }
+        var limit = typeof PATIENT_SEARCH_DROPDOWN_LIMIT === 'number' ? PATIENT_SEARCH_DROPDOWN_LIMIT : 25;
+        var sel = 'id,patient_no,full_name,chinese_name,phone_number,mobile_phone,hkid,dob';
+        function run(useCore) {
+            var f = (useCore && typeof patientSearchOrFilterCore === 'function')
+                ? patientSearchOrFilterCore(q) : filter;
+            return SB.from('patients').select(sel).or(f)
+                .order('patient_no', { ascending: true }).limit(limit);
+        }
+        return run(false).then(function (r) {
+            if (r && r.error && /column/i.test(String(r.error.message || ''))) return run(true);
+            return r;
+        }).then(function (r) {
+            if (!r || r.error) return [];
+            return rankFriendHits(r.data || [], q);
+        }).catch(function () { return []; });
+    }
+
+    function hideFriendSearchDrops() {
+        document.querySelectorAll('.rw-pay-friend-drop').forEach(function (dd) {
+            dd.style.display = 'none';
+            dd.innerHTML = '';
+        });
+    }
+
+    function paintFriendSearchDrops(rows) {
+        _payFriendHits = rows || [];
+        var html;
+        if (!_payFriendHits.length) {
+            html = '<div class="ps-item" style="color:#aaa;">' +
+                esc(tr('rewards.pay.friendsNotFound', 'No matching chart.')) + '</div>';
+        } else {
+            html = _payFriendHits.map(function (p) {
+                var inner = typeof patientSearchResultHtml === 'function'
+                    ? patientSearchResultHtml(p)
+                    : (esc(p.chinese_name || p.full_name || '—') +
+                        '<br><small>#' + esc(p.patient_no || '') + '</small>');
+                return '<div class="ps-item" data-pid="' + esc(p.id) + '">' + inner + '</div>';
+            }).join('');
+        }
+        document.querySelectorAll('.rw-pay-friend-drop').forEach(function (dd) {
+            dd.innerHTML = html;
+            dd.style.display = 'block';
+        });
+    }
+
+    function scheduleFriendSearch() {
+        if (_payFriendSearchTimer) clearTimeout(_payFriendSearchTimer);
+        var q = friendSearchQuery(_payFriendDraft);
+        if (!friendSearchLongEnough(q)) {
+            ++_payFriendSearchSeq;
+            _payFriendHits = [];
+            hideFriendSearchDrops();
+            return;
+        }
+        var seq = ++_payFriendSearchSeq;
+        _payFriendSearchTimer = setTimeout(function () {
+            searchFriendPatients(q).then(function (rows) {
+                if (seq !== _payFriendSearchSeq) return;
+                if (friendSearchQuery(_payFriendDraft) !== q) return;
+                paintFriendSearchDrops(rows);
+            });
+        }, 180);
+    }
+
+    function findPatientByChart(raw) {
+        return searchFriendPatients(raw).then(function (rows) {
+            return pickFriendHit(rows, raw).pick;
+        });
+    }
+
+    function friendAccountsFor(patientId) {
+        return Promise.all([
+            listPersonAccountsFresh(patientId),
+            loadDoctorLedgerNets(patientId)
+        ]).then(function (parts) {
+            var capped = isKnownRewardDoctor(_payDoctor)
+                ? accountsCappedForDoctor(parts[0], parts[1], _payDoctor.key)
+                : [];
+            var taken = {};
+            (_paySourceAccounts || []).forEach(function (a) {
+                if (a && a.account_id) taken[a.account_id] = true;
+            });
+            (_payFriends || []).forEach(function (f) {
+                if (String(f.patientId) === String(patientId)) return;
+                (f.accounts || []).forEach(function (a) {
+                    if (a && a.account_id) taken[a.account_id] = true;
+                });
+            });
+            return capped.filter(function (a) {
+                return a && a.account_id && !taken[a.account_id] && round2(a.balance) > 0.005;
+            });
+        });
+    }
+
+    function raisePayAmountIfUsingAll() {
+        fillDefaultTakes(false);
+        syncTakeInputs();
+        if (!payUseChecked()) {
+            paintPayCapsule();
+            return;
+        }
+        var sum = sumCheckedTakes();
+        setPayAmount(sum > 0.005 ? fmtPts(sum) : '');
+        _payLastSel = sumPersonBalance(selectedPaySourceRows());
+        applyPayCashSplit(sum);
         updatePayAllocPreview();
     }
 
-    function refreshAddPaymentRewardPanel() {
-        var panel = document.getElementById('apRewardPanel');
-        if (!panel) return Promise.resolve();
+    function removePayFriend(patientId) {
+        var id = String(patientId || '');
+        _payFriends = (_payFriends || []).filter(function (f) {
+            return String(f.patientId) !== id;
+        });
+        setFriendMsg('');
+        renderPayFriends();
+        var selectable = sumPersonBalance(allPayAccounts());
+        payNodes('apRewardUse').forEach(function (el) {
+            el.disabled = !isKnownRewardDoctor(_payDoctor) || selectable <= 0.005;
+        });
+        raisePayAmountIfUsingAll();
+    }
+
+    function addPayFriendChart(raw) {
+        var q = String(raw || '').replace(/^#/, '').trim();
+        _payFriendDraft = q;
+        if (!q) {
+            setFriendMsg(tr('rewards.pay.friendsPh', 'Chart no.'));
+            renderPayFriends();
+            return Promise.resolve({ ok: false, error: 'empty' });
+        }
+        if (!isKnownRewardDoctor(_payDoctor)) {
+            setFriendMsg(tr('rewards.pay.friendsNeedDoctor',
+                'This bill has no doctor, so a friend’s points cannot be used.'));
+            renderPayFriends();
+            return Promise.resolve({ ok: false, error: 'no-doctor' });
+        }
+        ++_payFriendSearchSeq;
+        return searchFriendPatients(q).then(function (rows) {
+            var picked = pickFriendHit(rows, q);
+            if (!picked.pick) {
+                if (rows.length) {
+                    setFriendMsg(tr('rewards.pay.friendsPick',
+                        'Several charts match. Pick one from the list.'));
+                    renderPayFriends();
+                    paintFriendSearchDrops(rows);
+                    return { ok: false, error: 'many', count: rows.length };
+                }
+                setFriendMsg(tr('rewards.pay.friendsNotFound', 'No matching chart.'));
+                renderPayFriends();
+                hideFriendSearchDrops();
+                return { ok: false, error: 'not-found' };
+            }
+            return addPayFriendRecord(picked.pick, q);
+        });
+    }
+
+    function addPayFriendRecord(p, q) {
+        q = q || (p && p.patient_no) || '';
         var bill = (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null;
-        if (!bill || !bill.patient_id) {
-            panel.style.display = 'none';
-            _paySourceAccounts = [];
+        hideFriendSearchDrops();
+        if (!isKnownRewardDoctor(_payDoctor)) {
+            setFriendMsg(tr('rewards.pay.friendsNeedDoctor',
+                'This bill has no doctor, so a friend’s points cannot be used.'));
+            renderPayFriends();
+            return Promise.resolve({ ok: false, error: 'no-doctor' });
+        }
+        if (!p) {
+            setFriendMsg(tr('rewards.pay.friendsNotFound', 'No matching chart.'));
+            renderPayFriends();
+            return Promise.resolve({ ok: false, error: 'not-found' });
+        }
+            if (bill && String(p.id) === String(bill.patient_id)) {
+                setFriendMsg(tr('rewards.pay.friendsSelf', 'That chart is this patient.'));
+                renderPayFriends();
+                return { ok: false, error: 'self' };
+            }
+            var already = (_payFriends || []).some(function (f) {
+                return String(f.patientId) === String(p.id);
+            });
+            if (already) {
+                setFriendMsg(tr('rewards.pay.friendsHave', 'That chart is already added.'));
+                renderPayFriends();
+                return { ok: false, error: 'duplicate' };
+            }
+            return friendAccountsFor(p.id).then(function (accounts) {
+                if (!accounts.length) {
+                    var ownIds = {};
+                    (_paySourceAccounts || []).forEach(function (a) {
+                        if (a && a.account_id) ownIds[a.account_id] = true;
+                    });
+                    return listPersonAccountsFresh(p.id).then(function (allAccs) {
+                        var overlap = (allAccs || []).some(function (a) {
+                            return a && a.account_id && ownIds[a.account_id];
+                        });
+                        setFriendMsg(overlap
+                            ? tr('rewards.pay.friendsIncluded',
+                                'Those clinics are already in this patient’s list.')
+                            : trRepl('rewards.pay.friendsNone', { DOCTOR: _payDoctor.label },
+                                'No points for ' + _payDoctor.label + ' on that chart.'));
+                        renderPayFriends();
+                        return { ok: false, error: overlap ? 'included' : 'none', patientNo: p.patient_no };
+                    });
+                }
+                accounts.forEach(function (a) {
+                    rememberPayChecked(a.account_id, true);
+                    if (_payTake && a.account_id) delete _payTake[a.account_id];
+                });
+                _payFriends.push({
+                    patientId: p.id,
+                    patientNo: p.patient_no || q,
+                    name: p.chinese_name || p.full_name || '',
+                    accounts: accounts
+                });
+                fillDefaultTakes(false);
+                _payFriendDraft = '';
+                setFriendMsg(trRepl('rewards.pay.friendsAdded',
+                    { CHART: p.patient_no || q },
+                    'Added #' + (p.patient_no || q) + '. You can add another.'), true);
+                renderPayFriends();
+                focusFriendSearch();
+                payNodes('apRewardUse').forEach(function (el) { el.disabled = false; });
+                raisePayAmountIfUsingAll();
+                return { ok: true, patientNo: p.patient_no, patientId: p.id, accounts: accounts.length };
+            });
+    }
+
+    function refreshAddPaymentRewardPanel() {
+        if (!payNodes('apRewardPanel').length && !document.getElementById('bdRewardPanel')) {
             return Promise.resolve();
         }
+        var bill = (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null;
+        if (!bill || !bill.patient_id) {
+            setPayPanelsVisible(false);
+            _paySourceAccounts = [];
+            _payFriends = [];
+            _payBillKey = '';
+            return Promise.resolve();
+        }
+        var billKey = String(bill.id || '') + '|' + String(bill.patient_id || '');
+        var same = !!_payBillKey && billKey === _payBillKey;
+        if (!same) {
+            _payBillKey = billKey;
+            _payFriends = [];
+            _payFriendDraft = '';
+            setFriendMsg('');
+            _payFriendHits = [];
+            _payChecked = null;
+            _payTake = null;
+            _payKeep = null;
+            _payLastSel = null;
+        } else {
+            _payKeep = { use: payUseChecked(), amt: payAmountValue() };
+        }
+        var keep = _payKeep;
+        var token = ++_payRefreshToken;
         var payDoc = payDoctorFor({ bill: bill });
         _payCap = null;
         var capBillId = bill.id;
         Promise.all([loadRedeemCap(false), loadBillPointsUsed(bill.id)]).then(function (cp) {
+            if (token !== _payRefreshToken) return;
             var cur = (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null;
             if (!cur || String(cur.id) !== String(capBillId)) return;
             _payCap = redeemCapLeft(parseFloat(cur.total) || 0, cp[1], cp[0]);
-            var use = document.getElementById('apRewardUse');
-            if (use && use.checked) syncRewardAmountMax();
-            else paintPayCapNote();
+            fillDefaultTakes(false);
+            syncTakeInputs();
+            if (payUseChecked()) {
+                syncRewardAmountMax();
+                applyPayCashSplit(readUsePointsFromPanel());
+            } else {
+                paintPayCapNote();
+                paintPayCapsule();
+            }
         });
         var readsP = Promise.all([
             listPersonAccounts(bill.patient_id),
@@ -2824,14 +3743,16 @@ var REWARDS = (function () {
         ]);
         readsP.catch(function () { /* handled below */ });
         return currentClinicRedeemJoined(payDoc).then(function (joined) {
+            if (token !== _payRefreshToken) return;
             if (!joined) {
-                panel.style.display = 'none';
+                setPayPanelsVisible(false);
                 _paySourceAccounts = [];
                 return;
             }
-            panel.style.display = '';
+            setPayPanelsVisible(true);
             _payDoctor = payDoc;
             return readsP.then(function (parts) {
+                if (token !== _payRefreshToken) return;
                 _payDoctorNets = parts[1];
                 var allAccs = parts[0] || [];
                 if (isKnownRewardDoctor(_payDoctor)) {
@@ -2839,74 +3760,91 @@ var REWARDS = (function () {
                 } else {
                     _paySourceAccounts = [];
                 }
-                var bal = sumPersonBalance(_paySourceAccounts);
-                var balEl = document.getElementById('apRewardBalance');
-                if (balEl) {
-                    balEl.textContent = fmtPts(bal);
-                    balEl.setAttribute('data-balance', String(bal));
-                }
-                var drEl = document.getElementById('apRewardDoctor');
-                if (drEl) {
-                    drEl.textContent = isKnownRewardDoctor(_payDoctor)
+                seedPayChecked(_paySourceAccounts, true);
+                var friendReload = (!_payFriends || !_payFriends.length)
+                    ? Promise.resolve()
+                    : Promise.all(_payFriends.map(function (f) {
+                        return friendAccountsFor(f.patientId).then(function (accounts) {
+                            f.accounts = accounts;
+                            seedPayChecked(accounts, true);
+                        });
+                    }));
+                return friendReload.then(function () {
+                    if (token !== _payRefreshToken) return;
+                    fillDefaultTakes(false);
+                    var bal = sumPersonBalance(_paySourceAccounts);
+                    var selectable = sumPersonBalance(allPayAccounts());
+                    paySetText('apRewardBalance', fmtPts(bal));
+                    setPayAttr('apRewardBalance', 'data-balance', String(bal));
+                    paySetText('apRewardDoctor', isKnownRewardDoctor(_payDoctor)
                         ? _payDoctor.label
-                        : tr('rewards.pay.noDoctor', 'No doctor on bill');
-                }
-                renderPaySourceList(_paySourceAccounts, true);
-                var use = document.getElementById('apRewardUse');
-                var amtWrap = document.getElementById('apRewardAmountWrap');
-                if (use) {
-                    use.checked = false;
-                    use.disabled = !isKnownRewardDoctor(_payDoctor) || bal <= 0.005;
-                }
-                if (amtWrap) amtWrap.style.display = 'none';
-                var hint = document.getElementById('apRewardHint');
-                if (hint) {
+                        : tr('rewards.pay.noDoctor', 'No doctor on bill'));
+                    renderPaySourceList(_paySourceAccounts, true);
+                    renderPayFriends();
+                    var useOn = !!(keep && keep.use);
+                    setPayUse(useOn);
+                    payNodes('apRewardUse').forEach(function (el) {
+                        el.disabled = !isKnownRewardDoctor(_payDoctor) || selectable <= 0.005;
+                    });
+                    setPayWrapVisible(!!isKnownRewardDoctor(_payDoctor));
+                    var hint;
                     if (!isKnownRewardDoctor(_payDoctor)) {
-                        hint.textContent = tr('rewards.pay.needDoctor',
+                        hint = tr('rewards.pay.needDoctor',
                             'Select the treating doctor on the bill before redeeming reward points.');
-                    } else if (bal > 0.005) {
+                    } else if (bal > 0.005 || selectable > 0.005) {
                         var nClinics = groupPaySourcesByClinic(_paySourceAccounts).length;
-                        hint.textContent = trRepl('rewards.pay.hintSameDoctorCross',
+                        hint = trRepl('rewards.pay.hintSameDoctorCross',
                             { DOCTOR: _payDoctor.label, N: String(nClinics) },
                             'Redeem ' + _payDoctor.label +
                             '\'s points from any of the ' + nClinics +
                             ' clinic(s) below on this bill. Points used here are not counted as income.');
                     } else {
-                        hint.textContent = trRepl('rewards.pay.sameDoctorNone',
+                        hint = trRepl('rewards.pay.sameDoctorNone',
                             { DOCTOR: _payDoctor.label },
                             'No reward points for ' + _payDoctor.label + ' to redeem.');
                     }
-                }
-                var prev = document.getElementById('apRewardAllocPreview');
-                if (prev) prev.textContent = '';
-                panel.removeAttribute('data-excluded');
-                var methodEl = document.getElementById('apMethod');
-                return billLoyaltyExcluded(bill.id, methodEl ? methodEl.value : '').then(function (excluded) {
-                    var cur = (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null;
-                    if (excluded && cur && String(cur.id) === String(bill.id)) paintPayPanelExcluded();
+                    paySetText('apRewardHint', hint);
+                    payNodes('apRewardPanel').forEach(function (el) {
+                        el.removeAttribute('data-excluded');
+                    });
+                    if (useOn) {
+                        setPayAmount(keep.amt || '');
+                        syncRewardAmountMax();
+                        _payLastSel = sumPersonBalance(selectedPaySourceRows());
+                        applyPayCashSplit(readUsePointsFromPanel());
+                    } else {
+                        setPayAmount('');
+                        paySetText('apRewardAllocPreview', '');
+                        paintPayCapsule();
+                    }
+                    var methodEl = document.getElementById('apMethod');
+                    return billLoyaltyExcluded(bill.id, methodEl ? methodEl.value : '').then(function (excluded) {
+                        if (token !== _payRefreshToken) return;
+                        var cur = (typeof bdCurrentBill !== 'undefined') ? bdCurrentBill : null;
+                        if (excluded && cur && String(cur.id) === String(bill.id)) paintPayPanelExcluded();
+                    });
                 });
             });
         }).catch(function () {
-            panel.style.display = 'none';
+            if (token !== _payRefreshToken) return;
+            setPayPanelsVisible(false);
         });
     }
 
     function paintPayPanelExcluded() {
-        var panel = document.getElementById('apRewardPanel');
-        if (!panel) return;
-        panel.setAttribute('data-excluded', '1');
-        var use = document.getElementById('apRewardUse');
-        var wasChecked = !!(use && use.checked);
-        if (use) { use.checked = false; use.disabled = true; }
-        var wrap = document.getElementById('apRewardAmountWrap');
-        if (wrap) wrap.style.display = 'none';
-        var hint = document.getElementById('apRewardHint');
-        if (hint) hint.textContent = excludedBillMessage();
-        var prev = document.getElementById('apRewardAllocPreview');
-        if (prev) prev.textContent = '';
+        var panels = payNodes('apRewardPanel');
+        if (!panels.length) return;
+        var wasChecked = payUseChecked();
+        panels.forEach(function (panel) { panel.setAttribute('data-excluded', '1'); });
+        setPayUse(false);
+        payNodes('apRewardUse').forEach(function (el) { el.disabled = true; });
+        setPayWrapVisible(false);
+        paySetText('apRewardHint', excludedBillMessage());
+        paySetText('apRewardAllocPreview', '');
         var cash = document.getElementById('apAmount');
         var billBal = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill) ? round2(bdCurrentBill.balance) : 0;
         if (wasChecked && cash && billBal > 0) cash.value = fmtPts(billBal);
+        paintPayCapsule();
     }
 
     function wireAddPaymentRewardPanelOnce() {
@@ -2915,14 +3853,34 @@ var REWARDS = (function () {
         document.addEventListener('change', function (ev) {
             var t = ev.target;
             if (!t) return;
+            if (t.classList && t.classList.contains('ap-rw-take')) {
+                var takeId = t.getAttribute('data-account-id');
+                var shown = fmtPts(takeOf(takeId) || 0);
+                document.querySelectorAll('input.ap-rw-take').forEach(function (el) {
+                    if (el.getAttribute('data-account-id') === takeId) el.value = shown;
+                });
+                return;
+            }
             if (t.classList && t.classList.contains('ap-rw-src')) {
-                syncRewardAmountMax();
-                var cash = document.getElementById('apAmount');
-                var billBal = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
-                    ? round2(bdCurrentBill.balance) : 0;
-                var pts = readUsePointsFromPanel();
-                if (cash && billBal > 0) {
-                    cash.value = fmtPts(Math.max(0, billBal - pts));
+                var id = t.getAttribute('data-account-id');
+                rememberPayChecked(id, t.checked);
+                syncSrcCheckbox(id, t.checked);
+                if (t.checked) {
+                    if (_payTake) delete _payTake[id];
+                } else {
+                    rememberPayTake(id, 0);
+                }
+                fillDefaultTakes(false);
+                syncTakeInputs();
+                if (payUseChecked()) {
+                    var checkedSum = sumCheckedTakes();
+                    setPayAmount(checkedSum > 0.005 ? fmtPts(checkedSum) : '');
+                    _payLastSel = sumPersonBalance(selectedPaySourceRows());
+                    applyPayCashSplit(checkedSum);
+                    updatePayAllocPreview();
+                } else {
+                    paintPayCapsule();
+                    applyPayCashSplit(0);
                 }
                 return;
             }
@@ -2933,33 +3891,112 @@ var REWARDS = (function () {
                 else if (rwPanel.getAttribute('data-excluded')) refreshAddPaymentRewardPanel();
                 return;
             }
-            if (t.id !== 'apRewardUse') return;
-            var wrap = document.getElementById('apRewardAmountWrap');
-            if (wrap) wrap.style.display = t.checked ? '' : 'none';
-            if (t.checked) syncRewardAmountMax();
-            var cash2 = document.getElementById('apAmount');
-            var billBal2 = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
-                ? round2(bdCurrentBill.balance) : 0;
-            var pts2 = t.checked ? readUsePointsFromPanel() : 0;
-            if (cash2 && billBal2 > 0) {
-                cash2.value = fmtPts(Math.max(0, billBal2 - pts2));
+            if (t.id !== 'apRewardUse' && t.id !== 'bdRewardUse') return;
+            setPayUse(!!t.checked);
+            if (t.checked) {
+                syncRewardAmountMax();
+                _payLastSel = sumPersonBalance(selectedPaySourceRows());
             }
+            applyPayCashSplit(t.checked ? readUsePointsFromPanel() : 0);
         });
         document.addEventListener('input', function (ev) {
             var t = ev.target;
-            if (!t || t.id !== 'apRewardAmount') return;
-            syncRewardAmountMax();
-            var cash = document.getElementById('apAmount');
-            var billBal = (typeof bdCurrentBill !== 'undefined' && bdCurrentBill)
-                ? round2(bdCurrentBill.balance) : 0;
-            var pts = readUsePointsFromPanel();
-            if (cash && billBal > 0) {
-                cash.value = fmtPts(Math.max(0, billBal - pts));
+            if (!t) return;
+            if (t.classList && t.classList.contains('rw-pay-friend-q')) {
+                _payFriendDraft = t.value;
+                document.querySelectorAll('.rw-pay-friend-q').forEach(function (el) {
+                    if (el !== t) el.value = t.value;
+                });
+                scheduleFriendSearch();
+                return;
             }
+            if (t.classList && t.classList.contains('ap-rw-take')) {
+                var takeId = t.getAttribute('data-account-id');
+                var acc = accountById(takeId);
+                var raw = (t.value === '' || t.value === '.') ? 0 : round2(parseFloat(t.value));
+                if (!isFinite(raw) || raw < 0) raw = 0;
+                var maxBal = acc ? round2(acc.balance) : raw;
+                if (raw > maxBal) raw = maxBal;
+                var left = round2(Math.max(0, payRoom() - sumTakesExcept(takeId)));
+                if (raw > left) raw = left;
+                rememberPayTake(takeId, raw);
+                if (raw > 0.005 && !accountIsChecked(takeId, true)) {
+                    rememberPayChecked(takeId, true);
+                    syncSrcCheckbox(takeId, true);
+                }
+                document.querySelectorAll('input.ap-rw-take').forEach(function (el) {
+                    if (el.getAttribute('data-account-id') !== takeId) return;
+                    el.disabled = !accountIsChecked(takeId, true);
+                    if (el !== t) el.value = t.value;
+                });
+                if (Math.abs((parseFloat(t.value) || 0) - raw) > 0.001) {
+                    var shownNow = fmtPts(raw);
+                    document.querySelectorAll('input.ap-rw-take').forEach(function (el) {
+                        if (el.getAttribute('data-account-id') === takeId) el.value = shownNow;
+                    });
+                }
+                var typedSum = sumCheckedTakes();
+                setPayAmount(typedSum > 0.005 ? fmtPts(typedSum) : '');
+                updatePayAllocPreview();
+                applyPayCashSplit(payUseChecked() ? typedSum : 0);
+                return;
+            }
+            if (t.id !== 'apRewardAmount' && t.id !== 'bdRewardAmount') return;
+            payNodes('apRewardAmount').forEach(function (el) {
+                if (el !== t) el.value = t.value;
+            });
+            applyTypedTotal(parseFloat(t.value) || 0);
+            _payLastSel = null;
+        });
+        document.addEventListener('keydown', function (ev) {
+            var t = ev.target;
+            if (!t || !t.classList || !t.classList.contains('rw-pay-friend-q')) return;
+            if (ev.key !== 'Enter') return;
+            ev.preventDefault();
+            addPayFriendChart(t.value);
         });
         document.addEventListener('click', function (ev) {
             var t = ev.target;
-            if (!t || t.id !== 'apRewardRedeemAll') return;
+            if (!t) return;
+            var hit = t.closest ? t.closest('.rw-pay-friend-drop .ps-item') : null;
+            if (hit && hit.getAttribute('data-pid')) {
+                ev.preventDefault();
+                var pid = hit.getAttribute('data-pid');
+                var chosen = null;
+                (_payFriendHits || []).forEach(function (p) {
+                    if (p && String(p.id) === String(pid)) chosen = p;
+                });
+                if (chosen) addPayFriendRecord(chosen, chosen.patient_no);
+                return;
+            }
+            if (!t.closest || !t.closest('.rw-pay-friend-search')) {
+                hideFriendSearchDrops();
+            }
+            var addBtn = t.closest ? t.closest('.rw-pay-friend-add') : null;
+            if (addBtn) {
+                ev.preventDefault();
+                var row = addBtn.parentNode;
+                var inp = row ? row.querySelector('.rw-pay-friend-q') : null;
+                addPayFriendChart(inp ? inp.value : _payFriendDraft);
+                return;
+            }
+            var rm = t.closest ? t.closest('.rw-pay-friend-remove') : null;
+            if (rm) {
+                ev.preventDefault();
+                removePayFriend(rm.getAttribute('data-pid'));
+                return;
+            }
+            var chartRow = t.closest ? t.closest('.ap-rw-clinic-row') : null;
+            if (chartRow && !(t.classList && t.classList.contains('ap-rw-take')) &&
+                    t.tagName !== 'INPUT' && t.tagName !== 'BUTTON') {
+                var cb = chartRow.querySelector('input.ap-rw-src');
+                if (cb) {
+                    cb.checked = !cb.checked;
+                    cb.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                return;
+            }
+            if (t.id !== 'apRewardRedeemAll' && t.id !== 'bdRewardRedeemAll') return;
             ev.preventDefault();
             applyRedeemAllOnPayment();
         });
@@ -6146,11 +7183,28 @@ var REWARDS = (function () {
             '.rw-doc-toggle{display:flex;gap:6px;align-items:center;font-size:12px;color:#334155;cursor:pointer;flex:0 0 auto;}' +
             '.rw-doc-join-amp{color:#94a3b8;}' +
             '.rw-doc-toggle input{accent-color:#166534;}' +
-            '#apRewardPanel{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;margin-bottom:14px;}' +
-            '#apRewardPanel .rw-row{display:flex;justify-content:space-between;align-items:center;gap:8px;}' +
-            '#apRewardClinicMeta{line-height:1.35;}' +
+            '#apRewardPanel,#bdRewardPanel{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;margin-bottom:14px;}' +
+            '#bdRewardPanel{margin:18px 0 8px;}' +
+            '#apRewardPanel .rw-row,#bdRewardPanel .rw-row{display:flex;justify-content:space-between;align-items:center;gap:8px;}' +
+            '#apRewardClinicMeta,#bdRewardClinicMeta{line-height:1.35;}' +
+            '.rw-pay-friend{margin-top:10px;padding-top:8px;border-top:1px dashed #86efac;}' +
+            '.rw-pay-friend-title{font-size:12px;font-weight:700;color:#166534;margin-bottom:2px;}' +
+            '.rw-pay-friend-blurb{margin:0 0 6px;font-size:11px;color:#64748b;line-height:1.35;}' +
+            '.rw-pay-friend-row{display:flex;gap:8px;align-items:center;margin-bottom:6px;}' +
+            '.rw-pay-friend-search{flex:1;min-width:0;}' +
+            '.rw-pay-friend-search .rw-pay-friend-q{width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid #86efac;border-radius:8px;font-size:13px;}' +
+            '.rw-pay-friend-search .ps-drop{z-index:40;max-height:180px;}' +
+            '.rw-pay-friend-add{padding:7px 12px;background:#166534;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;}' +
+            '.rw-pay-friend-msg{font-size:11px;color:#92400e;margin:0 0 6px;}' +
+            '.rw-pay-friend-msg.is-ok{color:#166534;}' +
+            '.rw-pay-friend-card{margin-top:8px;}' +
+            '.rw-pay-friend-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;font-size:12px;color:#0f766e;}' +
+            '.rw-pay-friend-remove{padding:3px 8px;background:#fff;color:#166534;border:1px solid #86efac;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;}' +
+            '#apRewardCapsule,#bdRewardCapsule{display:block;width:fit-content;margin:10px auto 0;padding:6px 14px;border-radius:999px;background:#166534;color:#fff;font-size:12px;font-weight:700;letter-spacing:.01em;}' +
             '.ap-rw-clinic-table{border:1px solid #bbf7d0;border-radius:8px;background:#fff;overflow:hidden;}' +
-            '.ap-rw-clinic-head,.ap-rw-clinic-row{display:grid;grid-template-columns:28px minmax(52px,1fr) minmax(72px,1.4fr) minmax(56px,0.8fr);gap:6px;align-items:center;padding:7px 10px;font-size:12px;}' +
+            '.ap-rw-clinic-head,.ap-rw-clinic-row{display:grid;grid-template-columns:22px minmax(48px,.8fr) minmax(64px,1.1fr) minmax(52px,.7fr) 76px;gap:6px;align-items:center;padding:7px 10px;font-size:12px;}' +
+            '.ap-rw-take{width:100%;box-sizing:border-box;padding:4px 6px;border:1px solid #86efac;border-radius:6px;font-size:12px;font-weight:700;color:#166534;text-align:right;background:#fff;}' +
+            '.ap-rw-take:disabled{background:#f8fafc;color:#94a3b8;border-color:#e2e8f0;}' +
             '.ap-rw-clinic-head{background:#ecfdf5;color:#64748b;font-weight:700;border-bottom:1px solid #bbf7d0;}' +
             '.ap-rw-clinic-row{margin:0;cursor:pointer;border-bottom:1px solid #f0fdf4;}' +
             '.ap-rw-clinic-row:last-child{border-bottom:0;}' +
@@ -6292,7 +7346,11 @@ var REWARDS = (function () {
         notifyFromRpcResult: notifyFromRpcResult,
         notifyNetChange: notifyNetChange,
         refreshAddPaymentRewardPanel: refreshAddPaymentRewardPanel,
+        addPayFriendChart: addPayFriendChart,
+        searchFriendPatients: searchFriendPatients,
+        removePayFriend: removePayFriend,
         readUsePointsFromPanel: readUsePointsFromPanel,
+        readPayTakesForPayment: readPayTakesForPayment,
         readRedeemSourceIdsForPayment: readRedeemSourceIdsForPayment,
         applyRedeemAllOnPayment: applyRedeemAllOnPayment,
         openPatientPanel: openPatientPanel,

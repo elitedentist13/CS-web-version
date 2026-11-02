@@ -4134,13 +4134,14 @@
             'zh-Hant': '按診所（同一醫生）'
         },
         'rewards.pay.crossClinicBlurb': {
-            en: 'Spend points earned under this doctor at any clinic on this bill. Tick clinics to include.',
-            'zh-CN': '本医生在任一诊所赚取的积分均可用于本账单。勾选要使用的诊所。',
-            'zh-Hant': '本醫生在任一診所賺取的積分均可用於本賬單。勾選要使用的診所。'
+            en: 'Tick a chart to start at its full balance, up to what this bill can take. Type a smaller amount on that row if needed.',
+            'zh-CN': '勾选病历即先用满其余额，但不超过本账单可用上限。可在该行改成较小金额。',
+            'zh-Hant': '勾選病歷即先用滿其餘額，但不超過本賬單可用上限。可在該行改成較小金額。'
         },
         'rewards.pay.colClinic': { en: 'Clinic', 'zh-CN': '诊所', 'zh-Hant': '診所' },
         'rewards.pay.colChart': { en: 'Chart', 'zh-CN': '病历号', 'zh-Hant': '病歷號' },
         'rewards.pay.colPts': { en: 'Points', 'zh-CN': '积分', 'zh-Hant': '積分' },
+        'rewards.pay.colUse': { en: 'Use', 'zh-CN': '使用', 'zh-Hant': '使用' },
         'rewards.pay.allocPrefix': { en: 'Will take:', 'zh-CN': '将扣除：', 'zh-Hant': '將扣除：' },
         'rewards.pay.sameDoctorShort': {
             en: 'Only {AVAIL} pts available for {DOCTOR} (same doctor only).',
@@ -4155,9 +4156,9 @@
         'rewards.pay.useLabel': { en: 'Use reward points as discount', 'zh-CN': '使用积分抵扣', 'zh-Hant': '使用積分抵扣' },
         'rewards.pay.redeemAll': { en: 'Redeem all', 'zh-CN': '全部兑换', 'zh-Hant': '全部兌換' },
         'rewards.pay.redeemAllHint': {
-            en: 'Use every clinic balance for this doctor (smallest first).',
-            'zh-CN': '使用该医生全部诊所余额（先扣较少者）。',
-            'zh-Hant': '使用該醫生全部診所結餘（先扣較少者）。'
+            en: 'Fill every ticked chart up to its balance, within what this bill can take.',
+            'zh-CN': '将每个已勾选病历填至其余额，且不超过本账单可用上限。',
+            'zh-Hant': '將每個已勾選病歷填至其餘額，且不超過本賬單可用上限。'
         },
         'rewards.pay.noCharts': { en: 'No chart balances available.', 'zh-CN': '暂无可用病历余额。', 'zh-Hant': '暫無可用病歷結餘。' },
         'rewards.pay.allocShort': {
@@ -4166,6 +4167,58 @@
             'zh-Hant': '所選診所結餘不足。'
         },
         'rewards.pay.amountLabel': { en: 'Points to use', 'zh-CN': '使用积分数', 'zh-Hant': '使用積分數' },
+        'rewards.pay.friendsTitle': { en: 'Friends & relatives', 'zh-CN': '亲友积分', 'zh-Hant': '親友積分' },
+        'rewards.pay.friendsBlurb': {
+            en: 'Search like the patient directory: name, chart number, or phone. Clinic letters are optional. Add as many friends and relatives as you need, one chart after another. Tick a clinic to start at its full balance, then type a smaller amount if needed.',
+            'zh-CN': '搜索方式与病人目录相同：姓名、病历号或电话。诊所字母可省略。亲友病历可逐一加入，数量不限。勾选诊所即先用满余额，可再改成较小金额。',
+            'zh-Hant': '搜尋方式與病人目錄相同：姓名、病歷號或電話。診所字母可省略。親友病歷可逐一加入，數量不限。勾選診所即先用滿結餘，可再改成較小金額。'
+        },
+        'rewards.pay.friendsPh': {
+            en: 'Name, no., phone, HKID…',
+            'zh-CN': '姓名、编号、电话、身份证…',
+            'zh-Hant': '姓名、編號、電話、身份證…'
+        },
+        'rewards.pay.friendsAdd': { en: 'Add', 'zh-CN': '加入', 'zh-Hant': '加入' },
+        'rewards.pay.friendsAddMore': { en: 'Add another', 'zh-CN': '再加入', 'zh-Hant': '再加入' },
+        'rewards.pay.friendsAnother': {
+            en: 'Add another chart…',
+            'zh-CN': '再加入一个病历…',
+            'zh-Hant': '再加入一個病歷…'
+        },
+        'rewards.pay.friendsAdded': {
+            en: 'Added #{CHART}. You can add another.',
+            'zh-CN': '已加入 #{CHART}。可以再加入下一个。',
+            'zh-Hant': '已加入 #{CHART}。可以再加入下一個。'
+        },
+        'rewards.pay.friendsRemove': { en: 'Remove', 'zh-CN': '移除', 'zh-Hant': '移除' },
+        'rewards.pay.friendsNotFound': { en: 'No matching chart.', 'zh-CN': '找不到相符病历。', 'zh-Hant': '找不到相符病歷。' },
+        'rewards.pay.friendsPick': {
+            en: 'Several charts match. Pick one from the list.',
+            'zh-CN': '有多个病历相符，请从列表选择。',
+            'zh-Hant': '有多個病歷相符，請從列表選擇。'
+        },
+        'rewards.pay.friendsSelf': { en: 'That chart is this patient.', 'zh-CN': '该病历就是本病人。', 'zh-Hant': '該病歷就是本病人。' },
+        'rewards.pay.friendsHave': { en: 'That chart is already added.', 'zh-CN': '该病历已加入。', 'zh-Hant': '該病歷已加入。' },
+        'rewards.pay.friendsNone': {
+            en: 'No points for {DOCTOR} on that chart.',
+            'zh-CN': '该病历没有 {DOCTOR} 的积分。',
+            'zh-Hant': '該病歷沒有 {DOCTOR} 的積分。'
+        },
+        'rewards.pay.friendsIncluded': {
+            en: 'Those clinics are already in this patient’s list.',
+            'zh-CN': '这些诊所已在本病人的列表中。',
+            'zh-Hant': '這些診所已在本病人的列表中。'
+        },
+        'rewards.pay.friendsNeedDoctor': {
+            en: 'This bill has no doctor, so a friend’s points cannot be used.',
+            'zh-CN': '账单未选医生，不能使用亲友积分。',
+            'zh-Hant': '賬單未選醫生，不能使用親友積分。'
+        },
+        'rewards.pay.capsule': {
+            en: 'Selected {SEL} · Use {USE} · Self-pay {CASH}',
+            'zh-CN': '已选 {SEL} · 使用 {USE} · 自付 {CASH}',
+            'zh-Hant': '已選 {SEL} · 使用 {USE} · 自付 {CASH}'
+        },
         'rewards.pay.hintUse': {
             en: 'Optional — points used here are not counted as income. Points earned on this payment can be redeemed on a later payment only (not on the same payment).',
             'zh-CN': '可选 — 积分抵扣不计入收入。本次付款赚取的积分可在之后的付款使用，不可在同一笔付款内抵扣。',

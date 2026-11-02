@@ -2997,6 +2997,12 @@
           </div>
         </div>
 
+        <div id="conNotesChartPicker" class="con-notes-charts" hidden>
+          <div id="conNotesChartPickerLabel" class="con-notes-charts-label" data-i18n="con.notesCharts.label"></div>
+          <div id="conNotesChartPickerRow" class="con-notes-charts-row" role="tablist"></div>
+          <p id="conNotesChartPickerBrowse" class="con-notes-charts-browse" hidden></p>
+        </div>
+
         <div class="con-tn-subtabs" role="tablist" aria-label="Treatment notes views">
           <button type="button" class="con-tn-subtab active" data-subtab="notes" role="tab" aria-selected="true"
                   onclick="switchConTnSubtab('notes')" data-i18n="con.tnSub.notes"></button>
@@ -8361,7 +8367,7 @@
   var wb = window.__JSM_WITH_BUST || function (p) { return p; };
   var files = [
     'app-i18n.js?v=20261019reward11',
-    'app-i18n-extra.js?v=20261103refhkid',
+    'app-i18n-extra.js?v=20261103notecharts',
     'app-login-log.js',
     'app-admin-verify.js',
     'app.js?v=20261029smskeep',
@@ -8387,7 +8393,7 @@
     'app-patient-recall.js',
     'app-realtime-sync.js',
     'app-rx-phrases.js?v=20260520b',
-    'app-consultation.js?v=20261008pdfprint1',
+    'app-consultation.js?v=20261103notecharts',
     'app-con-dictation-fix.js',
     'app-con-media.js?v=20261009ortho3',
     'app-con-phonescan.js?v=20261003cbe',

@@ -9493,6 +9493,22 @@ body.appt-transfer-cut-active .active-patient-dock .active-patient-card.is-fille
 .con-col-header > h3 { white-space: nowrap; flex: 0 0 auto; }
 .con-col-header > .con-col-header-actions { min-width: 0; }
 
+.con-notes-charts { margin: 0 0 12px; }
+.con-notes-charts-label { font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 6px; }
+.con-notes-charts-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.con-notes-chart {
+    border: 1px solid #cbd5e1; background: #fff; color: #0f172a;
+    border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.con-notes-chart.is-on { background: #0f766e; color: #fff; border-color: #0f766e; }
+.con-notes-chart.is-differ { box-shadow: inset 0 0 0 1px #f59e0b; }
+.con-notes-charts-browse { margin: 6px 0 0; font-size: 12px; color: #92400e; }
+#conNoteComposer.is-browsing { opacity: 0.55; }
+#conNoteComposer.is-browsing textarea,
+#conNoteComposer.is-browsing button,
+#conNoteComposer.is-browsing input,
+#conNoteComposer.is-browsing select { pointer-events: none; }
+
 .con-col-header .con-tn-print-btn {
   font-size: 12px;
   padding: 5px 14px;

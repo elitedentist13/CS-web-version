@@ -15,10 +15,14 @@ var os = require('os');
 var root = path.resolve(__dirname, '..');
 if (!fs.existsSync(path.join(root, 'app-con-notes.js'))) root = process.cwd();
 
-var EXPECTED_BUILD = '20261003cbe';
+var EXPECTED_BUILD = '20261028doc';
 var PAGE_PORT = 8802;
 var CDP_PORT = 9370;
 var CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+if (!fs.existsSync(CHROME)) {
+    var chromeAlt = 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
+    if (fs.existsSync(chromeAlt)) CHROME = chromeAlt;
+}
 var PID = '18d4d8a2-7d16-403c-962c-cba93540b132';
 var fails = [];
 
@@ -188,6 +192,62 @@ var PAGE_SCRIPT = `(async () => {
   return out;
 })()`;
 
+var CHART_SCRIPT = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline && (typeof SB === 'undefined' || typeof conNotesFindSameIdCharts !== 'function' || typeof conNotesSelectChart !== 'function')) await wait(200);
+  const out = { ready: typeof conNotesFindSameIdCharts === 'function', found: false, wrote: false, bad: 0 };
+  if (!out.ready) return out;
+  const q = await SB.from('patients').select('id,patient_no,full_name,chinese_name,dob,hkid,clinic_tag')
+    .eq('patient_no', '001003').limit(20);
+  if (q.error) return Object.assign(out, { error: String(q.error.message || q.error) });
+  const rows = q.data || [];
+  const home = rows.find((r) => String(r.clinic_tag || '') === 'PL') || rows[0];
+  if (!home) return out;
+  out.found = true;
+  out.name = home.full_name || '';
+  out.homeId = String(home.id);
+  const norm = conNotesHkidKey(home.hkid);
+  out.hasHkid = norm.length >= 7;
+  if (typeof selectConPatient === 'function') selectConPatient(home);
+  const chipDeadline = Date.now() + 8000;
+  let chips = [];
+  while (Date.now() < chipDeadline) {
+    chips = Array.from(document.querySelectorAll('#conNotesChartPicker .con-notes-chart'));
+    if (chips.length > 1) break;
+    await wait(200);
+  }
+  const list = (typeof conNotesChartList !== 'undefined' && conNotesChartList) ? conNotesChartList : [];
+  out.n = list.length;
+  out.bad = list.filter((r) => conNotesHkidKey(r && r.hkid) !== norm).length;
+  out.charts = list.map((r) => ({ no: r.patient_no, clinic: r.clinic_tag || '' }));
+  const picker = document.getElementById('conNotesChartPicker');
+  out.hidden = picker ? !!picker.hidden : null;
+  const otherBtn = chips.find((b) => b.getAttribute('data-pid') !== String(home.id));
+  if (otherBtn) {
+    otherBtn.click();
+    await wait(1600);
+    const composer = document.getElementById('conNoteComposer');
+    const save = document.getElementById('conNoteSaveBtn');
+    const on = document.querySelector('#conNotesChartPicker .con-notes-chart.is-on');
+    out.browsed = {
+      browseId: String(conNotesBrowseId || ''),
+      openedId: String(conPatientId || ''),
+      chipOn: on ? on.getAttribute('data-pid') : '',
+      composerLocked: !!(composer && composer.classList.contains('is-browsing')),
+      saveDisabled: !!(save && save.disabled),
+      viewing: ((document.getElementById('conNotesChartPickerBrowse') || {}).textContent || '').trim()
+    };
+    const homeBtn = Array.from(document.querySelectorAll('#conNotesChartPicker .con-notes-chart'))
+      .find((b) => b.getAttribute('data-pid') === String(home.id));
+    if (homeBtn) homeBtn.click();
+    await wait(700);
+    out.browsed.backBrowse = String(conNotesBrowseId || '');
+    out.browsed.unlocked = !(composer && composer.classList.contains('is-browsing'));
+  }
+  return out;
+})()`;
+
 function extractFn(src, name) {
     var start = src.indexOf('function ' + name + '(');
     if (start < 0) throw new Error('missing ' + name);
@@ -256,6 +316,31 @@ function extractFn(src, name) {
     pass('migration SQL present', fs.existsSync(path.join(root, 'treatments_note_audit.sql')));
     pass('CSS for composer + cards', css.indexOf('.cn-sec-head') >= 0 && css.indexOf('.note-card--addendum') >= 0 &&
         css.indexOf('.cn-tooth-pop') >= 0);
+    pass('markup chart picker', html.indexOf('id="conNotesChartPicker"') >= 0 &&
+        html.indexOf('id="conNotesChartPickerRow"') >= 0);
+    var finderSrc = extractFn(conSrc, 'conNotesFindSameIdCharts');
+    pass('chart picker matches HKID only',
+        finderSrc.indexOf('conNotesHkidKey') >= 0 && finderSrc.indexOf('phone_number') < 0 &&
+        finderSrc.indexOf('mobile_phone') < 0 && finderSrc.indexOf('chart_dob') < 0 &&
+        extractFn(conSrc, 'conNotesSameIdRows').indexOf('conNotesHkidKey') >= 0);
+    pass('browsing another chart leaves the opened chart in place',
+        extractFn(conSrc, 'conNotesSelectChart').indexOf('conPatientId =') < 0 &&
+        extractFn(conSrc, 'conNotesSelectChart').indexOf("loadConNotes(pid, { browse: true })") >= 0);
+    pass('composer locks while another chart is on screen',
+        extractFn(conSrc, 'conNotesApplyComposerLock').indexOf('is-browsing') >= 0 &&
+        extractFn(conSrc, 'conNotesApplyComposerLock').indexOf('conNoteSaveBtn') >= 0);
+    pass('opened-chart refresh does not wipe the chart being read',
+        extractFn(conSrc, 'loadConNotes').indexOf('conNotesBrowseId') >= 0 &&
+        extractFn(conSrc, 'loadConNotes').indexOf('allowEdit: false') >= 0);
+    pass('print uses the chart on screen',
+        extractFn(conSrc, 'buildConTnPrintBodyHtml').indexOf('conNotesChartClinicLabel') >= 0);
+    pass('chart picker CSS', css.indexOf('.con-notes-chart.is-on') >= 0 &&
+        css.indexOf('#conNoteComposer.is-browsing') >= 0);
+    ['con.notesCharts.label', 'con.notesCharts.viewing', 'con.notesCharts.differ'].forEach(function (k) {
+        var i = i18n.indexOf("'" + k + "':");
+        var block = i < 0 ? '' : i18n.slice(i, i + 420);
+        pass('i18n ' + k, block.indexOf('en:') >= 0 && block.indexOf("'zh-CN':") >= 0 && block.indexOf("'zh-Hant':") >= 0);
+    });
 
     console.log('\n=== i18n ===');
     var keys = {};
@@ -313,6 +398,19 @@ function extractFn(src, name) {
         composed.indexOf('I/O: ') > composed.indexOf('E/O: ') && composed.indexOf('Xrays: ') > composed.indexOf('I/O: ') &&
         composed.indexOf('OHI: ') > composed.indexOf('Px: ') &&
         composed.indexOf('Next: ') > composed.indexOf('OHI: '));
+    ['conNotesHkidKey', 'conNotesChartClinic', 'conNotesChartClinicLabel', 'conNotesChartDiffers', 'conNotesSameIdRows']
+        .forEach(function (fn) { vm.runInContext(extractFn(conSrc, fn), ctx); });
+    ctx.PATIENT_CLINIC_TAG_FIELD = 'clinic_tag';
+    pass('HKID key strips punctuation', ctx.conNotesHkidKey('a123456(7)') === 'A1234567');
+    var homeChart = { id: 'a', hkid: 'A123456(7)', patient_no: '001003', clinic_tag: 'PL', full_name: 'Ng Pui Ching', dob: '1960-01-01' };
+    var sameId = { id: 'c', hkid: 'a1234567', patient_no: '021713', clinic_tag: 'PY', full_name: 'Other Name', dob: '1970-02-02' };
+    var otherId = { id: 'b', hkid: 'Z998877(6)', patient_no: '099999', clinic_tag: 'MK', full_name: 'Ng Pui Ching', dob: '1960-01-01', phone_number: '60716591' };
+    var picked = ctx.conNotesSameIdRows(homeChart, [otherId, sameId, homeChart]);
+    pass('same ID keeps the other chart and drops a different ID',
+        picked.length === 2 && picked[0].id === 'a' && picked[1].id === 'c',
+        picked.map(function (r) { return r.patient_no; }).join(','));
+    pass('different name or birth date is flagged on the chip', ctx.conNotesChartDiffers(homeChart, sameId) === true);
+    pass('short HKID does not build a chart list', ctx.conNotesSameIdRows({ id: 'a', hkid: 'A123' }, [homeChart]).length === 0);
     var back = ctx.cnParse(composed);
     pass('round trip keeps every section (incl. multi-line I/O)', Object.keys(full).every(function (k) {
         return String(back.sections[k] || '') === full[k];
@@ -500,14 +598,34 @@ function extractFn(src, name) {
             if (r.status === 200 && r.body.indexOf(EXPECTED_BUILD) >= 0) { port = p; break; }
         } catch (e) {}
     }
-    pass('a local server serves BUILD ' + EXPECTED_BUILD, !!port, port ? ':' + port : 'none of 5501/8124/5500/8123');
+    var spotServer = null;
+    if (!port) {
+        try {
+            spotServer = await startStaticServer(8803);
+            var self = await httpGet(8803, '/index.html');
+            if (self.status === 200 && self.body.indexOf(EXPECTED_BUILD) >= 0 &&
+                self.body.indexOf('id="conNotesChartPicker"') >= 0) port = 8803;
+        } catch (e) {}
+    }
+    pass('a local server serves BUILD ' + EXPECTED_BUILD, !!port, port ? ':' + port : 'none of 5501/8124/5500/8123/8803');
     if (port) {
         var js = await httpGet(port, '/app-con-notes.js');
+        var page = port === 8803 ? null : await httpGet(port, '/index.html');
         pass('GET /app-con-notes.js', js.status === 200 && js.body.indexOf('conNotesFormatBodyHtml') >= 0, 'HTTP ' + js.status);
         pass('served notes JS has OHI between Px and Next',
             js.status === 200 &&
             /key: 'px'[\s\S]{0,180}key: 'ohi'[\s\S]{0,180}key: 'next'/.test(js.body));
+        if (page) {
+            pass('served page includes the chart picker', page.status === 200 && page.body.indexOf('id="conNotesChartPicker"') >= 0);
+        } else {
+            pass('served page includes the chart picker', true, 'checked while choosing :' + port);
+        }
+        var conJs = await httpGet(port, '/app-consultation.js?v=20261103notecharts');
+        pass('served consultation JS can browse a same-ID chart',
+            conJs.status === 200 && conJs.body.indexOf('function conNotesFindSameIdCharts') >= 0 &&
+            conJs.body.indexOf('function conNotesSelectChart') >= 0, 'HTTP ' + conJs.status);
     }
+    if (spotServer) { try { spotServer.close(); } catch (e) { /* ignore */ } }
 
     console.log('\n=== API: treatments ===');
     var sbc = readSbConfig(appSrc);
@@ -601,6 +719,24 @@ function extractFn(src, name) {
                 JSON.stringify([live.parsed, live.ohiValue, live.composed]));
             pass('live: OHI label translated in English, 繁體中文 and 简体中文',
                 live.langsOk === true, JSON.stringify(live.langs));
+        }
+        var chartLive = await cdp.js(CHART_SCRIPT, true, 45000);
+        pass('live #001003 chart picker', chartLive && chartLive.ready === true && chartLive.found === true &&
+            chartLive.hasHkid === true && chartLive.bad === 0 && chartLive.wrote === false,
+            chartLive ? JSON.stringify({
+                name: chartLive.name, n: chartLive.n, charts: chartLive.charts,
+                hidden: chartLive.hidden, browsed: chartLive.browsed
+            }) : 'none');
+        if (chartLive && chartLive.n > 1) {
+            pass('live #001003 other same-ID chart can be read',
+                chartLive.browsed && chartLive.browsed.openedId === chartLive.homeId &&
+                chartLive.browsed.browseId && chartLive.browsed.browseId !== chartLive.homeId &&
+                chartLive.browsed.composerLocked === true && chartLive.browsed.saveDisabled === true &&
+                chartLive.browsed.backBrowse === '' && chartLive.browsed.unlocked === true &&
+                chartLive.hidden === false,
+                JSON.stringify(chartLive.browsed));
+        } else if (chartLive && chartLive.found) {
+            pass('live #001003 picker stays hidden when no other same-ID chart', chartLive.hidden === true);
         }
     } catch (e) {
         pass('CDP live page', false, e && e.message ? e.message : String(e));

@@ -688,6 +688,11 @@ function clearConNotesDom(mode) {
 
 function resetConNotesForPatientSwitch() {
     conNotesLoadGen++;
+    conNotesChartSeq++;
+    conNotesBrowseId = '';
+    conNotesChartList = [];
+    conNotesPaintChartPicker();
+    conNotesApplyComposerLock();
     conTreatmentNotesCache = [];
     if (typeof conPtlRefreshTimer !== 'undefined' && conPtlRefreshTimer) {
         clearTimeout(conPtlRefreshTimer);
@@ -1160,6 +1165,7 @@ function selectConPatient(p) {
         if (loadGen !== conPatientSelectGen) return;
         if (!conPatientId || String(conPatientId) !== String(loadId)) return;
         loadConNotes(loadId);
+        conNotesLoadChartPicker(conPatientData || p);
         loadDrugHistory(loadId);
         loadMedicalHistory();
         loadDentalHistory();
@@ -3587,6 +3593,10 @@ var CON_NOTE_AUDIT_COLS = ['author_name', 'author_role', 'author_id', 'edited_at
     'edit_history', 'deleted_at', 'deleted_by', 'parent_id'];
 /** Bumps on each consultation patient switch so stale note fetches cannot paint. */
 var conNotesLoadGen = 0;
+/** Chart whose notes are on screen. Empty means the consultation chart that was opened. */
+var conNotesBrowseId = '';
+var conNotesChartList = [];
+var conNotesChartSeq = 0;
 var conTnPrintFromIso = '';
 var conTnPrintToIso = '';
 var conTnPrintFromCalMonth = new Date();
@@ -4188,9 +4198,14 @@ function loadConPatientTimeline(patientId) {
     conPtlBuildFilterBar();
 
     var pid = patientId;
-    var pno = (conPatientData && conPatientData.patient_no)
-        ? String(conPatientData.patient_no).trim()
-        : '';
+    var viewChart = null;
+    if (String(pid) !== String(conPatientId)) {
+        conNotesChartList.forEach(function (c) {
+            if (c && String(c.id) === String(pid)) viewChart = c;
+        });
+    }
+    var pnoSrc = viewChart || ((String(pid) === String(conPatientId)) ? conPatientData : null);
+    var pno = (pnoSrc && pnoSrc.patient_no) ? String(pnoSrc.patient_no).trim() : '';
 
     var qNotes = SB.from('treatments').select('*').eq('patient_id', pid)
         .order('created_at', { ascending: false }).limit(200);
@@ -4261,7 +4276,7 @@ function loadConPatientTimeline(patientId) {
             : Promise.resolve([]);
         return Promise.all([Promise.resolve(parts), qPayments, qTasks]);
     }).then(function (bundle) {
-        if (pid !== conPatientId) return;
+        if (String(pid) !== String(conPatientId) && String(pid) !== String(conNotesBrowseId)) return;
         var parts = bundle[0];
         var payments = bundle[1] || [];
         var tasks = bundle[2] || [];
@@ -4280,8 +4295,8 @@ function loadConPatientTimeline(patientId) {
             conPtlEventsFromCharts(parts[7]),
             conPtlEventsFromPayments(payments, billMap),
             conPtlEventsFromTasks(tasks, apptMap),
-            conPtlEventsFromHistorySnaps('med', conHistParseSnapshots((parts[8] && parts[8][0] && parts[8][0].mh_edit_history) || (conPatientData && conPatientData.mh_edit_history))),
-            conPtlEventsFromHistorySnaps('den', conHistParseSnapshots((parts[8] && parts[8][0] && parts[8][0].dh_edit_history) || (conPatientData && conPatientData.dh_edit_history)))
+            conPtlEventsFromHistorySnaps('med', conHistParseSnapshots((parts[8] && parts[8][0] && parts[8][0].mh_edit_history) || (String(pid) === String(conPatientId) && conPatientData && conPatientData.mh_edit_history))),
+            conPtlEventsFromHistorySnaps('den', conHistParseSnapshots((parts[8] && parts[8][0] && parts[8][0].dh_edit_history) || (String(pid) === String(conPatientId) && conPatientData && conPatientData.dh_edit_history)))
         ]);
         renderConPatientTimeline();
         if (typeof conNotesRefreshContext === 'function') conNotesRefreshContext();
@@ -4745,6 +4760,11 @@ function conTnPrintRangeLabel() {
 
 function buildConTnPrintBodyHtml(notes, rangeLabel) {
     var p = conPatientData || {};
+    if (conNotesBrowseId) {
+        conNotesChartList.forEach(function (c) {
+            if (c && String(c.id) === String(conNotesBrowseId)) p = c;
+        });
+    }
     var name = p.full_name || '—';
     var cn = String(p.chinese_name || '').trim();
     if (cn) name = cn + (p.full_name ? ' / ' + p.full_name : '');
@@ -4752,6 +4772,10 @@ function buildConTnPrintBodyHtml(notes, rangeLabel) {
     var clinicLbl = (typeof currentClinicLabel !== 'undefined' && currentClinicLabel)
         ? currentClinicLabel
         : (typeof currentClinicId !== 'undefined' ? currentClinicId : '—');
+    if (conNotesBrowseId && p && String(p.id) === String(conNotesBrowseId)) {
+        var browseClinic = conNotesChartClinicLabel(p);
+        if (browseClinic) clinicLbl = browseClinic;
+    }
     var genAt = (typeof fmtNowDateTimeHK === 'function')
         ? fmtNowDateTimeHK()
         : new Date().toLocaleString(conUiLocale());
@@ -4920,7 +4944,8 @@ function wireConTnPrintUi() {
 }
 
 function conSchedulePatientTimelineRefresh(pid) {
-    if (!pid || pid !== conPatientId) return;
+    if (!pid) return;
+    if (String(pid) !== String(conPatientId) && String(pid) !== String(conNotesBrowseId)) return;
     clearTimeout(conPtlRefreshTimer);
     conPtlRefreshTimer = setTimeout(function () {
         conPtlRefreshTimer = null;
@@ -5161,14 +5186,30 @@ function loadConNotes(pid, opts) {
     opts = opts || {};
     var expectedGen = conNotesLoadGen;
     var expectedPid = pid;
-    if (!opts.keepPaint) clearConNotesDom('loading');
+    var browse = !!opts.browse;
+    if (!browse && conNotesBrowseId && String(pid) === String(conPatientId)) return;
+    if (!opts.keepPaint) {
+        if (browse) {
+            var only = g('conTimeline');
+            if (only) {
+                only.innerHTML = '<p style="color:#aaa;margin:0;padding:16px;">' +
+                    esc(typeof conTr === 'function' ? conTr('common.loadingEllipsis') : 'Loading…') + '</p>';
+            }
+        } else {
+            clearConNotesDom('loading');
+        }
+    }
 
     SB.from('treatments').select('*')
         .eq('patient_id', pid)
         .order('created_at', { ascending: false })
     .then(function(r) {
         if (expectedGen !== conNotesLoadGen) return;
-        if (expectedPid && conPatientId && String(conPatientId) !== String(expectedPid)) {
+        if (browse) {
+            if (String(conNotesBrowseId) !== String(expectedPid)) return;
+        } else if (conNotesBrowseId && String(expectedPid) === String(conPatientId)) {
+            return;
+        } else if (expectedPid && conPatientId && String(conPatientId) !== String(expectedPid)) {
             var xpid = (typeof xrayPatientId !== 'undefined') ? xrayPatientId : null;
             if (!xpid || String(xpid) !== String(expectedPid)) return;
         }
@@ -5176,9 +5217,241 @@ function loadConNotes(pid, opts) {
         if (conTreatmentNotesAll.length && !('deleted_at' in conTreatmentNotesAll[0])) conNoteAuditColsMissing = true;
         else if (conTreatmentNotesAll.length) conNoteAuditColsMissing = false;
         conTreatmentNotesCache = conTreatmentNotesAll.filter(function (t) { return !t.deleted_at; });
+        if (browse) {
+            renderConNotesIntoHost('conTimeline', conTreatmentNotesAll, {
+                idPrefix: 'cnt', allowEdit: false, applyFilters: true
+            });
+            return;
+        }
         renderConNotesEverywhere(conTreatmentNotesAll);
         if (typeof conNotesAfterLoad === 'function') conNotesAfterLoad(pid);
         conSchedulePatientTimelineRefresh(pid);
+    });
+}
+
+function conNotesHkidKey(s) {
+    return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function conNotesChartClinic(p) {
+    if (!p) return '';
+    var field = (typeof PATIENT_CLINIC_TAG_FIELD === 'string') ? PATIENT_CLINIC_TAG_FIELD : 'clinic_tag';
+    return String(p[field] || p.clinic_tag || '').trim();
+}
+
+function conNotesChartClinicLabel(p) {
+    var tag = conNotesChartClinic(p);
+    if (!tag) return '';
+    if (typeof clinicIdFromStoredPatientTag === 'function' &&
+        typeof clinicRecordFromId === 'function') {
+        var id = clinicIdFromStoredPatientTag(tag);
+        var rec = id ? clinicRecordFromId(id) : null;
+        var code = rec ? String(rec.clinic_code || '').trim() : '';
+        if (code) return code;
+    }
+    return tag;
+}
+
+function conNotesChartLabel(p) {
+    var tag = conNotesChartClinicLabel(p) || '—';
+    var no = String((p && p.patient_no) || '').trim() || '—';
+    var name = String((p && p.full_name) || '').trim();
+    var cn = String((p && p.chinese_name) || '').trim();
+    var who = name || cn;
+    if (name && cn && name !== cn) who = name + ' / ' + cn;
+    return tag + ' #' + no + (who ? '  ' + who : '');
+}
+
+function conNotesChartDiffers(home, other) {
+    if (!home || !other || String(home.id) === String(other.id)) return false;
+    function nm(row) {
+        var en = String(row.full_name || '').trim().toLowerCase();
+        var cn = String(row.chinese_name || '').trim().toLowerCase();
+        if (en && cn && en !== cn) return en + ' / ' + cn;
+        return en || cn;
+    }
+    var a = nm(home);
+    var b = nm(other);
+    var nameDiff = !!(a && b && a !== b);
+    var da = String(home.dob || '').slice(0, 10);
+    var db = String(other.dob || '').slice(0, 10);
+    return nameDiff || !!(da && db && da !== db);
+}
+
+function conNotesSameIdRows(home, rows) {
+    var norm = conNotesHkidKey(home && home.hkid);
+    var list = [];
+    (rows || []).forEach(function (row) {
+        if (!row || !row.id) return;
+        if (norm.length < 7 || conNotesHkidKey(row.hkid) !== norm) return;
+        list.push(row);
+    });
+    if (home && home.id && norm.length >= 7 &&
+        !list.some(function (row) { return String(row.id) === String(home.id); })) {
+        list.push(home);
+    }
+    list.sort(function (a, b) {
+        var ah = String(a.id) === String(home && home.id) ? 0 : 1;
+        var bh = String(b.id) === String(home && home.id) ? 0 : 1;
+        if (ah !== bh) return ah - bh;
+        var ac = conNotesChartClinicLabel(a);
+        var bc = conNotesChartClinicLabel(b);
+        if (ac !== bc) return ac < bc ? -1 : 1;
+        return String(a.patient_no || '').localeCompare(String(b.patient_no || ''));
+    });
+    return list;
+}
+
+function conNotesPaintChartPicker() {
+    var box = g('conNotesChartPicker');
+    var row = g('conNotesChartPickerRow');
+    var browse = g('conNotesChartPickerBrowse');
+    if (!box || !row) return;
+    var list = conNotesChartList || [];
+    if (list.length < 2) {
+        box.hidden = true;
+        row.innerHTML = '';
+        if (browse) { browse.hidden = true; browse.textContent = ''; }
+        return;
+    }
+    box.hidden = false;
+    var homeId = String(conPatientId || '');
+    var active = String(conNotesBrowseId || homeId);
+    row.innerHTML = list.map(function (c) {
+        var on = String(c.id) === active;
+        var differ = conNotesChartDiffers(conPatientData, c);
+        var title = differ ? conTr('con.notesCharts.differ') : '';
+        return '<button type="button" class="con-notes-chart' + (on ? ' is-on' : '') +
+            (differ ? ' is-differ' : '') + '" role="tab" data-pid="' + esc(c.id) +
+            '" aria-selected="' + (on ? 'true' : 'false') + '"' +
+            (title ? ' title="' + esc(title) + '"' : '') + '>' +
+            esc(conNotesChartLabel(c)) + '</button>';
+    }).join('');
+    if (browse) {
+        var viewing = null;
+        if (conNotesBrowseId && String(conNotesBrowseId) !== homeId) {
+            list.forEach(function (c) {
+                if (String(c.id) === String(conNotesBrowseId)) viewing = c;
+            });
+        }
+        if (viewing) {
+            browse.hidden = false;
+            browse.textContent = conTrRepl('con.notesCharts.viewing', {
+                CLINIC: conNotesChartClinicLabel(viewing) || '—',
+                NO: String(viewing.patient_no || '').trim() || '—'
+            });
+        } else {
+            browse.hidden = true;
+            browse.textContent = '';
+        }
+    }
+}
+
+function conNotesApplyComposerLock() {
+    var composer = g('conNoteComposer');
+    var locked = !!(conNotesBrowseId && String(conNotesBrowseId) !== String(conPatientId || ''));
+    if (composer) composer.classList.toggle('is-browsing', locked);
+    var ids = ['conNoteInput', 'conNoteSaveBtn', 'conNoteMicBtn', 'conNoteSaveTplBtn',
+        'conNoteFromTplBtn', 'conNoteMicLang', 'conNoteMicFixesBtn'];
+    function setLock(el) {
+        if (!el) return;
+        if (locked) {
+            if (!el.disabled) el.setAttribute('data-con-browse-lock', '1');
+            el.disabled = true;
+        } else if (el.getAttribute('data-con-browse-lock') === '1') {
+            el.disabled = false;
+            el.removeAttribute('data-con-browse-lock');
+        }
+    }
+    ids.forEach(function (id) { setLock(g(id)); });
+    var sections = g('conNoteSections');
+    if (sections) {
+        sections.querySelectorAll('textarea, input, button, select').forEach(setLock);
+    }
+}
+
+function conNotesSelectChart(pid) {
+    pid = String(pid || '');
+    if (!pid) return;
+    var known = (conNotesChartList || []).some(function (c) { return c && String(c.id) === pid; });
+    if (!known) return;
+    if (String(pid) === String(conPatientId)) {
+        conNotesBrowseId = '';
+        conNotesPaintChartPicker();
+        conNotesApplyComposerLock();
+        loadConNotes(conPatientId);
+        loadConPatientTimeline(conPatientId);
+        return;
+    }
+    conNotesBrowseId = pid;
+    conNotesPaintChartPicker();
+    conNotesApplyComposerLock();
+    loadConNotes(pid, { browse: true });
+    loadConPatientTimeline(pid);
+}
+
+function conNotesFindSameIdCharts(home) {
+    var norm = conNotesHkidKey(home && home.hkid);
+    if (!home || !home.id || norm.length < 7 || typeof SB === 'undefined' || !SB || !SB.from) {
+        return Promise.resolve([]);
+    }
+    var field = (typeof PATIENT_CLINIC_TAG_FIELD === 'string') ? PATIENT_CLINIC_TAG_FIELD : 'clinic_tag';
+    var cols = 'id,patient_no,full_name,chinese_name,dob,hkid,' + field;
+    var needle = (norm.length > 8 ? norm.slice(0, 8) : norm.slice(0, -1)).replace(/[^A-Z0-9]/g, '');
+    var q = SB.from('patients').select(cols).limit(40);
+    if (needle && typeof escapePostgrestIlike === 'function') {
+        q = q.or('hkid.ilike.%' + escapePostgrestIlike(needle) + '%');
+    } else if (needle) {
+        q = q.ilike('hkid', '%' + needle + '%');
+    }
+    return q.then(function (r) {
+        var rows = (!r.error && r.data) ? r.data : [];
+        return conNotesSameIdRows(home, rows);
+    }).catch(function () {
+        return conNotesSameIdRows(home, [home]);
+    });
+}
+
+function conNotesLoadChartPicker(home) {
+    var seq = conNotesChartSeq;
+    var pid = home && home.id;
+    function paint(list) {
+        if (seq !== conNotesChartSeq) return;
+        if (!pid || String(conPatientId) !== String(pid)) return;
+        conNotesChartList = list || [];
+        if (conNotesBrowseId && !conNotesChartList.some(function (c) {
+            return c && String(c.id) === String(conNotesBrowseId);
+        })) conNotesBrowseId = '';
+        conNotesPaintChartPicker();
+        conNotesApplyComposerLock();
+    }
+    function go(row) {
+        conNotesFindSameIdCharts(row || home).then(paint);
+    }
+    if (conNotesHkidKey(home && home.hkid).length >= 7) {
+        go(home);
+        return;
+    }
+    if (!pid || typeof SB === 'undefined' || !SB || !SB.from) {
+        paint([]);
+        return;
+    }
+    var field = (typeof PATIENT_CLINIC_TAG_FIELD === 'string') ? PATIENT_CLINIC_TAG_FIELD : 'clinic_tag';
+    SB.from('patients').select('id,patient_no,full_name,chinese_name,dob,hkid,' + field)
+        .eq('id', pid).limit(1)
+        .then(function (r) {
+            var row = r && r.data && r.data[0];
+            if (row) go(Object.assign({}, home || {}, row));
+            else paint([]);
+        }).catch(function () { paint([]); });
+}
+
+if (!window._conNotesChartPickerBound) {
+    window._conNotesChartPickerBound = true;
+    document.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest('#conNotesChartPicker .con-notes-chart') : null;
+        if (!btn) return;
+        conNotesSelectChart(btn.getAttribute('data-pid'));
     });
 }
 

@@ -2942,6 +2942,17 @@
         'con.banner.bananaNotesLabel': { en: 'Banana Notes:', 'zh-CN': '香蕉备注：', 'zh-Hant': '香蕉備註：' },
         'con.dob.ageFmt': { en: '{DATE} ({AGE} yrs)', 'zh-CN': '{DATE} ({AGE} 岁)', 'zh-Hant': '{DATE} ({AGE} 歲)' },
         'con.treatmentTitle': { en: '📝 Treatment Notes', 'zh-CN': '📝 治疗记录', 'zh-Hant': '📝 治療記錄' },
+        'con.notesCharts.label': { en: 'Charts with this ID', 'zh-CN': '同一身份证的病历', 'zh-Hant': '同一身份證的病歷' },
+        'con.notesCharts.viewing': {
+            en: 'Viewing {CLINIC} #{NO}. New notes stay on the chart you opened.',
+            'zh-CN': '正在查看 {CLINIC} #{NO}。新记录仍写在你打开的病历上。',
+            'zh-Hant': '正在查看 {CLINIC} #{NO}。新記錄仍寫在你打開的病歷上。'
+        },
+        'con.notesCharts.differ': {
+            en: 'Name or date of birth differs',
+            'zh-CN': '姓名或出生日期不同',
+            'zh-Hant': '姓名或出生日期不同'
+        },
         'con.tnBackQueue.btn': { en: '↩ Current Queue', 'zh-CN': '↩ 当前队列', 'zh-Hant': '↩ 目前候診' },
         'con.tnPrint.btn': { en: '🖨️ Print', 'zh-CN': '🖨️ 打印', 'zh-Hant': '🖨️ 列印' },
         'con.tnPrint.filterTitle': { en: 'Print treatment notes', 'zh-CN': '打印治疗记录', 'zh-Hant': '列印治療記錄' },

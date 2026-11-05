@@ -3343,15 +3343,15 @@
         'coupons.bill.clinicOff': { en: 'This clinic is not in the coupon scheme.', 'zh-CN': '此诊所未加入优惠券计划。', 'zh-Hant': '此診所未加入優惠券計劃。' },
         'coupons.bill.empty': { en: 'This patient has no unused coupons.', 'zh-CN': '此病人没有未用的优惠券。', 'zh-Hant': '此病人沒有未用的優惠券。' },
         'coupons.bill.totalStays': { en: 'Total stays', 'zh-CN': '总额不变', 'zh-Hant': '總額不變' },
-        'coupons.xfer.to': { en: 'Transfer selected to chart no.', 'zh-CN': '将所选券转往病历号', 'zh-Hant': '將所選券轉往病歷號' },
+        'coupons.xfer.to': { en: 'Transfer selected to a patient', 'zh-CN': '将所选券转给病人', 'zh-Hant': '將所選券轉給病人' },
         'coupons.xfer.go': { en: 'Transfer', 'zh-CN': '转让', 'zh-Hant': '轉讓' },
         'coupons.xfer.missing': { en: 'Chart not found', 'zh-CN': '找不到该病历', 'zh-Hant': '找不到該病歷' },
         'coupons.xfer.onBill': { en: 'Take selected coupons off the bill before transferring them', 'zh-CN': '请先从账单移除所选券再转让', 'zh-Hant': '請先從賬單移除所選券再轉讓' },
         'coupons.xfer.pick': { en: 'Select at least one coupon', 'zh-CN': '请先选择至少一张券', 'zh-Hant': '請先選擇至少一張券' },
         'coupons.xfer.selectAll': { en: 'Select all', 'zh-CN': '全选', 'zh-Hant': '全選' },
-        'coupons.xfer.multiHint': { en: 'Tick one or more coupons, then enter the chart number.', 'zh-CN': '勾选一张或多张券，再输入病历号。', 'zh-Hant': '勾選一張或多張券，再輸入病歷號。' },
+        'coupons.xfer.multiHint': { en: 'Tick one or more coupons, then search for the destination patient.', 'zh-CN': '勾选一张或多张券，再搜索要转给的病人。', 'zh-Hant': '勾選一張或多張券，再搜尋要轉給的病人。' },
         'coupons.xfer.partial': { en: 'Transferred {n}, then stopped.', 'zh-CN': '已转让 {n} 张后中止。', 'zh-Hant': '已轉讓 {n} 張後中止。' },
-        'coupons.xfer.need': { en: 'Enter a chart number', 'zh-CN': '请输入病历号', 'zh-Hant': '請輸入病歷號' },
+        'coupons.xfer.need': { en: 'Search for the destination patient', 'zh-CN': '请搜索要转给的病人', 'zh-Hant': '請搜尋要轉給的病人' },
         'coupons.xfer.expired': { en: 'This coupon has expired', 'zh-CN': '此券已过期', 'zh-Hant': '此券已過期' },
         'coupons.xfer.locked': {
             en: 'New-chart and referral coupons stay with the patient',
@@ -3596,7 +3596,8 @@
             'zh-Hant': '未能寫入優惠券記錄，請通知管理員。'
         },
         'coupons.xfer.which': { en: 'Coupons to transfer', 'zh-CN': '要转让的券', 'zh-Hant': '要轉讓的券' },
-        'coupons.xfer.toChart': { en: 'To chart no.', 'zh-CN': '转给病历号', 'zh-Hant': '轉給病歷號' },
+        'coupons.xfer.toChart': { en: 'To patient', 'zh-CN': '转给病人', 'zh-Hant': '轉給病人' },
+        'coupons.xfer.searchPh': { en: '🔍  Search by name, no., phone, HKID…', 'zh-CN': '🔍  按姓名、编号、电话、身份证…搜索', 'zh-Hant': '🔍  按姓名、編號、電話、身份證…搜尋' },
         'coupons.xfer.noneMovable': {
             en: 'No coupon here can be transferred. Coupons on this bill, expired coupons, and new-chart or referral coupons stay with this patient.',
             'zh-CN': '这里没有可转让的券。已用在此账单、已过期，以及新症或推荐券都只属于此病人。',

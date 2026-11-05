@@ -1300,6 +1300,176 @@ var COUPONS = (function () {
         return html;
     }
 
+    function xferDestHtml(opts) {
+        opts = opts || {};
+        var inputId = opts.inputId || '';
+        var dropId = opts.dropId || '';
+        var hidId = opts.hidId || '';
+        var goAttr = opts.goAttr || 'data-wl="xferGo"';
+        var ph = ct('coupons.xfer.searchPh', 'Search by name, no., phone, HKID…');
+        return '<label' + (inputId ? ' for="' + esc(inputId) + '"' : '') + '>' +
+            esc(ct('coupons.xfer.toChart', 'To patient')) + '</label>' +
+            '<div class="dc-xfer-row">' +
+            '<div class="ps-wrap dc-xfer-ps">' +
+            '<input type="text"' + (inputId ? ' id="' + esc(inputId) + '"' : '') +
+            ' data-wl="xferTo" class="dc-xfer-search" autocomplete="off" ' +
+            'placeholder="' + esc(ph) + '"' +
+            (dropId ? ' aria-controls="' + esc(dropId) + '"' : '') +
+            ' aria-autocomplete="list">' +
+            '<div class="ps-drop dc-xfer-drop"' + (dropId ? ' id="' + esc(dropId) + '"' : '') +
+            ' data-wl="xferDrop" role="listbox"></div>' +
+            '<input type="hidden" data-wl="xferToId"' + (hidId ? ' id="' + esc(hidId) + '"' : '') + '>' +
+            '</div>' +
+            '<button type="button" ' + goAttr + (opts.goDisabled ? ' disabled' : '') + '>🔒 ' +
+            esc(ct('coupons.xfer.go', 'Transfer')) + '</button></div>';
+    }
+
+    /** Pull the chart no. out of a directory display value like "NG PUI CHING (#001003)". */
+    function xferDestChartFromQuery(s) {
+        var raw = String(s || '').trim();
+        if (!raw) return '';
+        var m = raw.match(/\(#\s*([^)]+)\)\s*$/);
+        if (m) return String(m[1] || '').trim();
+        if (typeof patientSearchNormalizeInputQuery === 'function') {
+            raw = patientSearchNormalizeInputQuery(raw);
+        }
+        return raw.replace(/^#\s*/, '');
+    }
+
+    function readXferDest(root) {
+        var inp = root && root.querySelector
+            ? (root.querySelector('[data-wl="xferTo"]') || root.querySelector('#dcXferTo'))
+            : null;
+        var hid = root && root.querySelector
+            ? (root.querySelector('[data-wl="xferToId"]') || root.querySelector('#dcXferToId'))
+            : null;
+        return {
+            query: inp ? String(inp.value || '').trim() : '',
+            id: (hid && hid.value) || (inp && inp.dataset && inp.dataset.psLockedPatientId) || '',
+            input: inp,
+            hidden: hid
+        };
+    }
+
+    /**
+     * Destination for Transfer: picked id, then exact chart no. (including
+     * "Name (#chart)"), then a unique directory-style match.
+     */
+    function resolveXferDest(query, selectedId) {
+        if (selectedId) return resolveReferrer('', selectedId);
+        var chart = xferDestChartFromQuery(query);
+        if (!chart) return Promise.resolve(null);
+        return resolveReferrer(chart).then(function (p) {
+            if (p) return p;
+            if (typeof patientSearchMeetsMinLength === 'function' && !patientSearchMeetsMinLength(chart)) {
+                return null;
+            }
+            if (typeof patientSearchQueryBuilder !== 'function' || typeof SB === 'undefined' || !SB) {
+                return null;
+            }
+            var pq = patientSearchQueryBuilder(chart, null, { searchMode: 'full' });
+            if (!pq) return null;
+            return pq.then(function (r) {
+                var rows = (r && r.data) || [];
+                return rows.length === 1 ? rows[0] : null;
+            }, function () { return null; });
+        });
+    }
+
+    function wireXferSearchDismissOnce() {
+        if (wireXferSearchDismissOnce._on || typeof document === 'undefined' || !document.addEventListener) return;
+        wireXferSearchDismissOnce._on = true;
+        document.addEventListener('click', function (e) {
+            var wraps = document.querySelectorAll('.dc-xfer-ps');
+            for (var i = 0; i < wraps.length; i++) {
+                var wrap = wraps[i];
+                var drop = wrap.querySelector('[data-wl="xferDrop"]');
+                if (!drop || drop.style.display === 'none') continue;
+                if (!wrap.contains(e.target)) drop.style.display = 'none';
+            }
+        });
+    }
+
+    function bindXferPatientSearch(spec) {
+        spec = spec || {};
+        var input = spec.input;
+        var drop = spec.drop;
+        var hidden = spec.hidden;
+        if (!input || !drop || input.dataset.dcXferBound === '1') return;
+        input.dataset.dcXferBound = '1';
+        wireXferSearchDismissOnce();
+
+        function clearPick() {
+            if (hidden) hidden.value = '';
+            delete input.dataset.psLockedPatientId;
+        }
+        function setPick(p) {
+            if (!p || !p.id) { clearPick(); return; }
+            if (hidden) hidden.value = String(p.id);
+            input.dataset.psLockedPatientId = String(p.id);
+            if (typeof patientSearchInputDisplayValue === 'function') {
+                input.value = patientSearchInputDisplayValue(p);
+            }
+        }
+
+        if (typeof runPatientSearchDropdown !== 'function') return;
+        if (!input.dataset.dcXferReq) {
+            bindXferPatientSearch._n = (bindXferPatientSearch._n || 0) + 1;
+            input.dataset.dcXferReq = 'dcx' + bindXferPatientSearch._n;
+        }
+        var timer = null;
+        var ime = false;
+        function longEnough(q) {
+            if (typeof patientDirSearchLongEnough === 'function') return patientDirSearchLongEnough(q);
+            if (typeof patientSearchMeetsMinLength === 'function') return patientSearchMeetsMinLength(q);
+            return String(q || '').replace(/\s+/g, '').length >= 2;
+        }
+        function run() {
+            var q = String(input.value || '').trim();
+            if (typeof patientSearchNormalizeInputQuery === 'function') {
+                q = patientSearchNormalizeInputQuery(q);
+            }
+            if (!q || !longEnough(q)) {
+                drop.style.display = 'none';
+                return;
+            }
+            runPatientSearchDropdown({
+                input: input,
+                drop: drop,
+                inputId: input.id,
+                dropId: drop.id,
+                reqKey: input.dataset.dcXferReq,
+                searchMode: 'full',
+                syncActive: false,
+                requireMinLength: false,
+                activeSource: spec.activeSource || 'coupon-xfer-search',
+                onSelect: function (p) { setPick(p); }
+            });
+        }
+        input.addEventListener('compositionstart', function () { ime = true; });
+        input.addEventListener('compositionend', function () {
+            ime = false;
+            clearPick();
+            clearTimeout(timer);
+            timer = setTimeout(run, 80);
+        });
+        input.addEventListener('input', function (e) {
+            if (ime || (e && e.isComposing)) return;
+            clearPick();
+            clearTimeout(timer);
+            timer = setTimeout(run, 280);
+        });
+        input.addEventListener('focus', function () {
+            var v = (input.value || '').trim();
+            if (v && /\(#[^)]*\)\s*$/.test(v)) {
+                try { input.select(); } catch (_) {}
+            }
+        });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') drop.style.display = 'none';
+        });
+    }
+
     function bindXferPicks(root, goBtn) {
         function boxes() {
             return Array.prototype.slice.call(root.querySelectorAll('.dc-xfer-item input[type="checkbox"]'));
@@ -3400,15 +3570,17 @@ var COUPONS = (function () {
                     'No coupon here can be transferred. Expired coupons, and new-chart or referral coupons, stay with this patient.')) + '</p>';
             } else if (movable.length > 1) {
                 html += '<p class="dc-hint">' + esc(ct('coupons.xfer.multiHint',
-                    'Tick one or more coupons, then enter the chart number.')) + '</p>';
+                    'Tick one or more coupons, then search for the destination patient.')) + '</p>';
             }
             html += xferPickHtml(movable, {
                 checkedId: movable.length === 1 ? String(movable[0].id) : ''
             }) +
-                '<label>' + esc(ct('coupons.xfer.toChart', 'To chart no.')) + '</label>' +
-                '<div class="dc-xfer-row"><input type="text" data-wl="xferTo" autocomplete="off">' +
-                '<button type="button" data-wl="xferGo"' + (movable.length ? '' : ' disabled') + '>🔒 ' +
-                esc(ct('coupons.xfer.go', 'Transfer')) + '</button></div>' +
+                xferDestHtml({
+                    inputId: 'dcWlXferTo',
+                    dropId: 'dcWlXferDrop',
+                    hidId: 'dcWlXferToId',
+                    goDisabled: !movable.length
+                }) +
                 '<p data-wl="xferErr" class="dc-err" hidden></p>' + lockNote + '</div></section>';
             html += '</div>';
             el.innerHTML = html;
@@ -3489,6 +3661,12 @@ var COUPONS = (function () {
 
             var xferGo = q('xferGo');
             var xferPicks = bindXferPicks(el.querySelector('[data-wl-panel="transfer"]') || el, xferGo);
+            bindXferPatientSearch({
+                input: q('xferTo'),
+                drop: q('xferDrop'),
+                hidden: q('xferToId'),
+                activeSource: 'coupon-ledger-xfer'
+            });
             if (xferGo) xferGo.onclick = function () {
                 var err = q('xferErr');
                 function showErr(msg) {
@@ -3501,18 +3679,18 @@ var COUPONS = (function () {
                     return movable.filter(function (c) { return String(c.id) === String(id); })[0];
                 }).filter(Boolean);
                 if (!chosen.length) { showErr(ct('coupons.xfer.pick', 'Select at least one coupon')); return; }
-                var chart = String((q('xferTo') || {}).value || '').trim();
-                if (!chart) { showErr(ct('coupons.xfer.need', 'Enter a chart number')); return; }
+                var dest = readXferDest(el);
+                if (!dest.query && !dest.id) { showErr(ct('coupons.xfer.need', 'Search for the destination patient')); return; }
                 showErr('');
                 xferGo.disabled = true;
                 function done(msg) {
                     xferGo.disabled = false;
                     if (msg) showErr(msg);
                 }
-                resolveReferrer(chart).then(function (to) {
+                resolveXferDest(dest.query, dest.id).then(function (to) {
                     if (!to) { done(ct('coupons.xfer.missing', 'Chart not found')); return null; }
                     if (String(to.id) === String(patientId)) { done(grantReason('same_patient')); return null; }
-                    var what = xferConfirmWhat(chosen, patientLabel, to.patient_no || chart);
+                    var what = xferConfirmWhat(chosen, patientLabel, to.patient_no || dest.query);
                     return promptGrantor(overlayHost, ct('coupons.auth.xferTitle', 'Confirm transfer'), what).then(function (user) {
                         if (!user) { done(''); return null; }
                         return transferMany(chosen, to, patientNo, user).then(function (res) {
@@ -4336,19 +4514,22 @@ var COUPONS = (function () {
             html += '<p class="dc-hint">' + esc(ct('coupons.xfer.noneMovable',
                 'No coupon here can be transferred. Coupons on this bill, expired coupons, and new-chart or referral coupons stay with this patient.')) + '</p>';
         } else if (transferable.length > 1) {
-            html += '<p class="dc-hint">' + esc(ct('coupons.xfer.multiHint',
-                'Tick one or more coupons, then enter the chart number.')) + '</p>';
-        }
+                html += '<p class="dc-hint">' + esc(ct('coupons.xfer.multiHint',
+                    'Tick one or more coupons, then search for the destination patient.')) + '</p>';
+            }
         html += xferPickHtml(transferable.map(function (r) { return r.coupon; }), {
             listId: 'dcXferPick',
             itemAttr: 'data-dc="xferItem"',
             allAttr: 'data-dc="xferAll"',
             checkedId: xferDefault
         }) +
-            '<label for="dcXferTo">' + esc(ct('coupons.xfer.toChart', 'To chart no.')) + '</label>' +
-            '<div class="dc-xfer-row"><input type="text" id="dcXferTo" autocomplete="off">' +
-            '<button type="button" id="dcXferGo"' + (transferable.length ? '' : ' disabled') + '>🔒 ' +
-            esc(ct('coupons.xfer.go', 'Transfer')) + '</button></div>' +
+            xferDestHtml({
+                inputId: 'dcXferTo',
+                dropId: 'dcXferDrop',
+                hidId: 'dcXferToId',
+                goAttr: 'id="dcXferGo"',
+                goDisabled: !transferable.length
+            }) +
             '<p id="dcXferErr" class="dc-err" hidden></p>' + lockNote + '</div>';
         html += '</section>';
         html += '</div>';
@@ -4594,6 +4775,12 @@ var COUPONS = (function () {
         if (tab !== 'use') focusTab(tab);
         var xferBtn = document.getElementById('dcXferGo');
         var xferPicks = bindXferPicks(host.querySelector('#dcPanel-transfer') || host, xferBtn);
+        bindXferPatientSearch({
+            input: document.getElementById('dcXferTo'),
+            drop: document.getElementById('dcXferDrop'),
+            hidden: document.getElementById('dcXferToId'),
+            activeSource: 'coupon-bill-xfer'
+        });
         if (xferBtn) xferBtn.onclick = function () {
             var err = document.getElementById('dcXferErr');
             var ids = xferPicks.selectedIds();
@@ -4612,18 +4799,18 @@ var COUPONS = (function () {
                 return;
             }
             if (!chosen.length) { showErr(ct('coupons.xfer.pick', 'Select at least one coupon')); return; }
-            var chart = String((document.getElementById('dcXferTo') || {}).value || '').trim();
-            if (!chart) { showErr(ct('coupons.xfer.need', 'Enter a chart number')); return; }
+            var dest = readXferDest(host);
+            if (!dest.query && !dest.id) { showErr(ct('coupons.xfer.need', 'Search for the destination patient')); return; }
             if (err) { err.hidden = true; err.textContent = ''; }
             xferBtn.disabled = true;
             function done(msg) {
                 xferBtn.disabled = false;
                 if (msg) showErr(msg);
             }
-            resolveReferrer(chart).then(function (to) {
+            resolveXferDest(dest.query, dest.id).then(function (to) {
                 if (!to) { done(ct('coupons.xfer.missing', 'Chart not found')); return null; }
                 if (String(to.id) === String(bill.patient_id)) { done(grantReason('same_patient')); return null; }
-                var what = xferConfirmWhat(chosen, patientLabel, to.patient_no || chart);
+                var what = xferConfirmWhat(chosen, patientLabel, to.patient_no || dest.query);
                 return promptGrantor(host, ct('coupons.auth.xferTitle', 'Confirm transfer'), what).then(function (user) {
                     if (!user) { done(''); return null; }
                     return transferMany(chosen, to, bill.patient_no, user).then(function (res) {
@@ -7148,6 +7335,9 @@ var COUPONS = (function () {
         planTransfer: planTransfer,
         planTransferBatch: planTransferBatch,
         xferConfirmWhat: xferConfirmWhat,
+        xferDestHtml: xferDestHtml,
+        xferDestChartFromQuery: xferDestChartFromQuery,
+        resolveXferDest: resolveXferDest,
         transferMany: transferMany,
         couponSlot: couponSlot,
         combineCoupons: combineCoupons,

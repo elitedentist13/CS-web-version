@@ -2619,13 +2619,15 @@ var _patientSearchReqSeq = {};
  *   searchMode?: 'full'|'identity',
  *   autoSelectSingle?: boolean (default false — avoid sudden patient swap while typing),
  *   draggable?: boolean,
- *   activeSource?: string
+ *   activeSource?: string,
+ *   syncActive?: boolean (default true; false keeps the current patient card),
+ *   input?, drop? (elements; used when ids are not unique)
  * }
  */
 function runPatientSearchDropdown(opts) {
     opts = opts || {};
-    var inputEl = opts.inputId ? g(opts.inputId) : null;
-    var dd = opts.dropId ? g(opts.dropId) : null;
+    var inputEl = opts.input || (opts.inputId ? g(opts.inputId) : null);
+    var dd = opts.drop || (opts.dropId ? g(opts.dropId) : null);
     if (!dd) return;
     var q = inputEl ? (inputEl.value || '').trim() : '';
     q = patientSearchNormalizeInputQuery(q);
@@ -2637,7 +2639,7 @@ function runPatientSearchDropdown(opts) {
         dd.style.display = 'none';
         return;
     }
-    var reqKey = String(opts.inputId || opts.dropId || '_ps');
+    var reqKey = String(opts.reqKey || opts.inputId || opts.dropId || '_ps');
     var mySeq = (_patientSearchReqSeq[reqKey] = (_patientSearchReqSeq[reqKey] || 0) + 1);
     var qAtStart = q;
     var pq = patientSearchQueryBuilder(q, null, {
@@ -2680,11 +2682,13 @@ function runPatientSearchDropdown(opts) {
                 inputEl.dataset.psLockedPatientId = String(p.id || '');
                 inputEl.value = patientSearchInputDisplayValue(p);
             }
-            recordPatientSearchToActiveCard(p, syncSource);
+            if (opts.syncActive !== false) {
+                recordPatientSearchToActiveCard(p, syncSource);
+            }
             if (opts.onSelect) opts.onSelect(p);
         }, { draggable: !!opts.draggable });
         // Opt-in only: never auto-swap active patient while the user is still searching.
-        if (opts.autoSelectSingle === true && rows.length === 1) {
+        if (opts.autoSelectSingle === true && rows.length === 1 && opts.syncActive !== false) {
             recordPatientSearchToActiveCard(rows[0], syncSource + '-single');
         }
     }
@@ -2742,6 +2746,7 @@ function bindModulePatientSearchOnce(opts) {
             clinicFilterId: opts.clinicFilterId,
             activeSource: opts.activeSource || ('patient-search:' + inputId),
             searchMode: opts.searchMode || 'full',
+            syncActive: opts.syncActive,
             autoSelectSingle: false,
             draggable: !!opts.draggable,
             onSelect: function (p) {
@@ -2799,13 +2804,18 @@ function bindModulePatientSearchOnce(opts) {
         }
     }
 
-    document.addEventListener('click', function (e) {
-        var dd = g(dropId);
-        var inp3 = g(inputId);
-        if (dd && inp3 && !inp3.contains(e.target) && !dd.contains(e.target)) {
-            dd.style.display = 'none';
-        }
-    });
+    var docKey = String(dropId || inputId || '');
+    if (docKey && !bindModulePatientSearchOnce._doc) bindModulePatientSearchOnce._doc = {};
+    if (!docKey || !bindModulePatientSearchOnce._doc[docKey]) {
+        if (docKey) bindModulePatientSearchOnce._doc[docKey] = true;
+        document.addEventListener('click', function (e) {
+            var dd = g(dropId);
+            var inp3 = g(inputId);
+            if (dd && inp3 && !inp3.contains(e.target) && !dd.contains(e.target)) {
+                dd.style.display = 'none';
+            }
+        });
+    }
 }
 
 function applyAppointmentQueryClinicTag(builder, filterSelectId) {

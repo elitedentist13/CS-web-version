@@ -310,7 +310,7 @@ button.dc-card.is-blocked .dc-check { display: none; }
 .dc-auth .dc-hint { margin: 4px 0 8px; }
 .dc-auth-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .dc-auth-row input { flex: 1; min-width: 130px; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
-.dc-gift, .dc-transfer { padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; }
+.dc-gift, .dc-transfer { padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: visible; }
 .dc-gift label, .dc-transfer label { display: block; font-weight: 800; }
 .dc-gift-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .dc-gift-row select { flex: 1; min-width: 160px; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
@@ -327,9 +327,12 @@ button.dc-card.is-blocked .dc-check { display: none; }
 .dc-xfer-item:has(input:checked) { border-color: #94a3b8; background: #f1f5f9; }
 .dc-xfer-all input, .dc-xfer-item input { margin: 3px 0 0; flex: 0 0 auto; }
 .dc-xfer-item span { flex: 1; min-width: 0; font-size: 13px; line-height: 1.35; }
-.dc-xfer-row { display: flex; gap: 8px; margin-top: 6px; }
-.dc-xfer-row input { flex: 1; min-width: 140px; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
-.dc-xfer-row button { padding: 8px 14px; border: none; border-radius: 8px; background: #1e3a5f; color: #fff; font-weight: 700; cursor: pointer; }
+.dc-xfer-row { display: flex; gap: 8px; margin-top: 6px; align-items: flex-start; }
+.dc-xfer-ps { flex: 1; min-width: 180px; position: relative; }
+.dc-xfer-row .dc-xfer-search { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; box-sizing: border-box; }
+.dc-xfer-row .dc-xfer-search:focus { outline: 2px solid #1e3a5f; outline-offset: 0; border-color: #1e3a5f; }
+.dc-xfer-drop { z-index: 500; max-height: 260px; }
+.dc-xfer-row button { padding: 8px 14px; border: none; border-radius: 8px; background: #1e3a5f; color: #fff; font-weight: 700; cursor: pointer; white-space: nowrap; }
 
 .dc-lock-note { margin: 10px 0 0; color: #92400e; font-size: 12px; }
 

@@ -342,6 +342,16 @@ function loadCoupons() {
     pass('wallet transfer panel is a checkbox list, not a single select',
         /xferPickHtml\(movable/.test(wlSrc) && /data-wl="xferItem"/.test(src) && /dc-xfer-list/.test(src) &&
         !/<select data-wl="xferPick"/.test(wlSrc) && /coupons\.xfer\.selectAll/.test(src));
+    pass('wallet transfer destination uses directory-grade patient search',
+        /xferDestHtml\(/.test(wlSrc) && /bindXferPatientSearch\(/.test(src) &&
+        /dc-xfer-ps/.test(src) && /searchMode: 'full'/.test(src) &&
+        /syncActive: false/.test(src) && /resolveXferDest\(/.test(wlSrc) &&
+        /data-wl="xferDrop"/.test(src) && /data-wl="xferToId"/.test(src));
+    pass('transfer dest parses directory display value and leftover chart no.',
+        C.xferDestChartFromQuery('NG PUI CHING (#001003)') === '001003' &&
+        C.xferDestChartFromQuery('#001003') === '001003' &&
+        C.xferDestChartFromQuery('001003') === '001003' &&
+        C.xferDestChartFromQuery('') === '');
     var movable = C.walletTransferable([
         { id: 'a', status: 'unused', campaign_key: 'cash', expires_on: '2027-01-01' },
         { id: 'b', status: 'unused', campaign_key: 'referral', expires_on: '2027-01-01' },
@@ -1448,6 +1458,8 @@ function loadCoupons() {
         read('index.html').indexOf("'style-coupons.css'") >= 0 && src.indexOf("style.textContent = [") < 0);
     pass('transfer list CSS is a checkbox list', /\.dc-xfer-list \{/.test(read('style-coupons.css')) &&
         /\.dc-xfer-item \{/.test(read('style-coupons.css')) && /\.dc-xfer-all \{/.test(read('style-coupons.css')));
+    pass('transfer destination search CSS sits over the row',
+        /\.dc-xfer-ps \{/.test(read('style-coupons.css')) && /\.dc-xfer-drop \{/.test(read('style-coupons.css')));
 
     console.log('=== 10 money rules ===');
     pass('void before payment restores the coupon', C.refundEffect('void_unpaid') === 'restore');
@@ -3803,6 +3815,20 @@ function loadCoupons() {
     out.items = boxes.length;
     out.selectAll = !!host.querySelector('[data-wl="xferAll"]');
     out.to = !!host.querySelector('[data-wl="xferTo"]');
+    out.ps = !!host.querySelector('.dc-xfer-ps');
+    out.drop = !!host.querySelector('[data-wl="xferDrop"]');
+    out.hid = !!host.querySelector('[data-wl="xferToId"]');
+    var toInp = host.querySelector('[data-wl="xferTo"]');
+    out.ph = toInp ? String(toInp.placeholder || '') : '';
+    out.bound = !!(toInp && (toInp.dataset.psBound === '1' || toInp.dataset.dcXferBound === '1'));
+    if (toInp) {
+      toInp.value = '001003';
+      toInp.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(function (r) { setTimeout(r, 700); });
+      var dropEl = host.querySelector('[data-wl="xferDrop"]');
+      out.searchOpen = !!(dropEl && dropEl.style.display !== 'none' && dropEl.innerHTML);
+      out.searchHit = !!(dropEl && /001003/.test(dropEl.textContent || ''));
+    }
     var go = host.querySelector('[data-wl="xferGo"]');
     out.go = !!go;
     out.goDisabledStart = !!(go && go.disabled);
@@ -3848,6 +3874,14 @@ function loadCoupons() {
             !!(xferLive && xferLive.ok && /NG PUI CHING/i.test(String(xferLive.name || '')) && xferLive.no === '001003' &&
                 xferLive.panel && xferLive.list && !xferLive.select && xferLive.to && xferLive.go),
             JSON.stringify(xferLive));
+        pass('live #001003 Transfer destination is the directory patient search',
+            !!(xferLive && xferLive.ok && xferLive.ps && xferLive.drop && xferLive.hid && xferLive.bound &&
+                /name|phone|HKID/i.test(String(xferLive.ph || '')) &&
+                (xferLive.searchHit || xferLive.searchOpen)),
+            JSON.stringify(xferLive && {
+                ps: xferLive.ps, drop: xferLive.drop, hid: xferLive.hid, bound: xferLive.bound,
+                ph: xferLive.ph, searchOpen: xferLive.searchOpen, searchHit: xferLive.searchHit, err: xferLive.err
+            }));
         pass('live #001003 Transfer: tick coupons and the button enables; batch plan does not write',
             !!(xferLive && xferLive.ok && (xferLive.movable === 0
                 ? xferLive.goDisabledStart && xferLive.emptyHint

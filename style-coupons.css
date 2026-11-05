@@ -319,6 +319,14 @@ button.dc-card.is-blocked .dc-check { display: none; }
 .dc-gift-row button { padding: 8px 12px; border: none; border-radius: 8px; background: #0f766e; color: #fff; font-weight: 700; cursor: pointer; }
 .dc-gift-row button:disabled, .dc-xfer-row button:disabled { opacity: .5; cursor: not-allowed; }
 .dc-transfer select { display: block; width: 100%; margin: 6px 0 12px; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
+.dc-xfer-list { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 12px; max-height: 240px; overflow: auto; padding: 4px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+.dc-xfer-list:empty { display: none; }
+.dc-xfer-all, .dc-xfer-item { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 7px 8px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+.dc-xfer-all { font-weight: 800; border-bottom: 1px solid #e2e8f0; border-radius: 6px 6px 0 0; }
+.dc-xfer-item { background: #fff; border: 1px solid #e2e8f0; }
+.dc-xfer-item:has(input:checked) { border-color: #94a3b8; background: #f1f5f9; }
+.dc-xfer-all input, .dc-xfer-item input { margin: 3px 0 0; flex: 0 0 auto; }
+.dc-xfer-item span { flex: 1; min-width: 0; font-size: 13px; line-height: 1.35; }
 .dc-xfer-row { display: flex; gap: 8px; margin-top: 6px; }
 .dc-xfer-row input { flex: 1; min-width: 140px; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
 .dc-xfer-row button { padding: 8px 14px; border: none; border-radius: 8px; background: #1e3a5f; color: #fff; font-weight: 700; cursor: pointer; }

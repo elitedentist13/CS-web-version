@@ -337,8 +337,11 @@ function loadCoupons() {
         !/dcApply|dcClear|applyToBill|clearBillCoupon|(^|[^.\w])bill\.[a-z_]/.test(wlSrc));
     pass('wallet tab gift / transfer use the same login check, wallet write and coupon log as the sheet',
         /promptGrantor\(overlayHost, ct\('coupons\.auth\.giftTitle'/.test(wlSrc) && /grantToWallet\(patientId, kind, amt, patientNo, grantor\)/.test(wlSrc) &&
-        /promptGrantor\(overlayHost, ct\('coupons\.auth\.xferTitle'/.test(wlSrc) && /transferSelected\(chosen, to, patientNo, user\)/.test(wlSrc) &&
+        /promptGrantor\(overlayHost, ct\('coupons\.auth\.xferTitle'/.test(wlSrc) && /transferMany\(chosen, to, patientNo, user\)/.test(wlSrc) &&
         /String\(to\.id\) === String\(patientId\)/.test(wlSrc));
+    pass('wallet transfer panel is a checkbox list, not a single select',
+        /xferPickHtml\(movable/.test(wlSrc) && /data-wl="xferItem"/.test(src) && /dc-xfer-list/.test(src) &&
+        !/<select data-wl="xferPick"/.test(wlSrc) && /coupons\.xfer\.selectAll/.test(src));
     var movable = C.walletTransferable([
         { id: 'a', status: 'unused', campaign_key: 'cash', expires_on: '2027-01-01' },
         { id: 'b', status: 'unused', campaign_key: 'referral', expires_on: '2027-01-01' },
@@ -348,6 +351,21 @@ function loadCoupons() {
         { id: 'f', status: 'unused', campaign_key: 'cash', expires_on: '2027-01-01', household_id: 'other' }
     ], '2026-10-28');
     pass('wallet tab transfer list: live coupons only, new-chart and referral stay', movable.map(function (c) { return c.id; }).join(',') === 'a');
+    var batchOk = C.planTransferBatch({
+        coupons: [
+            { id: 't1', status: 'unused', campaign_key: 'cash', patient_id: 'a' },
+            { id: 't2', status: 'unused', campaign_key: 'cash', patient_id: 'a' }
+        ],
+        fromPatientId: 'a', toPatientId: 'b', toWallet: []
+    });
+    pass('batch transfer plans several cash coupons', batchOk.ok === true && batchOk.count === 2);
+    pass('batch transfer refuses an empty pick', C.planTransferBatch({ coupons: [], toPatientId: 'b', toWallet: [] }).reason === 'pick');
+    var batchWhat = C.xferConfirmWhat([
+        { campaign_key: 'cash', discount_mode: 'amount', face_value: 100, code: 'DC-A' },
+        { campaign_key: 'cash', discount_mode: 'amount', face_value: 50, code: 'DC-B' }
+    ], '001', '002');
+    pass('batch transfer confirm names the count and both charts',
+        /2 /.test(batchWhat) && /001/.test(batchWhat) && /002/.test(batchWhat) && /DC-A/.test(batchWhat) && /DC-B/.test(batchWhat), batchWhat);
     pass('login prompt can sit over the reward panel and closes on Escape without closing the panel',
         /host\.querySelector\('\.dc-sheet'\) \|\| \(host\.nodeType === 1 && host\.id !== 'dcSheetHost' \? host : null\)/.test(src) &&
         /if \(ev\.key !== 'Escape'\) return;\s+ev\.preventDefault\(\);\s+ev\.stopPropagation\(\);\s+finish\(null\);/.test(src));
@@ -1428,6 +1446,8 @@ function loadCoupons() {
     pass('spend bar fills to 24% of the next tier', /width:24\.0%/.test(bar) && /dc-prog-tick/.test(bar), bar);
     pass('coupon CSS lives in style-coupons.css', read('style-coupons.css').indexOf('.dc-ticket') >= 0 &&
         read('index.html').indexOf("'style-coupons.css'") >= 0 && src.indexOf("style.textContent = [") < 0);
+    pass('transfer list CSS is a checkbox list', /\.dc-xfer-list \{/.test(read('style-coupons.css')) &&
+        /\.dc-xfer-item \{/.test(read('style-coupons.css')) && /\.dc-xfer-all \{/.test(read('style-coupons.css')));
 
     console.log('=== 10 money rules ===');
     pass('void before payment restores the coupon', C.refundEffect('void_unpaid') === 'restore');
@@ -1630,6 +1650,20 @@ function loadCoupons() {
     pass('transfer allowed below the hold limit', C.planTransfer({
         coupon: { id: 'c9', status: 'unused', campaign_key: 'free_scaling', patient_id: 'a' },
         toPatientId: 'b', toWallet: same('free_scaling', 1)
+    }).ok === true);
+    pass('batch transfer stops when the destination hold would overflow', C.planTransferBatch({
+        coupons: [
+            { id: 'h1', status: 'unused', campaign_key: 'free_scaling', patient_id: 'a' },
+            { id: 'h2', status: 'unused', campaign_key: 'free_scaling', patient_id: 'a' }
+        ],
+        fromPatientId: 'a', toPatientId: 'b', toWallet: same('free_scaling', 1)
+    }).reason === 'already_holding');
+    pass('batch transfer allowed when the destination can take every coupon', C.planTransferBatch({
+        coupons: [
+            { id: 'h1', status: 'unused', campaign_key: 'free_scaling', patient_id: 'a' },
+            { id: 'h2', status: 'unused', campaign_key: 'free_scaling', patient_id: 'a' }
+        ],
+        fromPatientId: 'a', toPatientId: 'b', toWallet: []
     }).ok === true);
     pass('coupon slots', C.couponSlot({ scope: 'items' }) === 'items' && C.couponSlot({ campaign_key: 'cash' }) === 'bill' &&
         C.couponSlot({ campaign_key: 'free_scaling' }) === 'items');
@@ -3340,11 +3374,18 @@ function loadCoupons() {
   } catch (e) { out.err = String(e && e.message || e); }
   return out;
 })()`, true, 30000);
+        var giftRefused = secLive && secLive.gift && (
+            secLive.gift.reason === 'creds' ||
+            secLive.gift.reason === 'shared_login' ||
+            secLive.gift.reason === 'already_holding' ||
+            secLive.gift.reason === 'wallet_full' ||
+            secLive.gift.reason === 'fallback_probe'
+        );
         var secOk = secLive && secLive.ok && secLive.after && (secLive.installed
-            ? secLive.issue.reason === 'bill' && secLive.gift.reason === 'creds' && secLive.redeem.reason === 'bill'
-            : secLive.issue.reason === 'fallback_probe' && secLive.gift.reason === 'fallback_probe' && secLive.redeem.reason === 'fallback_probe');
+            ? secLive.issue.reason === 'bill' && giftRefused && secLive.redeem.reason === 'bill'
+            : secLive.issue.reason === 'fallback_probe' && giftRefused && secLive.redeem.reason === 'fallback_probe');
         pass('live #001003 coupon writes: ' + (secLive && secLive.installed
-            ? 'database functions refuse a fake bill and the shared Nurse login'
+            ? 'database functions refuse a fake bill and an invalid gift (bad login or wallet already at the hold limit)'
             : 'database functions not run yet, desk falls back to the old writes') + '; wallet unchanged',
             !!secOk, JSON.stringify(secLive));
         var jobLive = await cdp.js(`(async function () {
@@ -3742,6 +3783,77 @@ function loadCoupons() {
             !!(wire && wire.ok && Array.isArray(wire.fit)), wire && JSON.stringify(wire && wire.fit));
         pass('live page: mass-broadcast loyalty filter is on the contacts pane',
             !!(wire && wire.ok && wire.mbFilter), wire && JSON.stringify(wire));
+        var xferLive = await cdp.js(`(async function () {
+  var out = { ok: false };
+  var host = document.createElement('div');
+  host.id = 'dcXferLiveHost';
+  document.body.appendChild(host);
+  try {
+    var pr = await SB.from('patients').select('id,patient_no,full_name').eq('patient_no', '001003').limit(1);
+    var p = pr && pr.data && pr.data[0];
+    if (!p) return { ok: false, reason: 'no 001003' };
+    out.name = p.full_name;
+    out.no = p.patient_no;
+    await COUPONS.renderWalletPane(host, p.id, { tab: 'transfer' });
+    var panel = host.querySelector('[data-wl-panel="transfer"]');
+    out.panel = !!(panel && !panel.hidden);
+    out.select = !!host.querySelector('select[data-wl="xferPick"]');
+    out.list = !!host.querySelector('[data-wl="xferPick"].dc-xfer-list');
+    var boxes = host.querySelectorAll('[data-wl="xferItem"]');
+    out.items = boxes.length;
+    out.selectAll = !!host.querySelector('[data-wl="xferAll"]');
+    out.to = !!host.querySelector('[data-wl="xferTo"]');
+    var go = host.querySelector('[data-wl="xferGo"]');
+    out.go = !!go;
+    out.goDisabledStart = !!(go && go.disabled);
+    var wallet = await COUPONS.loadWallet(p.id, { household: true });
+    var today = COUPONS.todayIso();
+    var movable = COUPONS.walletTransferable(wallet, today);
+    out.movable = movable.length;
+    if (boxes.length >= 2) {
+      boxes[0].checked = true;
+      boxes[0].dispatchEvent(new Event('change', { bubbles: true }));
+      boxes[1].checked = true;
+      boxes[1].dispatchEvent(new Event('change', { bubbles: true }));
+    } else if (boxes.length === 1) {
+      boxes[0].checked = true;
+      boxes[0].dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    out.checked = Array.prototype.filter.call(boxes, function (b) { return b.checked; }).length;
+    out.goEnabledAfter = !!(go && !go.disabled);
+    if (movable.length >= 2) {
+      var batch = COUPONS.planTransferBatch({
+        coupons: movable.slice(0, 2),
+        fromPatientId: p.id,
+        toPatientId: '00000000-0000-0000-0000-00000000dead',
+        toWallet: []
+      });
+      out.batchOk = !!batch.ok;
+      out.batchCount = batch.count;
+    } else if (movable.length === 1) {
+      out.batchOk = COUPONS.planTransfer({
+        coupon: movable[0], fromPatientId: p.id,
+        toPatientId: '00000000-0000-0000-0000-00000000dead', toWallet: []
+      }).ok === true;
+    } else {
+      out.batchOk = true;
+      out.emptyHint = /No coupon here can be transferred/.test(panel.textContent);
+    }
+    out.ok = true;
+  } catch (e) { out.err = String(e && e.message || e); }
+  finally { if (host.parentNode) host.parentNode.removeChild(host); }
+  return out;
+})()`, true, 35000);
+        pass('live #001003 Transfer panel is a checkbox list (no single select)',
+            !!(xferLive && xferLive.ok && /NG PUI CHING/i.test(String(xferLive.name || '')) && xferLive.no === '001003' &&
+                xferLive.panel && xferLive.list && !xferLive.select && xferLive.to && xferLive.go),
+            JSON.stringify(xferLive));
+        pass('live #001003 Transfer: tick coupons and the button enables; batch plan does not write',
+            !!(xferLive && xferLive.ok && (xferLive.movable === 0
+                ? xferLive.goDisabledStart && xferLive.emptyHint
+                : xferLive.checked >= 1 && xferLive.goEnabledAfter && xferLive.batchOk &&
+                    (xferLive.movable < 2 || xferLive.selectAll))),
+            JSON.stringify(xferLive));
         var langs = await cdp.js(`(function () {
   var before = appUiLang;
   treatmentItemsCache = ${JSON.stringify(catalog)};

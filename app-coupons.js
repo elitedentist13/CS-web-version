@@ -1235,6 +1235,103 @@ var COUPONS = (function () {
         return { ok: true, campaignKey: key };
     }
 
+    /** Pure: plan several transfers against one destination wallet (hold + cap apply in order). */
+    function planTransferBatch(opts) {
+        opts = opts || {};
+        var coupons = (opts.coupons || []).filter(Boolean);
+        if (!coupons.length) return { ok: false, reason: 'pick' };
+        var toWallet = (opts.toWallet || []).slice();
+        for (var i = 0; i < coupons.length; i++) {
+            var plan = planTransfer({
+                coupon: coupons[i],
+                fromPatientId: opts.fromPatientId,
+                toPatientId: opts.toPatientId,
+                toWallet: toWallet,
+                today: opts.today,
+                campaign: opts.campaign
+            });
+            if (!plan.ok) return { ok: false, reason: plan.reason, failed: coupons[i], index: i };
+            toWallet.push(Object.assign({}, coupons[i], {
+                patient_id: opts.toPatientId,
+                status: 'unused'
+            }));
+        }
+        return { ok: true, count: coupons.length };
+    }
+
+    function xferCouponLine(coupon) {
+        var w = walletCoupon(coupon);
+        return campLabel(w) + ' · ' + faceText(w) + (coupon.code ? ' · ' + coupon.code : '') +
+            (coupon.expires_on ? ' · ' + String(coupon.expires_on).slice(0, 10) : '');
+    }
+
+    function xferConfirmWhat(coupons, fromLabel, toLabel) {
+        var names = (coupons || []).map(function (c) {
+            var w = walletCoupon(c);
+            return campLabel(w) + ' ' + faceText(w) + (c.code ? ' (' + c.code + ')' : '');
+        });
+        var arrow = ' · ' + fromLabel + ' → ' + toLabel;
+        if (names.length === 1) return names[0] + arrow;
+        return names.length + ' ' + ct('coupons.sum.coupons', 'coupons') + arrow +
+            (names.length ? ' — ' + names.join('; ') : '');
+    }
+
+    function xferPickHtml(coupons, opts) {
+        opts = opts || {};
+        var itemAttr = opts.itemAttr || 'data-wl="xferItem"';
+        var allAttr = opts.allAttr || 'data-wl="xferAll"';
+        var listId = opts.listId ? ' id="' + esc(opts.listId) + '"' : '';
+        var html = '<div class="dc-xfer-list" data-wl="xferPick"' + listId + '>';
+        if (coupons && coupons.length) {
+            if (coupons.length > 1) {
+                html += '<label class="dc-xfer-all"><input type="checkbox" ' + allAttr + '>' +
+                    esc(ct('coupons.xfer.selectAll', 'Select all')) +
+                    ' <span class="dc-stab-n">' + coupons.length + '</span></label>';
+            }
+            coupons.forEach(function (c) {
+                var id = String(c.id);
+                html += '<label class="dc-xfer-item"><input type="checkbox" ' + itemAttr +
+                    ' value="' + esc(id) + '"' +
+                    (opts.checkedId && String(opts.checkedId) === id ? ' checked' : '') + '>' +
+                    '<span>' + esc(xferCouponLine(c)) + '</span></label>';
+            });
+        }
+        html += '</div>';
+        return html;
+    }
+
+    function bindXferPicks(root, goBtn) {
+        function boxes() {
+            return Array.prototype.slice.call(root.querySelectorAll('.dc-xfer-item input[type="checkbox"]'));
+        }
+        function sync() {
+            var all = boxes();
+            var n = all.filter(function (b) { return b.checked; }).length;
+            var master = root.querySelector('.dc-xfer-all input[type="checkbox"]');
+            if (master) {
+                master.checked = all.length > 0 && n === all.length;
+                master.indeterminate = n > 0 && n < all.length;
+            }
+            if (goBtn) goBtn.disabled = n === 0;
+        }
+        root.addEventListener('change', function (e) {
+            var t = e.target;
+            if (!t || t.type !== 'checkbox') return;
+            if (t.closest && t.closest('.dc-xfer-all')) {
+                var on = t.checked;
+                boxes().forEach(function (b) { b.checked = on; });
+            }
+            sync();
+        });
+        sync();
+        return {
+            selectedIds: function () {
+                return boxes().filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+            },
+            sync: sync
+        };
+    }
+
     var SMS_LIST_MAX = 10;
 
     /** "現金券 Cash coupon" — both languages, like the reward points SMS. */
@@ -3297,18 +3394,18 @@ var COUPONS = (function () {
 
             var movable = walletTransferable(wallet, today);
             html += '<section class="dc-spanel" role="tabpanel" data-wl-panel="transfer"' + hiddenUnless(tab === 'transfer') + '>';
-            html += '<div class="dc-transfer"><label>' + esc(ct('coupons.xfer.which', 'Coupon to transfer')) + '</label>';
+            html += '<div class="dc-transfer"><label>' + esc(ct('coupons.xfer.which', 'Coupons to transfer')) + '</label>';
             if (!movable.length) {
                 html += '<p class="dc-hint">' + esc(ct('coupons.xfer.noneMovableWallet',
                     'No coupon here can be transferred. Expired coupons, and new-chart or referral coupons, stay with this patient.')) + '</p>';
+            } else if (movable.length > 1) {
+                html += '<p class="dc-hint">' + esc(ct('coupons.xfer.multiHint',
+                    'Tick one or more coupons, then enter the chart number.')) + '</p>';
             }
-            html += '<select data-wl="xferPick"' + (movable.length ? '' : ' disabled') + '>';
-            movable.forEach(function (c) {
-                var w = walletCoupon(c);
-                html += '<option value="' + esc(String(c.id)) + '">' +
-                    esc(campLabel(w) + ' · ' + faceText(w) + (c.expires_on ? ' · ' + c.expires_on : '')) + '</option>';
-            });
-            html += '</select><label>' + esc(ct('coupons.xfer.toChart', 'To chart no.')) + '</label>' +
+            html += xferPickHtml(movable, {
+                checkedId: movable.length === 1 ? String(movable[0].id) : ''
+            }) +
+                '<label>' + esc(ct('coupons.xfer.toChart', 'To chart no.')) + '</label>' +
                 '<div class="dc-xfer-row"><input type="text" data-wl="xferTo" autocomplete="off">' +
                 '<button type="button" data-wl="xferGo"' + (movable.length ? '' : ' disabled') + '>🔒 ' +
                 esc(ct('coupons.xfer.go', 'Transfer')) + '</button></div>' +
@@ -3391,6 +3488,7 @@ var COUPONS = (function () {
             };
 
             var xferGo = q('xferGo');
+            var xferPicks = bindXferPicks(el.querySelector('[data-wl-panel="transfer"]') || el, xferGo);
             if (xferGo) xferGo.onclick = function () {
                 var err = q('xferErr');
                 function showErr(msg) {
@@ -3398,9 +3496,11 @@ var COUPONS = (function () {
                     err.hidden = !msg;
                     err.textContent = msg || '';
                 }
-                var pickEl = q('xferPick');
-                var chosen = pickEl && pickEl.value ? movable.filter(function (c) { return String(c.id) === pickEl.value; })[0] : null;
-                if (!chosen) { showErr(ct('coupons.xfer.pick', 'Select a coupon first')); return; }
+                var ids = xferPicks.selectedIds();
+                var chosen = ids.map(function (id) {
+                    return movable.filter(function (c) { return String(c.id) === String(id); })[0];
+                }).filter(Boolean);
+                if (!chosen.length) { showErr(ct('coupons.xfer.pick', 'Select at least one coupon')); return; }
                 var chart = String((q('xferTo') || {}).value || '').trim();
                 if (!chart) { showErr(ct('coupons.xfer.need', 'Enter a chart number')); return; }
                 showErr('');
@@ -3412,14 +3512,18 @@ var COUPONS = (function () {
                 resolveReferrer(chart).then(function (to) {
                     if (!to) { done(ct('coupons.xfer.missing', 'Chart not found')); return null; }
                     if (String(to.id) === String(patientId)) { done(grantReason('same_patient')); return null; }
-                    var w = walletCoupon(chosen);
-                    var what = campLabel(w) + ' ' + faceText(w) + (chosen.code ? ' (' + chosen.code + ')' : '') +
-                        ' · ' + patientLabel + ' → ' + (to.patient_no || chart);
+                    var what = xferConfirmWhat(chosen, patientLabel, to.patient_no || chart);
                     return promptGrantor(overlayHost, ct('coupons.auth.xferTitle', 'Confirm transfer'), what).then(function (user) {
                         if (!user) { done(''); return null; }
-                        return transferSelected(chosen, to, patientNo, user).then(function (res) {
+                        return transferMany(chosen, to, patientNo, user).then(function (res) {
                             if (!res || !res.ok) {
-                                done(res && res.reason ? grantReason(res.reason) : ((res && res.error) || 'Transfer failed'));
+                                var why = res && res.reason ? grantReason(res.reason) : ((res && res.error) || 'Transfer failed');
+                                if (res && res.done > 0) {
+                                    done(ct('coupons.xfer.partial', 'Transferred {n}, then stopped.').replace('{n}', String(res.done)) + ' ' + why);
+                                    again('transfer');
+                                    return null;
+                                }
+                                done(why);
                                 return null;
                             }
                             done('');
@@ -4224,23 +4328,23 @@ var COUPONS = (function () {
 
         var xferDefault = '';
         transferable.forEach(function (r) { if (String(r.coupon.id) === focusId) xferDefault = focusId; });
-        if (!xferDefault && transferable[0]) xferDefault = String(transferable[0].coupon.id);
         html += '<section class="dc-spanel" id="dcPanel-transfer" role="tabpanel" aria-labelledby="dcTab-transfer" data-panel="transfer"' +
             hiddenUnless(tab === 'transfer') + '>';
         html += '<div class="dc-transfer">' +
-            '<label for="dcXferPick">' + esc(ct('coupons.xfer.which', 'Coupon to transfer')) + '</label>';
+            '<label>' + esc(ct('coupons.xfer.which', 'Coupons to transfer')) + '</label>';
         if (!transferable.length) {
             html += '<p class="dc-hint">' + esc(ct('coupons.xfer.noneMovable',
                 'No coupon here can be transferred. Coupons on this bill, expired coupons, and new-chart or referral coupons stay with this patient.')) + '</p>';
+        } else if (transferable.length > 1) {
+            html += '<p class="dc-hint">' + esc(ct('coupons.xfer.multiHint',
+                'Tick one or more coupons, then enter the chart number.')) + '</p>';
         }
-        html += '<select id="dcXferPick"' + (transferable.length ? '' : ' disabled') + '>';
-        transferable.forEach(function (r) {
-            var c = r.coupon;
-            var id = String(c.id);
-            html += '<option value="' + esc(id) + '"' + (id === xferDefault ? ' selected' : '') + '>' +
-                esc(campLabel(c) + ' · ' + faceText(c) + (c.expires_on ? ' · ' + c.expires_on : '')) + '</option>';
-        });
-        html += '</select>' +
+        html += xferPickHtml(transferable.map(function (r) { return r.coupon; }), {
+            listId: 'dcXferPick',
+            itemAttr: 'data-dc="xferItem"',
+            allAttr: 'data-dc="xferAll"',
+            checkedId: xferDefault
+        }) +
             '<label for="dcXferTo">' + esc(ct('coupons.xfer.toChart', 'To chart no.')) + '</label>' +
             '<div class="dc-xfer-row"><input type="text" id="dcXferTo" autocomplete="off">' +
             '<button type="button" id="dcXferGo"' + (transferable.length ? '' : ' disabled') + '>🔒 ' +
@@ -4266,7 +4370,9 @@ var COUPONS = (function () {
             opts.tab = name;
             var pick = document.getElementById('dcXferPick');
             if (name === 'transfer' && pick && focusId) {
-                Array.prototype.forEach.call(pick.options, function (o) { if (o.value === String(focusId)) pick.value = o.value; });
+                var box = pick.querySelector('.dc-xfer-item input[value="' + String(focusId).replace(/"/g, '') + '"]');
+                if (box) box.checked = true;
+                if (xferPicks && typeof xferPicks.sync === 'function') xferPicks.sync();
             }
             host.querySelectorAll('.dc-stab').forEach(function (b) {
                 var on = b.getAttribute('data-tab') === name;
@@ -4486,44 +4592,51 @@ var COUPONS = (function () {
             });
         };
         if (tab !== 'use') focusTab(tab);
-        document.getElementById('dcXferGo').onclick = function () {
+        var xferBtn = document.getElementById('dcXferGo');
+        var xferPicks = bindXferPicks(host.querySelector('#dcPanel-transfer') || host, xferBtn);
+        if (xferBtn) xferBtn.onclick = function () {
             var err = document.getElementById('dcXferErr');
-            var pickEl = document.getElementById('dcXferPick');
-            var pickRow = pickEl && pickEl.value ? rowById(pickEl.value) : null;
-            var chosen = pickRow ? pickRow.coupon : null;
-            if (chosen && onThisBill.indexOf(String(chosen.id)) >= 0) {
-                if (err) {
-                    err.hidden = false;
-                    err.textContent = ct('coupons.xfer.onBill', 'Take this coupon off the bill before transferring it');
-                }
-                return;
-            }
+            var ids = xferPicks.selectedIds();
+            var chosen = ids.map(function (id) {
+                var row = rowById(id);
+                var raw = (wallet || []).filter(function (c) { return String(c.id) === String(id); })[0];
+                return raw || (row && row.coupon) || null;
+            }).filter(Boolean);
             function showErr(msg) {
                 if (!err) return;
                 err.hidden = false;
                 err.textContent = msg || '';
             }
-            if (!chosen) { showErr(ct('coupons.xfer.pick', 'Select a coupon first')); return; }
+            if (chosen.some(function (c) { return onThisBill.indexOf(String(c.id)) >= 0; })) {
+                showErr(ct('coupons.xfer.onBill', 'Take selected coupons off the bill before transferring them'));
+                return;
+            }
+            if (!chosen.length) { showErr(ct('coupons.xfer.pick', 'Select at least one coupon')); return; }
             var chart = String((document.getElementById('dcXferTo') || {}).value || '').trim();
             if (!chart) { showErr(ct('coupons.xfer.need', 'Enter a chart number')); return; }
             if (err) { err.hidden = true; err.textContent = ''; }
-            var xferBtn = document.getElementById('dcXferGo');
-            if (xferBtn) xferBtn.disabled = true;
+            xferBtn.disabled = true;
             function done(msg) {
-                if (xferBtn) xferBtn.disabled = false;
+                xferBtn.disabled = false;
                 if (msg) showErr(msg);
             }
             resolveReferrer(chart).then(function (to) {
                 if (!to) { done(ct('coupons.xfer.missing', 'Chart not found')); return null; }
                 if (String(to.id) === String(bill.patient_id)) { done(grantReason('same_patient')); return null; }
-                var what = campLabel(chosen) + ' ' + faceText(chosen) + (chosen.code ? ' (' + chosen.code + ')' : '') +
-                    ' · ' + patientLabel + ' → ' + (to.patient_no || chart);
+                var what = xferConfirmWhat(chosen, patientLabel, to.patient_no || chart);
                 return promptGrantor(host, ct('coupons.auth.xferTitle', 'Confirm transfer'), what).then(function (user) {
                     if (!user) { done(''); return null; }
-                    var raw = (wallet || []).filter(function (c) { return String(c.id) === String(chosen.id); })[0] || chosen;
-                    return transferSelected(raw, to, bill.patient_no, user).then(function (res) {
+                    return transferMany(chosen, to, bill.patient_no, user).then(function (res) {
                         if (!res || !res.ok) {
-                            done(res && res.reason ? grantReason(res.reason) : ((res && res.error) || 'Transfer failed'));
+                            var why = res && res.reason ? grantReason(res.reason) : ((res && res.error) || 'Transfer failed');
+                            if (res && res.done > 0) {
+                                done(ct('coupons.xfer.partial', 'Transferred {n}, then stopped.').replace('{n}', String(res.done)) + ' ' + why);
+                                closeSheet();
+                                couponNotice('↔ ' + what + loggedText(user, res.logged));
+                                openBillSheet(bill, { gift: (parseFloat(bill.amount_paid) || 0) > 0.005, tab: 'transfer' });
+                                return null;
+                            }
+                            done(why);
                             return null;
                         }
                         done('');
@@ -6734,6 +6847,7 @@ var COUPONS = (function () {
     }
 
     function grantReason(code) {
+        if (code === 'pick') return ct('coupons.xfer.pick', 'Select at least one coupon');
         if (code === 'auth_missing') return ct('coupons.auth.need', 'Enter your login ID and password');
         if (code === 'creds') return ct('coupons.auth.creds', 'Login ID or password is incorrect');
         if (code === 'shared_login') return ct('coupons.auth.shared', 'The shared Nurse login cannot gift or transfer coupons. Use your own login.');
@@ -6848,6 +6962,39 @@ var COUPONS = (function () {
                     return { ok: true, logged: logged };
                 });
             });
+        });
+    }
+
+    /** Sequential transfers. Each coupon still uses dc_transfer_coupon + its own log row. */
+    function transferMany(coupons, toPatient, fromPatientNo, grantor) {
+        if (!grantor || !grantor.user_id) return Promise.resolve({ ok: false, reason: 'auth_missing' });
+        var list = (coupons || []).filter(Boolean);
+        if (!list.length) return Promise.resolve({ ok: false, reason: 'pick' });
+        return loadWallet(toPatient.id).then(function (toWallet) {
+            var batch = planTransferBatch({
+                coupons: list,
+                fromPatientId: list[0].patient_id,
+                toPatientId: toPatient.id,
+                toWallet: toWallet
+            });
+            if (!batch.ok) return batch;
+            function next(i, loggedAll) {
+                if (i >= list.length) return { ok: true, count: list.length, logged: loggedAll };
+                return transferSelected(list[i], toPatient, fromPatientNo, grantor).then(function (res) {
+                    if (!res || !res.ok) {
+                        return {
+                            ok: false,
+                            reason: res && res.reason,
+                            error: res && res.error,
+                            done: i,
+                            total: list.length,
+                            logged: loggedAll
+                        };
+                    }
+                    return next(i + 1, loggedAll !== false && res.logged !== false);
+                });
+            }
+            return next(0, true);
         });
     }
 
@@ -6999,6 +7146,9 @@ var COUPONS = (function () {
         planBillVoid: planBillVoid,
         planChairsideGrant: planChairsideGrant,
         planTransfer: planTransfer,
+        planTransferBatch: planTransferBatch,
+        xferConfirmWhat: xferConfirmWhat,
+        transferMany: transferMany,
         couponSlot: couponSlot,
         combineCoupons: combineCoupons,
         bestCombination: bestCombination,

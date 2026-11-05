@@ -3346,8 +3346,11 @@
         'coupons.xfer.to': { en: 'Transfer selected to chart no.', 'zh-CN': '将所选券转往病历号', 'zh-Hant': '將所選券轉往病歷號' },
         'coupons.xfer.go': { en: 'Transfer', 'zh-CN': '转让', 'zh-Hant': '轉讓' },
         'coupons.xfer.missing': { en: 'Chart not found', 'zh-CN': '找不到该病历', 'zh-Hant': '找不到該病歷' },
-        'coupons.xfer.onBill': { en: 'Take this coupon off the bill before transferring it', 'zh-CN': '请先从账单移除此券再转让', 'zh-Hant': '請先從賬單移除此券再轉讓' },
-        'coupons.xfer.pick': { en: 'Select a coupon first', 'zh-CN': '请先选择一张券', 'zh-Hant': '請先選擇一張券' },
+        'coupons.xfer.onBill': { en: 'Take selected coupons off the bill before transferring them', 'zh-CN': '请先从账单移除所选券再转让', 'zh-Hant': '請先從賬單移除所選券再轉讓' },
+        'coupons.xfer.pick': { en: 'Select at least one coupon', 'zh-CN': '请先选择至少一张券', 'zh-Hant': '請先選擇至少一張券' },
+        'coupons.xfer.selectAll': { en: 'Select all', 'zh-CN': '全选', 'zh-Hant': '全選' },
+        'coupons.xfer.multiHint': { en: 'Tick one or more coupons, then enter the chart number.', 'zh-CN': '勾选一张或多张券，再输入病历号。', 'zh-Hant': '勾選一張或多張券，再輸入病歷號。' },
+        'coupons.xfer.partial': { en: 'Transferred {n}, then stopped.', 'zh-CN': '已转让 {n} 张后中止。', 'zh-Hant': '已轉讓 {n} 張後中止。' },
         'coupons.xfer.need': { en: 'Enter a chart number', 'zh-CN': '请输入病历号', 'zh-Hant': '請輸入病歷號' },
         'coupons.xfer.expired': { en: 'This coupon has expired', 'zh-CN': '此券已过期', 'zh-Hant': '此券已過期' },
         'coupons.xfer.locked': {
@@ -3592,7 +3595,7 @@
             'zh-CN': '未能写入优惠券记录，请通知管理员。',
             'zh-Hant': '未能寫入優惠券記錄，請通知管理員。'
         },
-        'coupons.xfer.which': { en: 'Coupon to transfer', 'zh-CN': '要转让的券', 'zh-Hant': '要轉讓的券' },
+        'coupons.xfer.which': { en: 'Coupons to transfer', 'zh-CN': '要转让的券', 'zh-Hant': '要轉讓的券' },
         'coupons.xfer.toChart': { en: 'To chart no.', 'zh-CN': '转给病历号', 'zh-Hant': '轉給病歷號' },
         'coupons.xfer.noneMovable': {
             en: 'No coupon here can be transferred. Coupons on this bill, expired coupons, and new-chart or referral coupons stay with this patient.',
